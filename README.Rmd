@@ -208,10 +208,27 @@ data.frame(
 )
 ```
 
-```{r visium-random-field, fig.width=7, fig.height=5, fig.cap="Visium B mt_co3 fitted PC-truncated SPDE random field from mgcViz.", fig.alt="Fitted spatial random field for mt_co3 in Visium B."}
+```{r visium-random-field, fig.width=7, fig.height=5, fig.cap="Visium B mt_co3 fitted PC-truncated SPDE random field from mgcViz. Grey polygons are the two interior holes excluded by the manual SPDE boundary.", fig.alt="Fitted spatial random field for mt_co3 in Visium B, with the two excluded interior holes shown in grey."}
 viz_visium <- getViz(fit_visium_mtco3)
+visium_rings <- sf::st_geometry(
+  Visium_B$meshes$spdePC_g999$domain.original
+)[[1L]]
+visium_holes <- do.call(rbind, lapply(
+  seq_along(visium_rings[-1L]),
+  function(i) data.frame(
+    x = visium_rings[[i + 1L]][, 1L],
+    y = visium_rings[[i + 1L]][, 2L],
+    hole = i
+  )
+))
 p_visium <- plot(sm(viz_visium, 1L)) +
   l_fitRaster() + l_fitContour() +
+  ggplot2::geom_polygon(
+    data = visium_holes,
+    mapping = ggplot2::aes(x = x, y = y, group = hole),
+    inherit.aes = FALSE, fill = "grey85", colour = "grey65",
+    linewidth = 0.25, show.legend = FALSE
+  ) +
   ggplot2::labs(title = "Visium B: mt_co3 fitted random field")
 print(p_visium)
 ```
