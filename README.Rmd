@@ -16,17 +16,18 @@ The package provides two `mgcv` smooths:
   `G = Q^{-1}` and retains the leading directions specified by
   `xt$pc_cutoff`. The fitted smooth stores `pc_score_Q`, the positive
   semidefinite score precision in the full projected coordinates, so that
-  `score_test()` can test the original score space after truncation.
+  `score_test()` tests the original score space after truncation.
 
 Two small spatial-transcriptomics data sets are included: `MISO_E13` and
-`Visium_B`. Each includes covariates, three selected genes, a baseline mesh,
-and a finer mesh for the `0.999` principal-component analysis.
+`Visium_B`. Each contains covariates, three selected genes, a baseline mesh,
+and a finer mesh for the `0.999` principal-component analysis. All figures
+and results below are generated when this document is rendered.
 
 ## Installation
 
 `mgcvST` uses CRAN, Bioconductor, and INLA dependencies. The high-throughput
 `mgcvST.estimate()` workflow also uses the corrected marginal score from
-`mgcv.taps`.
+`mgcv.taps`; the fitted-field figures below use `mgcViz`.
 
 ```{r installation, eval=FALSE}
 install.packages("remotes")
@@ -34,7 +35,7 @@ install.packages("BiocManager")
 BiocManager::install("BiocParallel", ask = FALSE)
 
 install.packages(
-  "INLA",
+  c("mgcViz", "INLA"),
   repos = c(
     getOption("repos"),
     INLA = "https://inla.r-inla-download.org/R/stable"
@@ -45,74 +46,213 @@ remotes::install_github("harryyiheyang/mgcv.taps")
 remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 ```
 
-## Included data
+## Included data and observed spatial locations
 
-```{r data, eval=FALSE}
-library(mgcvST)
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "README_files/figure-gfm/"
+)
 
-data(MISO_E13)
-names(MISO_E13)
-names(MISO_E13$expression)
-# [1] "Mapt" "Map1b" "Hist1h2ao"
-
-data(Visium_B)
-names(Visium_B$expression)
-# [1] "mt_co3" "mt_co2" "BRAFhuman"
-```
-
-For both objects, `covariates` contains `x`, `y`, `offset0`, and the original
-spot identifier. The rows of `expression` and `covariates` are aligned.
-`meshes$spde` is the baseline mesh. `meshes$spdePC_g999` is the finer mesh
-used with `bs = "spdePC"` and `pc_cutoff = 0.999`.
-
-## Fit two features and run a PC score test
-
-This is the direct workflow for a selected pair. `sp = c(-1, 0.1)` estimates
-only the smoothing parameter by REML and keeps `kappa = 0.1` fixed.
-
-```{r direct-pc-pair, eval=FALSE}
 library(mgcv)
+library(mgcViz)
 library(mgcvST)
 
-data(MISO_E13)
-D1 <- MISO_E13$covariates
-D2 <- MISO_E13$covariates
-D1$response <- MISO_E13$expression$Mapt
-D2$response <- MISO_E13$expression$Map1b
+data(MISO_E13, package = "mgcvST")
+data(Visium_B, package = "mgcvST")
 
-fit1 <- gam(
-  response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = list(
-      mesh = MISO_E13$meshes$spdePC_g999,
-      pc_cutoff = 0.999
-    ), sp = c(-1, 0.1)),
-  data = D1, family = nb(link = "log"), method = "REML"
-)
-fit2 <- gam(
-  response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = list(
-      mesh = MISO_E13$meshes$spdePC_g999,
-      pc_cutoff = 0.999
-    ), sp = c(-1, 0.1)),
-  data = D2, family = nb(link = "log"), method = "REML"
-)
+D_miso <- MISO_E13$covariates
+D_visium <- Visium_B$covariates
 
-fit1$smooth[[1L]]$pc_retained_dimension
-fit1$smooth[[1L]]$pc_score_Q
-score_test(fit1, fit2, method = "liu")
+data.frame(
+  slice = c("MISO_E13", "Visium_B"),
+  spots = c(nrow(D_miso), nrow(D_visium)),
+  genes = c(
+    paste(names(MISO_E13$expression), collapse = ", "),
+    paste(names(Visium_B$expression), collapse = ", ")
+  )
+)
 ```
 
-Use the same pattern with `Visium_B`, `mt_co3`, and `mt_co2`. The two fitted
-models passed to `score_test()` must use the same rows, mesh, and fixed
-`kappa`.
+The package stores the original spatial coordinates and expression at each
+included spot. The maps below display all observed spots, coloured by the raw
+count of one selected gene in each slice.
 
-## Run the packaged three-gene examples
+```{r observed-spots, fig.width=10, fig.height=4.5, fig.cap="Observed spots in the two bundled slices. Colours show raw counts for the named gene.", fig.alt="Spatial spot maps for the MISO E13 and Visium B examples."}
+col_miso <- hcl.colors(100L, "YlOrRd")[cut(
+  log1p(MISO_E13$expression$Mapt), breaks = 100L, include.lowest = TRUE
+)]
+col_visium <- hcl.colors(100L, "YlOrRd")[cut(
+  log1p(Visium_B$expression$mt_co3), breaks = 100L, include.lowest = TRUE
+)]
 
-The two scripts below each fit the bundled three genes with the baseline
-`spde` smooth, use three SOCK workers, and evaluate the three explicit gene
-pairs with `mgcvST.estimate()` followed by `mgcvST.test()`. They write the
-fit diagnostics, pair results, and compact R objects to
-`MGCVST_EXAMPLE_OUTPUT`.
+op <- par(mfrow = c(1L, 2L), mar = c(4, 4, 3, 1))
+plot(
+  D_miso$x, D_miso$y, pch = 16L, cex = 0.55, col = col_miso,
+  asp = 1, xlab = "x", ylab = "y", main = "MISO E13: Mapt"
+)
+plot(
+  D_visium$x, D_visium$y, pch = 16L, cex = 0.55, col = col_visium,
+  asp = 1, xlab = "x", ylab = "y", main = "Visium B: mt_co3"
+)
+par(op)
+```
+
+## MISO E13: PC-truncated SPDE fit, random field, and score test
+
+The following chunk fits `Mapt` and `Map1b` on the finer MISO mesh. It fixes
+`kappa = 0.1`, estimates only the smoothing parameter by REML, and retains
+the `0.999` covariance-trace PC basis. `score_test()` uses the stored
+positive-semidefinite `pc_score_Q` in the full projected coordinate system.
+
+```{r miso-pc-fit-and-score}
+D_miso_mapt <- D_miso
+D_miso_map1b <- D_miso
+D_miso_mapt$response <- MISO_E13$expression$Mapt
+D_miso_map1b$response <- MISO_E13$expression$Map1b
+
+fit_miso_mapt <- gam(
+  response ~ offset(offset0) +
+    s(x, y, bs = "spdePC", xt = list(
+      mesh = MISO_E13$meshes$spdePC_g999,
+      pc_cutoff = 0.999
+    ), sp = c(-1, 0.1)),
+  data = D_miso_mapt, family = nb(link = "log"), method = "REML"
+)
+fit_miso_map1b <- gam(
+  response ~ offset(offset0) +
+    s(x, y, bs = "spdePC", xt = list(
+      mesh = MISO_E13$meshes$spdePC_g999,
+      pc_cutoff = 0.999
+    ), sp = c(-1, 0.1)),
+  data = D_miso_map1b, family = nb(link = "log"), method = "REML"
+)
+
+sm_miso <- fit_miso_mapt$smooth[[1L]]
+data.frame(
+  full_projected_dimension = sm_miso$pc_full_dimension,
+  retained_dimension = sm_miso$pc_retained_dimension,
+  retained_trace = sm_miso$pc_cumulative_trace[sm_miso$pc_retained_dimension],
+  score_Q_rank = as.integer(Matrix::rankMatrix(sm_miso$pc_score_Q))
+)
+
+score_miso <- score_test(fit_miso_mapt, fit_miso_map1b, method = "liu")
+data.frame(
+  pair = "Mapt--Map1b",
+  signed_score = score_miso$signed_score,
+  quadratic_statistic = score_miso$quadratic_statistic,
+  information = score_miso$information,
+  calibration = score_miso$method,
+  p_value = score_miso$p_value
+)
+```
+
+`mgcViz` evaluates the fitted random field on a regular grid through the
+registered `spdePC` prediction matrix.
+
+```{r miso-random-field, fig.width=7, fig.height=5, fig.cap="MISO E13 Mapt fitted PC-truncated SPDE random field from mgcViz.", fig.alt="Fitted spatial random field for Mapt in MISO E13."}
+viz_miso <- getViz(fit_miso_mapt)
+p_miso <- plot(sm(viz_miso, 1L)) +
+  l_fitRaster() + l_fitContour() +
+  ggplot2::labs(title = "MISO E13: Mapt fitted random field")
+print(p_miso)
+```
+
+## Visium B: PC-truncated SPDE fit, random field, and score test
+
+The Visium example uses the same fixed-`kappa` and `0.999` PC construction on
+its finer mesh. Here we test `mt_co3` against `BRAFhuman`.
+
+```{r visium-pc-fit-and-score}
+D_visium_mtco3 <- D_visium
+D_visium_braf <- D_visium
+D_visium_mtco3$response <- Visium_B$expression$mt_co3
+D_visium_braf$response <- Visium_B$expression$BRAFhuman
+
+fit_visium_mtco3 <- gam(
+  response ~ offset(offset0) +
+    s(x, y, bs = "spdePC", xt = list(
+      mesh = Visium_B$meshes$spdePC_g999,
+      pc_cutoff = 0.999
+    ), sp = c(-1, 0.1)),
+  data = D_visium_mtco3, family = nb(link = "log"), method = "REML"
+)
+fit_visium_braf <- gam(
+  response ~ offset(offset0) +
+    s(x, y, bs = "spdePC", xt = list(
+      mesh = Visium_B$meshes$spdePC_g999,
+      pc_cutoff = 0.999
+    ), sp = c(-1, 0.1)),
+  data = D_visium_braf, family = nb(link = "log"), method = "REML"
+)
+
+sm_visium <- fit_visium_mtco3$smooth[[1L]]
+data.frame(
+  full_projected_dimension = sm_visium$pc_full_dimension,
+  retained_dimension = sm_visium$pc_retained_dimension,
+  retained_trace = sm_visium$pc_cumulative_trace[sm_visium$pc_retained_dimension],
+  score_Q_rank = as.integer(Matrix::rankMatrix(sm_visium$pc_score_Q))
+)
+
+score_visium <- score_test(
+  fit_visium_mtco3, fit_visium_braf, method = "liu"
+)
+data.frame(
+  pair = "mt_co3--BRAFhuman",
+  signed_score = score_visium$signed_score,
+  quadratic_statistic = score_visium$quadratic_statistic,
+  information = score_visium$information,
+  calibration = score_visium$method,
+  p_value = score_visium$p_value
+)
+```
+
+```{r visium-random-field, fig.width=7, fig.height=5, fig.cap="Visium B mt_co3 fitted PC-truncated SPDE random field from mgcViz.", fig.alt="Fitted spatial random field for mt_co3 in Visium B."}
+viz_visium <- getViz(fit_visium_mtco3)
+p_visium <- plot(sm(viz_visium, 1L)) +
+  l_fitRaster() + l_fitContour() +
+  ggplot2::labs(title = "Visium B: mt_co3 fitted random field")
+print(p_visium)
+```
+
+## High-throughput baseline-SPDE workflow
+
+`mgcvST.estimate()` and `mgcvST.test()` retain only the compact summaries
+needed for a pre-specified pair universe. Their current high-throughput
+implementation uses the positive-definite baseline `spde` precision. The
+following executable chunk fits all three MISO E13 genes and tests all three
+pairs; no full `gam` objects are retained after estimation.
+
+```{r miso-high-throughput}
+genes_miso <- c("Mapt", "Map1b", "Hist1h2ao")
+D_miso_setup <- D_miso
+D_miso_setup$response <- MISO_E13$expression[[genes_miso[1L]]]
+G_miso <- gam(
+  response ~ offset(offset0) +
+    s(x, y, bs = "spde", xt = list(mesh = MISO_E13$meshes$spde),
+      sp = c(-1, 0.1)),
+  data = D_miso_setup, family = nb(link = "log"), method = "REML",
+  fit = FALSE, control = gam.control(nthreads = 1L, ncv.threads = 1L)
+)
+Y_miso <- t(as.matrix(MISO_E13$expression[, genes_miso, drop = FALSE]))
+
+fit_batch_miso <- mgcvST.estimate(
+  Y_miso, G_miso, feature_id = genes_miso,
+  BPPARAM = BiocParallel::SerialParam()
+)
+test_batch_miso <- mgcvST.test(
+  fit_batch_miso, pairs = t(combn(genes_miso, 2L)),
+  BPPARAM = BiocParallel::SerialParam(), calibration = "liu", threads = 1L
+)
+test_batch_miso$results[, c(
+  "feature1", "feature2", "score", "p_value", "p_adjusted", "status"
+)]
+```
+
+For the packaged three-core versions, set an output directory and source the
+two scripts below. Each script writes fit diagnostics, pair results, and
+compact R objects to `MGCVST_EXAMPLE_OUTPUT`.
 
 ```{r packaged-data-examples, eval=FALSE}
 dir.create("mgcvST-results", showWarnings = FALSE)
@@ -123,10 +263,6 @@ Sys.setenv(
 source(system.file("examples", "MISO_E13.R", package = "mgcvST"))
 source(system.file("examples", "Visium_B.R", package = "mgcvST"))
 ```
-
-The high-throughput interface requires a positive-definite SPDE precision and
-therefore currently supports the baseline `spde` smooth. Use the direct
-`spdePC` workflow above for PC-truncated pair tests.
 
 ## Reproduce the bundled simulations
 

@@ -33,6 +33,7 @@ LinkingTo:
     RcppArmadillo
 Suggests:
     data.table,
-    mgcv.taps
+    mgcv.taps,
+    mgcViz
 Additional_repositories: https://inla.r-inla-download.org/R/stable
 Config/roxygen2/version: 8.1.0
