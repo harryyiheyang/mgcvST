@@ -1,0 +1,163 @@
+---
+output: github_document
+---
+
+# mgcvST
+
+`mgcvST` provides proper Matérn SPDE smooths for `mgcv`, finite-element mesh
+construction, and covariance score tests for pairs of spatial features. The
+spatial range parameter `kappa` is fixed by design. An intercept is projected
+from the SPDE coefficient space before fitting.
+
+The package provides two `mgcv` smooths:
+
+- `bs = "spde"` fits the full projected SPDE basis.
+- `bs = "spdePC"` eigendecomposes the fixed-`kappa` projected covariance
+  `G = Q^{-1}` and retains the leading directions specified by
+  `xt$pc_cutoff`. The fitted smooth stores `pc_score_Q`, the positive
+  semidefinite score precision in the full projected coordinates, so that
+  `score_test()` can test the original score space after truncation.
+
+Two small spatial-transcriptomics data sets are included: `MISO_E13` and
+`Visium_B`. Each includes covariates, three selected genes, a baseline mesh,
+and a finer mesh for the `0.999` principal-component analysis.
+
+## Installation
+
+`mgcvST` uses CRAN, Bioconductor, and INLA dependencies. The high-throughput
+`mgcvST.estimate()` workflow also uses the corrected marginal score from
+`mgcv.taps`.
+
+```{r installation, eval=FALSE}
+install.packages("remotes")
+install.packages("BiocManager")
+BiocManager::install("BiocParallel", ask = FALSE)
+
+install.packages(
+  "INLA",
+  repos = c(
+    getOption("repos"),
+    INLA = "https://inla.r-inla-download.org/R/stable"
+  )
+)
+
+remotes::install_github("harryyiheyang/mgcv.taps")
+remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
+```
+
+## Included data
+
+```{r data, eval=FALSE}
+library(mgcvST)
+
+data(MISO_E13)
+names(MISO_E13)
+names(MISO_E13$expression)
+# [1] "Mapt" "Map1b" "Hist1h2ao"
+
+data(Visium_B)
+names(Visium_B$expression)
+# [1] "mt_co3" "mt_co2" "BRAFhuman"
+```
+
+For both objects, `covariates` contains `x`, `y`, `offset0`, and the original
+spot identifier. The rows of `expression` and `covariates` are aligned.
+`meshes$spde` is the baseline mesh. `meshes$spdePC_g999` is the finer mesh
+used with `bs = "spdePC"` and `pc_cutoff = 0.999`.
+
+## Fit two features and run a PC score test
+
+This is the direct workflow for a selected pair. `sp = c(-1, 0.1)` estimates
+only the smoothing parameter by REML and keeps `kappa = 0.1` fixed.
+
+```{r direct-pc-pair, eval=FALSE}
+library(mgcv)
+library(mgcvST)
+
+data(MISO_E13)
+D1 <- MISO_E13$covariates
+D2 <- MISO_E13$covariates
+D1$response <- MISO_E13$expression$Mapt
+D2$response <- MISO_E13$expression$Map1b
+
+fit1 <- gam(
+  response ~ offset(offset0) +
+    s(x, y, bs = "spdePC", xt = list(
+      mesh = MISO_E13$meshes$spdePC_g999,
+      pc_cutoff = 0.999
+    ), sp = c(-1, 0.1)),
+  data = D1, family = nb(link = "log"), method = "REML"
+)
+fit2 <- gam(
+  response ~ offset(offset0) +
+    s(x, y, bs = "spdePC", xt = list(
+      mesh = MISO_E13$meshes$spdePC_g999,
+      pc_cutoff = 0.999
+    ), sp = c(-1, 0.1)),
+  data = D2, family = nb(link = "log"), method = "REML"
+)
+
+fit1$smooth[[1L]]$pc_retained_dimension
+fit1$smooth[[1L]]$pc_score_Q
+score_test(fit1, fit2, method = "liu")
+```
+
+Use the same pattern with `Visium_B`, `mt_co3`, and `mt_co2`. The two fitted
+models passed to `score_test()` must use the same rows, mesh, and fixed
+`kappa`.
+
+## Run the packaged three-gene examples
+
+The two scripts below each fit the bundled three genes with the baseline
+`spde` smooth, use three SOCK workers, and evaluate the three explicit gene
+pairs with `mgcvST.estimate()` followed by `mgcvST.test()`. They write the
+fit diagnostics, pair results, and compact R objects to
+`MGCVST_EXAMPLE_OUTPUT`.
+
+```{r packaged-data-examples, eval=FALSE}
+dir.create("mgcvST-results", showWarnings = FALSE)
+Sys.setenv(
+  MGCVST_EXAMPLE_OUTPUT = normalizePath("mgcvST-results")
+)
+
+source(system.file("examples", "MISO_E13.R", package = "mgcvST"))
+source(system.file("examples", "Visium_B.R", package = "mgcvST"))
+```
+
+The high-throughput interface requires a positive-definite SPDE precision and
+therefore currently supports the baseline `spde` smooth. Use the direct
+`spdePC` workflow above for PC-truncated pair tests.
+
+## Reproduce the bundled simulations
+
+`inst/examples/null.R` performs the null tail/type-I simulation. Its defaults
+are 100,000 simulations and 20 workers. `inst/examples/alternative.R` uses
+100 replicates at each of 100 correlation values. Both compare the baseline
+and `0.999` PC-truncated representations on the included MISO E13 and Visium
+B examples and save their results under `MGCVST_EXAMPLE_OUTPUT`.
+
+For a quick local smoke run, reduce the counts before sourcing either script.
+
+```{r simulations, eval=FALSE}
+Sys.setenv(
+  MGCVST_EXAMPLE_OUTPUT = normalizePath("mgcvST-results"),
+  MGCVST_EXAMPLE_WORKERS = 3,
+  MGCVST_EXAMPLE_NULL_REPS = 300,
+  MGCVST_EXAMPLE_POWER_REPS = 10
+)
+
+source(system.file("examples", "null.R", package = "mgcvST"))
+source(system.file("examples", "alternative.R", package = "mgcvST"))
+```
+
+## Construct a mesh from a boundary
+
+`spde_mesh()` accepts either a manually curated polygon boundary or a boundary
+returned by `spde_boundary_learn()`. The example data use curated boundaries.
+
+```{r mesh, eval=FALSE}
+loc <- as.matrix(MISO_E13$covariates[, c("x", "y")])
+boundary <- spde_boundary_learn(loc, n_holes = 0L)
+mesh <- spde_mesh(boundary, loc = loc, target = 150L)
+plot(mesh)
+```

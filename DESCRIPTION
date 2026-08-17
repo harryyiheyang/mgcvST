@@ -1,0 +1,38 @@
+Package: mgcvST
+Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
+Version: 0.0.1
+Authors@R: person(given = "Yihe", family = "Yang",
+    email = "yxy1234@case.edu", role = c("aut", "cre"))
+Description: Provides topology-aware boundary learning and finite-element mesh
+    generation, a proper Matern stochastic partial differential equation
+    smooth registered with 'mgcv', and signed reproducing-kernel Hilbert space
+    covariance score tests for spatial and spatiotemporal feature pairs. The
+    numerical core uses final IRLS working models, compact residual-precision
+    operators, low-rank score summaries, and signed quadratic-form calibration
+    without constructing observation-level residual projection matrices.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+Depends: R (>= 4.2.0)
+Imports:
+    BiocParallel,
+    CompQuadForm,
+    CppMatrix (>= 0.1.0),
+    fmesher,
+    geometry,
+    graphics,
+    INLA,
+    Matrix,
+    mgcv,
+    Rcpp,
+    sf,
+    stats
+LinkingTo:
+    Rcpp,
+    RcppArmadillo
+Suggests:
+    data.table,
+    mgcv.taps
+Additional_repositories: https://inla.r-inla-download.org/R/stable
+Config/roxygen2/version: 8.1.0
