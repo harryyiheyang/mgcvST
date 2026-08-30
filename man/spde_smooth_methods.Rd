@@ -11,19 +11,17 @@
 \method{Predict.matrix}{spde.smooth}(object, data)
 }
 \arguments{
-\item{object}{An \code{mgcv} SPDE smooth specification or fitted SPDE smooth.}
+\item{object}{An \code{mgcv} SPDE smooth specification or fitted smooth.}
 
 \item{data}{A data-like object containing the smooth coordinates.}
 
 \item{knots}{Knot information supplied by \code{mgcv}.}
 }
 \value{
-\code{smooth.construct.spde.smooth.spec()} returns a fitted smooth
-specification. \code{Predict.matrix.spde.smooth()} returns the numeric
-prediction matrix at \code{data}.
+The constructed smooth or its prediction matrix.
 }
 \description{
-These functions are the S3 constructor and prediction-matrix methods used
-by \code{mgcv} for \code{bs = "spde"}. They are registered as S3 methods when
-\code{mgcvST} is loaded.
+Both smooths consume a complete object returned by \code{\link[=spde_basis]{spde_basis()}} through
+\code{xt}. The mgcv argument \code{k} is ignored because basis dimension is fixed at
+construction time.
 }

@@ -8,12 +8,10 @@ rkhs_score_calibrate(
   U,
   H1,
   H2,
-  method = c("liu", "davies", "normal", "auto", "signed"),
-  normal_min_eff_rank = 30,
+  method = c("liu", "davies"),
   tol = 1e-10,
   davies_accuracy = 1e-07,
-  davies_limit = 10000L,
-  davies_fallback = c("liu", "none")
+  davies_limit = 10000L
 )
 }
 \arguments{
@@ -21,23 +19,17 @@ rkhs_score_calibrate(
 
 \item{H1, H2}{Score covariance summaries.}
 
-\item{method}{\code{"signed"} (Davies with Liu fallback), \code{"davies"},
-\code{"liu"}, \code{"normal"}, or \code{"auto"}.}
-
-\item{normal_min_eff_rank}{Minimum effective rank required by \code{"auto"} to
-use the normal approximation.}
+\item{method}{Either \code{"liu"} (the default fast calibration) or \code{"davies"}.}
 
 \item{tol}{Numerical-rank tolerance.}
 
 \item{davies_accuracy}{Accuracy passed to \code{\link[CompQuadForm:davies]{CompQuadForm::davies()}}.}
 
 \item{davies_limit}{Integration limit passed to \code{\link[CompQuadForm:davies]{CompQuadForm::davies()}}.}
-
-\item{davies_fallback}{Fallback used when Davies returns a nonzero fault,
-a non-finite/invalid tail probability, or numerical zero.}
 }
 \value{
-Calibration diagnostics and a two-sided p-value.
+Calibration diagnostics and simultaneous two-sided, positive, and
+negative p-values.
 }
 \description{
 Under the Gaussian null, \code{U} has the distribution

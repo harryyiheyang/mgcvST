@@ -2,14 +2,14 @@
 % Please edit documentation in R/spde-smooth.R
 \name{spde_precision}
 \alias{spde_precision}
-\title{Evaluate the proper MatÃ©rn SPDE precision matrix}
+\title{Evaluate the proper Matern SPDE precision matrix}
 \usage{
 spde_precision(model, kappa, tau = 1)
 }
 \arguments{
-\item{model}{An object returned by \code{spde_model()}.}
+\item{model}{An object returned by \code{\link[=spde_model]{spde_model()}}.}
 
-\item{kappa}{Positive spatial scale parameter.}
+\item{kappa}{Positive dimensionless spatial scale.}
 
 \item{tau}{Positive precision multiplier.}
 }
@@ -17,5 +17,5 @@ spde_precision(model, kappa, tau = 1)
 A sparse symmetric precision matrix.
 }
 \description{
-Evaluate the proper MatÃ©rn SPDE precision matrix
+Evaluate the proper Matern SPDE precision matrix
 }

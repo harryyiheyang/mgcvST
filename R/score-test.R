@@ -91,30 +91,21 @@ rkhs_score_singular_values <- function(H1, H2, tol = 1e-10) {
 #'
 #' @param U Observed bilinear score.
 #' @param H1,H2 Score covariance summaries.
-#' @param method `"signed"` (Davies with Liu fallback), `"davies"`,
-#'   `"liu"`, `"normal"`, or `"auto"`.
-#' @param normal_min_eff_rank Minimum effective rank required by `"auto"` to
-#'   use the normal approximation.
+#' @param method Either `"liu"` (the default fast calibration) or `"davies"`.
 #' @param tol Numerical-rank tolerance.
 #' @param davies_accuracy Accuracy passed to [CompQuadForm::davies()].
 #' @param davies_limit Integration limit passed to [CompQuadForm::davies()].
-#' @param davies_fallback Fallback used when Davies returns a nonzero fault,
-#'   a non-finite/invalid tail probability, or numerical zero.
-#' @return Calibration diagnostics and a two-sided p-value.
+#' @return Calibration diagnostics and simultaneous two-sided, positive, and
+#'   negative p-values.
 #' @export
 rkhs_score_calibrate <- function(U, H1, H2,
-                                 method = c("liu", "davies", "normal",
-                                            "auto", "signed"),
-                                 normal_min_eff_rank = 30,
+                                 method = c("liu", "davies"),
                                  tol = 1e-10,
                                  davies_accuracy = 1e-7,
-                                 davies_limit = 10000L,
-                                 davies_fallback = c("liu", "none")) {
+                                 davies_limit = 10000L) {
   method <- match.arg(method)
-  davies_fallback <- match.arg(davies_fallback)
   davies_accuracy <- as.numeric(davies_accuracy)
   davies_limit <- as.integer(davies_limit)
-  normal_min_eff_rank <- as.numeric(normal_min_eff_rank)
   if (length(davies_accuracy) != 1L || !is.finite(davies_accuracy) ||
       davies_accuracy <= 0) {
     stop("davies_accuracy must be one positive finite value.")
@@ -122,44 +113,34 @@ rkhs_score_calibrate <- function(U, H1, H2,
   if (length(davies_limit) != 1L || is.na(davies_limit) || davies_limit < 1L) {
     stop("davies_limit must be one positive integer.")
   }
-  if (length(normal_min_eff_rank) != 1L ||
-      !is.finite(normal_min_eff_rank) || normal_min_eff_rank <= 0) {
-    stop("normal_min_eff_rank must be one positive finite value.")
-  }
   U <- as.numeric(U)
   if (length(U) != 1L || !is.finite(U)) stop("U must be finite.")
   moments <- .rkhs_score_moments(H1, H2)
   information <- moments[1L]
   if (!is.finite(information) || information <= tol) {
     return(list(
-      p_value = NA_real_, method = "not_testable", information = information,
+      p_value = NA_real_, p_two_sided = NA_real_, p_positive = NA_real_,
+      p_negative = NA_real_, method = method, information = information,
       effective_rank = 0, singular_values = numeric(0), moments = moments,
-      status = "degenerate_information"
+      status = "degenerate_information", davies_ifault = NA_integer_
     ))
   }
   effective_rank <- information^2 / moments[2L]
-  used <- method
-  if (method == "auto") {
-    use_normal <- effective_rank >= normal_min_eff_rank * (1 - 1e-10)
-    used <- if (use_normal) "normal" else "davies"
-  }
-  if (used == "signed") used <- "davies"
   s <- numeric(0)
 
-  if (used == "normal") {
-    p_value <- 2 * stats::pnorm(-abs(U) / sqrt(information))
-    ifault <- NA_integer_
-    liu <- NULL
-  } else if (used == "liu") {
+  if (method == "liu") {
     liu <- .liu_squared_score_moments(
       abs(U), moments[1L], moments[2L], moments[3L], moments[4L]
     )
-    p_value <- liu$p_value
+    p.two <- liu$p_value
     ifault <- NA_integer_
   } else {
+    if (!requireNamespace("CompQuadForm", quietly = TRUE)) {
+      stop("method = 'davies' requires the optional CompQuadForm package.")
+    }
     s <- rkhs_score_singular_values(H1, H2, tol = tol)
     if (abs(U) <= tol * sqrt(information)) {
-      p_value <- 1
+      p.two <- 1
       ifault <- 0L
       liu <- NULL
     } else {
@@ -170,28 +151,31 @@ rkhs_score_calibrate <- function(U, H1, H2,
       )
       ifault <- as.integer(fit$ifault)
       valid <- ifault == 0L && is.finite(fit$Qq) &&
-        fit$Qq > 0 && fit$Qq <= 0.5 + tol
+        fit$Qq >= 0 && fit$Qq <= 0.5 + tol
       if (valid) {
-        p_value <- min(1, max(0, 2 * as.numeric(fit$Qq)))
+        p.two <- min(1, max(0, 2 * as.numeric(fit$Qq)))
         liu <- NULL
-      } else if (davies_fallback == "liu") {
-        liu <- .liu_squared_score_moments(
-          abs(U), moments[1L], moments[2L], moments[3L], moments[4L]
-        )
-        p_value <- liu$p_value
-        used <- "liu_fallback"
       } else {
-        stop(
-          "Davies signed calibration failed: ifault = ", ifault,
-          ", Qq = ", format(fit$Qq), "."
-        )
+        return(list(
+          p_value = NA_real_, p_two_sided = NA_real_,
+          p_positive = NA_real_, p_negative = NA_real_, method = "davies",
+          information = information, effective_rank = effective_rank,
+          singular_values = s, moments = moments, status = "davies_failed",
+          davies_ifault = ifault, liu_parameters = NULL
+        ))
       }
     }
   }
 
+  p.positive <- if (U >= 0) p.two / 2 else 1 - p.two / 2
+  p.negative <- if (U <= 0) p.two / 2 else 1 - p.two / 2
+
   list(
-    p_value = p_value,
-    method = used,
+    p_value = p.two,
+    p_two_sided = p.two,
+    p_positive = p.positive,
+    p_negative = p.negative,
+    method = method,
     information = information,
     effective_rank = effective_rank,
     singular_values = s,
@@ -264,7 +248,6 @@ rkhs_score_calibrate <- function(U, H1, H2,
 #' @param score_factor1,score_factor2 Optional aligned factors defining
 #'   `C12 = score_factor1 %*% t(score_factor2)`.
 #' @param method Calibration method passed to [rkhs_score_calibrate()].
-#' @param normal_min_eff_rank Effective-rank threshold for `method = "auto"`.
 #' @param tol Numerical tolerance.
 #' @return An object of class `rkhs_covariance_score`. `statistic` and
 #'   `quadratic_statistic` are the primary quadratic statistic `U^2`;
@@ -275,9 +258,7 @@ rkhs_score_calibrate <- function(U, H1, H2,
 rkhs_covariance_score <- function(error1, error2, operator1, operator2,
                                   score_factor1 = NULL,
                                   score_factor2 = NULL,
-                                  method = c("liu", "davies", "normal",
-                                             "auto", "signed"),
-                                  normal_min_eff_rank = 30,
+                                  method = c("liu", "davies"),
                                   tol = 1e-10) {
   method <- match.arg(method)
   S1 <- rkhs_score_summary(error1, operator1, score_factor1)
@@ -287,8 +268,7 @@ rkhs_covariance_score <- function(error1, error2, operator1, operator2,
   }
   U <- as.numeric(crossprod(S1$a, S2$a))
   cal <- rkhs_score_calibrate(
-    U, S1$H, S2$H, method = method,
-    normal_min_eff_rank = normal_min_eff_rank, tol = tol
+    U, S1$H, S2$H, method = method, tol = tol
   )
   structure(
     c(list(
@@ -296,12 +276,7 @@ rkhs_covariance_score <- function(error1, error2, operator1, operator2,
       signed_score = U,
       statistic = U^2,
       quadratic_statistic = U^2,
-      normal_statistic = if (identical(cal$method, "normal") &&
-                             cal$information > tol) {
-        U / sqrt(cal$information)
-      } else {
-        NA_real_
-      },
+      normal_statistic = NA_real_,
       summary1 = S1,
       summary2 = S2
     ),
@@ -346,6 +321,8 @@ print.rkhs_covariance_score <- function(x, ...) {
   cat("  quadratic statistic:", format(x$quadratic_statistic), "\n")
   cat("  information:", format(x$information), "\n")
   cat("  calibration:", x$method, "\n")
-  cat("  p-value:", format.pval(x$p_value), "\n")
+  cat("  two-sided p-value:", format.pval(x$p_two_sided), "\n")
+  cat("  positive p-value:", format.pval(x$p_positive), "\n")
+  cat("  negative p-value:", format.pval(x$p_negative), "\n")
   invisible(x)
 }

@@ -1,59 +1,57 @@
-# Extract an fmesher mesh and its coordinate transformation.
-.spde_mesh_parts <- function(mesh) {
-  if (inherits(mesh, "spde_mesh")) {
-    return(list(mesh = mesh$mesh, transform = mesh$transform))
-  }
-  if (inherits(mesh, "fm_mesh_2d")) {
-    return(list(mesh = mesh, transform = list(center = c(0, 0), scale = 1)))
-  }
-  stop("mesh must be a spde_mesh or fm_mesh_2d object.")
-}
-
-#' Construct the INLA MatÃ©rn SPDE matrices used by mgcvST
+#' Construct the finite-element matrices used by mgcvST
 #'
-#' @param mesh A `spde_mesh` or `fm_mesh_2d` object.
-#' @param alpha SPDE operator order. The current mgcv smooth requires `2`.
-#' @param constr Passed to [INLA::inla.spde2.matern()]. Use `FALSE` for the
-#'   proper no-null-space smooth.
-#' @param ... Additional arguments passed to [INLA::inla.spde2.matern()].
-#' @return An INLA SPDE model object.
+#' This helper belongs to the basis-construction path. Fitting a prepared
+#' basis does not call it.
+#'
+#' @param mesh A [spde_mesh()], `fm_mesh_2d`, or compatible mesh list.
+#' @param order Finite-element order. Only linear triangles (`2`) are used.
+#' @return A list containing `M0`, `M1`, and `M2`.
 #' @export
-spde_model <- function(mesh, alpha = 2, constr = FALSE, ...) {
-  if (!identical(as.numeric(alpha), 2)) {
-    stop("The current mgcvST smooth requires alpha = 2.")
+spde_fem <- function(mesh, order = 2L) {
+  if (!identical(as.integer(order), 2L)) {
+    stop("The current mgcvST basis requires order = 2.")
   }
-  x <- .spde_mesh_parts(mesh)
-  INLA::inla.spde2.matern(x$mesh, alpha = alpha, constr = constr, ...)
+  .spde_basis_fem(.spde_basis_mesh(mesh))
 }
 
 #' Construct a sparse observation-to-mesh projector
 #'
-#' @param mesh A `spde_mesh` or `fm_mesh_2d` object.
-#' @param loc Observation or prediction coordinates.
+#' This helper belongs to the basis-construction path. Fitting a prepared
+#' basis does not call it.
+#'
+#' @param mesh A [spde_mesh()], `fm_mesh_2d`, or compatible mesh list.
+#' @param loc Coordinates in the original coordinate system.
 #' @return A sparse projector matrix with one row per location.
 #' @export
 spde_project <- function(mesh, loc) {
-  x <- .spde_mesh_parts(mesh)
-  loc <- .spde_xy(loc)
-  loc <- sweep(loc, 2, x$transform$center, "-") / x$transform$scale
-  INLA::inla.spde.make.A(x$mesh, loc = loc)
+  x <- .spde_basis_mesh(mesh)
+  z <- .spde_xy(loc)
+  z <- sweep(z, 2L, x$transform$center, "-") / x$transform$scale
+  .spde_basis_project(x, z)
 }
 
-#' Construct finite element matrices for an SPDE mesh
+#' Construct the SPDE penalty model
 #'
-#' @param mesh A `spde_mesh` or `fm_mesh_2d` object.
-#' @param order Finite element integration order passed to [fmesher::fm_fem()].
-#' @return The finite element matrix list returned by `fmesher`.
+#' @param mesh A [spde_mesh()], `fm_mesh_2d`, or compatible mesh list.
+#' @param alpha SPDE operator order. Only `2` is supported.
+#' @param constr Retained for compatibility; must be `FALSE`.
+#' @param ... Unused.
+#' @return A lightweight model containing `M0`, `M1`, and `M2`.
 #' @export
-spde_fem <- function(mesh, order = 2L) {
-  x <- .spde_mesh_parts(mesh)
-  fmesher::fm_fem(x$mesh, order = order)
+spde_model <- function(mesh, alpha = 2, constr = FALSE, ...) {
+  if (!identical(as.numeric(alpha), 2)) {
+    stop("The current mgcvST basis requires alpha = 2.")
+  }
+  if (!identical(constr, FALSE)) {
+    stop("The current mgcvST basis requires constr = FALSE.")
+  }
+  list(param.inla = spde_fem(mesh))
 }
 
-#' Evaluate the proper MatÃ©rn SPDE precision matrix
+#' Evaluate the proper Matern SPDE precision matrix
 #'
-#' @param model An object returned by `spde_model()`.
-#' @param kappa Positive spatial scale parameter.
+#' @param model An object returned by [spde_model()].
+#' @param kappa Positive dimensionless spatial scale.
 #' @param tau Positive precision multiplier.
 #' @return A sparse symmetric precision matrix.
 #' @export
@@ -66,7 +64,7 @@ spde_precision <- function(model, kappa, tau = 1) {
   }
   p <- model$param.inla
   if (is.null(p$M0) || is.null(p$M1) || is.null(p$M2)) {
-    stop("model does not contain the required M0, M1, and M2 matrices.")
+    stop("model does not contain M0, M1, and M2.")
   }
   Matrix::forceSymmetric(
     tau^2 * (kappa^4 * p$M0 + 2 * kappa^2 * p$M1 + p$M2)
@@ -75,91 +73,49 @@ spde_precision <- function(model, kappa, tau = 1) {
 
 #' mgcv SPDE smooth methods
 #'
-#' These functions are the S3 constructor and prediction-matrix methods used
-#' by `mgcv` for `bs = "spde"`. They are registered as S3 methods when
-#' `mgcvST` is loaded.
+#' Both smooths consume a complete object returned by [spde_basis()] through
+#' `xt`. The mgcv argument `k` is ignored because basis dimension is fixed at
+#' construction time.
 #'
-#' @param object An `mgcv` SPDE smooth specification or fitted SPDE smooth.
+#' @param object An `mgcv` SPDE smooth specification or fitted smooth.
 #' @param data A data-like object containing the smooth coordinates.
 #' @param knots Knot information supplied by `mgcv`.
-#' @return `smooth.construct.spde.smooth.spec()` returns a fitted smooth
-#'   specification. `Predict.matrix.spde.smooth()` returns the numeric
-#'   prediction matrix at `data`.
+#' @return The constructed smooth or its prediction matrix.
 #' @name spde_smooth_methods
 #' @method smooth.construct spde.smooth.spec
 #' @export
 smooth.construct.spde.smooth.spec <- function(object, data, knots) {
-  if (is.null(object$sp)) {
-    object$sp <- c(-1, 0.1)
-  }
-  if (!is.numeric(object$sp) || length(object$sp) != 2L ||
-      any(!is.finite(object$sp)) ||
-      (object$sp[1L] != -1 && object$sp[1L] <= 0) || object$sp[2L] <= 0) {
-    stop(
-      "bs = 'spde' requires sp = c(lambda, kappa), with lambda equal to -1 or positive and kappa positive and fixed."
-    )
-  }
-  if (is.null(object$xt$mesh)) {
-    stop("bs = 'spde' requires xt = list(mesh = ...).")
-  }
+  .spde_basis_warn_k(object, "spde")
+  loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
+  .spde_basis_validate(object$xt, loc)
+  basis <- object$xt
+  object$X <- basis$B
 
-  loc <- cbind(data[[object$term[1]]], data[[object$term[2]]])
-  x <- .spde_mesh_parts(object$xt$mesh)
-  loc <- sweep(loc, 2, x$transform$center, "-") / x$transform$scale
-  model <- object$xt$model
-  if (is.null(model)) {
-    model <- INLA::inla.spde2.matern(x$mesh, alpha = 2, constr = FALSE)
-  }
-  A <- INLA::inla.spde.make.A(x$mesh, loc = loc)
-  if (any(Matrix::rowSums(A) == 0)) {
-    stop("Some model locations are outside the supplied SPDE mesh.")
-  }
-  p <- model$param.inla
-  m.raw <- ncol(A)
-  project.intercept <- object$xt$project.intercept
-  if (is.null(project.intercept)) project.intercept <- TRUE
-  if (!is.logical(project.intercept) || length(project.intercept) != 1L ||
-      is.na(project.intercept)) {
-    stop("xt$project.intercept must be TRUE or FALSE.")
-  }
-
-  if (project.intercept) {
-    G <- as.matrix(Matrix::crossprod(A, matrix(1, nrow(A), 1))) / nrow(A)
-    fitqr <- qr(G)
-    projection.rank <- fitqr$rank
-    if (projection.rank < 1L || projection.rank >= m.raw) {
-      stop("The intercept projection does not have a valid coefficient-space rank.")
-    }
-    projection <- qr.Q(fitqr, complete = TRUE)[,
-      (projection.rank + 1L):m.raw, drop = FALSE]
+  if (is.null(basis$kappa)) {
+    object$S <- basis$penalty
+    object$sp <- rep(-1, 2L)
+    object$L <- rbind(c(1, 4), c(1, 2), c(1, 0))
+    object$kappa.estimated <- TRUE
   } else {
-    projection.rank <- 0L
-    projection <- diag(m.raw)
+    object$S <- list(basis$Q)
+    object$sp <- -1
+    object$L <- NULL
+    object$kappa.estimated <- FALSE
   }
-  object$X <- as.matrix(A %*% projection)
-  m <- ncol(object$X)
-
-  kappa <- object$sp[2L]
-  Q <- kappa^4 * p$M0 + 2 * kappa^2 * p$M1 + p$M2
-  Q <- crossprod(projection, Q %*% projection)
-  object$S <- list(as.matrix(Matrix::forceSymmetric(Q)))
-  object$sp <- object$sp[1L]
-  object$L <- NULL
-  object$kappa <- kappa
-  object$kappa.estimated <- FALSE
+  object$kappa <- basis$kappa
   object$rank <- as.integer(vapply(object$S, Matrix::rankMatrix, numeric(1)))
   object$null.space.dim <- 0L
-  object$C <- matrix(0, 0, m)
+  object$C <- matrix(0, 0L, ncol(object$X))
   object$side.constrain <- FALSE
   object$no.rescale <- TRUE
-  object$df <- object$bs.dim <- m
-  object$mesh <- x$mesh
-  object$transform <- x$transform
-  object$spde.model <- model
-  object$projection <- projection
-  object$projection.rank <- projection.rank
-  object$project.intercept <- project.intercept
-  object$raw.dimension <- m.raw
+  object$df <- object$bs.dim <- ncol(object$X)
+  object$basis <- basis
+  object$projection.rank <- basis$projection_rank
+  object$project.intercept <- basis$project_intercept
+  object$raw.dimension <- basis$raw_dimension
+  z <- .spde_basis_component(object)
+  object$component <- z$component
+  object$score.component <- z$score.component
   class(object) <- c("spde.smooth", "mgcv.smooth")
   object
 }
@@ -168,16 +124,7 @@ smooth.construct.spde.smooth.spec <- function(object, data, knots) {
 #' @method Predict.matrix spde.smooth
 #' @export
 Predict.matrix.spde.smooth <- function(object, data) {
-  loc <- cbind(data[[object$term[1]]], data[[object$term[2]]])
-  loc <- sweep(loc, 2, object$transform$center, "-") /
-    object$transform$scale
-  A <- INLA::inla.spde.make.A(object$mesh, loc = loc)
-  projection <- object[["projection"]]
-  if (is.null(projection)) {
-    projection <- diag(ncol(A))
-  }
-  if (!is.matrix(projection) || nrow(projection) != ncol(A)) {
-    stop("The stored SPDE projection is incompatible with the mesh.")
-  }
-  as.matrix(A %*% projection)
+  loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
+  .spde_basis_validate(object$basis, loc)
+  object$basis$B
 }

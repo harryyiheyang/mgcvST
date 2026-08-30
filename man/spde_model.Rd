@@ -2,23 +2,22 @@
 % Please edit documentation in R/spde-smooth.R
 \name{spde_model}
 \alias{spde_model}
-\title{Construct the INLA MatÃ©rn SPDE matrices used by mgcvST}
+\title{Construct the SPDE penalty model}
 \usage{
 spde_model(mesh, alpha = 2, constr = FALSE, ...)
 }
 \arguments{
-\item{mesh}{A \code{spde_mesh} or \code{fm_mesh_2d} object.}
+\item{mesh}{A \code{\link[=spde_mesh]{spde_mesh()}}, \code{fm_mesh_2d}, or compatible mesh list.}
 
-\item{alpha}{SPDE operator order. The current mgcv smooth requires \code{2}.}
+\item{alpha}{SPDE operator order. Only \code{2} is supported.}
 
-\item{constr}{Passed to \code{\link[INLA:inla.spde2.matern]{INLA::inla.spde2.matern()}}. Use \code{FALSE} for the
-proper no-null-space smooth.}
+\item{constr}{Retained for compatibility; must be \code{FALSE}.}
 
-\item{...}{Additional arguments passed to \code{\link[INLA:inla.spde2.matern]{INLA::inla.spde2.matern()}}.}
+\item{...}{Unused.}
 }
 \value{
-An INLA SPDE model object.
+A lightweight model containing \code{M0}, \code{M1}, and \code{M2}.
 }
 \description{
-Construct the INLA MatÃ©rn SPDE matrices used by mgcvST
+Construct the SPDE penalty model
 }

@@ -9,8 +9,7 @@ rkhs_covariance_score_irls(
   fit2,
   smooth_index1 = 1L,
   smooth_index2 = 1L,
-  method = c("liu", "davies", "normal", "auto", "signed"),
-  normal_min_eff_rank = 30,
+  method = c("liu", "davies"),
   geometry_tol = 1e-09
 )
 }
@@ -22,8 +21,6 @@ and with the same one-smooth setup.}
 each fit. The current prototype requires it to be the sole smooth.}
 
 \item{method}{Calibration method passed to \code{\link[=rkhs_covariance_score]{rkhs_covariance_score()}}.}
-
-\item{normal_min_eff_rank}{Effective-rank gate for the normal approximation.}
 
 \item{geometry_tol}{Relative tolerance for comparing \code{B} and unscaled \code{Q}.}
 }

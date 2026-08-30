@@ -11,8 +11,7 @@ rkhs_covariance_score(
   operator2,
   score_factor1 = NULL,
   score_factor2 = NULL,
-  method = c("liu", "davies", "normal", "auto", "signed"),
-  normal_min_eff_rank = 30,
+  method = c("liu", "davies"),
   tol = 1e-10
 )
 }
@@ -25,8 +24,6 @@ rkhs_covariance_score(
 \code{C12 = score_factor1 \%*\% t(score_factor2)}.}
 
 \item{method}{Calibration method passed to \code{\link[=rkhs_score_calibrate]{rkhs_score_calibrate()}}.}
-
-\item{normal_min_eff_rank}{Effective-rank threshold for \code{method = "auto"}.}
 
 \item{tol}{Numerical tolerance.}
 }

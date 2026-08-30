@@ -161,14 +161,12 @@ rkhs_extract_working_model <- function(fit) {
 #' @param smooth_index1,smooth_index2 Index of the shared full-rank smooth in
 #'   each fit. The current prototype requires it to be the sole smooth.
 #' @param method Calibration method passed to [rkhs_covariance_score()].
-#' @param normal_min_eff_rank Effective-rank gate for the normal approximation.
 #' @param geometry_tol Relative tolerance for comparing `B` and unscaled `Q`.
 #' @return An `rkhs_covariance_score` object augmented with IRLS metadata.
 #' @export
 rkhs_covariance_score_irls <- function(
     fit1, fit2, smooth_index1 = 1L, smooth_index2 = 1L,
-    method = c("liu", "davies", "normal", "auto", "signed"),
-    normal_min_eff_rank = 30, geometry_tol = 1e-9) {
+    method = c("liu", "davies"), geometry_tol = 1e-9) {
   method <- match.arg(method)
   geometry_tol <- as.numeric(geometry_tol)
   if (length(geometry_tol) != 1L || !is.finite(geometry_tol) ||
@@ -221,7 +219,7 @@ rkhs_covariance_score_irls <- function(
   )
   ans <- rkhs_covariance_score(
     W1$working_error, W2$working_error, op1, op2,
-    method = method, normal_min_eff_rank = normal_min_eff_rank
+    method = method
   )
   ans$working_family1 <- W1$family
   ans$working_family2 <- W2$family

@@ -60,11 +60,13 @@
 .mgcvst_worker_initialize <- function(source_files, worker_init, init_key) {
   loadNamespace("mgcvST")
   .mgcvst_thread_limit()
-  guard_name <- ".mgcvST_worker_initialization"
-  if (!exists(guard_name, envir = .GlobalEnv, inherits = FALSE)) {
-    assign(guard_name, new.env(parent = emptyenv()), envir = .GlobalEnv)
+  state <- getOption("mgcvST.worker_initialization")
+  if (!is.list(state) || !identical(state$pid, Sys.getpid()) ||
+      !is.environment(state$guard)) {
+    state <- list(pid = Sys.getpid(), guard = new.env(parent = emptyenv()))
+    options(mgcvST.worker_initialization = state)
   }
-  guard <- get(guard_name, envir = .GlobalEnv, inherits = FALSE)
+  guard <- state$guard
   if (!exists(init_key, envir = guard, inherits = FALSE)) {
     for (path in source_files) sys.source(path, envir = .GlobalEnv)
     if (is.function(worker_init)) worker_init()
@@ -73,14 +75,18 @@
   invisible(NULL)
 }
 
-# Locate the sole SPDE smooth supported by the high-throughput API.
+# Locate the sole SPDE or SPDE-PC smooth supported by the high-throughput API.
 .mgcvst_spde_index <- function(fit) {
   if (!inherits(fit, "gam")) stop("fit must inherit from class 'gam'.")
   idx <- which(vapply(
-    fit$smooth, inherits, logical(1), what = "spde.smooth"
+    fit$smooth,
+    function(s) inherits(s, "spde.smooth") || inherits(s, "spdePC.smooth"),
+    logical(1)
   ))
-  if (!length(idx)) stop("The fit does not contain an SPDE smooth.")
-  if (length(idx) != 1L) stop("The fit must contain exactly one SPDE smooth.")
+  if (!length(idx)) stop("The fit does not contain an SPDE or SPDE-PC smooth.")
+  if (length(idx) != 1L) {
+    stop("The fit must contain exactly one SPDE or SPDE-PC smooth.")
+  }
   if (length(fit$smooth) != 1L) {
     stop(
       "The fit contains additional nuisance smooths; their covariance is not ",
@@ -154,8 +160,80 @@
   invisible(TRUE)
 }
 
+# Derive per-feature field scales from primary fit parameters, with old-object fallback.
+.mgcvst_field_scale <- function(fit, tol = 1e-9) {
+  n <- length(fit$feature_id)
+  success <- if (!is.null(fit$diagnostics$success)) {
+    as.logical(fit$diagnostics$success)
+  } else {
+    rep(TRUE, n)
+  }
+  if (length(success) != n || anyNA(success)) {
+    stop("The fit success indicator is incompatible with feature_id.")
+  }
+  has_dispersion <- !is.null(fit$dispersion)
+  has_lambda <- !is.null(fit$lambda)
+  if (xor(has_dispersion, has_lambda)) {
+    stop("The fit must contain both dispersion and lambda, or neither.")
+  }
+  if (has_dispersion) {
+    dispersion <- as.numeric(fit$dispersion)
+    lambda <- as.numeric(fit$lambda)
+    if (length(dispersion) != n || length(lambda) != n) {
+      stop("dispersion and lambda must contain one value per feature.")
+    }
+    scale <- dispersion / lambda
+    if (any(!is.finite(scale[success])) || any(scale[success] <= 0)) {
+      stop("Successful features require positive finite dispersion/lambda scales.")
+    }
+    if (!is.null(fit$field_scale)) {
+      legacy <- as.numeric(fit$field_scale)
+      if (length(legacy) != n || any(!is.finite(legacy[success])) ||
+          any(legacy[success] <= 0)) {
+        stop("The legacy field_scale is incompatible with successful features.")
+      }
+      scale_max <- pmax(1, abs(scale[success]), abs(legacy[success]))
+      if (any(abs(scale[success] - legacy[success]) > tol * scale_max)) {
+        stop("field_scale is inconsistent with dispersion/lambda.")
+      }
+    }
+  } else {
+    if (is.null(fit$field_scale)) {
+      stop("The fit has neither dispersion/lambda nor legacy field_scale values.")
+    }
+    scale <- as.numeric(fit$field_scale)
+    if (length(scale) != n || any(!is.finite(scale[success])) ||
+        any(scale[success] <= 0)) {
+      stop("The legacy field_scale is incompatible with successful features.")
+    }
+  }
+  stats::setNames(scale, fit$feature_id)
+}
+
+# Stop unless two retained smooth fits share reduced basis and penalty geometry.
+.mgcvst_fit_geometry_equal <- function(x, y, tol) {
+  if (!identical(x$row_id, y$row_id)) {
+    stop("Retained smooth fits do not share row identifiers and ordering.")
+  }
+  if (!all(dim(x$B) == dim(y$B)) || !all(dim(x$P) == dim(y$P))) {
+    stop("Retained smooth fits have different reduced basis dimensions.")
+  }
+  B_scale <- max(1, max(abs(x$B)), max(abs(y$B)))
+  P_scale <- max(1, max(abs(x$P)), max(abs(y$P)))
+  if (max(abs(x$B - y$B)) > tol * B_scale) {
+    stop("Retained smooth fits do not share the reduced fit basis.")
+  }
+  if (max(abs(x$P - y$P)) > tol * P_scale) {
+    stop("Retained smooth fits do not share the reduced unscaled penalty.")
+  }
+  if (!identical(x$metadata, y$metadata)) {
+    stop("Retained smooth fits have different basis metadata.")
+  }
+  invisible(TRUE)
+}
+
 # Reduce one gam fit to the working summaries and shared geometry used downstream.
-.mgcvst_compact_fit <- function(fit) {
+.mgcvst_compact_fit <- function(fit, retain_smooth = FALSE) {
   W <- rkhs_extract_working_model(fit)
   L <- .gam_training_lpmatrix(fit)
   smooth_index <- .mgcvst_spde_index(fit)
@@ -170,30 +248,69 @@
     X = X,
     row_id = .mgcvst_row_id(fit, nrow(L)),
     smooth_label = S$label,
-    smooth_columns = S$columns
+    smooth_columns = S$columns,
+    score_precision_psd = S$score_precision_psd
   )
   fit_summary <- summary(fit)
   smooth_table <- fit_summary$s.table[smooth_index, , drop = FALSE]
   wood_p_value <- as.numeric(smooth_table[1L, "p-value"])
   smooth_edf <- as.numeric(smooth_table[1L, "edf"])
+  residual_df <- as.numeric(fit$df.residual)
+  if (length(residual_df) != 1L || !is.finite(residual_df) ||
+      residual_df <= 0) {
+    stop("The fitted model did not return one positive finite residual df.")
+  }
   statistic_column <- ncol(smooth_table) - 1L
   wood_statistic <- as.numeric(smooth_table[1L, statistic_column])
   parameters <- W$family_parameters
   if (is.null(parameters)) parameters <- numeric()
-  list(
+  ans <- list(
     working_error = W$working_error,
     working_variance = W$working_variance,
-    field_scale = W$dispersion / S$sp,
     smoothing_parameter = S$sp,
     dispersion = W$dispersion,
     family = W$family,
-    family_parameters = paste(format(parameters, digits = 16), collapse = ","),
+    family_parameters = as.numeric(parameters),
+    family_parameters_diagnostic = paste(
+      format(parameters, digits = 16), collapse = ","
+    ),
     smooth_label = S$label,
     wood_p_value = wood_p_value,
     wood_statistic = wood_statistic,
     smooth_edf = smooth_edf,
+    residual_df = residual_df,
     geometry = geometry
   )
+  if (retain_smooth) {
+    s <- fit$smooth[[smooth_index]]
+    fit_basis <- L[, S$columns, drop = FALSE]
+    fit_penalty <- as.matrix(s$S[[1L]])
+    coefficients <- as.numeric(stats::coef(fit)[S$columns])
+    if (!all(dim(fit_penalty) == c(ncol(fit_basis), ncol(fit_basis))) ||
+        length(coefficients) != ncol(fit_basis) ||
+        any(!is.finite(c(fit_basis, fit_penalty, coefficients)))) {
+      stop("The retained reduced smooth fit is not finite and dimensionally aligned.")
+    }
+    metadata <- list(
+      smooth_class = class(s)[1L],
+      smooth_label = S$label,
+      coefficient_columns = as.integer(S$columns),
+      reduced_dimension = ncol(fit_basis),
+      raw_dimension = s[["raw.dimension"]],
+      projected_dimension = s[["pc_full_dimension"]],
+      pc_retained_dimension = s[["pc_retained_dimension"]],
+      pc_cutoff = s[["pc_cutoff"]],
+      kappa = s[["kappa"]]
+    )
+    ans$smooth_coefficients <- coefficients
+    ans$fit_geometry <- list(
+      B = fit_basis,
+      P = fit_penalty,
+      row_id = .mgcvst_row_id(fit, nrow(L)),
+      metadata = metadata
+    )
+  }
+  ans
 }
 
 # Convert a condition to serializable class, message, and call fields.
@@ -207,7 +324,8 @@
 }
 
 # Run the corrected marginal score with an explicit Davies-to-Liu fallback.
-.mgcvst_marginal_score <- function(fit, marginal_test, marginal_args) {
+.mgcvst_marginal_score <- function(fit, marginal_test, marginal_args,
+                                   test_component = 1L) {
   if (is.null(marginal_test)) {
     marginal_test <- get0(
       "taps_score_test", envir = .GlobalEnv, mode = "function",
@@ -230,7 +348,7 @@
   }
   args <- utils::modifyList(
     list(
-      fit = fit, test.component = 1L, method = "davies",
+      fit = fit, test.component = test_component, method = "davies",
       max_eps = 1e-8, max_iter = 100000L, n_threads = 1L
     ),
     marginal_args
@@ -258,9 +376,17 @@
   names <- c(
     ".mgcvst_thread_limit", ".mgcvst_worker_initialize",
     ".mgcvst_spde_index", ".mgcvst_row_id", ".mgcvst_geometry_equal",
+    ".mgcvst_fit_geometry_equal",
     ".mgcvst_compact_fit", ".mgcvst_condition", ".mgcvst_fit_chunk",
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     ".gam_training_lpmatrix", ".gam_single_smooth",
+    ".mgcvst_expand_penalty", ".mgcvst_model_geometry",
+    ".mgcvst_model_geometry_equal", ".mgcvst_model_fit_one",
+    ".mgcvst_model_fit_chunk", ".mgcvst_full_rank_design",
+    ".mgcvst_spde_factor", ".mgcvst_model_operator",
+    ".mgcvst_bilinear_calibrate", ".mgcvst_model_score_state",
+    ".mgcvst_model_pair_single", ".mgcvst_model_pair_global_local",
+    ".mgcvst_model_test_chunk",
     "rkhs_extract_working_model", ".magic_mm", ".magic_solve",
     ".as_numeric_matrix", ".rkhs_score_operator_factor",
     "rkhs_score_operator", "rkhs_score_apply_P",
@@ -276,13 +402,27 @@
     if (is.function(value)) environment(value) <- bundle
     assign(name, value, envir = bundle)
   }
+  worker_trace_powers <- function(matrixList, pairs, maxPower = 4L,
+                                  threads = 1L) {
+    loadNamespace("mgcvST")
+    .Call(
+      "_mgcvST_mgcvst_pair_trace_powers_cpp",
+      matrixList, pairs, maxPower, threads, PACKAGE = "mgcvST"
+    )
+  }
+  environment(worker_trace_powers) <- bundle
+  assign(
+    "mgcvst_pair_trace_powers_cpp", worker_trace_powers,
+    envir = bundle
+  )
   bundle
 }
 
 # Fit and compact one feature chunk while preserving every per-feature failure.
 .mgcvst_fit_chunk <- function(payload, G0, family_raw, method, control,
                               gam_args, source_files, worker_init, init_key,
-                              geometry_tol, marginal_test, marginal_args) {
+                              geometry_tol, marginal_test, marginal_args,
+                              retain_smooth) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   ids <- payload$index
   Y <- payload$Y
@@ -291,18 +431,28 @@
   k <- nrow(Y)
   E <- matrix(NA_real_, nrow = n, ncol = k)
   V <- matrix(NA_real_, nrow = n, ncol = k)
-  field_scale <- smoothing_parameter <- dispersion <- rep(NA_real_, k)
+  smoothing_parameter <- dispersion <- rep(NA_real_, k)
   marginal_p_value <- wood_p_value <- wood_statistic <- smooth_edf <-
-    rep(NA_real_, k)
+    residual_df <- criterion <- rep(NA_real_, k)
   success <- converged <- smoothing_converged <- rep(FALSE, k)
   smoothing_converged[] <- NA
-  family <- family_parameters <- smooth_label <- marginal_method <-
-    rep(NA_character_, k)
+  family <- family_parameters_diagnostic <- smooth_label <- marginal_method <-
+    criterion_name <- rep(NA_character_, k)
+  family_parameters <- vector("list", k)
   irls_iterations <- rep(NA_integer_, k)
   outer_convergence <- rep(NA_character_, k)
   fit_seconds <- summary_seconds <- marginal_seconds <- rep(0, k)
   error_class <- error_message <- error_call <- rep(NA_character_, k)
   geometry <- NULL
+  fit_geometry <- NULL
+  coefficient_count <- length(seq.int(
+    G0$smooth[[1L]]$first.para, G0$smooth[[1L]]$last.para
+  ))
+  smooth_coefficients <- if (retain_smooth) {
+    matrix(NA_real_, nrow = k, ncol = coefficient_count)
+  } else {
+    NULL
+  }
   response_index <- attr(G0$terms, "response")
   if (length(response_index) != 1L || response_index < 1L ||
       is.null(G0$mf) || response_index > ncol(G0$mf)) {
@@ -337,6 +487,11 @@
     }
 
     fit <- fit_result$value
+    if (length(fit$gcv.ubre) == 1L && is.finite(fit$gcv.ubre)) {
+      criterion[j] <- as.numeric(fit$gcv.ubre)
+      nm <- names(fit$gcv.ubre)
+      if (length(nm) == 1L && nzchar(nm)) criterion_name[j] <- nm
+    }
     converged[j] <- isTRUE(fit$converged)
     if (!is.null(fit$mgcv.conv)) {
       smoothing_converged[j] <- isTRUE(fit$mgcv.conv)
@@ -350,7 +505,10 @@
 
     t0 <- proc.time()[["elapsed"]]
     compact_result <- tryCatch(
-      list(value = .mgcvst_compact_fit(fit), error = NULL),
+      list(
+        value = .mgcvst_compact_fit(fit, retain_smooth = retain_smooth),
+        error = NULL
+      ),
       error = function(e) list(value = NULL, error = e)
     )
     summary_seconds[j] <- proc.time()[["elapsed"]] - t0
@@ -381,15 +539,43 @@
       error_call[j] <- err$call
       next
     }
+    if (retain_smooth) {
+      fit_geometry_result <- tryCatch(
+        {
+          if (is.null(fit_geometry)) {
+            fit_geometry <- compact$fit_geometry
+          } else {
+            .mgcvst_fit_geometry_equal(
+              fit_geometry, compact$fit_geometry, geometry_tol
+            )
+          }
+          NULL
+        },
+        error = function(e) e
+      )
+      if (!is.null(fit_geometry_result)) {
+        err <- .mgcvst_condition(fit_geometry_result)
+        error_class[j] <- err$class
+        error_message[j] <- err$message
+        error_call[j] <- err$call
+        next
+      }
+      smooth_coefficients[j, ] <- compact$smooth_coefficients
+    }
 
     smoothing_parameter[j] <- compact$smoothing_parameter
     dispersion[j] <- compact$dispersion
     family[j] <- compact$family
-    family_parameters[j] <- compact$family_parameters
+    family_parameters[[j]] <- compact$family_parameters
+    family_parameters_diagnostic[j] <- compact$family_parameters_diagnostic
     smooth_label[j] <- compact$smooth_label
     wood_p_value[j] <- compact$wood_p_value
     wood_statistic[j] <- compact$wood_statistic
     smooth_edf[j] <- compact$smooth_edf
+    residual_df[j] <- compact$residual_df
+
+    E[, j] <- compact$working_error
+    V[, j] <- compact$working_variance
 
     t0 <- proc.time()[["elapsed"]]
     marginal_result <- tryCatch(
@@ -412,9 +598,6 @@
     }
 
     success[j] <- TRUE
-    E[, j] <- compact$working_error
-    V[, j] <- compact$working_variance
-    field_scale[j] <- compact$field_scale
     marginal_p_value[j] <- marginal_result$value$p_value
     marginal_method[j] <- marginal_result$value$method
   }
@@ -427,13 +610,15 @@
     smooth_label = smooth_label,
     smoothing_parameter = smoothing_parameter,
     dispersion = dispersion,
-    field_scale = field_scale,
     marginal_p_value = marginal_p_value,
     marginal_method = marginal_method,
     wood_p_value = wood_p_value,
     wood_statistic = wood_statistic,
     smooth_edf = smooth_edf,
-    family_parameters = family_parameters,
+    residual_df = residual_df,
+    criterion = criterion,
+    criterion_name = criterion_name,
+    family_parameters = family_parameters_diagnostic,
     converged = converged,
     smoothing_converged = smoothing_converged,
     irls_iterations = irls_iterations,
@@ -452,9 +637,13 @@
     index = ids,
     working_error = E,
     working_variance = V,
-    field_scale = field_scale,
+    lambda = smoothing_parameter,
+    dispersion = dispersion,
+    family_parameters = family_parameters,
     diagnostics = diagnostics,
-    geometry = geometry
+    geometry = geometry,
+    smooth_coefficients = smooth_coefficients,
+    fit_geometry = fit_geometry
   )
 }
 
@@ -503,6 +692,10 @@
 #'   `fit`, `test.component`, `method`, and `n_threads` are controlled by
 #'   mgcvST; Davies is primary, Liu is the explicit numerical fallback, and
 #'   score threads remain one.
+#' @param retain_smooth Logical; retain the feature-by-coefficient smooth
+#'   coefficient matrix and one shared reduced fit basis and unscaled penalty.
+#'   This opt-in representation supports prediction and other downstream uses
+#'   without retaining full `gam` objects.
 #' @param method Fitting method passed to `mgcv::gam()`. `"REML"` is the
 #'   default.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
@@ -512,16 +705,33 @@
 #' @param ... Additional arguments passed to `mgcv::gam(G = G, ...)`.
 #' @return A compact object of class `mgcvST_fit` containing marginal score
 #'   p-values, Wood audit values, feature IDs, working errors and variances,
-#'   field scales, shared geometry, timing and convergence diagnostics, and an
-#'   explicit failures table.
+#'   separate per-feature `dispersion` and `lambda`, shared score geometry,
+#'   optimized fit criterion and its original mgcv name, exact residual degrees
+#'   of freedom, timing and convergence diagnostics, and an explicit failures
+#'   table. When
+#'   `retain_smooth = TRUE`, it also contains `smooth_coefficients`,
+#'   `fit_basis`, `fit_penalty`, `row_id`, and `basis_metadata`. New objects do
+#'   not store a redundant `field_scale`; score methods derive it as
+#'   `dispersion / lambda`.
 #' @export
 mgcvST.estimate <- function(
     Y, G, feature_id = rownames(Y),
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
     source_files = NULL, worker_init = NULL,
     marginal_test = NULL, marginal_args = list(), method = "REML",
+    retain_smooth = FALSE,
     control = mgcv::gam.control(nthreads = 1L), geometry_tol = 1e-9, ...) {
   call <- match.call()
+  if (inherits(G, "mgcvST_model")) {
+    return(.mgcvst_estimate_model(
+      Y = Y, model = G, feature_id = feature_id, BPPARAM = BPPARAM,
+      chunk_size = chunk_size, source_files = source_files,
+      worker_init = worker_init, marginal_test = marginal_test,
+      marginal_args = marginal_args, method = method,
+      retain_smooth = retain_smooth, control = control,
+      geometry_tol = geometry_tol, gam_args = list(...), call = call
+    ))
+  }
   Y <- as.matrix(Y)
   storage.mode(Y) <- "double"
   if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) || any(!is.finite(Y))) {
@@ -551,6 +761,10 @@ mgcvST.estimate <- function(
   if (!is.null(marginal_test) && !is.function(marginal_test)) {
     stop("marginal_test must be NULL or a function.")
   }
+  if (!is.logical(retain_smooth) || length(retain_smooth) != 1L ||
+      is.na(retain_smooth)) {
+    stop("retain_smooth must be TRUE or FALSE.")
+  }
   if (!is.list(marginal_args) ||
       (length(marginal_args) &&
        (is.null(names(marginal_args)) || any(!nzchar(names(marginal_args)))))) {
@@ -579,7 +793,6 @@ mgcvST.estimate <- function(
   if (length(forbidden)) {
     stop("Do not supply these arguments through ...: ", paste(forbidden, collapse = ", "))
   }
-
   source_files <- .mgcvst_source_files(source_files)
   init_key <- .mgcvst_init_key(source_files, worker_init)
   workers <- max(1L, min(nrow(Y), BiocParallel::bpworkers(BPPARAM)))
@@ -607,7 +820,8 @@ mgcvST.estimate <- function(
     gam_args = gam_args, source_files = source_files,
     worker_init = worker_init, init_key = init_key,
     geometry_tol = geometry_tol, marginal_test = marginal_test,
-    marginal_args = marginal_args, BPPARAM = BPPARAM
+    marginal_args = marginal_args, retain_smooth = retain_smooth,
+    BPPARAM = BPPARAM
   )
   elapsed <- proc.time()[["elapsed"]] - t0
 
@@ -617,7 +831,10 @@ mgcvST.estimate <- function(
               dimnames = list(NULL, feature_id))
   V <- matrix(NA_real_, nrow = n, ncol = p,
               dimnames = list(NULL, feature_id))
-  field_scale <- stats::setNames(rep(NA_real_, p), feature_id)
+  lambda <- dispersion <- stats::setNames(rep(NA_real_, p), feature_id)
+  family_parameters <- stats::setNames(vector("list", p), feature_id)
+  smooth_coefficients <- NULL
+  fit_geometry <- NULL
   diagnostics <- vector("list", length(chunks))
   geometry <- NULL
   for (j in seq_along(chunks)) {
@@ -625,7 +842,9 @@ mgcvST.estimate <- function(
     i <- z$index
     E[, i] <- z$working_error
     V[, i] <- z$working_variance
-    field_scale[i] <- z$field_scale
+    lambda[i] <- z$lambda
+    dispersion[i] <- z$dispersion
+    family_parameters[i] <- z$family_parameters
     diagnostics[[j]] <- z$diagnostics
     if (!is.null(z$geometry)) {
       if (is.null(geometry)) {
@@ -633,6 +852,20 @@ mgcvST.estimate <- function(
       } else {
         .mgcvst_geometry_equal(geometry, z$geometry, geometry_tol)
       }
+    }
+    if (retain_smooth && !is.null(z$fit_geometry)) {
+      if (is.null(fit_geometry)) {
+        fit_geometry <- z$fit_geometry
+        smooth_coefficients <- matrix(
+          NA_real_, nrow = p, ncol = ncol(fit_geometry$B),
+          dimnames = list(feature_id, NULL)
+        )
+      } else {
+        .mgcvst_fit_geometry_equal(
+          fit_geometry, z$fit_geometry, geometry_tol
+        )
+      }
+      smooth_coefficients[i, ] <- z$smooth_coefficients
     }
   }
   diagnostics <- do.call(rbind, diagnostics)
@@ -643,13 +876,15 @@ mgcvST.estimate <- function(
   ), drop = FALSE]
   rownames(failures) <- NULL
 
-  structure(
-    list(
+  ans <- list(
       feature_id = feature_id,
       working_error = E,
       working_variance = V,
-      field_scale = field_scale,
+      dispersion = dispersion,
+      lambda = lambda,
+      family_parameters = family_parameters,
       geometry = geometry,
+      row_id = if (is.null(geometry)) NULL else geometry$row_id,
       diagnostics = diagnostics,
       failures = failures,
       timing = list(
@@ -661,10 +896,27 @@ mgcvST.estimate <- function(
       ),
       geometry_tol = geometry_tol,
       source_files = source_files,
+      retain_smooth = retain_smooth,
       call = call
-    ),
-    class = c("mgcvST_fit", "mgcvST")
-  )
+    )
+  if (retain_smooth) {
+    if (is.null(fit_geometry)) {
+      ans$smooth_coefficients <- matrix(
+        NA_real_, nrow = p, ncol = 0L,
+        dimnames = list(feature_id, NULL)
+      )
+      ans$fit_basis <- NULL
+      ans$fit_penalty <- NULL
+      ans$basis_metadata <- NULL
+    } else {
+      ans$smooth_coefficients <- smooth_coefficients
+      ans$fit_basis <- fit_geometry$B
+      ans$fit_penalty <- fit_geometry$P
+      ans$row_id <- fit_geometry$row_id
+      ans$basis_metadata <- fit_geometry$metadata
+    }
+  }
+  structure(ans, class = c("mgcvST_fit", "mgcvST"))
 }
 
 #' Print compact feature-fit diagnostics
@@ -700,15 +952,13 @@ print.mgcvST_fit <- function(x, ...) {
 #'   must inherit from `spde.smooth` or `spdePC.smooth`.
 #' @param method Calibration method passed to
 #'   [rkhs_covariance_score_irls()].
-#' @param normal_min_eff_rank Effective-rank gate for the normal approximation.
 #' @param precision_tol Positive relative tolerance for basis and unscaled-Q
 #'   comparison. The default is `1e-9`.
 #' @return An `rkhs_covariance_score` object with conditional IRLS metadata.
 #' @export
 score_test <- function(
     fit1, fit2,
-    method = c("liu", "davies", "normal", "auto", "signed"),
-    normal_min_eff_rank = 30, precision_tol = 1e-9) {
+    method = c("liu", "davies"), precision_tol = 1e-9) {
   method <- match.arg(method)
   precision_tol <- as.numeric(precision_tol)
   if (length(precision_tol) != 1L || !is.finite(precision_tol) ||
@@ -725,8 +975,7 @@ score_test <- function(
   }
   rkhs_covariance_score_irls(
     fit1, fit2, smooth_index1 = i1, smooth_index2 = i2,
-    method = method, normal_min_eff_rank = normal_min_eff_rank,
-    geometry_tol = precision_tol
+    method = method, geometry_tol = precision_tol
   )
 }
 
@@ -774,10 +1023,28 @@ score_test <- function(
 # Construct each feature-level score summary once for the Liu pair engine.
 .mgcvst_liu_summaries <- function(fitmgcvST, used, verbose) {
   geometry <- fitmgcvST$geometry
-  Q <- Matrix::forceSymmetric(Matrix::Matrix(geometry$Q, sparse = TRUE))
-  R <- Matrix::chol(Q)
-  Rinv <- Matrix::solve(R, Matrix::Diagonal(nrow(Q)))
-  T0 <- .magic_mm(geometry$B, as.matrix(Rinv))
+  field_scale <- .mgcvst_field_scale(fitmgcvST)
+  Q <- as.matrix(geometry$Q)
+  allow_psd <- isTRUE(geometry$score_precision_psd)
+  if (allow_psd) {
+    E <- CppMatrix::matrixEigen((Q + t(Q)) / 2)
+    d <- as.numeric(E$values)
+    tol <- sqrt(.Machine$double.eps) * max(1, max(abs(d)))
+    if (min(d) < -tol) stop("The shared score precision is not positive semidefinite.")
+    keep <- d > tol
+    if (!any(keep)) stop("The shared score precision has no positive eigenvalues.")
+    Qinvhalf <- CppMatrix::matrixMultiply(
+      sweep(as.matrix(E$vectors[, keep, drop = FALSE]),
+            2L, 1 / sqrt(d[keep]), "*"),
+      t(as.matrix(E$vectors[, keep, drop = FALSE]))
+    )
+    T0 <- .magic_mm(geometry$B, Qinvhalf)
+  } else {
+    Q <- Matrix::forceSymmetric(Matrix::Matrix(Q, sparse = TRUE))
+    R <- Matrix::chol(Q)
+    Rinv <- Matrix::solve(R, Matrix::Diagonal(nrow(Q)))
+    T0 <- .magic_mm(geometry$B, as.matrix(Rinv))
+  }
 
   a <- H <- vector("list", length(used))
   success <- rep(FALSE, length(used))
@@ -787,10 +1054,10 @@ score_test <- function(
     i <- used[j]
     z <- tryCatch(
       {
-        T <- sqrt(fitmgcvST$field_scale[i]) * T0
+        T <- sqrt(field_scale[i]) * T0
         op <- .rkhs_score_operator_factor(
           T, fitmgcvST$working_variance[, i], geometry$X,
-          field_scale = fitmgcvST$field_scale[i]
+          field_scale = field_scale[i]
         )
         S <- rkhs_score_summary(fitmgcvST$working_error[, i], op)
         list(a = S$a, H = S$H, error = NULL)
@@ -912,8 +1179,7 @@ score_test <- function(
 }
 
 # Evaluate one pair chunk from compact feature summaries.
-.mgcvst_test_chunk <- function(payload, geometry, calibration,
-                               normal_min_eff_rank, tol) {
+.mgcvst_test_chunk <- function(payload, geometry, calibration, tol) {
   .mgcvst_thread_limit()
   pairs <- payload$pairs
   k <- nrow(pairs)
@@ -922,7 +1188,8 @@ score_test <- function(
   for (i in used) {
     op <- rkhs_score_operator(
       geometry$B, geometry$Q, payload$working_variance[, i],
-      geometry$X, payload$field_scale[i]
+      geometry$X, payload$field_scale[i],
+      allow_psd = isTRUE(geometry$score_precision_psd)
     )
     summaries[[i]] <- rkhs_score_summary(
       payload$working_error[, i], op
@@ -938,20 +1205,14 @@ score_test <- function(
         S2 <- summaries[[i2]]
         U <- as.numeric(crossprod(S1$a, S2$a))
         cal <- rkhs_score_calibrate(
-          U, S1$H, S2$H, method = calibration,
-          normal_min_eff_rank = normal_min_eff_rank, tol = tol
+          U, S1$H, S2$H, method = calibration, tol = tol
         )
         value <- c(list(
           score = U,
           signed_score = U,
           statistic = U^2,
           quadratic_statistic = U^2,
-          normal_statistic = if (identical(cal$method, "normal") &&
-                                 cal$information > tol) {
-            U / sqrt(cal$information)
-          } else {
-            NA_real_
-          }
+          normal_statistic = NA_real_
         ), cal)
         list(value = value, error = NULL)
       },
@@ -967,6 +1228,7 @@ score_test <- function(
         statistic = NA_real_, quadratic_statistic = NA_real_,
         normal_statistic = NA_real_, information = NA_real_,
         effective_rank = NA_real_, p_value = NA_real_,
+        p_two_sided = NA_real_, p_positive = NA_real_, p_negative = NA_real_,
         calibration = NA_character_, status = "score_failed",
         davies_ifault = NA_integer_, error = err$message,
         stringsAsFactors = FALSE
@@ -985,7 +1247,10 @@ score_test <- function(
       normal_statistic = value$normal_statistic,
       information = value$information,
       effective_rank = value$effective_rank,
-      p_value = value$p_value,
+      p_value = value$p_two_sided,
+      p_two_sided = value$p_two_sided,
+      p_positive = value$p_positive,
+      p_negative = value$p_negative,
       calibration = value$method,
       status = value$status,
       davies_ifault = if (is.null(value$davies_ifault)) NA_integer_ else
@@ -1033,7 +1298,6 @@ score_test <- function(
 #' @param highlight Optional two-column pairs that must be tested and retained.
 #'   They may overlap `pairs`; non-overlapping highlights are appended.
 #' @param calibration Score calibration passed to [rkhs_score_calibrate()].
-#' @param normal_min_eff_rank Effective-rank gate for normal calibration.
 #' @param tol Positive numerical score tolerance.
 #' @param chunk_size Positive number of tested pairs per task or C++ block.
 #'   Liu calibration defaults to 10,000 pairs per interruptible block.
@@ -1043,13 +1307,13 @@ score_test <- function(
 #' @return A compact `mgcvST_test` object containing pair results, adjusted
 #'   p-values, discovery/highlight/retention flags, threshold metadata,
 #'   explicit failures, and timing metadata.
-#' @export
-mgcvST.test <- function(
+#' @keywords internal
+.mgcvst_test_legacy <- function(
     fitmgcvST, q.value = 0.05, FDR = TRUE, method = "BH",
     BPPARAM = BiocParallel::SerialParam(), ...,
     pairs = NULL, highlight = NULL,
-    calibration = c("liu", "davies", "normal", "auto", "signed"),
-    normal_min_eff_rank = 30, tol = 1e-10, chunk_size = NULL,
+    calibration = c("liu", "davies"),
+    tol = 1e-10, chunk_size = NULL,
     threads = NULL, verbose = FALSE) {
   if (!inherits(fitmgcvST, "mgcvST_fit")) {
     stop("fitmgcvST must be returned by mgcvST.estimate().")
@@ -1080,11 +1344,6 @@ mgcvST.test <- function(
     stop("Unused arguments in ...: ", paste(names(unused), collapse = ", "))
   }
   calibration <- match.arg(calibration)
-  normal_min_eff_rank <- as.numeric(normal_min_eff_rank)
-  if (length(normal_min_eff_rank) != 1L ||
-      !is.finite(normal_min_eff_rank) || normal_min_eff_rank <= 0) {
-    stop("normal_min_eff_rank must be one positive finite value.")
-  }
   tol <- as.numeric(tol)
   if (length(tol) != 1L || !is.finite(tol) || tol <= 0) {
     stop("tol must be one positive finite value.")
@@ -1095,6 +1354,9 @@ mgcvST.test <- function(
     stop("threads must be one positive integer.")
   }
   .mgcvst_thread_limit()
+  scale_tol <- fitmgcvST$geometry_tol
+  if (is.null(scale_tol)) scale_tol <- 1e-9
+  field_scale <- .mgcvst_field_scale(fitmgcvST, tol = scale_tol)
 
   index <- .mgcvst_pair_index(pairs, fitmgcvST$feature_id)
   highlight_index <- matrix(integer(), nrow = 0L, ncol = 2L)
@@ -1146,6 +1408,7 @@ mgcvST.test <- function(
     information = NA_real_,
     effective_rank = NA_real_,
     p_value = NA_real_,
+    p_two_sided = NA_real_,
     p_positive = NA_real_,
     p_negative = NA_real_,
     p_adjusted = NA_real_,
@@ -1206,6 +1469,7 @@ mgcvST.test <- function(
       result$information[target] <- evaluated$information
       result$effective_rank[target] <- evaluated$effective_rank
       result$p_value[target] <- evaluated$p_value
+      result$p_two_sided[target] <- evaluated$p_value
       result$calibration[target[evaluated$status == "ok"]] <- "liu"
       result$status[target] <- evaluated$status
       result$error[target] <- evaluated$error
@@ -1224,7 +1488,7 @@ mgcvST.test <- function(
           feature_id = fitmgcvST$feature_id[used],
           working_error = fitmgcvST$working_error[, used, drop = FALSE],
           working_variance = fitmgcvST$working_variance[, used, drop = FALSE],
-          field_scale = fitmgcvST$field_scale[used]
+          field_scale = field_scale[used]
         )
       })
       worker_bundle <- .mgcvst_worker_bundle()
@@ -1234,14 +1498,14 @@ mgcvST.test <- function(
       evaluated <- BiocParallel::bplapply(
         payload, test_chunk,
         geometry = fitmgcvST$geometry, calibration = calibration,
-        normal_min_eff_rank = normal_min_eff_rank, tol = tol,
-        BPPARAM = BPPARAM
+        tol = tol, BPPARAM = BPPARAM
       )
       elapsed <- proc.time()[["elapsed"]] - t0
       evaluated <- do.call(rbind, evaluated)
       core <- c(
         "score", "signed_score", "statistic", "quadratic_statistic",
         "normal_statistic", "information", "effective_rank", "p_value",
+        "p_two_sided", "p_positive", "p_negative",
         "calibration", "status", "davies_ifault", "error"
       )
       target <- match(evaluated$pair_index, result$pair_index)
@@ -1261,6 +1525,7 @@ mgcvST.test <- function(
     result$p_value[valid] / 2,
     1 - result$p_value[valid] / 2
   )
+  result$p_two_sided[valid] <- result$p_value[valid]
   if (FDR) {
     result$p_adjusted[valid] <- stats::p.adjust(
       result$p_value[valid], method = method

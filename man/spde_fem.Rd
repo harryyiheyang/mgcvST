@@ -2,18 +2,19 @@
 % Please edit documentation in R/spde-smooth.R
 \name{spde_fem}
 \alias{spde_fem}
-\title{Construct finite element matrices for an SPDE mesh}
+\title{Construct the finite-element matrices used by mgcvST}
 \usage{
 spde_fem(mesh, order = 2L)
 }
 \arguments{
-\item{mesh}{A \code{spde_mesh} or \code{fm_mesh_2d} object.}
+\item{mesh}{A \code{\link[=spde_mesh]{spde_mesh()}}, \code{fm_mesh_2d}, or compatible mesh list.}
 
-\item{order}{Finite element integration order passed to \code{\link[fmesher:fm_fem]{fmesher::fm_fem()}}.}
+\item{order}{Finite-element order. Only linear triangles (\code{2}) are used.}
 }
 \value{
-The finite element matrix list returned by \code{fmesher}.
+A list containing \code{M0}, \code{M1}, and \code{M2}.
 }
 \description{
-Construct finite element matrices for an SPDE mesh
+This helper belongs to the basis-construction path. Fitting a prepared
+basis does not call it.
 }

@@ -15,6 +15,7 @@ mgcvST.estimate(
   marginal_test = NULL,
   marginal_args = list(),
   method = "REML",
+  retain_smooth = FALSE,
   control = mgcv::gam.control(nthreads = 1L),
   geometry_tol = 1e-09,
   ...
@@ -54,6 +55,11 @@ score threads remain one.}
 \item{method}{Fitting method passed to \code{mgcv::gam()}. \code{"REML"} is the
 default.}
 
+\item{retain_smooth}{Logical; retain the feature-by-coefficient smooth
+coefficient matrix and one shared reduced fit basis and unscaled penalty.
+This opt-in representation supports prediction and other downstream uses
+without retaining full \code{gam} objects.}
+
 \item{control}{An \code{mgcv::gam.control()} object. Internal thread counts are
 always forced to one.}
 
@@ -65,8 +71,14 @@ basis, fixed-design, and unscaled precision geometry.}
 \value{
 A compact object of class \code{mgcvST_fit} containing marginal score
 p-values, Wood audit values, feature IDs, working errors and variances,
-field scales, shared geometry, timing and convergence diagnostics, and an
-explicit failures table.
+separate per-feature \code{dispersion} and \code{lambda}, shared score geometry,
+optimized fit criterion and its original mgcv name, exact residual degrees
+of freedom, timing and convergence diagnostics, and an explicit failures
+table. When
+\code{retain_smooth = TRUE}, it also contains \code{smooth_coefficients},
+\code{fit_basis}, \code{fit_penalty}, \code{row_id}, and \code{basis_metadata}. New objects do
+not store a redundant \code{field_scale}; score methods derive it as
+\code{dispersion / lambda}.
 }
 \description{
 Fits each row of \code{Y} with a reusable \code{mgcv::gam(fit = FALSE)} setup and

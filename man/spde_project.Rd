@@ -7,13 +7,14 @@
 spde_project(mesh, loc)
 }
 \arguments{
-\item{mesh}{A \code{spde_mesh} or \code{fm_mesh_2d} object.}
+\item{mesh}{A \code{\link[=spde_mesh]{spde_mesh()}}, \code{fm_mesh_2d}, or compatible mesh list.}
 
-\item{loc}{Observation or prediction coordinates.}
+\item{loc}{Coordinates in the original coordinate system.}
 }
 \value{
 A sparse projector matrix with one row per location.
 }
 \description{
-Construct a sparse observation-to-mesh projector
+This helper belongs to the basis-construction path. Fitting a prepared
+basis does not call it.
 }

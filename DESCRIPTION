@@ -17,23 +17,24 @@ Roxygen: list(markdown = TRUE)
 Depends: R (>= 4.2.0)
 Imports:
     BiocParallel,
-    CompQuadForm,
     CppMatrix (>= 0.1.0),
-    fmesher,
-    geometry,
     graphics,
-    INLA,
     Matrix,
     mgcv,
     Rcpp,
-    sf,
     stats
 LinkingTo:
     Rcpp,
     RcppArmadillo
 Suggests:
+    CompQuadForm,
     data.table,
+    fmesher,
+    geometry,
+    INLA,
     mgcv.taps,
-    mgcViz
+    sf,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
 Additional_repositories: https://inla.r-inla-download.org/R/stable
 Config/roxygen2/version: 8.1.0

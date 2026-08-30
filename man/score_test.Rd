@@ -4,13 +4,7 @@
 \alias{score_test}
 \title{Direct covariance score test for two SPDE mgcv fits}
 \usage{
-score_test(
-  fit1,
-  fit2,
-  method = c("liu", "davies", "normal", "auto", "signed"),
-  normal_min_eff_rank = 30,
-  precision_tol = 1e-09
-)
+score_test(fit1, fit2, method = c("liu", "davies"), precision_tol = 1e-09)
 }
 \arguments{
 \item{fit1, fit2}{Converged \code{mgcv::gam} fits with exactly one smooth, which
@@ -18,8 +12,6 @@ must inherit from \code{spde.smooth} or \code{spdePC.smooth}.}
 
 \item{method}{Calibration method passed to
 \code{\link[=rkhs_covariance_score_irls]{rkhs_covariance_score_irls()}}.}
-
-\item{normal_min_eff_rank}{Effective-rank gate for the normal approximation.}
 
 \item{precision_tol}{Positive relative tolerance for basis and unscaled-Q
 comparison. The default is \code{1e-9}.}

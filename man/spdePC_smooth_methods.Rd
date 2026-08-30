@@ -4,7 +4,7 @@
 \alias{spdePC_smooth_methods}
 \alias{smooth.construct.spdePC.smooth.spec}
 \alias{Predict.matrix.spdePC.smooth}
-\title{Public principal-component SPDE smooth methods}
+\title{Principal-component SPDE smooth methods}
 \usage{
 \method{smooth.construct}{spdePC.smooth.spec}(object, data, knots)
 
@@ -19,21 +19,9 @@ fitted smooth.}
 \item{knots}{Knot information supplied by \code{mgcv}.}
 }
 \value{
-\code{smooth.construct.spdePC.smooth.spec()} returns a fitted smooth
-specification. \code{Predict.matrix.spdePC.smooth()} returns the numeric
-prediction matrix at \code{data}.
+The constructed smooth or its prediction matrix.
 }
 \description{
-These functions are the S3 constructor and prediction-matrix methods used
-by \code{mgcv} for \code{bs = "spdePC"}. The constructor projects the intercept in
-coefficient space, eigendecomposes the resulting fixed-kappa covariance
-\code{G = Q^{-1}}, and retains the leading directions whose eigenvalues explain
-\code{xt$pc_cutoff} of \code{tr(G)}. The fitted object retains \code{pc_score_Q}, the
-corresponding positive-semidefinite precision in the full projected
-coefficient coordinates, for covariance score tests.
-}
-\details{
-The spatial scale is intentionally fixed: supply \code{sp = c(lambda, kappa)}
-with a positive \code{kappa} (normally \code{sp = c(-1, 0.1)}). The first entry can
-be \code{-1} to estimate only the smoothing parameter \code{lambda} by REML.
+The PC dimension is determined only from the cumulative covariance
+contribution stored in \code{xt$pc_cutoff}. The mgcv argument \code{k} is ignored.
 }
