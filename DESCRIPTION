@@ -18,11 +18,13 @@ Depends: R (>= 4.2.0)
 Imports:
     BiocParallel,
     CppMatrix (>= 0.1.0),
+    glasso,
     graphics,
     Matrix,
     mgcv,
     Rcpp,
-    stats
+    stats,
+    susieR
 LinkingTo:
     Rcpp,
     RcppArmadillo
@@ -33,8 +35,6 @@ Suggests:
     geometry,
     INLA,
     mgcv.taps,
-    sf,
-    testthat (>= 3.0.0)
-Config/testthat/edition: 3
+    sf
 Additional_repositories: https://inla.r-inla-download.org/R/stable
 Config/roxygen2/version: 8.1.0

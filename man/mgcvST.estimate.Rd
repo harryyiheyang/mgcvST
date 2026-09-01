@@ -17,7 +17,6 @@ mgcvST.estimate(
   method = "REML",
   retain_smooth = FALSE,
   control = mgcv::gam.control(nthreads = 1L),
-  geometry_tol = 1e-09,
   ...
 )
 }
@@ -48,9 +47,8 @@ a sourced \code{taps_score_test()} or the installed \code{mgcv.taps} export on e
 worker.}
 
 \item{marginal_args}{Named list of additional marginal-score arguments.
-\code{fit}, \code{test.component}, \code{method}, and \code{n_threads} are controlled by
-mgcvST; Davies is primary, Liu is the explicit numerical fallback, and
-score threads remain one.}
+\code{fit}, \code{test.component}, and \code{n_threads} are controlled by mgcvST. The
+marginal test otherwise uses its own defaults unless overridden here.}
 
 \item{method}{Fitting method passed to \code{mgcv::gam()}. \code{"REML"} is the
 default.}
@@ -63,9 +61,6 @@ without retaining full \code{gam} objects.}
 \item{control}{An \code{mgcv::gam.control()} object. Internal thread counts are
 always forced to one.}
 
-\item{geometry_tol}{Positive relative tolerance used to verify shared row,
-basis, fixed-design, and unscaled precision geometry.}
-
 \item{...}{Additional arguments passed to \code{mgcv::gam(G = G, ...)}.}
 }
 \value{
@@ -73,8 +68,7 @@ A compact object of class \code{mgcvST_fit} containing marginal score
 p-values, Wood audit values, feature IDs, working errors and variances,
 separate per-feature \code{dispersion} and \code{lambda}, shared score geometry,
 optimized fit criterion and its original mgcv name, exact residual degrees
-of freedom, timing and convergence diagnostics, and an explicit failures
-table. When
+of freedom, timing, and convergence diagnostics. When
 \code{retain_smooth = TRUE}, it also contains \code{smooth_coefficients},
 \code{fit_basis}, \code{fit_penalty}, \code{row_id}, and \code{basis_metadata}. New objects do
 not store a redundant \code{field_scale}; score methods derive it as
@@ -89,6 +83,10 @@ The default marginal test is \code{mgcv.taps::taps_score_test()}, or a sourced
 retained. Genes are processed in chunks through \code{BiocParallel}; the default
 is serial. On Windows, use a persistent \code{SnowParam(type = "SOCK")} object
 and pass the same object to estimation and testing.
+A fitting, compaction, or marginal-test error is recorded for that feature;
+the other features continue. A marginal-test error leaves the already
+constructed compact working model intact and only its marginal p-value
+unavailable.
 }
 \details{
 \code{source_files} supports source-first custom smooths. Each SOCK worker

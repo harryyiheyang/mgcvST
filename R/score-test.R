@@ -45,14 +45,14 @@ rkhs_score_information <- function(H1, H2) {
   as.numeric(sum(H1 * t(H2)))
 }
 
-# Return a numerical factor for a positive-semidefinite matrix.
-.psd_factor <- function(H, tol) {
+# Return a numerical factor for a positive-semidefinite score matrix.
+.psd_factor <- function(H) {
   H <- (H + t(H)) / 2
   E <- CppMatrix::matrixEigen(H)
   d <- as.numeric(E$values)
-  cutoff <- tol * max(1, max(abs(d)))
-  if (min(d) < -cutoff) stop("H is not positive semidefinite.")
-  keep <- d > cutoff
+  if (min(d) < -1e-10) stop("H is not positive semidefinite.")
+  d[d < 0] <- 0
+  keep <- d > 0
   if (!any(keep)) return(matrix(numeric(0), nrow(H), 0L))
   sweep(as.matrix(E$vectors[, keep, drop = FALSE]), 2L,
         sqrt(pmax(d[keep], 0)), "*")
@@ -61,26 +61,21 @@ rkhs_score_information <- function(H1, H2) {
 #' Singular values governing the Gaussian null score distribution
 #'
 #' @param H1,H2 Aligned innovation-space score covariance summaries.
-#' @param tol Relative numerical-rank tolerance.
 #' @return The positive singular values in decreasing order.
 #' @export
-rkhs_score_singular_values <- function(H1, H2, tol = 1e-10) {
+rkhs_score_singular_values <- function(H1, H2) {
   H1 <- .as_numeric_matrix(H1, "H1")
   H2 <- .as_numeric_matrix(H2, "H2")
   if (!all(dim(H1) == dim(H2)) || nrow(H1) != ncol(H1)) {
     stop("H1 and H2 must be square matrices with identical dimensions.")
   }
-  tol <- as.numeric(tol)
-  if (length(tol) != 1L || !is.finite(tol) || tol <= 0) {
-    stop("tol must be one positive finite value.")
-  }
-  F1 <- .psd_factor(H1, tol)
-  F2 <- .psd_factor(H2, tol)
+  F1 <- .psd_factor(H1)
+  F2 <- .psd_factor(H2)
   if (ncol(F1) == 0L || ncol(F2) == 0L) return(numeric(0))
   A <- .magic_mm(F1, F2, transA = TRUE)
   s <- as.numeric(CppMatrix::matrixSVD(A)$d)
   if (!length(s)) return(numeric(0))
-  s[s > tol * max(s)]
+  s[s > 0]
 }
 
 #' Calibrate a signed bilinear Gaussian score
@@ -92,37 +87,22 @@ rkhs_score_singular_values <- function(H1, H2, tol = 1e-10) {
 #' @param U Observed bilinear score.
 #' @param H1,H2 Score covariance summaries.
 #' @param method Either `"liu"` (the default fast calibration) or `"davies"`.
-#' @param tol Numerical-rank tolerance.
-#' @param davies_accuracy Accuracy passed to [CompQuadForm::davies()].
-#' @param davies_limit Integration limit passed to [CompQuadForm::davies()].
-#' @return Calibration diagnostics and simultaneous two-sided, positive, and
-#'   negative p-values.
+#' @return Simultaneous two-sided, positive, and negative p-values with the
+#'   information, effective rank, and numerical moments used to obtain them.
 #' @export
 rkhs_score_calibrate <- function(U, H1, H2,
-                                 method = c("liu", "davies"),
-                                 tol = 1e-10,
-                                 davies_accuracy = 1e-7,
-                                 davies_limit = 10000L) {
+                                  method = c("liu", "davies")) {
   method <- match.arg(method)
-  davies_accuracy <- as.numeric(davies_accuracy)
-  davies_limit <- as.integer(davies_limit)
-  if (length(davies_accuracy) != 1L || !is.finite(davies_accuracy) ||
-      davies_accuracy <= 0) {
-    stop("davies_accuracy must be one positive finite value.")
-  }
-  if (length(davies_limit) != 1L || is.na(davies_limit) || davies_limit < 1L) {
-    stop("davies_limit must be one positive integer.")
-  }
   U <- as.numeric(U)
   if (length(U) != 1L || !is.finite(U)) stop("U must be finite.")
   moments <- .rkhs_score_moments(H1, H2)
   information <- moments[1L]
-  if (!is.finite(information) || information <= tol) {
+  if (!is.finite(information) || information <= 1e-10) {
     return(list(
-      p_value = NA_real_, p_two_sided = NA_real_, p_positive = NA_real_,
-      p_negative = NA_real_, method = method, information = information,
+      p_two_sided = NA_real_, p_positive = NA_real_,
+      p_negative = NA_real_, information = information,
       effective_rank = 0, singular_values = numeric(0), moments = moments,
-      status = "degenerate_information", davies_ifault = NA_integer_
+      liu_parameters = NULL
     ))
   }
   effective_rank <- information^2 / moments[2L]
@@ -133,37 +113,21 @@ rkhs_score_calibrate <- function(U, H1, H2,
       abs(U), moments[1L], moments[2L], moments[3L], moments[4L]
     )
     p.two <- liu$p_value
-    ifault <- NA_integer_
   } else {
     if (!requireNamespace("CompQuadForm", quietly = TRUE)) {
       stop("method = 'davies' requires the optional CompQuadForm package.")
     }
-    s <- rkhs_score_singular_values(H1, H2, tol = tol)
-    if (abs(U) <= tol * sqrt(information)) {
-      p.two <- 1
-      ifault <- 0L
+    s <- rkhs_score_singular_values(H1, H2)
+    weights <- c(s / 2, -s / 2)
+    fit <- CompQuadForm::davies(abs(U), lambda = weights)
+    if (is.finite(fit$Qq) && fit$Qq > 0 && fit$Qq <= 1) {
+      p.two <- min(1, 2 * as.numeric(fit$Qq))
       liu <- NULL
     } else {
-      weights <- c(s / 2, -s / 2)
-      fit <- CompQuadForm::davies(
-        abs(U), lambda = weights, lim = davies_limit,
-        acc = davies_accuracy
+      liu <- .liu_squared_score_moments(
+        abs(U), moments[1L], moments[2L], moments[3L], moments[4L]
       )
-      ifault <- as.integer(fit$ifault)
-      valid <- ifault == 0L && is.finite(fit$Qq) &&
-        fit$Qq >= 0 && fit$Qq <= 0.5 + tol
-      if (valid) {
-        p.two <- min(1, max(0, 2 * as.numeric(fit$Qq)))
-        liu <- NULL
-      } else {
-        return(list(
-          p_value = NA_real_, p_two_sided = NA_real_,
-          p_positive = NA_real_, p_negative = NA_real_, method = "davies",
-          information = information, effective_rank = effective_rank,
-          singular_values = s, moments = moments, status = "davies_failed",
-          davies_ifault = ifault, liu_parameters = NULL
-        ))
-      }
+      p.two <- liu$p_value
     }
   }
 
@@ -171,17 +135,13 @@ rkhs_score_calibrate <- function(U, H1, H2,
   p.negative <- if (U <= 0) p.two / 2 else 1 - p.two / 2
 
   list(
-    p_value = p.two,
     p_two_sided = p.two,
     p_positive = p.positive,
     p_negative = p.negative,
-    method = method,
     information = information,
     effective_rank = effective_rank,
     singular_values = s,
     moments = moments,
-    status = "ok",
-    davies_ifault = ifault,
     liu_parameters = liu
   )
 }
@@ -248,18 +208,13 @@ rkhs_score_calibrate <- function(U, H1, H2,
 #' @param score_factor1,score_factor2 Optional aligned factors defining
 #'   `C12 = score_factor1 %*% t(score_factor2)`.
 #' @param method Calibration method passed to [rkhs_score_calibrate()].
-#' @param tol Numerical tolerance.
-#' @return An object of class `rkhs_covariance_score`. `statistic` and
-#'   `quadratic_statistic` are the primary quadratic statistic `U^2`;
-#'   `signed_score` (and the backward-compatible `score`) retain `U`.
-#'   `normal_statistic = U / sqrt(I)` is populated only when the normal
-#'   approximation is explicitly used.
+#' @return An object of class `rkhs_covariance_score`. `signed_score` retains
+#'   `U`, and `statistic` is the primary quadratic statistic `U^2`.
 #' @export
 rkhs_covariance_score <- function(error1, error2, operator1, operator2,
                                   score_factor1 = NULL,
                                   score_factor2 = NULL,
-                                  method = c("liu", "davies"),
-                                  tol = 1e-10) {
+                                  method = c("liu", "davies")) {
   method <- match.arg(method)
   S1 <- rkhs_score_summary(error1, operator1, score_factor1)
   S2 <- rkhs_score_summary(error2, operator2, score_factor2)
@@ -267,16 +222,12 @@ rkhs_covariance_score <- function(error1, error2, operator1, operator2,
     stop("The two score factors must use aligned innovation coordinates.")
   }
   U <- as.numeric(crossprod(S1$a, S2$a))
-  cal <- rkhs_score_calibrate(
-    U, S1$H, S2$H, method = method, tol = tol
-  )
+  cal <- rkhs_score_calibrate(U, S1$H, S2$H, method = method)
   structure(
     c(list(
-      score = U,
       signed_score = U,
       statistic = U^2,
-      quadratic_statistic = U^2,
-      normal_statistic = NA_real_,
+      calibration = method,
       summary1 = S1,
       summary2 = S2
     ),
@@ -318,9 +269,9 @@ rkhs_covariance_score <- function(error1, error2, operator1, operator2,
 print.rkhs_covariance_score <- function(x, ...) {
   cat("Quadratic-form RKHS covariance score test\n")
   cat("  signed score:", format(x$signed_score), "\n")
-  cat("  quadratic statistic:", format(x$quadratic_statistic), "\n")
+  cat("  quadratic statistic:", format(x$statistic), "\n")
   cat("  information:", format(x$information), "\n")
-  cat("  calibration:", x$method, "\n")
+  cat("  calibration:", x$calibration, "\n")
   cat("  two-sided p-value:", format.pval(x$p_two_sided), "\n")
   cat("  positive p-value:", format.pval(x$p_positive), "\n")
   cat("  negative p-value:", format.pval(x$p_negative), "\n")

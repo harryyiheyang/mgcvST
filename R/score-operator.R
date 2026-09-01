@@ -25,7 +25,7 @@
 #' Constructs the covariance factor `T = sqrt(field_scale) B Q^{-1/2}` and
 #' the compact Woodbury quantities needed to apply the residual precision
 #' operator
-#' \deqn{P=V^{-1}-V^{-1}X(X^T V^{-1}X)^{-1}X^T V^{-1},}
+#' \deqn{P=V^{-1}-V^{-1}X(X^T V^{-1}X)^{-}X^T V^{-1},}
 #' where `V = diag(diag_var) + T T^T`. The function never constructs `V` or
 #' `P` as an observation-by-observation matrix.
 #'
@@ -122,10 +122,7 @@ rkhs_score_operator <- function(B, Q, diag_var, X = NULL,
     VTX <- .magic_mm(T, DinvX, transA = TRUE)
     VinvX <- DinvX - DinvT %*% .magic_solve(M, VTX)
     XVX <- .magic_mm(X, VinvX, transA = TRUE)
-    if (qr(XVX)$rank != ncol(X)) {
-      stop("X is rank deficient under the marginal covariance metric.")
-    }
-    XVXinv <- .magic_solve(XVX, diag(ncol(X)))
+    XVXinv <- CppMatrix::matrixGeneralizedInverse(XVX)
   } else {
     VinvX <- matrix(numeric(0), nrow = n, ncol = 0L)
     XVXinv <- matrix(numeric(0), nrow = 0L, ncol = 0L)

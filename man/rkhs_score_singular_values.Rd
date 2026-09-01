@@ -4,12 +4,10 @@
 \alias{rkhs_score_singular_values}
 \title{Singular values governing the Gaussian null score distribution}
 \usage{
-rkhs_score_singular_values(H1, H2, tol = 1e-10)
+rkhs_score_singular_values(H1, H2)
 }
 \arguments{
 \item{H1, H2}{Aligned innovation-space score covariance summaries.}
-
-\item{tol}{Relative numerical-rank tolerance.}
 }
 \value{
 The positive singular values in decreasing order.

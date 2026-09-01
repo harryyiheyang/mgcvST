@@ -14,7 +14,6 @@ mgcvST.test(
   pairs = NULL,
   highlight = NULL,
   calibration = c("liu", "davies"),
-  tol = 1e-10,
   chunk_size = NULL,
   threads = NULL,
   verbose = FALSE
@@ -43,8 +42,6 @@ They may overlap \code{pairs}; non-overlapping highlights are appended.}
 
 \item{calibration}{Score calibration passed to \code{\link[=rkhs_score_calibrate]{rkhs_score_calibrate()}}.}
 
-\item{tol}{Positive numerical score tolerance.}
-
 \item{chunk_size}{Positive number of tested pairs per task or C++ block.
 Liu calibration defaults to 10,000 pairs per interruptible block.}
 
@@ -54,10 +51,7 @@ Liu calibration defaults to 10,000 pairs per interruptible block.}
 \item{verbose}{Logical; report Liu summary and block progress.}
 }
 \description{
-Dispatches a compact fit to its registered score engine. Legacy one-SPDE
-fits retain the validated score path. Fits constructed from \code{\link[=model.set]{model.set()}}
-use either the independent single-SPDE engine or the independent two-SPDE
-Lin--Schur engine. In the two-SPDE engine every model smoother contributes
-to each feature's marginal covariance, while only the marked global and
-local SPDE covariance directions enter the score-space Schur projection.
+Dispatches a compact fit to its registered score engine. Standard one-SPDE
+fits use the SPDE score path. One-component fits constructed from
+\code{\link[=model.set]{model.set()}} use the model score path.
 }

@@ -37,7 +37,7 @@ An object of class \code{rkhs_score_operator}.
 Constructs the covariance factor \verb{T = sqrt(field_scale) B Q^\{-1/2\}} and
 the compact Woodbury quantities needed to apply the residual precision
 operator
-\deqn{P=V^{-1}-V^{-1}X(X^T V^{-1}X)^{-1}X^T V^{-1},}
+\deqn{P=V^{-1}-V^{-1}X(X^T V^{-1}X)^{-}X^T V^{-1},}
 where \verb{V = diag(diag_var) + T T^T}. The function never constructs \code{V} or
 \code{P} as an observation-by-observation matrix.
 }

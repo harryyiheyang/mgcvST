@@ -11,8 +11,7 @@ rkhs_covariance_score(
   operator2,
   score_factor1 = NULL,
   score_factor2 = NULL,
-  method = c("liu", "davies"),
-  tol = 1e-10
+  method = c("liu", "davies")
 )
 }
 \arguments{
@@ -24,15 +23,10 @@ rkhs_covariance_score(
 \code{C12 = score_factor1 \%*\% t(score_factor2)}.}
 
 \item{method}{Calibration method passed to \code{\link[=rkhs_score_calibrate]{rkhs_score_calibrate()}}.}
-
-\item{tol}{Numerical tolerance.}
 }
 \value{
-An object of class \code{rkhs_covariance_score}. \code{statistic} and
-\code{quadratic_statistic} are the primary quadratic statistic \code{U^2};
-\code{signed_score} (and the backward-compatible \code{score}) retain \code{U}.
-\code{normal_statistic = U / sqrt(I)} is populated only when the normal
-approximation is explicitly used.
+An object of class \code{rkhs_covariance_score}. \code{signed_score} retains
+\code{U}, and \code{statistic} is the primary quadratic statistic \code{U^2}.
 }
 \description{
 Low-rank RKHS covariance score test

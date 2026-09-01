@@ -4,15 +4,7 @@
 \alias{rkhs_score_calibrate}
 \title{Calibrate a signed bilinear Gaussian score}
 \usage{
-rkhs_score_calibrate(
-  U,
-  H1,
-  H2,
-  method = c("liu", "davies"),
-  tol = 1e-10,
-  davies_accuracy = 1e-07,
-  davies_limit = 10000L
-)
+rkhs_score_calibrate(U, H1, H2, method = c("liu", "davies"))
 }
 \arguments{
 \item{U}{Observed bilinear score.}
@@ -20,16 +12,10 @@ rkhs_score_calibrate(
 \item{H1, H2}{Score covariance summaries.}
 
 \item{method}{Either \code{"liu"} (the default fast calibration) or \code{"davies"}.}
-
-\item{tol}{Numerical-rank tolerance.}
-
-\item{davies_accuracy}{Accuracy passed to \code{\link[CompQuadForm:davies]{CompQuadForm::davies()}}.}
-
-\item{davies_limit}{Integration limit passed to \code{\link[CompQuadForm:davies]{CompQuadForm::davies()}}.}
 }
 \value{
-Calibration diagnostics and simultaneous two-sided, positive, and
-negative p-values.
+Simultaneous two-sided, positive, and negative p-values with the
+information, effective rank, and numerical moments used to obtain them.
 }
 \description{
 Under the Gaussian null, \code{U} has the distribution

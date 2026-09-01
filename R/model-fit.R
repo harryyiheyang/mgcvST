@@ -77,51 +77,9 @@
   )
 }
 
-# Check that two fitted genes use the same model geometry.
-.mgcvst_model_geometry_equal <- function(x, y, tol) {
-  if (!identical(x$row_id, y$row_id) ||
-      !identical(x$score_components, y$score_components) ||
-      !identical(x$target, y$target)) {
-    stop("Feature fits do not share model rows or score components.")
-  }
-  if (!all(dim(x$X) == dim(y$X)) ||
-      max(abs(x$X - y$X), 0) > tol * max(1, abs(x$X), abs(y$X))) {
-    stop("Feature fits do not share the same linear design.")
-  }
-  if (length(x$offset) != length(y$offset) ||
-      max(abs(x$offset - y$offset), 0) >
-      tol * max(1, abs(x$offset), abs(y$offset))) {
-    stop("Feature fits do not share the same offset.")
-  }
-  if (length(x$smooth) != length(y$smooth)) {
-    stop("Feature fits do not share the same smoother collection.")
-  }
-  for (j in seq_along(x$smooth)) {
-    a <- x$smooth[[j]]
-    b <- y$smooth[[j]]
-    if (!identical(a$label, b$label) || !identical(a$fixed, b$fixed) ||
-        !identical(a$score_component, b$score_component) ||
-        !identical(a$sp_index, b$sp_index) ||
-        !all(dim(a$B) == dim(b$B)) ||
-        max(abs(a$B - b$B), 0) > tol * max(1, abs(a$B), abs(b$B)) ||
-        length(a$penalties) != length(b$penalties)) {
-      stop("Feature fits do not share smoother geometry.")
-    }
-    for (k in seq_along(a$penalties)) {
-      if (!all(dim(a$penalties[[k]]) == dim(b$penalties[[k]])) ||
-          max(abs(a$penalties[[k]] - b$penalties[[k]]), 0) >
-          tol * max(1, abs(a$penalties[[k]]), abs(b$penalties[[k]]))) {
-        stop("Feature fits do not share smoother penalties.")
-      }
-    }
-  }
-  invisible(TRUE)
-}
-
 # Fit and reduce one feature under a model.set() setup.
 .mgcvst_model_fit_one <- function(response, G0, family_raw, method, control,
-                                  gam_args, marginal_test, marginal_args,
-                                  retain_smooth) {
+                                  gam_args, retain_smooth) {
   G <- G0
   response_index <- attr(G$terms, "response")
   if (length(response_index) != 1L || response_index < 1L ||
@@ -137,13 +95,8 @@
     c(list(G = G, method = method, control = control), gam_args)
   )
   fit_seconds <- proc.time()[["elapsed"]] - t0
-  if (!isTRUE(fit$converged)) stop("The feature GAM did not converge.")
   W <- rkhs_extract_working_model(fit)
   geometry <- .mgcvst_model_geometry(fit)
-  target_index <- unname(geometry$target[["global"]])
-  marginal <- .mgcvst_marginal_score(
-    fit, marginal_test, marginal_args, test_component = target_index
-  )
   fit_summary <- summary(fit)
   criterion <- if (length(fit$gcv.ubre) == 1L) as.numeric(fit$gcv.ubre) else NA_real_
   criterion_name <- if (length(fit$gcv.ubre) == 1L) names(fit$gcv.ubre) else NA_character_
@@ -155,6 +108,7 @@
     )
   }
   list(
+    gam = fit,
     working_error = W$working_error,
     working_variance = W$working_variance,
     dispersion = W$dispersion,
@@ -164,12 +118,10 @@
     geometry = geometry,
     sp = geometry$sp,
     coefficients = coefficients,
-    marginal_p_value = marginal$p_value,
-    marginal_method = marginal$method,
     residual_df = as.numeric(fit$df.residual),
     criterion = criterion,
     criterion_name = criterion_name,
-    converged = TRUE,
+    converged = isTRUE(fit$converged),
     outer_convergence = paste(fit$outer.info$conv, collapse = "; "),
     fit_seconds = fit_seconds,
     smooth_table = fit_summary$s.table
@@ -187,17 +139,35 @@
     fit <- tryCatch(
       .mgcvst_model_fit_one(
         payload$Y[j, ], G0, family_raw, method, control, gam_args,
-        marginal_test, marginal_args, retain_smooth
+        retain_smooth
       ),
       error = function(e) e
     )
     if (inherits(fit, "condition")) {
       out[[j]] <- list(
-        success = FALSE, error = .mgcvst_condition(fit),
+        error = .mgcvst_condition(fit),
         index = payload$index[j], feature_id = payload$feature_id[j]
       )
     } else {
-      fit$success <- TRUE
+      target_index <- unname(fit$geometry$target[["global"]])
+      marginal <- tryCatch(
+        .mgcvst_marginal_score(
+          fit$gam, marginal_test, marginal_args,
+          test_component = target_index
+        ),
+        error = function(e) e
+      )
+      fit$marginal_p_value <- if (inherits(marginal, "condition")) {
+        NA_real_
+      } else {
+        marginal
+      }
+      fit$marginal_error <- if (inherits(marginal, "condition")) {
+        .mgcvst_condition(marginal)
+      } else {
+        NULL
+      }
+      fit$gam <- NULL
       fit$index <- payload$index[j]
       fit$feature_id <- payload$feature_id[j]
       out[[j]] <- fit
@@ -210,7 +180,7 @@
 .mgcvst_estimate_model <- function(
     Y, model, feature_id, BPPARAM, chunk_size, source_files, worker_init,
     marginal_test, marginal_args, method, retain_smooth, control,
-    geometry_tol, gam_args, call) {
+    gam_args, call) {
   Y <- as.matrix(Y)
   storage.mode(Y) <- "double"
   if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) || any(!is.finite(Y))) {
@@ -264,14 +234,11 @@
   elapsed <- proc.time()[["elapsed"]] - t0
   fits <- unlist(chunks, recursive = FALSE)
   fits <- fits[order(vapply(fits, `[[`, integer(1L), "index"))]
-  success <- vapply(fits, `[[`, logical(1L), "success")
-  good <- which(success)
+  available <- vapply(fits, function(z) is.null(z$error), logical(1L))
+  good <- which(available)
   geometry <- NULL
   if (length(good)) {
     geometry <- fits[[good[1L]]]$geometry
-    for (j in good[-1L]) {
-      .mgcvst_model_geometry_equal(geometry, fits[[j]]$geometry, geometry_tol)
-    }
   }
   n <- ncol(Y)
   p <- nrow(Y)
@@ -284,9 +251,9 @@
     dimnames = list(feature_id, names(model$G$sp))
   )
   diagnostics <- data.frame(
-    index = seq_len(p), feature_id = feature_id, success = success,
+    index = seq_len(p), feature_id = feature_id,
     converged = FALSE, marginal_p_value = NA_real_,
-    marginal_method = NA_character_, residual_df = NA_real_,
+    residual_df = NA_real_,
     criterion = NA_real_, criterion_name = NA_character_,
     fit_seconds = NA_real_, outer_convergence = NA_character_,
     error_class = NA_character_, error_message = NA_character_,
@@ -303,7 +270,7 @@
   if (!is.null(coefficient)) names(coefficient) <- geometry$score_components
   for (j in seq_len(p)) {
     z <- fits[[j]]
-    if (!z$success) {
+    if (!available[j]) {
       diagnostics$error_class[j] <- z$error$class
       diagnostics$error_message[j] <- z$error$message
       diagnostics$error_call[j] <- z$error$call
@@ -316,19 +283,20 @@
     smoothing_parameters[j, ] <- z$sp
     diagnostics$converged[j] <- z$converged
     diagnostics$marginal_p_value[j] <- z$marginal_p_value
-    diagnostics$marginal_method[j] <- z$marginal_method
     diagnostics$residual_df[j] <- z$residual_df
     diagnostics$criterion[j] <- z$criterion
     diagnostics$criterion_name[j] <- z$criterion_name
     diagnostics$fit_seconds[j] <- z$fit_seconds
     diagnostics$outer_convergence[j] <- z$outer_convergence
+    if (!is.null(z$marginal_error)) {
+      diagnostics$error_class[j] <- z$marginal_error$class
+      diagnostics$error_message[j] <- z$marginal_error$message
+      diagnostics$error_call[j] <- z$marginal_error$call
+    }
     if (!is.null(coefficient)) {
       for (name in names(coefficient)) coefficient[[name]][j, ] <- z$coefficients[[name]]
     }
   }
-  failures <- diagnostics[!success, c(
-    "index", "feature_id", "error_class", "error_message", "error_call"
-  ), drop = FALSE]
   target_lambda <- if (!is.null(geometry)) {
     vapply(geometry$target, function(j) geometry$smooth[[j]]$sp_index, integer(1L))
   } else {
@@ -359,15 +327,13 @@
       model_setting = model$setting,
       model = model,
       diagnostics = diagnostics,
-      failures = failures,
       timing = list(
         elapsed = elapsed, workers = workers, chunks = length(chunks),
         chunk_size = chunk_size, backend = class(BPPARAM)[1L]
       ),
-      geometry_tol = geometry_tol,
       smooth_coefficients = coefficient,
       retain_smooth = retain_smooth,
-      test_engine = if (length(model$components) == 2L) "global_local" else "single_model",
+      test_engine = if (length(model$components) == 1L) "single_model" else NULL,
       call = call
     ),
     class = c("mgcvST_model_fit", "mgcvST_fit", "mgcvST")

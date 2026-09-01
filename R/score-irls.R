@@ -86,10 +86,6 @@
 #' @export
 rkhs_extract_working_model <- function(fit) {
   if (!inherits(fit, "gam")) stop("fit must inherit from class 'gam'.")
-  if (isFALSE(fit$converged)) stop("fit did not converge.")
-  if (!is.null(fit$mgcv.conv) && isFALSE(fit$mgcv.conv)) {
-    stop("fit smoothing-parameter optimization did not converge.")
-  }
   family_id <- .working_family_id(fit$family$family)
 
   eta <- as.numeric(fit$linear.predictors)
@@ -141,94 +137,4 @@ rkhs_extract_working_model <- function(fit) {
     family_parameters = theta,
     converged = fit$converged
   )
-}
-
-#' Conditional IRLS RKHS covariance score for two mgcv fits
-#'
-#' Extracts each fit's final working Gaussian model, requires one shared
-#' full-rank smooth penalty `Q`, and calls [rkhs_covariance_score()]. The fitted
-#' smoothing parameters enter only as feature-specific marginal field scales
-#' `phi / sp`; the unscaled `Q` and coefficient coordinates must agree between
-#' features.
-#'
-#' This is a conditional working-Gaussian calibration. It does not account for
-#' estimation of smoothing, dispersion, negative-binomial shape, or Tweedie
-#' power parameters. Binomial small-sample and sparse-count applications may
-#' require parametric-bootstrap calibration.
-#'
-#' @param fit1,fit2 Converged `mgcv::gam` fits on the same rows
-#'   and with the same one-smooth setup.
-#' @param smooth_index1,smooth_index2 Index of the shared full-rank smooth in
-#'   each fit. The current prototype requires it to be the sole smooth.
-#' @param method Calibration method passed to [rkhs_covariance_score()].
-#' @param geometry_tol Relative tolerance for comparing `B` and unscaled `Q`.
-#' @return An `rkhs_covariance_score` object augmented with IRLS metadata.
-#' @export
-rkhs_covariance_score_irls <- function(
-    fit1, fit2, smooth_index1 = 1L, smooth_index2 = 1L,
-    method = c("liu", "davies"), geometry_tol = 1e-9) {
-  method <- match.arg(method)
-  geometry_tol <- as.numeric(geometry_tol)
-  if (length(geometry_tol) != 1L || !is.finite(geometry_tol) ||
-      geometry_tol <= 0) {
-    stop("geometry_tol must be one positive finite value.")
-  }
-  W1 <- rkhs_extract_working_model(fit1)
-  W2 <- rkhs_extract_working_model(fit2)
-  L1 <- .gam_training_lpmatrix(fit1)
-  L2 <- .gam_training_lpmatrix(fit2)
-  S1 <- .gam_single_smooth(fit1, smooth_index1, L1)
-  S2 <- .gam_single_smooth(fit2, smooth_index2, L2)
-
-  if (nrow(S1$B) != nrow(S2$B) || ncol(S1$B) != ncol(S2$B)) {
-    stop("The two fits do not share the same observation and smooth dimensions.")
-  }
-  B_scale <- max(1, max(abs(S1$B)), max(abs(S2$B)))
-  if (max(abs(S1$B - S2$B)) > geometry_tol * B_scale) {
-    stop("The two fits do not share the same smooth basis and row ordering.")
-  }
-  Q1 <- as.matrix(S1$Q)
-  Q2 <- as.matrix(S2$Q)
-  if (!all(dim(Q1) == dim(Q2))) stop("The two smooth penalties have different dimensions.")
-  Q_scale <- max(1, max(abs(Q1)), max(abs(Q2)))
-  if (max(abs(Q1 - Q2)) > geometry_tol * Q_scale) {
-    stop("The two fits do not share the same fixed-kappa RKHS precision Q.")
-  }
-  if (!identical(S1$score_precision_psd, S2$score_precision_psd)) {
-    stop("The two fits do not use the same score-precision type.")
-  }
-
-  smooth_cols1 <- unique(unlist(lapply(
-    fit1$smooth, function(s) seq.int(s$first.para, s$last.para)
-  )))
-  smooth_cols2 <- unique(unlist(lapply(
-    fit2$smooth, function(s) seq.int(s$first.para, s$last.para)
-  )))
-  X1 <- L1[, setdiff(seq_len(ncol(L1)), smooth_cols1), drop = FALSE]
-  X2 <- L2[, setdiff(seq_len(ncol(L2)), smooth_cols2), drop = FALSE]
-
-  op1 <- rkhs_score_operator(
-    S1$B, S1$Q, W1$working_variance, X1,
-    field_scale = W1$dispersion / S1$sp,
-    allow_psd = S1$score_precision_psd
-  )
-  op2 <- rkhs_score_operator(
-    S2$B, S2$Q, W2$working_variance, X2,
-    field_scale = W2$dispersion / S2$sp,
-    allow_psd = S2$score_precision_psd
-  )
-  ans <- rkhs_covariance_score(
-    W1$working_error, W2$working_error, op1, op2,
-    method = method
-  )
-  ans$working_family1 <- W1$family
-  ans$working_family2 <- W2$family
-  ans$smooth_label1 <- S1$label
-  ans$smooth_label2 <- S2$label
-  ans$field_scale1 <- W1$dispersion / S1$sp
-  ans$field_scale2 <- W2$dispersion / S2$sp
-  ans$calibration_scope <- "conditional_irls_working_gaussian"
-  ans$working_model1 <- W1
-  ans$working_model2 <- W2
-  ans
 }

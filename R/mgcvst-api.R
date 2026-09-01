@@ -96,26 +96,7 @@
   idx
 }
 
-# Locate the sole SPDE or SPDE-PC smooth supported by the pair-score API.
-.mgcvst_score_smooth_index <- function(fit) {
-  if (!inherits(fit, "gam")) stop("fit must inherit from class 'gam'.")
-  idx <- which(vapply(
-    fit$smooth,
-    function(s) inherits(s, "spde.smooth") || inherits(s, "spdePC.smooth"),
-    logical(1)
-  ))
-  if (!length(idx)) stop("The fit does not contain an SPDE or SPDE-PC smooth.")
-  if (length(idx) != 1L) stop("The fit must contain exactly one SPDE or SPDE-PC smooth.")
-  if (length(fit$smooth) != 1L) {
-    stop(
-      "The fit contains additional nuisance smooths; their covariance is not ",
-      "implemented by the validated score operator."
-    )
-  }
-  idx
-}
-
-# Recover stable training-row identifiers, with a positional fallback.
+# Recover stable training-row identifiers or use their stored positions.
 .mgcvst_row_id <- function(fit, n) {
   id <- NULL
   if (!is.null(fit$model)) id <- rownames(fit$model)
@@ -124,112 +105,36 @@
   as.character(id)
 }
 
-# Stop unless two compact fits share row, basis, penalty, and fixed design.
-.mgcvst_geometry_equal <- function(x, y, tol) {
-  if (!identical(x$row_id, y$row_id)) {
-    stop("Feature fits do not share the same row identifiers and ordering.")
+# Identify features with a complete compact working model.
+.mgcvst_feature_available <- function(fit) {
+  n <- length(fit$feature_id)
+  if (length(fit$dispersion) != n || length(fit$lambda) != n ||
+      ncol(fit$working_error) != n || ncol(fit$working_variance) != n) {
+    stop("The compact fit dimensions are incompatible with feature_id.")
   }
-  if (!all(dim(x$B) == dim(y$B))) {
-    stop("Feature fits have different SPDE basis dimensions.")
-  }
-  B_scale <- max(1, max(abs(x$B)), max(abs(y$B)))
-  if (max(abs(x$B - y$B)) > tol * B_scale) {
-    stop("Feature fits do not share the same SPDE basis and row ordering.")
-  }
-  Qx <- as.matrix(x$Q)
-  Qy <- as.matrix(y$Q)
-  if (!all(dim(Qx) == dim(Qy))) {
-    stop("Feature fits have different unscaled Q dimensions.")
-  }
-  Q_scale <- max(1, max(abs(Qx)), max(abs(Qy)))
-  if (max(abs(Qx - Qy)) > tol * Q_scale) {
-    stop("Feature fits do not share the same unscaled SPDE precision Q.")
-  }
-  if (!all(dim(x$X) == dim(y$X))) {
-    stop("Feature fits have different parametric design dimensions.")
-  }
-  X_difference <- if (length(x$X)) max(abs(x$X - y$X)) else 0
-  X_scale <- if (length(x$X)) {
-    max(1, max(abs(x$X)), max(abs(y$X)))
-  } else {
-    1
-  }
-  if (X_difference > tol * X_scale) {
-    stop("Feature fits do not share the same parametric design and row ordering.")
-  }
-  invisible(TRUE)
+  is.finite(fit$dispersion) & fit$dispersion > 0 &
+    is.finite(fit$lambda) & fit$lambda > 0 &
+    colSums(!is.finite(fit$working_error)) == 0L &
+    colSums(!is.finite(fit$working_variance)) == 0L
 }
 
-# Derive per-feature field scales from primary fit parameters, with old-object fallback.
-.mgcvst_field_scale <- function(fit, tol = 1e-9) {
+# Derive per-feature field scales from primary fit parameters.
+.mgcvst_field_scale <- function(fit) {
   n <- length(fit$feature_id)
-  success <- if (!is.null(fit$diagnostics$success)) {
-    as.logical(fit$diagnostics$success)
-  } else {
-    rep(TRUE, n)
+  if (is.null(fit$dispersion) || is.null(fit$lambda)) {
+    stop("The fit must contain dispersion and lambda.")
   }
-  if (length(success) != n || anyNA(success)) {
-    stop("The fit success indicator is incompatible with feature_id.")
+  available <- .mgcvst_feature_available(fit)
+  dispersion <- as.numeric(fit$dispersion)
+  lambda <- as.numeric(fit$lambda)
+  if (length(dispersion) != n || length(lambda) != n) {
+    stop("dispersion and lambda must contain one value per feature.")
   }
-  has_dispersion <- !is.null(fit$dispersion)
-  has_lambda <- !is.null(fit$lambda)
-  if (xor(has_dispersion, has_lambda)) {
-    stop("The fit must contain both dispersion and lambda, or neither.")
-  }
-  if (has_dispersion) {
-    dispersion <- as.numeric(fit$dispersion)
-    lambda <- as.numeric(fit$lambda)
-    if (length(dispersion) != n || length(lambda) != n) {
-      stop("dispersion and lambda must contain one value per feature.")
-    }
-    scale <- dispersion / lambda
-    if (any(!is.finite(scale[success])) || any(scale[success] <= 0)) {
-      stop("Successful features require positive finite dispersion/lambda scales.")
-    }
-    if (!is.null(fit$field_scale)) {
-      legacy <- as.numeric(fit$field_scale)
-      if (length(legacy) != n || any(!is.finite(legacy[success])) ||
-          any(legacy[success] <= 0)) {
-        stop("The legacy field_scale is incompatible with successful features.")
-      }
-      scale_max <- pmax(1, abs(scale[success]), abs(legacy[success]))
-      if (any(abs(scale[success] - legacy[success]) > tol * scale_max)) {
-        stop("field_scale is inconsistent with dispersion/lambda.")
-      }
-    }
-  } else {
-    if (is.null(fit$field_scale)) {
-      stop("The fit has neither dispersion/lambda nor legacy field_scale values.")
-    }
-    scale <- as.numeric(fit$field_scale)
-    if (length(scale) != n || any(!is.finite(scale[success])) ||
-        any(scale[success] <= 0)) {
-      stop("The legacy field_scale is incompatible with successful features.")
-    }
+  scale <- dispersion / lambda
+  if (any(!is.finite(scale[available])) || any(scale[available] <= 0)) {
+    stop("Available features require positive finite dispersion/lambda scales.")
   }
   stats::setNames(scale, fit$feature_id)
-}
-
-# Stop unless two retained smooth fits share reduced basis and penalty geometry.
-.mgcvst_fit_geometry_equal <- function(x, y, tol) {
-  if (!identical(x$row_id, y$row_id)) {
-    stop("Retained smooth fits do not share row identifiers and ordering.")
-  }
-  if (!all(dim(x$B) == dim(y$B)) || !all(dim(x$P) == dim(y$P))) {
-    stop("Retained smooth fits have different reduced basis dimensions.")
-  }
-  B_scale <- max(1, max(abs(x$B)), max(abs(y$B)))
-  P_scale <- max(1, max(abs(x$P)), max(abs(y$P)))
-  if (max(abs(x$B - y$B)) > tol * B_scale) {
-    stop("Retained smooth fits do not share the reduced fit basis.")
-  }
-  if (max(abs(x$P - y$P)) > tol * P_scale) {
-    stop("Retained smooth fits do not share the reduced unscaled penalty.")
-  }
-  if (!identical(x$metadata, y$metadata)) {
-    stop("Retained smooth fits have different basis metadata.")
-  }
-  invisible(TRUE)
 }
 
 # Reduce one gam fit to the working summaries and shared geometry used downstream.
@@ -256,10 +161,7 @@
   wood_p_value <- as.numeric(smooth_table[1L, "p-value"])
   smooth_edf <- as.numeric(smooth_table[1L, "edf"])
   residual_df <- as.numeric(fit$df.residual)
-  if (length(residual_df) != 1L || !is.finite(residual_df) ||
-      residual_df <= 0) {
-    stop("The fitted model did not return one positive finite residual df.")
-  }
+  if (length(residual_df) != 1L) residual_df <- NA_real_
   statistic_column <- ncol(smooth_table) - 1L
   wood_statistic <- as.numeric(smooth_table[1L, statistic_column])
   parameters <- W$family_parameters
@@ -323,7 +225,7 @@
   )
 }
 
-# Run the corrected marginal score with an explicit Davies-to-Liu fallback.
+# Run the requested corrected marginal score calibration.
 .mgcvst_marginal_score <- function(fit, marginal_test, marginal_args,
                                    test_component = 1L) {
   if (is.null(marginal_test)) {
@@ -348,44 +250,32 @@
   }
   args <- utils::modifyList(
     list(
-      fit = fit, test.component = test_component, method = "davies",
-      max_eps = 1e-8, max_iter = 100000L, n_threads = 1L
+      fit = fit, test.component = test_component, n_threads = 1L
     ),
     marginal_args
   )
   score <- do.call(marginal_test, args)
   p_value <- as.numeric(score$smooth.pvalue)
-  used <- "davies"
-  if (length(p_value) != 1L || !is.finite(p_value) ||
-      p_value <= 0 || p_value > 1) {
-    args$method <- "liu"
-    args$n_threads <- 1L
-    score <- do.call(marginal_test, args)
-    p_value <- as.numeric(score$smooth.pvalue)
-    used <- "liu_fallback"
-  }
   if (length(p_value) != 1L || !is.finite(p_value) ||
       p_value < 0 || p_value > 1) {
     stop("The corrected marginal spatial score returned an invalid p-value.")
   }
-  list(p_value = p_value, method = used)
+  p_value
 }
 
 # Clone the minimal package function closure needed on remote workers.
 .mgcvst_worker_bundle <- function() {
   names <- c(
     ".mgcvst_thread_limit", ".mgcvst_worker_initialize",
-    ".mgcvst_spde_index", ".mgcvst_row_id", ".mgcvst_geometry_equal",
-    ".mgcvst_fit_geometry_equal",
-    ".mgcvst_compact_fit", ".mgcvst_condition", ".mgcvst_fit_chunk",
+    ".mgcvst_spde_index", ".mgcvst_row_id", ".mgcvst_compact_fit",
+    ".mgcvst_condition", ".mgcvst_fit_chunk",
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     ".gam_training_lpmatrix", ".gam_single_smooth",
     ".mgcvst_expand_penalty", ".mgcvst_model_geometry",
-    ".mgcvst_model_geometry_equal", ".mgcvst_model_fit_one",
+    ".mgcvst_model_fit_one",
     ".mgcvst_model_fit_chunk", ".mgcvst_full_rank_design",
     ".mgcvst_spde_factor", ".mgcvst_model_operator",
-    ".mgcvst_bilinear_calibrate", ".mgcvst_model_score_state",
-    ".mgcvst_model_pair_single", ".mgcvst_model_pair_global_local",
+    ".mgcvst_model_score_state", ".mgcvst_model_pair_single",
     ".mgcvst_model_test_chunk",
     "rkhs_extract_working_model", ".magic_mm", ".magic_solve",
     ".as_numeric_matrix", ".rkhs_score_operator_factor",
@@ -418,10 +308,10 @@
   bundle
 }
 
-# Fit and compact one feature chunk while preserving every per-feature failure.
+# Fit and compact one feature chunk.
 .mgcvst_fit_chunk <- function(payload, G0, family_raw, method, control,
                               gam_args, source_files, worker_init, init_key,
-                              geometry_tol, marginal_test, marginal_args,
+                              marginal_test, marginal_args,
                               retain_smooth) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   ids <- payload$index
@@ -434,10 +324,10 @@
   smoothing_parameter <- dispersion <- rep(NA_real_, k)
   marginal_p_value <- wood_p_value <- wood_statistic <- smooth_edf <-
     residual_df <- criterion <- rep(NA_real_, k)
-  success <- converged <- smoothing_converged <- rep(FALSE, k)
+  converged <- smoothing_converged <- rep(FALSE, k)
   smoothing_converged[] <- NA
-  family <- family_parameters_diagnostic <- smooth_label <- marginal_method <-
-    criterion_name <- rep(NA_character_, k)
+  family <- family_parameters_diagnostic <- smooth_label <- criterion_name <-
+    rep(NA_character_, k)
   family_parameters <- vector("list", k)
   irls_iterations <- rep(NA_integer_, k)
   outer_convergence <- rep(NA_character_, k)
@@ -521,45 +411,9 @@
     }
 
     compact <- compact_result$value
-    geometry_result <- tryCatch(
-      {
-        if (is.null(geometry)) {
-          geometry <- compact$geometry
-        } else {
-          .mgcvst_geometry_equal(geometry, compact$geometry, geometry_tol)
-        }
-        NULL
-      },
-      error = function(e) e
-    )
-    if (!is.null(geometry_result)) {
-      err <- .mgcvst_condition(geometry_result)
-      error_class[j] <- err$class
-      error_message[j] <- err$message
-      error_call[j] <- err$call
-      next
-    }
+    if (is.null(geometry)) geometry <- compact$geometry
     if (retain_smooth) {
-      fit_geometry_result <- tryCatch(
-        {
-          if (is.null(fit_geometry)) {
-            fit_geometry <- compact$fit_geometry
-          } else {
-            .mgcvst_fit_geometry_equal(
-              fit_geometry, compact$fit_geometry, geometry_tol
-            )
-          }
-          NULL
-        },
-        error = function(e) e
-      )
-      if (!is.null(fit_geometry_result)) {
-        err <- .mgcvst_condition(fit_geometry_result)
-        error_class[j] <- err$class
-        error_message[j] <- err$message
-        error_call[j] <- err$call
-        next
-      }
+      if (is.null(fit_geometry)) fit_geometry <- compact$fit_geometry
       smooth_coefficients[j, ] <- compact$smooth_coefficients
     }
 
@@ -579,39 +433,31 @@
 
     t0 <- proc.time()[["elapsed"]]
     marginal_result <- tryCatch(
-      list(
-        value = .mgcvst_marginal_score(
-          fit, marginal_test = marginal_test,
-          marginal_args = marginal_args
-        ),
-        error = NULL
+      .mgcvst_marginal_score(
+        fit, marginal_test = marginal_test,
+        marginal_args = marginal_args
       ),
-      error = function(e) list(value = NULL, error = e)
+      error = function(e) e
     )
     marginal_seconds[j] <- proc.time()[["elapsed"]] - t0
-    if (!is.null(marginal_result$error)) {
-      err <- .mgcvst_condition(marginal_result$error)
+    if (inherits(marginal_result, "condition")) {
+      err <- .mgcvst_condition(marginal_result)
       error_class[j] <- err$class
       error_message[j] <- err$message
       error_call[j] <- err$call
-      next
+    } else {
+      marginal_p_value[j] <- marginal_result
     }
-
-    success[j] <- TRUE
-    marginal_p_value[j] <- marginal_result$value$p_value
-    marginal_method[j] <- marginal_result$value$method
   }
 
   diagnostics <- data.frame(
     index = ids,
     feature_id = feature_id,
-    success = success,
     family = family,
     smooth_label = smooth_label,
     smoothing_parameter = smoothing_parameter,
     dispersion = dispersion,
     marginal_p_value = marginal_p_value,
-    marginal_method = marginal_method,
     wood_p_value = wood_p_value,
     wood_statistic = wood_statistic,
     smooth_edf = smooth_edf,
@@ -657,6 +503,10 @@
 #' retained. Genes are processed in chunks through `BiocParallel`; the default
 #' is serial. On Windows, use a persistent `SnowParam(type = "SOCK")` object
 #' and pass the same object to estimation and testing.
+#' A fitting, compaction, or marginal-test error is recorded for that feature;
+#' the other features continue. A marginal-test error leaves the already
+#' constructed compact working model intact and only its marginal p-value
+#' unavailable.
 #'
 #' `source_files` supports source-first custom smooths. Each SOCK worker
 #' sources the ordered files once, before it evaluates a chunk. Multicore
@@ -689,9 +539,8 @@
 #'   a sourced `taps_score_test()` or the installed `mgcv.taps` export on each
 #'   worker.
 #' @param marginal_args Named list of additional marginal-score arguments.
-#'   `fit`, `test.component`, `method`, and `n_threads` are controlled by
-#'   mgcvST; Davies is primary, Liu is the explicit numerical fallback, and
-#'   score threads remain one.
+#'   `fit`, `test.component`, and `n_threads` are controlled by mgcvST. The
+#'   marginal test otherwise uses its own defaults unless overridden here.
 #' @param retain_smooth Logical; retain the feature-by-coefficient smooth
 #'   coefficient matrix and one shared reduced fit basis and unscaled penalty.
 #'   This opt-in representation supports prediction and other downstream uses
@@ -700,15 +549,12 @@
 #'   default.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
 #'   always forced to one.
-#' @param geometry_tol Positive relative tolerance used to verify shared row,
-#'   basis, fixed-design, and unscaled precision geometry.
 #' @param ... Additional arguments passed to `mgcv::gam(G = G, ...)`.
 #' @return A compact object of class `mgcvST_fit` containing marginal score
 #'   p-values, Wood audit values, feature IDs, working errors and variances,
 #'   separate per-feature `dispersion` and `lambda`, shared score geometry,
 #'   optimized fit criterion and its original mgcv name, exact residual degrees
-#'   of freedom, timing and convergence diagnostics, and an explicit failures
-#'   table. When
+#'   of freedom, timing, and convergence diagnostics. When
 #'   `retain_smooth = TRUE`, it also contains `smooth_coefficients`,
 #'   `fit_basis`, `fit_penalty`, `row_id`, and `basis_metadata`. New objects do
 #'   not store a redundant `field_scale`; score methods derive it as
@@ -720,7 +566,7 @@ mgcvST.estimate <- function(
     source_files = NULL, worker_init = NULL,
     marginal_test = NULL, marginal_args = list(), method = "REML",
     retain_smooth = FALSE,
-    control = mgcv::gam.control(nthreads = 1L), geometry_tol = 1e-9, ...) {
+    control = mgcv::gam.control(nthreads = 1L), ...) {
   call <- match.call()
   if (inherits(G, "mgcvST_model")) {
     return(.mgcvst_estimate_model(
@@ -729,7 +575,7 @@ mgcvST.estimate <- function(
       worker_init = worker_init, marginal_test = marginal_test,
       marginal_args = marginal_args, method = method,
       retain_smooth = retain_smooth, control = control,
-      geometry_tol = geometry_tol, gam_args = list(...), call = call
+      gam_args = list(...), call = call
     ))
   }
   Y <- as.matrix(Y)
@@ -772,18 +618,13 @@ mgcvST.estimate <- function(
   }
   marginal_forbidden <- intersect(
     names(marginal_args),
-    c("fit", "test.component", "method", "n_threads")
+    c("fit", "test.component", "n_threads")
   )
   if (length(marginal_forbidden)) {
     stop(
       "Do not supply these arguments through marginal_args: ",
       paste(marginal_forbidden, collapse = ", ")
     )
-  }
-  geometry_tol <- as.numeric(geometry_tol)
-  if (length(geometry_tol) != 1L || !is.finite(geometry_tol) ||
-      geometry_tol <= 0) {
-    stop("geometry_tol must be one positive finite value.")
   }
   if (!is.list(control)) stop("control must be returned by mgcv::gam.control().")
   control$nthreads <- 1L
@@ -819,8 +660,8 @@ mgcvST.estimate <- function(
     G0 = G, family_raw = family_raw, method = method, control = control,
     gam_args = gam_args, source_files = source_files,
     worker_init = worker_init, init_key = init_key,
-    geometry_tol = geometry_tol, marginal_test = marginal_test,
-    marginal_args = marginal_args, retain_smooth = retain_smooth,
+    marginal_test = marginal_test, marginal_args = marginal_args,
+    retain_smooth = retain_smooth,
     BPPARAM = BPPARAM
   )
   elapsed <- proc.time()[["elapsed"]] - t0
@@ -847,11 +688,7 @@ mgcvST.estimate <- function(
     family_parameters[i] <- z$family_parameters
     diagnostics[[j]] <- z$diagnostics
     if (!is.null(z$geometry)) {
-      if (is.null(geometry)) {
-        geometry <- z$geometry
-      } else {
-        .mgcvst_geometry_equal(geometry, z$geometry, geometry_tol)
-      }
+      if (is.null(geometry)) geometry <- z$geometry
     }
     if (retain_smooth && !is.null(z$fit_geometry)) {
       if (is.null(fit_geometry)) {
@@ -860,10 +697,6 @@ mgcvST.estimate <- function(
           NA_real_, nrow = p, ncol = ncol(fit_geometry$B),
           dimnames = list(feature_id, NULL)
         )
-      } else {
-        .mgcvst_fit_geometry_equal(
-          fit_geometry, z$fit_geometry, geometry_tol
-        )
       }
       smooth_coefficients[i, ] <- z$smooth_coefficients
     }
@@ -871,11 +704,6 @@ mgcvST.estimate <- function(
   diagnostics <- do.call(rbind, diagnostics)
   diagnostics <- diagnostics[order(diagnostics$index), , drop = FALSE]
   rownames(diagnostics) <- NULL
-  failures <- diagnostics[!diagnostics$success, c(
-    "index", "feature_id", "error_class", "error_message", "error_call"
-  ), drop = FALSE]
-  rownames(failures) <- NULL
-
   ans <- list(
       feature_id = feature_id,
       working_error = E,
@@ -886,7 +714,6 @@ mgcvST.estimate <- function(
       geometry = geometry,
       row_id = if (is.null(geometry)) NULL else geometry$row_id,
       diagnostics = diagnostics,
-      failures = failures,
       timing = list(
         elapsed = elapsed,
         workers = workers,
@@ -894,9 +721,9 @@ mgcvST.estimate <- function(
         chunk_size = chunk_size,
         backend = class(BPPARAM)[1L]
       ),
-      geometry_tol = geometry_tol,
       source_files = source_files,
       retain_smooth = retain_smooth,
+      test_engine = "spde",
       call = call
     )
   if (retain_smooth) {
@@ -928,55 +755,11 @@ mgcvST.estimate <- function(
 print.mgcvST_fit <- function(x, ...) {
   cat("Compact mgcvST feature fit\n")
   cat("  features:", length(x$feature_id), "\n")
-  cat("  successful:", sum(x$diagnostics$success), "\n")
-  cat("  failures:", nrow(x$failures), "\n")
+  cat("  fitted:", sum(.mgcvst_feature_available(x)), "\n")
   cat("  backend:", x$timing$backend, "with", x$timing$workers, "worker(s)\n")
   cat("  elapsed seconds:", format(x$timing$elapsed), "\n")
   cat("  object size:", format(utils::object.size(x), units = "auto"), "\n")
   invisible(x)
-}
-
-#' Direct covariance score test for two SPDE mgcv fits
-#'
-#' Finds the sole SPDE smooth in each ordinary `mgcv::gam` fit, validates exact
-#' row identifiers and relative agreement of the training basis and unscaled
-#' precision matrices, and delegates to [rkhs_covariance_score_irls()]. No
-#' score mathematics is reimplemented here.
-#'
-#' The maximum absolute difference in `B` or unscaled `Q` must not exceed
-#' `precision_tol * max(1, max(abs(M1)), max(abs(M2)))`. Thus changed
-#' dimensions, coefficient order, row order, or fixed-kappa precision stop
-#' with an error rather than being coerced.
-#'
-#' @param fit1,fit2 Converged `mgcv::gam` fits with exactly one smooth, which
-#'   must inherit from `spde.smooth` or `spdePC.smooth`.
-#' @param method Calibration method passed to
-#'   [rkhs_covariance_score_irls()].
-#' @param precision_tol Positive relative tolerance for basis and unscaled-Q
-#'   comparison. The default is `1e-9`.
-#' @return An `rkhs_covariance_score` object with conditional IRLS metadata.
-#' @export
-score_test <- function(
-    fit1, fit2,
-    method = c("liu", "davies"), precision_tol = 1e-9) {
-  method <- match.arg(method)
-  precision_tol <- as.numeric(precision_tol)
-  if (length(precision_tol) != 1L || !is.finite(precision_tol) ||
-      precision_tol <= 0) {
-    stop("precision_tol must be one positive finite value.")
-  }
-  i1 <- .mgcvst_score_smooth_index(fit1)
-  i2 <- .mgcvst_score_smooth_index(fit2)
-  n1 <- length(fit1$linear.predictors)
-  n2 <- length(fit2$linear.predictors)
-  if (n1 != n2) stop("The two fits use different numbers of rows.")
-  if (!identical(.mgcvst_row_id(fit1, n1), .mgcvst_row_id(fit2, n2))) {
-    stop("The two fits do not share identical row identifiers and ordering.")
-  }
-  rkhs_covariance_score_irls(
-    fit1, fit2, smooth_index1 = i1, smooth_index2 = i2,
-    method = method, geometry_tol = precision_tol
-  )
 }
 
 # Normalize explicit feature-ID or feature-index pairs to integer indices.
@@ -1047,29 +830,28 @@ score_test <- function(
   }
 
   a <- H <- vector("list", length(used))
-  success <- rep(FALSE, length(used))
-  error <- rep(NA_character_, length(used))
+  has_summary <- rep(FALSE, length(used))
+  error_message <- rep(NA_character_, length(used))
   t0 <- proc.time()[["elapsed"]]
   for (j in seq_along(used)) {
     i <- used[j]
-    z <- tryCatch(
+    summary_result <- tryCatch(
       {
         T <- sqrt(field_scale[i]) * T0
         op <- .rkhs_score_operator_factor(
           T, fitmgcvST$working_variance[, i], geometry$X,
           field_scale = field_scale[i]
         )
-        S <- rkhs_score_summary(fitmgcvST$working_error[, i], op)
-        list(a = S$a, H = S$H, error = NULL)
+        rkhs_score_summary(fitmgcvST$working_error[, i], op)
       },
-      error = function(e) list(a = NULL, H = NULL, error = e)
+      error = function(e) e
     )
-    if (is.null(z$error)) {
-      a[[j]] <- z$a
-      H[[j]] <- z$H
-      success[j] <- TRUE
+    if (inherits(summary_result, "condition")) {
+      error_message[j] <- conditionMessage(summary_result)
     } else {
-      error[j] <- .mgcvst_condition(z$error)$message
+      a[[j]] <- summary_result$a
+      H[[j]] <- summary_result$H
+      has_summary[j] <- TRUE
     }
     if (verbose && (j %% 100L == 0L || j == length(used))) {
       message("Constructed Liu summaries for ", j, " of ", length(used),
@@ -1077,43 +859,39 @@ score_test <- function(
     }
   }
   list(
-    used = used, a = a, H = H, success = success, error = error,
+    used = used, a = a, H = H, has_summary = has_summary,
+    error_message = error_message,
     elapsed = proc.time()[["elapsed"]] - t0
   )
 }
 
 # Evaluate Liu-calibrated pairs from feature summaries in bounded C++ blocks.
 .mgcvst_liu_pairs <- function(index, pair_index, feature_id, summaries, threads,
-                              chunk_size, tol, verbose) {
-  active <- which(summaries$success)
+                              chunk_size, verbose) {
+  active <- which(summaries$has_summary)
   active_feature <- summaries$used[active]
   local <- matrix(match(index, active_feature), ncol = 2L)
-  summary_failed <- !stats::complete.cases(local)
+  missing_summary <- !stats::complete.cases(local)
 
   k <- nrow(index)
   score <- information <- effective_rank <- p_value <- rep(NA_real_, k)
-  status <- rep("pending", k)
-  error <- rep(NA_character_, k)
-  if (any(summary_failed)) {
-    status[summary_failed] <- "score_summary_failed"
-    for (j in which(summary_failed)) {
-      failed <- index[j, ][!(index[j, ] %in% active_feature)]
-      failed_local <- match(failed, summaries$used)
-      error[j] <- paste(
-        paste0(feature_id[failed], ": ",
-               summaries$error[failed_local]),
-        collapse = " | "
-      )
-    }
+  error_message <- rep(NA_character_, k)
+  for (j in which(missing_summary)) {
+    missing_feature <- index[j, ][!(index[j, ] %in% active_feature)]
+    missing_local <- match(missing_feature, summaries$used)
+    error_message[j] <- paste(
+      paste0(feature_id[missing_feature], ": ",
+             summaries$error_message[missing_local]),
+      collapse = " | "
+    )
   }
-
-  rows <- which(!summary_failed)
+  rows <- which(!missing_summary)
   if (!length(rows)) {
     return(list(
       result = data.frame(
         pair_index = pair_index, score = score, information = information,
         effective_rank = effective_rank, p_value = p_value,
-        status = status, error = error, stringsAsFactors = FALSE
+        error_message = error_message, stringsAsFactors = FALSE
       ),
       elapsed = 0
     ))
@@ -1143,7 +921,7 @@ score_test <- function(
       H, pair, maxPower = 4L, threads = threads
     )
     good <- apply(is.finite(moments), 1L, all) &
-      moments[, 1L] > tol & moments[, 2L] > 0 &
+      moments[, 1L] > 1e-10 & moments[, 2L] > 0 &
       moments[, 3L] > 0 & moments[, 4L] > 0
     if (any(good)) {
       zi <- z[good]
@@ -1154,14 +932,13 @@ score_test <- function(
       information[zi] <- M[, 1L]
       effective_rank[zi] <- M[, 1L]^2 / M[, 2L]
       p_value[zi] <- liu$p_value
-      valid <- is.finite(p_value[zi]) & p_value[zi] >= 0 & p_value[zi] <= 1
-      status[zi[valid]] <- "ok"
-      status[zi[!valid]] <- "score_failed"
-      error[zi[!valid]] <- "Liu calibration returned an invalid p-value."
+      invalid <- !is.finite(p_value[zi]) | p_value[zi] < 0 | p_value[zi] > 1
+      error_message[zi[invalid]] <-
+        "Liu calibration returned an invalid p-value."
     }
     if (any(!good)) {
-      status[z[!good]] <- "score_failed"
-      error[z[!good]] <- "Liu trace moments were non-finite or non-positive."
+      error_message[z[!good]] <-
+        "Liu trace moments were non-finite or non-positive."
     }
     if (verbose && (b %% 10L == 0L || b == length(starts))) {
       message("Evaluated Liu block ", b, " of ", length(starts), ".")
@@ -1172,94 +949,85 @@ score_test <- function(
     result = data.frame(
       pair_index = pair_index, score = score, information = information,
       effective_rank = effective_rank, p_value = p_value,
-      status = status, error = error, stringsAsFactors = FALSE
+      error_message = error_message,
+      stringsAsFactors = FALSE
     ),
     elapsed = proc.time()[["elapsed"]] - t0
   )
 }
 
 # Evaluate one pair chunk from compact feature summaries.
-.mgcvst_test_chunk <- function(payload, geometry, calibration, tol) {
+.mgcvst_test_chunk <- function(payload, geometry, calibration) {
   .mgcvst_thread_limit()
   pairs <- payload$pairs
   k <- nrow(pairs)
   used <- sort(unique(as.vector(pairs)))
   summaries <- vector("list", length(payload$feature_id))
+  summary_error <- rep(NA_character_, length(payload$feature_id))
   for (i in used) {
-    op <- rkhs_score_operator(
-      geometry$B, geometry$Q, payload$working_variance[, i],
-      geometry$X, payload$field_scale[i],
-      allow_psd = isTRUE(geometry$score_precision_psd)
+    z <- tryCatch(
+      {
+        op <- rkhs_score_operator(
+          geometry$B, geometry$Q, payload$working_variance[, i],
+          geometry$X, payload$field_scale[i],
+          allow_psd = isTRUE(geometry$score_precision_psd)
+        )
+        rkhs_score_summary(payload$working_error[, i], op)
+      },
+      error = function(e) e
     )
-    summaries[[i]] <- rkhs_score_summary(
-      payload$working_error[, i], op
-    )
+    if (inherits(z, "condition")) {
+      summary_error[i] <- conditionMessage(z)
+    } else {
+      summaries[[i]] <- z
+    }
   }
-  out <- vector("list", k)
+  signed_score <- statistic <- information <- effective_rank <-
+    p_two_sided <- p_positive <- p_negative <- rep(NA_real_, k)
+  error_message <- rep(NA_character_, k)
   for (j in seq_len(k)) {
     i1 <- pairs[j, 1L]
     i2 <- pairs[j, 2L]
-    test_result <- tryCatch(
-      {
-        S1 <- summaries[[i1]]
-        S2 <- summaries[[i2]]
-        U <- as.numeric(crossprod(S1$a, S2$a))
-        cal <- rkhs_score_calibrate(
-          U, S1$H, S2$H, method = calibration, tol = tol
-        )
-        value <- c(list(
-          score = U,
-          signed_score = U,
-          statistic = U^2,
-          quadratic_statistic = U^2,
-          normal_statistic = NA_real_
-        ), cal)
-        list(value = value, error = NULL)
-      },
-      error = function(e) list(value = NULL, error = e)
-    )
-    if (!is.null(test_result$error)) {
-      err <- .mgcvst_condition(test_result$error)
-      out[[j]] <- data.frame(
-        pair_index = payload$pair_index[j],
-        feature1 = payload$feature_id[i1],
-        feature2 = payload$feature_id[i2],
-        score = NA_real_, signed_score = NA_real_,
-        statistic = NA_real_, quadratic_statistic = NA_real_,
-        normal_statistic = NA_real_, information = NA_real_,
-        effective_rank = NA_real_, p_value = NA_real_,
-        p_two_sided = NA_real_, p_positive = NA_real_, p_negative = NA_real_,
-        calibration = NA_character_, status = "score_failed",
-        davies_ifault = NA_integer_, error = err$message,
-        stringsAsFactors = FALSE
+    missing <- c(i1, i2)[vapply(summaries[c(i1, i2)], is.null, logical(1L))]
+    if (length(missing)) {
+      error_message[j] <- paste(
+        paste0(payload$feature_id[missing], ": ", summary_error[missing]),
+        collapse = " | "
       )
       next
     }
-    value <- test_result$value
-    out[[j]] <- data.frame(
-      pair_index = payload$pair_index[j],
-      feature1 = payload$feature_id[i1],
-      feature2 = payload$feature_id[i2],
-      score = value$score,
-      signed_score = value$signed_score,
-      statistic = value$statistic,
-      quadratic_statistic = value$quadratic_statistic,
-      normal_statistic = value$normal_statistic,
-      information = value$information,
-      effective_rank = value$effective_rank,
-      p_value = value$p_two_sided,
-      p_two_sided = value$p_two_sided,
-      p_positive = value$p_positive,
-      p_negative = value$p_negative,
-      calibration = value$method,
-      status = value$status,
-      davies_ifault = if (is.null(value$davies_ifault)) NA_integer_ else
-        value$davies_ifault,
-      error = NA_character_,
-      stringsAsFactors = FALSE
+    S1 <- summaries[[i1]]
+    S2 <- summaries[[i2]]
+    z <- tryCatch(
+      {
+        U <- as.numeric(crossprod(S1$a, S2$a))
+        cal <- rkhs_score_calibrate(U, S1$H, S2$H, method = calibration)
+        list(U = U, calibration = cal)
+      },
+      error = function(e) e
     )
+    if (inherits(z, "condition")) {
+      error_message[j] <- conditionMessage(z)
+      next
+    }
+    signed_score[j] <- z$U
+    statistic[j] <- z$U^2
+    information[j] <- z$calibration$information
+    effective_rank[j] <- z$calibration$effective_rank
+    p_two_sided[j] <- z$calibration$p_two_sided
+    p_positive[j] <- z$calibration$p_positive
+    p_negative[j] <- z$calibration$p_negative
   }
-  do.call(rbind, out)
+  data.frame(
+    pair_index = payload$pair_index,
+    feature1 = payload$feature_id[pairs[, 1L]],
+    feature2 = payload$feature_id[pairs[, 2L]],
+    signed_score = signed_score, statistic = statistic,
+    information = information, effective_rank = effective_rank,
+    p_two_sided = p_two_sided, p_positive = p_positive,
+    p_negative = p_negative, error_message = error_message,
+    stringsAsFactors = FALSE
+  )
 }
 
 #' Covariance score tests for an explicit pair universe
@@ -1274,7 +1042,9 @@ score_test <- function(
 #' `q.value`, `FDR`, and `method` apply to the resulting pair-covariance
 #' p-values. Automatic discoveries are the pairs passing that threshold.
 #' Highlighted pairs are always retained in the returned set regardless of
-#' significance, while any fit or score failure remains explicit. The
+#' significance. When one feature or pair cannot be evaluated, its numerical
+#' fields remain `NA` and its concrete error message is retained without
+#' interrupting the other pairs. The
 #' function does not generate all pairwise combinations: callers must define
 #' the tested universe, which prevents accidental allocation of
 #' `choose(10000, 2)` rows.
@@ -1298,28 +1068,27 @@ score_test <- function(
 #' @param highlight Optional two-column pairs that must be tested and retained.
 #'   They may overlap `pairs`; non-overlapping highlights are appended.
 #' @param calibration Score calibration passed to [rkhs_score_calibrate()].
-#' @param tol Positive numerical score tolerance.
 #' @param chunk_size Positive number of tested pairs per task or C++ block.
 #'   Liu calibration defaults to 10,000 pairs per interruptible block.
 #' @param threads Positive number of OpenMP threads for the Liu C++ kernel.
 #'   `NULL` uses `bpworkers(BPPARAM)` without launching Snow workers.
 #' @param verbose Logical; report Liu summary and block progress.
 #' @return A compact `mgcvST_test` object containing pair results, adjusted
-#'   p-values, discovery/highlight/retention flags, threshold metadata,
-#'   explicit failures, and timing metadata.
+#'   p-values, discovery/highlight/retention flags, threshold metadata, and
+#'   timing metadata.
 #' @keywords internal
-.mgcvst_test_legacy <- function(
+.mgcvst_test_spde <- function(
     fitmgcvST, q.value = 0.05, FDR = TRUE, method = "BH",
     BPPARAM = BiocParallel::SerialParam(), ...,
     pairs = NULL, highlight = NULL,
     calibration = c("liu", "davies"),
-    tol = 1e-10, chunk_size = NULL,
+    chunk_size = NULL,
     threads = NULL, verbose = FALSE) {
   if (!inherits(fitmgcvST, "mgcvST_fit")) {
     stop("fitmgcvST must be returned by mgcvST.estimate().")
   }
   if (is.null(fitmgcvST$geometry)) {
-    stop("fitmgcvST has no successful feature geometry to test.")
+    stop("fitmgcvST has no feature geometry to test.")
   }
   q.value <- as.numeric(q.value)
   if (length(q.value) != 1L || !is.finite(q.value) ||
@@ -1344,9 +1113,9 @@ score_test <- function(
     stop("Unused arguments in ...: ", paste(names(unused), collapse = ", "))
   }
   calibration <- match.arg(calibration)
-  tol <- as.numeric(tol)
-  if (length(tol) != 1L || !is.finite(tol) || tol <= 0) {
-    stop("tol must be one positive finite value.")
+  if (calibration == "davies" &&
+      !requireNamespace("CompQuadForm", quietly = TRUE)) {
+    stop("calibration = 'davies' requires the optional CompQuadForm package.")
   }
   if (is.null(threads)) threads <- BiocParallel::bpworkers(BPPARAM)
   threads <- as.integer(threads)
@@ -1354,9 +1123,7 @@ score_test <- function(
     stop("threads must be one positive integer.")
   }
   .mgcvst_thread_limit()
-  scale_tol <- fitmgcvST$geometry_tol
-  if (is.null(scale_tol)) scale_tol <- 1e-9
-  field_scale <- .mgcvst_field_scale(fitmgcvST, tol = scale_tol)
+  field_scale <- .mgcvst_field_scale(fitmgcvST)
 
   index <- .mgcvst_pair_index(pairs, fitmgcvST$feature_id)
   highlight_index <- matrix(integer(), nrow = 0L, ncol = 2L)
@@ -1379,35 +1146,19 @@ score_test <- function(
   }
   highlighted <- key %in% highlight_key
 
-  success <- as.logical(fitmgcvST$diagnostics$success)
+  available <- .mgcvst_feature_available(fitmgcvST)
   i1 <- index[, 1L]
   i2 <- index[, 2L]
-  fit_failed <- !success[i1] | !success[i2]
-  status <- ifelse(fit_failed, "feature_fit_failed", "pending")
-  error <- rep(NA_character_, nrow(index))
-  for (j in which(fit_failed)) {
-    failed <- c(i1[j], i2[j])[!success[c(i1[j], i2[j])]]
-    error[j] <- paste(
-      paste0(
-        fitmgcvST$feature_id[failed], ": ",
-        fitmgcvST$diagnostics$error_message[failed]
-      ),
-      collapse = " | "
-    )
-  }
+  pair_available <- available[i1] & available[i2]
 
   result <- data.frame(
     pair_index = seq_len(nrow(index)),
     feature1 = fitmgcvST$feature_id[i1],
     feature2 = fitmgcvST$feature_id[i2],
-    score = NA_real_,
     signed_score = NA_real_,
     statistic = NA_real_,
-    quadratic_statistic = NA_real_,
-    normal_statistic = NA_real_,
     information = NA_real_,
     effective_rank = NA_real_,
-    p_value = NA_real_,
     p_two_sided = NA_real_,
     p_positive = NA_real_,
     p_negative = NA_real_,
@@ -1419,14 +1170,22 @@ score_test <- function(
     discovered_negative = FALSE,
     highlighted = highlighted,
     retained = highlighted,
-    calibration = NA_character_,
-    status = status,
-    davies_ifault = NA_integer_,
-    error = error,
+    error_message = NA_character_,
     stringsAsFactors = FALSE
   )
+  unavailable_rows <- which(!pair_available)
+  for (j in unavailable_rows) {
+    missing_feature <- c(i1[j], i2[j])[!available[c(i1[j], i2[j])]]
+    result$error_message[j] <- paste(
+      paste0(
+        fitmgcvST$feature_id[missing_feature], ": ",
+        fitmgcvST$diagnostics$error_message[missing_feature]
+      ),
+      collapse = " | "
+    )
+  }
 
-  tested_rows <- which(!fit_failed)
+  tested_rows <- which(pair_available)
   workers <- if (length(tested_rows) && calibration != "liu") {
     max(1L, min(length(tested_rows), BiocParallel::bpworkers(BPPARAM)))
   } else if (length(tested_rows)) {
@@ -1457,22 +1216,17 @@ score_test <- function(
       summary_elapsed <- summaries$elapsed
       evaluated <- .mgcvst_liu_pairs(
         index[tested_rows, , drop = FALSE], tested_rows,
-        fitmgcvST$feature_id, summaries, threads, chunk_size, tol, verbose
+        fitmgcvST$feature_id, summaries, threads, chunk_size, verbose
       )
       elapsed <- summary_elapsed + evaluated$elapsed
       evaluated <- evaluated$result
       target <- evaluated$pair_index
-      result$score[target] <- evaluated$score
       result$signed_score[target] <- evaluated$score
       result$statistic[target] <- evaluated$score^2
-      result$quadratic_statistic[target] <- evaluated$score^2
       result$information[target] <- evaluated$information
       result$effective_rank[target] <- evaluated$effective_rank
-      result$p_value[target] <- evaluated$p_value
       result$p_two_sided[target] <- evaluated$p_value
-      result$calibration[target[evaluated$status == "ok"]] <- "liu"
-      result$status[target] <- evaluated$status
-      result$error[target] <- evaluated$error
+      result$error_message[target] <- evaluated$error_message
       chunks <- seq_len(ceiling(length(tested_rows) / chunk_size))
     } else {
       chunks <- split(
@@ -1498,37 +1252,34 @@ score_test <- function(
       evaluated <- BiocParallel::bplapply(
         payload, test_chunk,
         geometry = fitmgcvST$geometry, calibration = calibration,
-        tol = tol, BPPARAM = BPPARAM
+        BPPARAM = BPPARAM
       )
       elapsed <- proc.time()[["elapsed"]] - t0
       evaluated <- do.call(rbind, evaluated)
       core <- c(
-        "score", "signed_score", "statistic", "quadratic_statistic",
-        "normal_statistic", "information", "effective_rank", "p_value",
-        "p_two_sided", "p_positive", "p_negative",
-        "calibration", "status", "davies_ifault", "error"
+        "signed_score", "statistic", "information", "effective_rank",
+        "p_two_sided", "p_positive", "p_negative", "error_message"
       )
       target <- match(evaluated$pair_index, result$pair_index)
       result[target, core] <- evaluated[, core, drop = FALSE]
     }
   }
 
-  valid <- result$status == "ok" & is.finite(result$p_value) &
-    result$p_value >= 0 & result$p_value <= 1
+  valid <- is.finite(result$p_two_sided) &
+    result$p_two_sided >= 0 & result$p_two_sided <= 1
   result$p_positive[valid] <- ifelse(
     result$signed_score[valid] >= 0,
-    result$p_value[valid] / 2,
-    1 - result$p_value[valid] / 2
+    result$p_two_sided[valid] / 2,
+    1 - result$p_two_sided[valid] / 2
   )
   result$p_negative[valid] <- ifelse(
     result$signed_score[valid] <= 0,
-    result$p_value[valid] / 2,
-    1 - result$p_value[valid] / 2
+    result$p_two_sided[valid] / 2,
+    1 - result$p_two_sided[valid] / 2
   )
-  result$p_two_sided[valid] <- result$p_value[valid]
   if (FDR) {
     result$p_adjusted[valid] <- stats::p.adjust(
-      result$p_value[valid], method = method
+      result$p_two_sided[valid], method = method
     )
     result$p_positive_adjusted[valid] <- stats::p.adjust(
       result$p_positive[valid], method = method
@@ -1537,7 +1288,7 @@ score_test <- function(
       result$p_negative[valid], method = method
     )
   } else {
-    result$p_adjusted[valid] <- result$p_value[valid]
+    result$p_adjusted[valid] <- result$p_two_sided[valid]
     result$p_positive_adjusted[valid] <- result$p_positive[valid]
     result$p_negative_adjusted[valid] <- result$p_negative[valid]
   }
@@ -1548,7 +1299,7 @@ score_test <- function(
     result$p_negative_adjusted <= q.value
   result$retained <- result$highlighted | result$discovered
   raw_threshold <- if (any(result$discovered)) {
-    max(result$p_value[result$discovered])
+    max(result$p_two_sided[result$discovered])
   } else {
     NA_real_
   }
@@ -1564,10 +1315,8 @@ score_test <- function(
       ),
       discoveries = list(
         pairs_requested = nrow(index),
-        pairs_fit_failed = sum(fit_failed),
         pairs_tested = length(tested_rows),
         pairs_with_p_value = sum(valid),
-        pairs_failed = sum(!fit_failed & !valid),
         pairs_discovered = sum(result$discovered),
         pairs_discovered_positive = sum(result$discovered_positive),
         pairs_discovered_negative = sum(result$discovered_negative),
