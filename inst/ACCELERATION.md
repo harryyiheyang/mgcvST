@@ -75,6 +75,8 @@ use CppMatrix matrixSolve. Unknown/custom prediction methods, general.family,
 cross-penalty setups and coefficient rank drops retain the previous operator
 path. Supplying source_files or worker_init also disables shared prediction
 geometry, because worker initialization may change method dispatch. This
+path is also skipped when a parallel batch has fewer than two features per
+worker, avoiding an extra fit wave merely to establish the shared cache. This
 statistical refactor is tested for numerical rather than bitwise
 equivalence. Pure caching and duplicate-product changes remain subject to
 strict identity. The original diagnostic and result fields remain present;

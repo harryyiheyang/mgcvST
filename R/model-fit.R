@@ -258,6 +258,7 @@
   fit_chunk <- get(".mgcvst_model_fit_chunk", envir = worker_bundle,
                    inherits = FALSE)
   t0 <- proc.time()[["elapsed"]]
+  cache_worthwhile <- workers == 1L || nrow(Y) >= 2L * workers
   # Establish one formal prediction geometry before distributing the remaining
   # fits. A failed first feature is retained; the next feature may seed the cache.
   fit_args <- list(
@@ -267,7 +268,8 @@
     marginal_test = marginal_test, marginal_args = marginal_args,
     retain_smooth = retain_smooth, marginal = marginal,
     diagnostics = diagnostics, retain_marginal = retain_marginal,
-    allow_geometry_cache = !length(source_files) && is.null(worker_init)
+    allow_geometry_cache = cache_worthwhile && !length(source_files) &&
+      is.null(worker_init)
   )
   prefix <- list()
   seed <- NULL

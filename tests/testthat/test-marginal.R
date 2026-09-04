@@ -87,7 +87,9 @@ test_that("Snow workers use retained state and chunk caches", {
   f <- st_fixture(nuisance=TRUE)
   bp <- BiocParallel::SnowParam(workers=2,type="SOCK",progressbar=FALSE)
   on.exit(BiocParallel::bpstop(bp),add=TRUE)
-  fit <- mgcvST.estimate(f$Y,f$model,retain_marginal=TRUE,BPPARAM=bp,chunk_size=1)
+  Y <- f$Y[rep(1:3, 2),,drop=FALSE]
+  rownames(Y) <- paste0("snow", seq_len(nrow(Y)))
+  fit <- mgcvST.estimate(Y,f$model,retain_marginal=TRUE,BPPARAM=bp,chunk_size=1)
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   pairs <- t(combn(1:3,2))
   serial <- mgcvST.test(fit,pairs=pairs)
