@@ -9,10 +9,25 @@
 
 # Factor one positive-definite fixed-kappa SPDE covariance.
 .mgcvst_spde_factor <- function(B, Q, scale) {
+  sqrt(scale) * .mgcvst_spde_factor_base(B, Q)
+}
+
+.mgcvst_spde_factor_base <- function(B, Q) {
   Q <- Matrix::forceSymmetric(Matrix::Matrix(Q, sparse = TRUE))
   R <- Matrix::chol(Q)
   Rinv <- Matrix::solve(R, Matrix::Diagonal(nrow(Q)))
-  sqrt(scale) * .magic_mm(B, as.matrix(Rinv))
+  .magic_mm(B, as.matrix(Rinv))
+}
+
+# Per-test geometry only. Cache conditions without moving failures out of
+# the original per-pair tryCatch or changing feature-validation precedence.
+.mgcvst_model_fixed_factors <- function(fit) {
+  lapply(fit$geometry$smooth, function(s) {
+    if (s$fixed || is.null(s$score_component) || length(s$penalties) != 1L ||
+        length(s$sp_index) != 1L) return(NULL)
+    tryCatch(.mgcvst_spde_factor_base(s$B, s$penalties[[1L]]),
+             error = function(e) e)
+  })
 }
 
 # Construct one feature's full nuisance covariance and marked score factors.
@@ -42,9 +57,13 @@
       if (length(s$penalties) != 1L || length(s$sp_index) != 1L) {
         stop("A marked SPDE score component must have one penalty.")
       }
-      F <- .mgcvst_spde_factor(
-        s$B, s$penalties[[1L]], phi / sp[s$sp_index]
-      )
+      base <- fit$.mgcvst_fixed_factors[[j]]
+      if (inherits(base, "condition")) stop(base)
+      F <- if (is.null(base)) {
+        .mgcvst_spde_factor(s$B, s$penalties[[1L]], phi / sp[s$sp_index])
+      } else {
+        sqrt(phi / sp[s$sp_index]) * base
+      }
       target[[score_name]] <- F
       factors[[j]] <- F
       next
@@ -85,20 +104,33 @@
   Pe <- rkhs_score_apply_P(z$operator, fit$working_error[, feature])
   PF <- rkhs_score_apply_P(z$operator, F)
   width <- vapply(z$target, ncol, integer(1L))
+  a <- as.numeric(.magic_mm(F, matrix(Pe, ncol = 1L), transA = TRUE))
+  M <- .magic_mm(F, PF, transA = TRUE)
   list(
-    a = as.numeric(.magic_mm(F, matrix(Pe, ncol = 1L), transA = TRUE)),
-    M = (.magic_mm(F, PF, transA = TRUE) +
-           t(.magic_mm(F, PF, transA = TRUE))) / 2,
+    a = a,
+    M = (M + t(M)) / 2,
     width = width,
     target = z$target,
     operator = z$operator
   )
 }
 
+# Lazy, successful-state-only cache bounded by the current pair chunk.
+.mgcvst_model_cached_state <- function(fit, feature) {
+  cache <- fit$.mgcvst_state_cache
+  if (is.null(cache)) return(.mgcvst_model_score_state(fit, feature))
+  key <- as.character(feature)
+  if (!exists(key, envir = cache, inherits = FALSE)) {
+    state <- .mgcvst_model_score_state(fit, feature)
+    assign(key, state[c("a", "M")], envir = cache)
+  }
+  get(key, envir = cache, inherits = FALSE)
+}
+
 # Single marked-SPDE score with every other smoother in the marginal V.
 .mgcvst_model_pair_single <- function(fit, i, j, calibration) {
-  s1 <- .mgcvst_model_score_state(fit, i)
-  s2 <- .mgcvst_model_score_state(fit, j)
+  s1 <- .mgcvst_model_cached_state(fit, i)
+  s2 <- .mgcvst_model_cached_state(fit, j)
   score <- as.numeric(crossprod(s1$a, s2$a))
   cal <- rkhs_score_calibrate(score, s1$M, s2$M, method = calibration)
   list(

@@ -79,7 +79,7 @@
 
 # Fit and reduce one feature under a model.set() setup.
 .mgcvst_model_fit_one <- function(response, G0, family_raw, method, control,
-                                  gam_args, retain_smooth) {
+                                  gam_args, retain_smooth, diagnostics = TRUE) {
   G <- G0
   response_index <- attr(G$terms, "response")
   if (length(response_index) != 1L || response_index < 1L ||
@@ -97,7 +97,7 @@
   fit_seconds <- proc.time()[["elapsed"]] - t0
   W <- rkhs_extract_working_model(fit)
   geometry <- .mgcvst_model_geometry(fit)
-  fit_summary <- summary(fit)
+  fit_summary <- if (diagnostics) summary(fit) else NULL
   criterion <- if (length(fit$gcv.ubre) == 1L) as.numeric(fit$gcv.ubre) else NA_real_
   criterion_name <- if (length(fit$gcv.ubre) == 1L) names(fit$gcv.ubre) else NA_character_
   coefficients <- NULL
@@ -132,14 +132,16 @@
 .mgcvst_model_fit_chunk <- function(payload, G0, family_raw, method, control,
                                     gam_args, source_files, worker_init,
                                     init_key, marginal_test, marginal_args,
-                                    retain_smooth) {
+                                    retain_smooth, marginal = TRUE,
+                                    diagnostics = TRUE, retain_marginal = FALSE) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   out <- vector("list", length(payload$index))
+  marginal_geometry <- NULL
   for (j in seq_along(payload$index)) {
     fit <- tryCatch(
       .mgcvst_model_fit_one(
         payload$Y[j, ], G0, family_raw, method, control, gam_args,
-        retain_smooth
+        retain_smooth, diagnostics = diagnostics
       ),
       error = function(e) e
     )
@@ -150,20 +152,33 @@
       )
     } else {
       target_index <- unname(fit$geometry$target[["global"]])
-      marginal <- tryCatch(
+      if (retain_marginal) {
+        captured <- tryCatch(
+          .mgcvst_capture_marginal(fit$gam, marginal_geometry,
+                                  test_component = target_index),
+          error = function(e) e
+        )
+        if (inherits(captured, "condition")) {
+          fit$marginal_state <- captured
+        } else {
+          if (is.null(marginal_geometry)) marginal_geometry <- captured$geometry
+          fit$marginal_state <- captured$state
+        }
+      }
+      marginal_result <- if (marginal) tryCatch(
         .mgcvst_marginal_score(
           fit$gam, marginal_test, marginal_args,
           test_component = target_index
         ),
         error = function(e) e
-      )
-      fit$marginal_p_value <- if (inherits(marginal, "condition")) {
+      ) else NA_real_
+      fit$marginal_p_value <- if (inherits(marginal_result, "condition")) {
         NA_real_
       } else {
-        marginal
+        marginal_result
       }
-      fit$marginal_error <- if (inherits(marginal, "condition")) {
-        .mgcvst_condition(marginal)
+      fit$marginal_error <- if (inherits(marginal_result, "condition")) {
+        .mgcvst_condition(marginal_result)
       } else {
         NULL
       }
@@ -173,6 +188,7 @@
       out[[j]] <- fit
     }
   }
+  if (retain_marginal) attr(out, "marginal_geometry") <- marginal_geometry
   out
 }
 
@@ -180,7 +196,7 @@
 .mgcvst_estimate_model <- function(
     Y, model, feature_id, BPPARAM, chunk_size, source_files, worker_init,
     marginal_test, marginal_args, method, retain_smooth, control,
-    gam_args, call) {
+    gam_args, call, marginal = TRUE, diagnostics = TRUE, retain_marginal = FALSE) {
   Y <- as.matrix(Y)
   storage.mode(Y) <- "double"
   if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) || any(!is.finite(Y))) {
@@ -229,7 +245,9 @@
     control = control, gam_args = gam_args, source_files = source_files,
     worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
-    retain_smooth = retain_smooth, BPPARAM = BPPARAM
+    retain_smooth = retain_smooth, marginal = marginal,
+    diagnostics = diagnostics, retain_marginal = retain_marginal,
+    BPPARAM = BPPARAM
   )
   elapsed <- proc.time()[["elapsed"]] - t0
   fits <- unlist(chunks, recursive = FALSE)
@@ -308,7 +326,7 @@
     matrix(NA_real_, p, 0L)
   }
   colnames(component_lambda) <- names(target_lambda)
-  structure(
+  ans <- structure(
     list(
       feature_id = feature_id,
       working_error = E,
@@ -338,4 +356,13 @@
     ),
     class = c("mgcvST_model_fit", "mgcvST_fit", "mgcvST")
   )
+  if (retain_marginal) {
+    marginal_chunks <- lapply(chunks, function(chunk) list(
+      index = vapply(chunk, `[[`, integer(1L), "index"),
+      marginal_geometry = attr(chunk, "marginal_geometry"),
+      marginal_state = lapply(chunk, `[[`, "marginal_state")
+    ))
+    ans$marginal_data <- .mgcvst_collect_marginal(marginal_chunks, p, feature_id)
+  }
+  ans
 }

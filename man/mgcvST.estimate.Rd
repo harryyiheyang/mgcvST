@@ -2,7 +2,7 @@
 % Please edit documentation in R/mgcvst-api.R
 \name{mgcvST.estimate}
 \alias{mgcvST.estimate}
-\title{Estimate compact marginal-screen and covariance working summaries}
+\title{Estimate compact covariance working summaries}
 \usage{
 mgcvST.estimate(
   Y,
@@ -17,7 +17,10 @@ mgcvST.estimate(
   method = "REML",
   retain_smooth = FALSE,
   control = mgcv::gam.control(nthreads = 1L),
-  ...
+  ...,
+  marginal = FALSE,
+  diagnostics = FALSE,
+  retain_marginal = FALSE
 )
 }
 \arguments{
@@ -62,6 +65,17 @@ without retaining full \code{gam} objects.}
 always forced to one.}
 
 \item{...}{Additional arguments passed to \code{mgcv::gam(G = G, ...)}.}
+
+\item{marginal}{Logical; run the legacy per-feature marginal callback.
+FALSE (default) never calls \code{taps_score_test()} or \code{marginal_test}.}
+
+\item{diagnostics}{Logical; compute \code{summary.gam()}/Wood diagnostics.
+FALSE (default) leaves Wood fields NA without calling summary.
+Basic convergence and fitting diagnostics are still retained.}
+
+\item{retain_marginal}{Logical; retain minimal frozen-fit inputs for a later
+\code{\link[=mgcvST.marginal]{mgcvST.marginal()}} call. FALSE by default. This only saves data, without
+running a marginal test, and never retains full gam objects.}
 }
 \value{
 A compact object of class \code{mgcvST_fit} containing marginal score
@@ -76,9 +90,10 @@ not store a redundant \code{field_scale}; score methods derive it as
 }
 \description{
 Fits each row of \code{Y} with a reusable \code{mgcv::gam(fit = FALSE)} setup and
-computes the corrected marginal spatial score used for feature screening,
-and retains only the fixed numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}.
-The default marginal test is \code{mgcv.taps::taps_score_test()}, or a sourced
+retains the fixed numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. Marginal
+screening and Wood diagnostics are off by default. Set \code{marginal = TRUE}
+and \code{diagnostics = TRUE} to recover the legacy computation. The legacy
+marginal test is \code{mgcv.taps::taps_score_test()}, or a sourced
 \code{taps_score_test()} found on the worker. Full \code{gam} objects are never
 retained. Genes are processed in chunks through \code{BiocParallel}; the default
 is serial. On Windows, use a persistent \code{SnowParam(type = "SOCK")} object

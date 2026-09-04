@@ -11,6 +11,18 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// mgcvst_marginal_liu_moments_cpp
+Rcpp::NumericMatrix mgcvst_marginal_liu_moments_cpp(Rcpp::List powers, int threads);
+RcppExport SEXP _mgcvST_mgcvst_marginal_liu_moments_cpp(SEXP powersSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::List >::type powers(powersSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_marginal_liu_moments_cpp(powers, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_pair_trace_powers_cpp
 arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList, const Rcpp::IntegerMatrix& pairs, int maxPower, int threads);
 RcppExport SEXP _mgcvST_mgcvst_pair_trace_powers_cpp(SEXP matrixListSEXP, SEXP pairsSEXP, SEXP maxPowerSEXP, SEXP threadsSEXP) {
@@ -27,6 +39,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_mgcvST_mgcvst_marginal_liu_moments_cpp", (DL_FUNC) &_mgcvST_mgcvst_marginal_liu_moments_cpp, 2},
     {"_mgcvST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_trace_powers_cpp, 4},
     {NULL, NULL, 0}
 };

@@ -138,7 +138,7 @@
 }
 
 # Reduce one gam fit to the working summaries and shared geometry used downstream.
-.mgcvst_compact_fit <- function(fit, retain_smooth = FALSE) {
+.mgcvst_compact_fit <- function(fit, retain_smooth = FALSE, diagnostics = TRUE) {
   W <- rkhs_extract_working_model(fit)
   L <- .gam_training_lpmatrix(fit)
   smooth_index <- .mgcvst_spde_index(fit)
@@ -156,14 +156,17 @@
     smooth_columns = S$columns,
     score_precision_psd = S$score_precision_psd
   )
-  fit_summary <- summary(fit)
-  smooth_table <- fit_summary$s.table[smooth_index, , drop = FALSE]
-  wood_p_value <- as.numeric(smooth_table[1L, "p-value"])
-  smooth_edf <- as.numeric(smooth_table[1L, "edf"])
+  wood_p_value <- smooth_edf <- wood_statistic <- NA_real_
+  if (diagnostics) {
+    fit_summary <- summary(fit)
+    smooth_table <- fit_summary$s.table[smooth_index, , drop = FALSE]
+    wood_p_value <- as.numeric(smooth_table[1L, "p-value"])
+    smooth_edf <- as.numeric(smooth_table[1L, "edf"])
+    statistic_column <- ncol(smooth_table) - 1L
+    wood_statistic <- as.numeric(smooth_table[1L, statistic_column])
+  }
   residual_df <- as.numeric(fit$df.residual)
   if (length(residual_df) != 1L) residual_df <- NA_real_
-  statistic_column <- ncol(smooth_table) - 1L
-  wood_statistic <- as.numeric(smooth_table[1L, statistic_column])
   parameters <- W$family_parameters
   if (is.null(parameters)) parameters <- numeric()
   ans <- list(
@@ -269,12 +272,15 @@
     ".mgcvst_thread_limit", ".mgcvst_worker_initialize",
     ".mgcvst_spde_index", ".mgcvst_row_id", ".mgcvst_compact_fit",
     ".mgcvst_condition", ".mgcvst_fit_chunk",
+    ".mgcvst_capture_marginal", ".mgcvst_marginal_geometry",
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     ".gam_training_lpmatrix", ".gam_single_smooth",
     ".mgcvst_expand_penalty", ".mgcvst_model_geometry",
     ".mgcvst_model_fit_one",
     ".mgcvst_model_fit_chunk", ".mgcvst_full_rank_design",
-    ".mgcvst_spde_factor", ".mgcvst_model_operator",
+    ".mgcvst_spde_factor", ".mgcvst_spde_factor_base",
+    ".mgcvst_model_fixed_factors", ".mgcvst_model_cached_state",
+    ".mgcvst_model_operator",
     ".mgcvst_model_score_state", ".mgcvst_model_pair_single",
     ".mgcvst_model_test_chunk",
     "rkhs_extract_working_model", ".magic_mm", ".magic_solve",
@@ -312,7 +318,8 @@
 .mgcvst_fit_chunk <- function(payload, G0, family_raw, method, control,
                               gam_args, source_files, worker_init, init_key,
                               marginal_test, marginal_args,
-                              retain_smooth) {
+                              retain_smooth, marginal = TRUE,
+                              diagnostics = TRUE, retain_marginal = FALSE) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   ids <- payload$index
   Y <- payload$Y
@@ -335,6 +342,8 @@
   error_class <- error_message <- error_call <- rep(NA_character_, k)
   geometry <- NULL
   fit_geometry <- NULL
+  marginal_geometry <- NULL
+  marginal_state <- if (retain_marginal) vector("list", k) else NULL
   coefficient_count <- length(seq.int(
     G0$smooth[[1L]]$first.para, G0$smooth[[1L]]$last.para
   ))
@@ -396,7 +405,8 @@
     t0 <- proc.time()[["elapsed"]]
     compact_result <- tryCatch(
       list(
-        value = .mgcvst_compact_fit(fit, retain_smooth = retain_smooth),
+        value = .mgcvst_compact_fit(fit, retain_smooth = retain_smooth,
+                                  diagnostics = diagnostics),
         error = NULL
       ),
       error = function(e) list(value = NULL, error = e)
@@ -430,6 +440,20 @@
 
     E[, j] <- compact$working_error
     V[, j] <- compact$working_variance
+
+    if (retain_marginal) {
+      captured <- tryCatch(
+        .mgcvst_capture_marginal(fit, marginal_geometry), error = function(e) e
+      )
+      if (inherits(captured, "condition")) {
+        marginal_state[[j]] <- captured
+      } else {
+        if (is.null(marginal_geometry)) marginal_geometry <- captured$geometry
+        marginal_state[[j]] <- captured$state
+      }
+    }
+
+    if (!marginal) next
 
     t0 <- proc.time()[["elapsed"]]
     marginal_result <- tryCatch(
@@ -489,16 +513,19 @@
     diagnostics = diagnostics,
     geometry = geometry,
     smooth_coefficients = smooth_coefficients,
-    fit_geometry = fit_geometry
+    fit_geometry = fit_geometry,
+    marginal_geometry = marginal_geometry,
+    marginal_state = marginal_state
   )
 }
 
-#' Estimate compact marginal-screen and covariance working summaries
+#' Estimate compact covariance working summaries
 #'
 #' Fits each row of `Y` with a reusable `mgcv::gam(fit = FALSE)` setup and
-#' computes the corrected marginal spatial score used for feature screening,
-#' and retains only the fixed numerical summaries needed by [mgcvST.test()].
-#' The default marginal test is `mgcv.taps::taps_score_test()`, or a sourced
+#' retains the fixed numerical summaries needed by [mgcvST.test()]. Marginal
+#' screening and Wood diagnostics are off by default. Set `marginal = TRUE`
+#' and `diagnostics = TRUE` to recover the legacy computation. The legacy
+#' marginal test is `mgcv.taps::taps_score_test()`, or a sourced
 #' `taps_score_test()` found on the worker. Full `gam` objects are never
 #' retained. Genes are processed in chunks through `BiocParallel`; the default
 #' is serial. On Windows, use a persistent `SnowParam(type = "SOCK")` object
@@ -538,6 +565,14 @@
 #'   spatial score interface of `mgcv.taps::taps_score_test()`. `NULL` locates
 #'   a sourced `taps_score_test()` or the installed `mgcv.taps` export on each
 #'   worker.
+#' @param marginal Logical; run the legacy per-feature marginal callback.
+#'   FALSE (default) never calls `taps_score_test()` or `marginal_test`.
+#' @param diagnostics Logical; compute `summary.gam()`/Wood diagnostics.
+#'   FALSE (default) leaves Wood fields NA without calling summary.
+#'   Basic convergence and fitting diagnostics are still retained.
+#' @param retain_marginal Logical; retain minimal frozen-fit inputs for a later
+#'   [mgcvST.marginal()] call. FALSE by default. This only saves data, without
+#'   running a marginal test, and never retains full gam objects.
 #' @param marginal_args Named list of additional marginal-score arguments.
 #'   `fit`, `test.component`, and `n_threads` are controlled by mgcvST. The
 #'   marginal test otherwise uses its own defaults unless overridden here.
@@ -566,8 +601,26 @@ mgcvST.estimate <- function(
     source_files = NULL, worker_init = NULL,
     marginal_test = NULL, marginal_args = list(), method = "REML",
     retain_smooth = FALSE,
-    control = mgcv::gam.control(nthreads = 1L), ...) {
+    control = mgcv::gam.control(nthreads = 1L), ...,
+    marginal = FALSE, diagnostics = FALSE, retain_marginal = FALSE) {
   call <- match.call()
+  for (name in c("marginal", "diagnostics", "retain_marginal")) {
+    value <- get(name)
+    if (!is.logical(value) || length(value) != 1L || is.na(value)) {
+      stop(name, " must be TRUE or FALSE.")
+    }
+  }
+  if (!is.null(marginal_test) && !is.function(marginal_test)) {
+    stop("marginal_test must be NULL or a function.")
+  }
+  if (!is.list(marginal_args) ||
+      (length(marginal_args) && (is.null(names(marginal_args)) ||
+                               any(!nzchar(names(marginal_args)))))) {
+    stop("marginal_args must be a named list.")
+  }
+  if (any(names(marginal_args) %in% c("fit", "test.component", "n_threads"))) {
+    stop("Do not supply fit, test.component or n_threads through marginal_args.")
+  }
   if (inherits(G, "mgcvST_model")) {
     return(.mgcvst_estimate_model(
       Y = Y, model = G, feature_id = feature_id, BPPARAM = BPPARAM,
@@ -575,7 +628,8 @@ mgcvST.estimate <- function(
       worker_init = worker_init, marginal_test = marginal_test,
       marginal_args = marginal_args, method = method,
       retain_smooth = retain_smooth, control = control,
-      gam_args = list(...), call = call
+      gam_args = list(...), call = call, marginal = marginal,
+      diagnostics = diagnostics, retain_marginal = retain_marginal
     ))
   }
   Y <- as.matrix(Y)
@@ -662,6 +716,8 @@ mgcvST.estimate <- function(
     worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
     retain_smooth = retain_smooth,
+    marginal = marginal, diagnostics = diagnostics,
+    retain_marginal = retain_marginal,
     BPPARAM = BPPARAM
   )
   elapsed <- proc.time()[["elapsed"]] - t0
@@ -726,6 +782,9 @@ mgcvST.estimate <- function(
       test_engine = "spde",
       call = call
     )
+  if (retain_marginal) {
+    ans$marginal_data <- .mgcvst_collect_marginal(chunks, p, feature_id)
+  }
   if (retain_smooth) {
     if (is.null(fit_geometry)) {
       ans$smooth_coefficients <- matrix(

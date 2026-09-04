@@ -20,6 +20,10 @@
 .mgcvst_model_test_chunk <- function(payload, fit, pair_function,
                                       calibration) {
   .mgcvst_thread_limit()
+  fit$.mgcvst_state_cache <- new.env(parent = emptyenv())
+  if (is.null(fit$.mgcvst_fixed_factors)) {
+    fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
+  }
   out <- vector("list", length(payload$rows))
   for (k in seq_along(payload$rows)) {
     i <- payload$pairs[k, 1L]
@@ -177,8 +181,10 @@
     pair_worker <- get(deparse(substitute(pair_function)), envir = worker_bundle,
                        inherits = FALSE)
     t0 <- proc.time()[["elapsed"]]
+    test_fit <- fitmgcvST
+    test_fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(test_fit)
     evaluated <- BiocParallel::bplapply(
-      payload, test_chunk, fit = fitmgcvST, pair_function = pair_worker,
+      payload, test_chunk, fit = test_fit, pair_function = pair_worker,
       calibration = calibration, BPPARAM = BPPARAM
     )
     elapsed <- proc.time()[["elapsed"]] - t0

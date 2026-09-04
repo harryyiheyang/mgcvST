@@ -29,6 +29,7 @@ LinkingTo:
     Rcpp,
     RcppArmadillo
 Suggests:
+    testthat (>= 3.0.0),
     CompQuadForm,
     data.table,
     fmesher,
@@ -38,3 +39,4 @@ Suggests:
     sf
 Additional_repositories: https://inla.r-inla-download.org/R/stable
 Config/roxygen2/version: 8.1.0
+Config/testthat/edition: 3

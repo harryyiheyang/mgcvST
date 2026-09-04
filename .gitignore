@@ -1,0 +1,6 @@
+src/*.o
+src/*.dll
+src/*.so
+src/*.a
+src/symbols.rds
+*.Rcheck/
