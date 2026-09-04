@@ -29,6 +29,48 @@ test_that("diagnostics FALSE does not invoke summary.gam", {
   }
 })
 
+test_that("model batches reuse one exact formal training lpmatrix", {
+  f <- st_fixture(nuisance = TRUE)
+  original <- mgcvST:::.gam_training_lpmatrix
+  count <- 0L
+  testthat::local_mocked_bindings(
+    .gam_training_lpmatrix = function(fit) {
+      count <<- count + 1L
+      original(fit)
+    },
+    .package = "mgcvST"
+  )
+  fit <- mgcvST.estimate(
+    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
+    diagnostics = FALSE, marginal = FALSE
+  )
+  expect_identical(count, 1L)
+  expect_true(all(is.finite(fit$working_error)))
+})
+
+test_that("unknown prediction methods disable exact-lpmatrix reuse", {
+  f <- st_fixture(nuisance = TRUE)
+  original_lpmatrix <- mgcvST:::.gam_training_lpmatrix
+  original_predictor <- mgcvST:::Predict.matrix.spde.smooth
+  count <- 0L
+  testthat::local_mocked_bindings(
+    Predict.matrix.spde.smooth = function(object, data) {
+      original_predictor(object, data)
+    },
+    .gam_training_lpmatrix = function(fit) {
+      count <<- count + 1L
+      original_lpmatrix(fit)
+    },
+    .package = "mgcvST"
+  )
+  fit <- mgcvST.estimate(
+    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
+    diagnostics = FALSE, marginal = FALSE
+  )
+  expect_identical(count, nrow(f$Y))
+  expect_true(all(is.finite(fit$working_error)))
+})
+
 test_that("model score hot path and all pair output fields remain identical", {
   old <- old_st()
   f <- st_fixture(nuisance = TRUE)

@@ -276,6 +276,8 @@
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     ".gam_training_lpmatrix", ".gam_single_smooth",
     ".mgcvst_expand_penalty", ".mgcvst_model_geometry",
+    ".mgcvst_geometry_signature", ".mgcvst_model_sp",
+    ".mgcvst_cached_model_geometry",
     ".mgcvst_model_fit_one",
     ".mgcvst_model_fit_chunk", ".mgcvst_full_rank_design",
     ".mgcvst_spde_factor", ".mgcvst_spde_factor_base",

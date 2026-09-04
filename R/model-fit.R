@@ -10,8 +10,8 @@
 }
 
 # Extract shared smooth geometry and fitted smoothing parameters.
-.mgcvst_model_geometry <- function(fit) {
-  L <- .gam_training_lpmatrix(fit)
+.mgcvst_model_geometry <- function(fit, L = NULL) {
+  if (is.null(L)) L <- .gam_training_lpmatrix(fit)
   smooth_columns <- lapply(
     fit$smooth, function(s) seq.int(s$first.para, s$last.para)
   )
@@ -79,7 +79,8 @@
 
 # Fit and reduce one feature under a model.set() setup.
 .mgcvst_model_fit_one <- function(response, G0, family_raw, method, control,
-                                  gam_args, retain_smooth, diagnostics = TRUE) {
+                                  gam_args, retain_smooth, diagnostics = TRUE,
+                                  geometry_cache = NULL) {
   G <- G0
   response_index <- attr(G$terms, "response")
   if (length(response_index) != 1L || response_index < 1L ||
@@ -96,7 +97,7 @@
   )
   fit_seconds <- proc.time()[["elapsed"]] - t0
   W <- rkhs_extract_working_model(fit)
-  geometry <- .mgcvst_model_geometry(fit)
+  geometry <- .mgcvst_cached_model_geometry(fit, geometry_cache)
   fit_summary <- if (diagnostics) summary(fit) else NULL
   criterion <- if (length(fit$gcv.ubre) == 1L) as.numeric(fit$gcv.ubre) else NA_real_
   criterion_name <- if (length(fit$gcv.ubre) == 1L) names(fit$gcv.ubre) else NA_character_
@@ -133,15 +134,19 @@
                                     gam_args, source_files, worker_init,
                                     init_key, marginal_test, marginal_args,
                                     retain_smooth, marginal = TRUE,
-                                    diagnostics = TRUE, retain_marginal = FALSE) {
+                                    diagnostics = TRUE, retain_marginal = FALSE,
+                                    geometry_seed = NULL) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   out <- vector("list", length(payload$index))
   marginal_geometry <- NULL
+  geometry_cache <- list2env(if (is.null(geometry_seed)) list() else geometry_seed,
+                            parent = emptyenv())
+  shared_geometry <- NULL
   for (j in seq_along(payload$index)) {
     fit <- tryCatch(
       .mgcvst_model_fit_one(
         payload$Y[j, ], G0, family_raw, method, control, gam_args,
-        retain_smooth, diagnostics = diagnostics
+        retain_smooth, diagnostics = diagnostics, geometry_cache = geometry_cache
       ),
       error = function(e) e
     )
@@ -183,12 +188,16 @@
         NULL
       }
       fit$gam <- NULL
+      if (is.null(shared_geometry)) shared_geometry <- fit$geometry
+      fit$geometry <- NULL
       fit$index <- payload$index[j]
       fit$feature_id <- payload$feature_id[j]
       out[[j]] <- fit
     }
   }
   if (retain_marginal) attr(out, "marginal_geometry") <- marginal_geometry
+  attr(out, "model_geometry") <- shared_geometry
+  attr(out, "geometry_seed") <- as.list(geometry_cache)
   out
 }
 
@@ -239,16 +248,38 @@
   fit_chunk <- get(".mgcvst_model_fit_chunk", envir = worker_bundle,
                    inherits = FALSE)
   t0 <- proc.time()[["elapsed"]]
-  chunks <- BiocParallel::bplapply(
-    payload, fit_chunk,
+  # Establish one formal prediction geometry before distributing the remaining
+  # fits. A failed first feature is retained; the next feature may seed the cache.
+  fit_args <- list(
     G0 = model$G, family_raw = family_raw, method = method,
     control = control, gam_args = gam_args, source_files = source_files,
     worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
     retain_smooth = retain_smooth, marginal = marginal,
-    diagnostics = diagnostics, retain_marginal = retain_marginal,
-    BPPARAM = BPPARAM
+    diagnostics = diagnostics, retain_marginal = retain_marginal
   )
+  prefix <- list()
+  seed <- NULL
+  next_index <- 1L
+  repeat {
+    first <- do.call(fit_chunk, c(list(payload = list(
+      index = next_index, feature_id = feature_id[next_index],
+      Y = Y[next_index, , drop = FALSE])), fit_args))
+    prefix[[length(prefix) + 1L]] <- first
+    seed <- attr(first, "geometry_seed")
+    next_index <- next_index + 1L
+    if (!is.null(attr(first, "model_geometry")) || next_index > nrow(Y)) break
+  }
+  remaining <- if (next_index <= nrow(Y)) seq.int(next_index, nrow(Y)) else integer()
+  ids <- split(remaining, ceiling(remaining / chunk_size))
+  payload <- lapply(ids, function(i) list(
+    index = i, feature_id = feature_id[i], Y = Y[i, , drop = FALSE]
+  ))
+  tail <- if (length(payload)) do.call(BiocParallel::bplapply, c(
+    list(X = payload, FUN = fit_chunk, geometry_seed = seed, BPPARAM = BPPARAM),
+    fit_args
+  )) else list()
+  chunks <- c(prefix, tail)
   elapsed <- proc.time()[["elapsed"]] - t0
   fits <- unlist(chunks, recursive = FALSE)
   fits <- fits[order(vapply(fits, `[[`, integer(1L), "index"))]
@@ -256,7 +287,12 @@
   good <- which(available)
   geometry <- NULL
   if (length(good)) {
-    geometry <- fits[[good[1L]]]$geometry
+    for (chunk in chunks) {
+      if (!is.null(attr(chunk, "model_geometry"))) {
+        geometry <- attr(chunk, "model_geometry")
+        break
+      }
+    }
   }
   n <- ncol(Y)
   p <- nrow(Y)
