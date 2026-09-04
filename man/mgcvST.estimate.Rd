@@ -8,7 +8,7 @@ mgcvST.estimate(
   Y,
   G,
   feature_id = rownames(Y),
-  BPPARAM = BiocParallel::SerialParam(),
+  BPPARAM = BiocParallel::bpparam(),
   chunk_size = NULL,
   source_files = NULL,
   worker_init = NULL,
@@ -18,9 +18,9 @@ mgcvST.estimate(
   retain_smooth = FALSE,
   control = mgcv::gam.control(nthreads = 1L),
   ...,
-  marginal = FALSE,
   diagnostics = FALSE,
-  retain_marginal = FALSE
+  retain_marginal = FALSE,
+  offset = NULL
 )
 }
 \arguments{
@@ -32,7 +32,7 @@ response is replaced by each row of \code{Y}.}
 \item{feature_id}{Unique feature identifiers. Defaults to \code{rownames(Y)} or
 sequential identifiers.}
 
-\item{BPPARAM}{A \code{BiocParallelParam}; defaults to \code{SerialParam()}.}
+\item{BPPARAM}{A \code{BiocParallelParam}; defaults to the registered \code{bpparam()}.}
 
 \item{chunk_size}{Positive number of genes per task. The default creates at
 most one chunk per worker, limiting repeated serialization on SOCK
@@ -45,13 +45,13 @@ source once per worker. Use this for sourced custom S3 smooth methods.}
 per worker after \code{source_files}.}
 
 \item{marginal_test}{Optional function implementing the corrected marginal
-spatial score interface of \code{mgcv.taps::taps_score_test()}. \code{NULL} locates
-a sourced \code{taps_score_test()} or the installed \code{mgcv.taps} export on each
-worker.}
+spatial score interface. \code{NULL} uses mgcvST's package-local implementation.
+A custom function is used only when explicitly supplied.}
 
 \item{marginal_args}{Named list of additional marginal-score arguments.
-\code{fit}, \code{test.component}, and \code{n_threads} are controlled by mgcvST. The
-marginal test otherwise uses its own defaults unless overridden here.}
+\code{fit}, \code{test.component}, and \code{n_threads} are controlled by mgcvST.
+Use \code{list(method = "liu")} for direct Liu, or the default Davies with
+Liu fallback within mgcvST. No additional marginal call is needed.}
 
 \item{method}{Fitting method passed to \code{mgcv::gam()}. \code{"REML"} is the
 default.}
@@ -66,16 +66,19 @@ always forced to one.}
 
 \item{...}{Additional arguments passed to \code{mgcv::gam(G = G, ...)}.}
 
-\item{marginal}{Logical; run the legacy per-feature marginal callback.
-FALSE (default) never calls \code{taps_score_test()} or \code{marginal_test}.}
-
 \item{diagnostics}{Logical; compute \code{summary.gam()}/Wood diagnostics.
 FALSE (default) leaves Wood fields NA without calling summary.
 Basic convergence and fitting diagnostics are still retained.}
 
 \item{retain_marginal}{Logical; retain minimal frozen-fit inputs for a later
-\code{\link[=mgcvST.marginal]{mgcvST.marginal()}} call. FALSE by default. This only saves data, without
-running a marginal test, and never retains full gam objects.}
+\code{mgcvST.marginal()} recalibration call. FALSE by default. Marginal testing
+during estimation is always performed; full gam objects are never retained.}
+
+\item{offset}{Optional additional log/link-scale offset for an
+\code{\link[=mgcvST.set]{mgcvST.set()}} model: a shared observation-length vector or a
+feature-by-observation matrix in exactly the same order as \code{Y}.
+Added to the shared formula/setup offset. Covariates and smooths are fixed
+by \code{mgcvST.set()} and cannot vary by gene.}
 }
 \value{
 A compact object of class \code{mgcvST_fit} containing marginal score
@@ -94,17 +97,21 @@ not store a redundant \code{field_scale}; score methods derive it as
 \description{
 Fits each row of \code{Y} with a reusable \code{mgcv::gam(fit = FALSE)} setup and
 retains the fixed numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. Marginal
-screening and Wood diagnostics are off by default. Set \code{marginal = TRUE}
-and \code{diagnostics = TRUE} to recover the legacy computation. The legacy
-marginal test is \code{mgcv.taps::taps_score_test()}, or a sourced
-\code{taps_score_test()} found on the worker. Full \code{gam} objects are never
+screening is run immediately after each feature is fitted, using its cached
+training lpmatrix. Wood diagnostics are optional (\code{diagnostics = TRUE}).
+The marginal test is the package-local \code{taps_score_test()}, using the TAPS
+arithmetic included in mgcvST. No external mgcv.taps installation or sourced
+score function is required. Full \code{gam} objects are never
 retained. Genes are processed in chunks through \code{BiocParallel}; the default
-is serial. On Windows, use a persistent \code{SnowParam(type = "SOCK")} object
-and pass the same object to estimation and testing.
+uses the registered backend. On Windows, use a persistent
+\code{SnowParam(type = "SOCK")} and pass it to estimation and testing.
 A fitting, compaction, or marginal-test error is recorded for that feature;
 the other features continue. A marginal-test error leaves the already
 constructed compact working model intact and only its marginal p-value
 unavailable.
+Marginal diagnostics retain the requested method, actual method, and a
+Davies-to-Liu fallback flag. Custom callbacks that omit method metadata
+leave the corresponding diagnostics as \code{NA}.
 }
 \details{
 \code{source_files} supports source-first custom smooths. Each SOCK worker

@@ -1,56 +1,91 @@
-# A: high-throughput fitting and marginal evaluation
+# Fitting and marginal evaluation
 
-The high-throughput defaults now skip optional computations:
+Prepare the common design before estimating genes:
 
 ```r
-fit <- mgcvST.estimate(Y, G, marginal = FALSE, diagnostics = FALSE)
+model <- mgcvST.set(
+  response ~ celltype + batch + offset(log_depth) +
+    s(z, k = 5) + s(x, y, bs = "spdePC", xt = basis),
+  data = dat, family = mgcv::nb()
+)
+# Or wrap an externally prepared mgcv::gam(..., fit = FALSE) setup:
+model <- mgcvST.set(G = G)
+fit <- mgcvST.estimate(Y, model)
+pair <- mgcvST.test(fit, pairs = pairs)
+model$timing
+lapply(model$G$smooth, function(s) if (!is.null(s$timing)) as.list(s$timing))
+```
+
+The formula is complete and parsed by mgcv. Gaussian is supported for SCT;
+negative binomial is supported for raw counts. `mgcvST.set()` computes the
+formal L without fitting a gene. All workers reuse this L and the same prepared
+mesh/penalties. There is no initial gene fit to establish the design and no
+per-gene lpmatrix reconstruction. Covariates, factor coding, smooths and row
+order are common across genes. `source_files` and `worker_init` are unavailable
+on this prepared path. Rebuild the setting to change its design.
+
+`mgcvST.estimate(Y, model, offset = O)` adds `O` to the shared formula/setup
+offset. `O` is either an observation-length vector or a matrix matching the
+feature-by-observation dimensions and ordering of Y. L stays shared; working
+quantities, retained marginal offsets and nuisance Vp blocks remain per gene.
+The result's `offset` stores the total offsets, in the same orientation as O.
+
+SPDE and SPDE-PC construction and prediction always interpolate at the input
+coordinate rows. They keep mesh, transform, Z, Q and PC eigenvectors fixed.
+SPDE-PC evaluates `A(L2) (Z V)`; its full score basis is also updated to
+`A(L2) Z`. No stale training rows or tolerance-based coordinate matching are
+used. Each smooth's timing environment records cumulative basis/prediction
+seconds and calls in the current process. `model$timing` records total setup
+and formal-lpmatrix seconds. Re-evaluation of PC multiplication can change
+floating-point rounding: the fixed upstream p-value checks differed by at
+most 4.7e-13 in absolute value.
+
+The `model.set()` and raw-G paths below remain available for compatibility;
+the unconditional common-design contract applies to `mgcvST.set()`.
+
+`mgcvST.estimate()` fits each gene and immediately calls
+the package-local `taps_score_test()` with its exact cached training lpmatrix.
+The original TAPS arithmetic is included in mgcvST; no mgcv.taps installation
+or sourced score function is needed.
+Marginal testing is mandatory. Wood diagnostics remain optional.
+
+```r
+fit <- mgcvST.estimate(Y, G, BPPARAM = bp)
+fit <- mgcvST.estimate(Y, G, BPPARAM = bp,
+                      marginal_args = list(method = "liu"))
 pair <- mgcvST.test(fit, pairs = pairs)
 ```
 
-To reproduce the former fitted summaries and callback behavior, explicitly use
-`marginal = TRUE, diagnostics = TRUE`. Existing marginal_test/marginal_args and
-source-first callbacks remain available. This legacy adapter retains the
-callback's own calibration behavior, including any upstream fallback; it is
-not the new explicit-calibration API described below.
+The default TAPS method is Davies with Liu fallback for numerical failures.
+Direct Liu skips Davies. The registered BiocParallel backend runs gene fits
+and their marginal tests; each worker uses one numerical thread. This inline
+path does not collect all gene spectra into a parent OpenMP batch. Pairwise
+calibration and its OpenMP implementation are unchanged.
 
-For independent marginal TAPS, save its inputs without testing during fitting:
+`fit$diagnostics` retains `marginal_requested_method`, `marginal_method` and
+`marginal_fallback` for each gene. The fallback flag identifies Davies-to-Liu
+changes; direct Liu is FALSE. Custom callbacks without method metadata retain
+their p-values and leave the unavailable method/fallback fields as NA.
 
-```r
-fit <- mgcvST.estimate(Y, G, retain_marginal = TRUE)
-marginal <- mgcvST.marginal(fit, calibration = "liu", threads = 2L)
-marginal <- mgcvST.marginal(fit, calibration = "davies", BPPARAM = bp)
-# This is an explicit calibration change for numerical failures only:
-marginal <- mgcvST.marginal(fit, calibration = "davies", fallback = "liu",
-                          BPPARAM = bp)
-```
+The matrix comes from the formal mgcv predictor, never directly from G$X.
+Within a gene, compaction and TAPS share that matrix. Supported deterministic
+model geometries also reuse it across genes. Unknown methods and custom worker
+initialization obtain the current gene's matrix without sharing across genes.
+Full GAM objects and transient design caches are discarded after fitting.
 
-`retain_marginal` saves minimal fitted response, linear predictor, prior weights,
-coefficients, smoothing parameters, dispersion and serialized family state;
-common lpmatrix and penalty metadata are stored once. It does not retain GAMs,
-run summary.gam, construct a TAPS spectrum, or refit anything. It adds O(n*p)
-storage and is deliberately opt-in. Old compact objects without this data
-cannot reconstruct exact TAPS from pairwise working quantities alone.
+`marginal_test` still accepts an explicitly supplied custom callback, and
+`marginal_args` selects calibration for the built-in implementation. The
+existing `retain_marginal` / `mgcvST.marginal()` API is retained for explicit
+recalibration of stored fits; it is not required by the estimation workflow.
+No additional score-test interface is introduced in mgcvST.
 
-The independent engine ports the standard/extended-family, refit=FALSE TAPS
-definition from mgcv.taps fb48abb. This is a conditional frozen-fit evaluation,
-not a null-refitted Rao test. Its fit-space design (including reduced PC fit
-space) is separate from the pairwise test's full score-space geometry. The
-first release covers mgcvST-supported families; it does not add Cox, ZIP, qgam
-or ordered-categorical support or offer null refitting.
-
-BiocParallel computes independent feature spectra. Every worker uses one
-numerical thread. Liu spectral powers are summed by a separate marginal-only
-OpenMP kernel in bounded blocks in the parent process, after worker jobs have
-returned. The kernel never invokes R callbacks from OpenMP. Chi-square tail
-probabilities still use the original scalar R calculation. This is not a
-reuse of the pairwise trace-power engine, and it is not a C++ rewrite of TAPS
-spectrum construction.
-
-The new Davies path treats nonzero ifault, non-finite/out-of-range probability
-or a zero tail as a numerical failure. It reports NA unless the caller
-explicitly requests `fallback="liu"`. Actual method, fallback reason and
-Davies ifault are returned for every feature. No implicit screening, FDR or
-pair-universe change is performed.
+For an HPC installation without INLA, sf, fmesher or mgcv.taps, prepare the boundary,
+mesh and `spde_basis` on Windows, then transfer the saved basis together with
+the aligned data. The HPC process can read the basis, construct `mgcvST.set`,
+estimate, test and predict without loading those four packages. Uploading
+only a boundary still requires mesh construction; that operation uses sf and
+fmesher. Existing-mesh interpolation uses geometry, whose required dependency
+chain does not include INLA, sf or fmesher.
 
 Strict-equivalence pair optimizations are independent of these API additions:
 

@@ -37,11 +37,11 @@ A self-contained object to pass directly as \code{xt}.
 \description{
 Constructs the observation projector and finite-element penalties once.
 The returned object is self-contained: fitting with \code{bs = "spde"} or
-\code{bs = "spdePC"} requires neither INLA, fmesher, sf, nor geometry.
-Prediction at new coordinates uses geometry for barycentric interpolation
+\code{bs = "spdePC"} requires neither INLA, fmesher nor sf.
+Basis construction and prediction use geometry for barycentric interpolation
 on the saved mesh. No FEM, penalty, precision or PC decomposition is
-recomputed. Outside-mesh coordinates cause an error. Training coordinates
-(including subsets/reordered prediction blocks) use cached basis rows.
+recomputed. Outside-mesh coordinates cause an error. Every evaluation uses
+the supplied coordinates, including training, subset and reordered rows.
 A fixed-kappa basis also saves \verb{pc_mesh_projection = Z V} and the original
 training \verb{pc_training_basis = B V}; new PC prediction never forms \verb{A Z}.
 }

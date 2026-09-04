@@ -80,7 +80,7 @@
 # Fit and reduce one feature under a model.set() setup.
 .mgcvst_model_fit_one <- function(response, G0, family_raw, method, control,
                                   gam_args, retain_smooth, diagnostics = TRUE,
-                                  geometry_cache = NULL) {
+                                  geometry_cache = NULL, offset = NULL) {
   G <- G0
   response_index <- attr(G$terms, "response")
   if (length(response_index) != 1L || response_index < 1L ||
@@ -90,6 +90,9 @@
   G$y <- as.numeric(response)
   G$mf[[response_index]] <- as.numeric(response)
   G$family <- unserialize(family_raw)
+  if (!is.null(offset)) {
+    G$offset <- (if (is.null(G0$offset)) numeric(length(response)) else G0$offset) + offset
+  }
   t0 <- proc.time()[["elapsed"]]
   fit <- do.call(
     mgcv::gam,
@@ -97,7 +100,9 @@
   )
   fit_seconds <- proc.time()[["elapsed"]] - t0
   W <- rkhs_extract_working_model(fit)
-  geometry <- .mgcvst_cached_model_geometry(fit, geometry_cache)
+  fit$.taps_score_X <- .mgcvst_training_design(fit, geometry_cache)
+  geometry <- .mgcvst_cached_model_geometry(fit, geometry_cache,
+                                           L = fit$.taps_score_X)
   nuisance <- .mgcvst_nuisance_state(fit, geometry, geometry_cache)
   if (!is.null(nuisance)) {
     geometry$nuisance_columns <- nuisance$columns
@@ -140,7 +145,7 @@
 .mgcvst_model_fit_chunk <- function(payload, G0, family_raw, method, control,
                                     gam_args, source_files, worker_init,
                                     init_key, marginal_test, marginal_args,
-                                    retain_smooth, marginal = TRUE,
+                                    retain_smooth,
                                     diagnostics = TRUE, retain_marginal = FALSE,
                                     geometry_seed = NULL,
                                     allow_geometry_cache = TRUE) {
@@ -158,7 +163,8 @@
     fit <- tryCatch(
       .mgcvst_model_fit_one(
         payload$Y[j, ], G0, family_raw, method, control, gam_args,
-        retain_smooth, diagnostics = diagnostics, geometry_cache = geometry_cache
+        retain_smooth, diagnostics = diagnostics, geometry_cache = geometry_cache,
+        offset = if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset
       ),
       error = function(e) e
     )
@@ -182,18 +188,24 @@
           fit$marginal_state <- captured$state
         }
       }
-      marginal_result <- if (marginal) tryCatch(
+      marginal_result <- tryCatch(
         .mgcvst_marginal_score(
           fit$gam, marginal_test, marginal_args,
           test_component = target_index
         ),
         error = function(e) e
-      ) else NA_real_
+      )
       fit$marginal_p_value <- if (inherits(marginal_result, "condition")) {
         NA_real_
       } else {
-        marginal_result
+        marginal_result$p_value
       }
+      fit$marginal_requested_method <- if (inherits(marginal_result, "condition"))
+        NA_character_ else marginal_result$requested_method
+      fit$marginal_method <- if (inherits(marginal_result, "condition"))
+        NA_character_ else marginal_result$method
+      fit$marginal_fallback <- if (inherits(marginal_result, "condition"))
+        NA else marginal_result$fallback
       fit$marginal_error <- if (inherits(marginal_result, "condition")) {
         .mgcvst_condition(marginal_result)
       } else {
@@ -219,7 +231,7 @@
 .mgcvst_estimate_model <- function(
     Y, model, feature_id, BPPARAM, chunk_size, source_files, worker_init,
     marginal_test, marginal_args, method, retain_smooth, control,
-    gam_args, call, marginal = TRUE, diagnostics = TRUE, retain_marginal = FALSE) {
+    gam_args, call, diagnostics = TRUE, retain_marginal = FALSE, offset = NULL) {
   Y <- as.matrix(Y)
   storage.mode(Y) <- "double"
   if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) || any(!is.finite(Y))) {
@@ -227,6 +239,20 @@
   }
   if (ncol(Y) != length(model$G$y)) {
     stop("ncol(Y) must equal the number of observations in model.")
+  }
+  frozen <- isTRUE(model$shared_design)
+  if (!is.null(offset)) {
+    if (!frozen) stop("Additional offsets require a model prepared by mgcvST.set().")
+    if (!is.numeric(offset) || any(!is.finite(offset)) ||
+        (is.null(dim(offset)) && length(offset) != ncol(Y)) ||
+        (!is.null(dim(offset)) && (!is.matrix(offset) || !identical(dim(offset), dim(Y))))) {
+      stop("offset must be finite numeric: an observation-length vector or a matrix matching Y.")
+    }
+    if (is.matrix(offset) &&
+        ((!is.null(rownames(offset)) && !identical(rownames(offset), rownames(Y))) ||
+         (!is.null(colnames(offset)) && !identical(colnames(offset), colnames(Y))))) {
+      stop("Named offset rows and columns must match Y exactly.")
+    }
   }
   if (is.null(feature_id)) feature_id <- rownames(Y)
   if (is.null(feature_id)) feature_id <- as.character(seq_len(nrow(Y)))
@@ -242,6 +268,13 @@
   control$nthreads <- 1L
   control$ncv.threads <- 1L
   forbidden <- intersect(names(gam_args), c("G", "family", "method", "control"))
+  if (frozen) {
+    forbidden <- union(forbidden, intersect(names(gam_args),
+      c("formula", "data", "weights", "subset", "na.action", "knots", "paraPen", "H")))
+    if (length(source_files) || !is.null(worker_init)) {
+      stop("mgcvST.set() fixes the shared design; source_files and worker_init are unsupported for this path.")
+    }
+  }
   if (length(forbidden)) {
     stop("Do not supply these arguments through ...: ", paste(forbidden, collapse = ", "))
   }
@@ -266,15 +299,15 @@
     control = control, gam_args = gam_args, source_files = source_files,
     worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
-    retain_smooth = retain_smooth, marginal = marginal,
+    retain_smooth = retain_smooth,
     diagnostics = diagnostics, retain_marginal = retain_marginal,
-    allow_geometry_cache = cache_worthwhile && !length(source_files) &&
-      is.null(worker_init)
+    allow_geometry_cache = frozen || (cache_worthwhile && !length(source_files) &&
+      is.null(worker_init))
   )
   prefix <- list()
-  seed <- NULL
+  seed <- if (frozen) list(frozen = TRUE, L = model$L, geometry = model$geometry) else NULL
   next_index <- 1L
-  repeat {
+  if (!frozen) repeat {
     first <- do.call(fit_chunk, c(list(payload = list(
       index = next_index, feature_id = feature_id[next_index],
       Y = Y[next_index, , drop = FALSE])), fit_args))
@@ -286,7 +319,8 @@
   remaining <- if (next_index <= nrow(Y)) seq.int(next_index, nrow(Y)) else integer()
   ids <- split(remaining, ceiling(remaining / chunk_size))
   payload <- lapply(ids, function(i) list(
-    index = i, feature_id = feature_id[i], Y = Y[i, , drop = FALSE]
+    index = i, feature_id = feature_id[i], Y = Y[i, , drop = FALSE],
+    offset = if (is.matrix(offset)) offset[i, , drop = FALSE] else offset
   ))
   tail <- if (length(payload)) do.call(BiocParallel::bplapply, c(
     list(X = payload, FUN = fit_chunk, geometry_seed = seed, BPPARAM = BPPARAM),
@@ -320,6 +354,8 @@
   diagnostics <- data.frame(
     index = seq_len(p), feature_id = feature_id,
     converged = FALSE, marginal_p_value = NA_real_,
+    marginal_requested_method = NA_character_, marginal_method = NA_character_,
+    marginal_fallback = NA,
     residual_df = NA_real_,
     criterion = NA_real_, criterion_name = NA_character_,
     fit_seconds = NA_real_, outer_convergence = NA_character_,
@@ -352,6 +388,9 @@
     nuisance_covariance[[j]] <- z$nuisance_covariance
     diagnostics$converged[j] <- z$converged
     diagnostics$marginal_p_value[j] <- z$marginal_p_value
+    diagnostics$marginal_requested_method[j] <- z$marginal_requested_method
+    diagnostics$marginal_method[j] <- z$marginal_method
+    diagnostics$marginal_fallback[j] <- z$marginal_fallback
     diagnostics$residual_df[j] <- z$residual_df
     diagnostics$criterion[j] <- z$criterion
     diagnostics$criterion_name[j] <- z$criterion_name
@@ -415,6 +454,12 @@
       marginal_state = lapply(chunk, `[[`, "marginal_state")
     ))
     ans$marginal_data <- .mgcvst_collect_marginal(marginal_chunks, p, feature_id)
+  }
+  if (frozen) {
+    if (!is.null(ans$geometry)) ans$geometry$offset <- model$offset
+    ans$offset <- if (is.null(offset)) model$offset else if (is.matrix(offset))
+      sweep(offset, 2L, model$offset, "+") else model$offset + offset
+    ans$timing$setup <- model$timing
   }
   ans
 }

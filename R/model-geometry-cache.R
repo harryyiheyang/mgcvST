@@ -26,8 +26,9 @@
 # Retain exactly one shared nuisance design and one small covariance per feature.
 .mgcvst_nuisance_state <- function(fit, geometry, cache) {
   family <- .working_family_id(fit$family$family)
-  if (is.null(cache) || is.null(cache$L) || is.null(cache$signature) ||
-      !identical(.mgcvst_geometry_signature(fit), cache$signature) ||
+  if (is.null(cache) || is.null(cache$L) ||
+      (!isTRUE(cache$frozen) && (is.null(cache$signature) ||
+       !identical(.mgcvst_geometry_signature(fit), cache$signature))) ||
       !(family %in% c("gaussian", "poisson", "negative_binomial")) ||
       fit$rank != length(fit$coefficients)) return(NULL)
   tested <- sort(unique(unlist(lapply(
@@ -49,15 +50,30 @@
 }
 
 # Reuse the exact object obtained from the formal predictor, never G$X.
-.mgcvst_cached_model_geometry <- function(fit, cache = NULL) {
-  if (is.null(cache)) return(.mgcvst_model_geometry(fit))
+.mgcvst_training_design <- function(fit, cache = NULL) {
+  if (!is.null(cache) && isTRUE(cache$frozen)) return(cache$L)
+  if (!is.null(cache) && !is.null(cache$signature) &&
+      identical(.mgcvst_geometry_signature(fit), cache$signature)) {
+    return(cache$L)
+  }
+  .gam_training_lpmatrix(fit)
+}
+
+.mgcvst_cached_model_geometry <- function(fit, cache = NULL, L = NULL) {
+  if (is.null(cache)) return(.mgcvst_model_geometry(fit, L = L))
+  if (isTRUE(cache$frozen)) {
+    geometry <- cache$geometry
+    geometry$sp <- .mgcvst_model_sp(fit)
+    geometry$offset <- fit$offset
+    return(geometry)
+  }
   signature <- .mgcvst_geometry_signature(fit)
   if (!is.null(signature) && identical(signature, cache$signature)) {
     geometry <- cache$geometry
     geometry$sp <- .mgcvst_model_sp(fit)
     return(geometry)
   }
-  L <- .gam_training_lpmatrix(fit)
+  if (is.null(L)) L <- .gam_training_lpmatrix(fit)
   geometry <- .mgcvst_model_geometry(fit, L = L)
   if (!is.null(signature) && is.null(cache$geometry)) {
     cache$signature <- signature

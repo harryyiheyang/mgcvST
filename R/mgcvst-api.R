@@ -140,7 +140,8 @@
 # Reduce one gam fit to the working summaries and shared geometry used downstream.
 .mgcvst_compact_fit <- function(fit, retain_smooth = FALSE, diagnostics = TRUE) {
   W <- rkhs_extract_working_model(fit)
-  L <- .gam_training_lpmatrix(fit)
+  L <- fit$.taps_score_X
+  if (is.null(L)) L <- .gam_training_lpmatrix(fit)
   smooth_index <- .mgcvst_spde_index(fit)
   S <- .gam_single_smooth(fit, smooth_index, L)
   smooth_cols <- unique(unlist(lapply(
@@ -231,23 +232,7 @@
 # Run the requested corrected marginal score calibration.
 .mgcvst_marginal_score <- function(fit, marginal_test, marginal_args,
                                    test_component = 1L) {
-  if (is.null(marginal_test)) {
-    marginal_test <- get0(
-      "taps_score_test", envir = .GlobalEnv, mode = "function",
-      inherits = TRUE
-    )
-    if (is.null(marginal_test) &&
-        requireNamespace("mgcv.taps", quietly = TRUE)) {
-      marginal_test <- getExportedValue("mgcv.taps", "taps_score_test")
-    }
-    if (is.null(marginal_test)) {
-      stop(
-        "The corrected marginal spatial score requires taps_score_test(). ",
-        "Install mgcv.taps, source it through source_files, or supply ",
-        "marginal_test explicitly."
-      )
-    }
-  }
+  if (is.null(marginal_test)) marginal_test <- taps_score_test
   if (!is.function(marginal_test)) {
     stop("marginal_test must be NULL or a function.")
   }
@@ -263,7 +248,15 @@
       p_value < 0 || p_value > 1) {
     stop("The corrected marginal spatial score returned an invalid p-value.")
   }
-  p_value
+  requested <- marginal_args$method
+  if (is.null(requested)) requested <- formals(marginal_test)[["method"]]
+  if (!is.character(requested) || length(requested) != 1L) requested <- NA_character_
+  used <- score$method
+  if (!is.character(used) || length(used) != 1L) used <- NA_character_
+  fallback <- if (is.na(requested) || is.na(used)) NA else
+    identical(requested, "davies") && identical(used, "liu")
+  list(p_value = p_value, requested_method = requested,
+       method = used, fallback = fallback)
 }
 
 # Clone the minimal package function closure needed on remote workers.
@@ -274,10 +267,14 @@
     ".mgcvst_condition", ".mgcvst_fit_chunk",
     ".mgcvst_capture_marginal", ".mgcvst_marginal_geometry",
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
+    "taps_score_test", ".mgcvst_marginal_spectrum", ".mgcvst_marginal_working",
+    ".mgcvst_marginal_matrixsqrt", ".mgcvst_marginal_moments",
+    ".mgcvst_marginal_liu", ".mgcvst_marginal_davies",
     ".gam_training_lpmatrix", ".gam_single_smooth",
     ".mgcvst_expand_penalty", ".mgcvst_model_geometry",
     ".mgcvst_geometry_signature", ".mgcvst_model_sp",
-    ".mgcvst_cached_model_geometry", ".mgcvst_nuisance_state",
+    ".mgcvst_cached_model_geometry", ".mgcvst_training_design",
+    ".mgcvst_nuisance_state",
     ".mgcvst_model_fit_one",
     ".mgcvst_model_fit_chunk", ".mgcvst_full_rank_design",
     ".mgcvst_spde_factor", ".mgcvst_spde_factor_base",
@@ -322,7 +319,7 @@
 .mgcvst_fit_chunk <- function(payload, G0, family_raw, method, control,
                               gam_args, source_files, worker_init, init_key,
                               marginal_test, marginal_args,
-                              retain_smooth, marginal = TRUE,
+                              retain_smooth,
                               diagnostics = TRUE, retain_marginal = FALSE) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   ids <- payload$index
@@ -347,6 +344,9 @@
   geometry <- NULL
   fit_geometry <- NULL
   marginal_geometry <- NULL
+  marginal_requested_method <- marginal_method <- rep(NA_character_, k)
+  marginal_fallback <- rep(NA, k)
+  design_cache <- new.env(parent = emptyenv())
   marginal_state <- if (retain_marginal) vector("list", k) else NULL
   coefficient_count <- length(seq.int(
     G0$smooth[[1L]]$first.para, G0$smooth[[1L]]$last.para
@@ -409,8 +409,16 @@
     t0 <- proc.time()[["elapsed"]]
     compact_result <- tryCatch(
       list(
-        value = .mgcvst_compact_fit(fit, retain_smooth = retain_smooth,
-                                  diagnostics = diagnostics),
+        value = {
+          fit$.taps_score_X <- .mgcvst_training_design(fit, design_cache)
+          if (is.null(design_cache$signature) &&
+              !length(source_files) && is.null(worker_init)) {
+            design_cache$signature <- .mgcvst_geometry_signature(fit)
+            design_cache$L <- fit$.taps_score_X
+          }
+          .mgcvst_compact_fit(fit, retain_smooth = retain_smooth,
+                             diagnostics = diagnostics)
+        },
         error = NULL
       ),
       error = function(e) list(value = NULL, error = e)
@@ -457,8 +465,6 @@
       }
     }
 
-    if (!marginal) next
-
     t0 <- proc.time()[["elapsed"]]
     marginal_result <- tryCatch(
       .mgcvst_marginal_score(
@@ -474,7 +480,10 @@
       error_message[j] <- err$message
       error_call[j] <- err$call
     } else {
-      marginal_p_value[j] <- marginal_result
+      marginal_p_value[j] <- marginal_result$p_value
+      marginal_requested_method[j] <- marginal_result$requested_method
+      marginal_method[j] <- marginal_result$method
+      marginal_fallback[j] <- marginal_result$fallback
     }
   }
 
@@ -486,6 +495,9 @@
     smoothing_parameter = smoothing_parameter,
     dispersion = dispersion,
     marginal_p_value = marginal_p_value,
+    marginal_requested_method = marginal_requested_method,
+    marginal_method = marginal_method,
+    marginal_fallback = marginal_fallback,
     wood_p_value = wood_p_value,
     wood_statistic = wood_statistic,
     smooth_edf = smooth_edf,
@@ -527,17 +539,21 @@
 #'
 #' Fits each row of `Y` with a reusable `mgcv::gam(fit = FALSE)` setup and
 #' retains the fixed numerical summaries needed by [mgcvST.test()]. Marginal
-#' screening and Wood diagnostics are off by default. Set `marginal = TRUE`
-#' and `diagnostics = TRUE` to recover the legacy computation. The legacy
-#' marginal test is `mgcv.taps::taps_score_test()`, or a sourced
-#' `taps_score_test()` found on the worker. Full `gam` objects are never
+#' screening is run immediately after each feature is fitted, using its cached
+#' training lpmatrix. Wood diagnostics are optional (`diagnostics = TRUE`).
+#' The marginal test is the package-local `taps_score_test()`, using the TAPS
+#' arithmetic included in mgcvST. No external mgcv.taps installation or sourced
+#' score function is required. Full `gam` objects are never
 #' retained. Genes are processed in chunks through `BiocParallel`; the default
-#' is serial. On Windows, use a persistent `SnowParam(type = "SOCK")` object
-#' and pass the same object to estimation and testing.
+#' uses the registered backend. On Windows, use a persistent
+#' `SnowParam(type = "SOCK")` and pass it to estimation and testing.
 #' A fitting, compaction, or marginal-test error is recorded for that feature;
 #' the other features continue. A marginal-test error leaves the already
 #' constructed compact working model intact and only its marginal p-value
 #' unavailable.
+#' Marginal diagnostics retain the requested method, actual method, and a
+#' Davies-to-Liu fallback flag. Custom callbacks that omit method metadata
+#' leave the corresponding diagnostics as `NA`.
 #'
 #' `source_files` supports source-first custom smooths. Each SOCK worker
 #' sources the ordered files once, before it evaluates a chunk. Multicore
@@ -557,7 +573,7 @@
 #'   response is replaced by each row of `Y`.
 #' @param feature_id Unique feature identifiers. Defaults to `rownames(Y)` or
 #'   sequential identifiers.
-#' @param BPPARAM A `BiocParallelParam`; defaults to `SerialParam()`.
+#' @param BPPARAM A `BiocParallelParam`; defaults to the registered `bpparam()`.
 #' @param chunk_size Positive number of genes per task. The default creates at
 #'   most one chunk per worker, limiting repeated serialization on SOCK
 #'   workers.
@@ -566,20 +582,23 @@
 #' @param worker_init Optional zero-argument initialization function run once
 #'   per worker after `source_files`.
 #' @param marginal_test Optional function implementing the corrected marginal
-#'   spatial score interface of `mgcv.taps::taps_score_test()`. `NULL` locates
-#'   a sourced `taps_score_test()` or the installed `mgcv.taps` export on each
-#'   worker.
-#' @param marginal Logical; run the legacy per-feature marginal callback.
-#'   FALSE (default) never calls `taps_score_test()` or `marginal_test`.
+#'   spatial score interface. `NULL` uses mgcvST's package-local implementation.
+#'   A custom function is used only when explicitly supplied.
+#' @param offset Optional additional log/link-scale offset for an
+#'   [mgcvST.set()] model: a shared observation-length vector or a
+#'   feature-by-observation matrix in exactly the same order as `Y`.
+#'   Added to the shared formula/setup offset. Covariates and smooths are fixed
+#'   by `mgcvST.set()` and cannot vary by gene.
 #' @param diagnostics Logical; compute `summary.gam()`/Wood diagnostics.
 #'   FALSE (default) leaves Wood fields NA without calling summary.
 #'   Basic convergence and fitting diagnostics are still retained.
 #' @param retain_marginal Logical; retain minimal frozen-fit inputs for a later
-#'   [mgcvST.marginal()] call. FALSE by default. This only saves data, without
-#'   running a marginal test, and never retains full gam objects.
+#'   `mgcvST.marginal()` recalibration call. FALSE by default. Marginal testing
+#'   during estimation is always performed; full gam objects are never retained.
 #' @param marginal_args Named list of additional marginal-score arguments.
-#'   `fit`, `test.component`, and `n_threads` are controlled by mgcvST. The
-#'   marginal test otherwise uses its own defaults unless overridden here.
+#'   `fit`, `test.component`, and `n_threads` are controlled by mgcvST.
+#'   Use `list(method = "liu")` for direct Liu, or the default Davies with
+#'   Liu fallback within mgcvST. No additional marginal call is needed.
 #' @param retain_smooth Logical; retain the feature-by-coefficient smooth
 #'   coefficient matrix and one shared reduced fit basis and unscaled penalty.
 #'   This opt-in representation supports prediction and other downstream uses
@@ -604,14 +623,17 @@
 #' @export
 mgcvST.estimate <- function(
     Y, G, feature_id = rownames(Y),
-    BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
+    BPPARAM = BiocParallel::bpparam(), chunk_size = NULL,
     source_files = NULL, worker_init = NULL,
     marginal_test = NULL, marginal_args = list(), method = "REML",
     retain_smooth = FALSE,
     control = mgcv::gam.control(nthreads = 1L), ...,
-    marginal = FALSE, diagnostics = FALSE, retain_marginal = FALSE) {
+    diagnostics = FALSE, retain_marginal = FALSE, offset = NULL) {
+  if ("marginal" %in% names(list(...))) {
+    stop("mgcvST.estimate() always runs the marginal score test; remove marginal.")
+  }
   call <- match.call()
-  for (name in c("marginal", "diagnostics", "retain_marginal")) {
+  for (name in c("diagnostics", "retain_marginal")) {
     value <- get(name)
     if (!is.logical(value) || length(value) != 1L || is.na(value)) {
       stop(name, " must be TRUE or FALSE.")
@@ -635,10 +657,11 @@ mgcvST.estimate <- function(
       worker_init = worker_init, marginal_test = marginal_test,
       marginal_args = marginal_args, method = method,
       retain_smooth = retain_smooth, control = control,
-      gam_args = list(...), call = call, marginal = marginal,
-      diagnostics = diagnostics, retain_marginal = retain_marginal
+      gam_args = list(...), call = call,
+      diagnostics = diagnostics, retain_marginal = retain_marginal, offset = offset
     ))
   }
+  if (!is.null(offset)) stop("Additional offsets require a model prepared by mgcvST.set().")
   Y <- as.matrix(Y)
   storage.mode(Y) <- "double"
   if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) || any(!is.finite(Y))) {
@@ -723,7 +746,7 @@ mgcvST.estimate <- function(
     worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
     retain_smooth = retain_smooth,
-    marginal = marginal, diagnostics = diagnostics,
+    diagnostics = diagnostics,
     retain_marginal = retain_marginal,
     BPPARAM = BPPARAM
   )

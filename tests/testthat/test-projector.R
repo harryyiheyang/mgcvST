@@ -1,4 +1,4 @@
-test_that("training predictors are strict-identical to the old implementation", {
+test_that("recomputed training predictors agree with the old implementation", {
   old <- old_st()
   for (pc in c(FALSE, TRUE)) {
     f <- st_fixture(pc = pc)
@@ -6,8 +6,8 @@ test_that("training predictors are strict-identical to the old implementation", 
     method <- if (pc) "Predict.matrix.spdePC.smooth" else "Predict.matrix.spde.smooth"
     old_pred <- old[[method]](sm,f$data)
     new_pred <- get(method,asNamespace("mgcvST"))(sm,f$data)
-    expect_identical(new_pred,old_pred)
-    expect_identical(mgcvST:::.spde_basis_at(f$basis, f$basis$coordinates, pc), old_pred)
+    expect_equal(new_pred,old_pred,tolerance=1e-12)
+    expect_equal(mgcvST:::.spde_basis_at(f$basis, f$basis$coordinates, pc), old_pred,tolerance=1e-12)
     if (pc) {
       expect_identical(sm$score_basis, f$basis$B)
       expect_identical(ncol(sm$score_basis), ncol(f$basis$projection))
@@ -31,8 +31,8 @@ test_that("new, reordered, subset and empty coordinates use the correct space", 
   for (pc in c(FALSE,TRUE)) {
     reference <- if (pc) basis$pc_training_basis else basis$B
     for (rows in list(2L,c(8L,1L),rev(seq_len(nrow(basis$B))))) {
-      expect_identical(mgcvST:::.spde_basis_at(basis,basis$coordinates[rows,,drop=FALSE],pc),
-                       reference[rows,,drop=FALSE])
+      expect_equal(mgcvST:::.spde_basis_at(basis,basis$coordinates[rows,,drop=FALSE],pc),
+                       reference[rows,,drop=FALSE],tolerance=1e-12)
     }
     expect_identical(dim(mgcvST:::.spde_basis_at(basis,matrix(numeric(),0,2),pc)),c(0L,ncol(reference)))
     expect_error(mgcvST:::.spde_basis_at(basis,matrix(c(-10,10),1,2),pc),"outside")
@@ -65,11 +65,16 @@ test_that("prediction never rebuilds FEM, precision or eigensystems", {
   new <- matrix(c(.33,.71),1,2)
   expect_true(is.matrix(mgcvST:::.spde_basis_at(f$basis,new)))
   expect_true(is.matrix(mgcvST:::.spde_basis_at(f$basis,new,TRUE)))
-  testthat::local_mocked_bindings(.spde_basis_project=function(...) stop("training projection recomputed"),
-                                 .package="mgcvST")
+  project <- mgcvST:::.spde_basis_project
+  calls <- 0L
+  testthat::local_mocked_bindings(.spde_basis_project=function(...) {
+    calls <<- calls + 1L
+    project(...)
+  }, .package="mgcvST")
   expect_identical(mgcvST:::.spde_basis_at(f$basis,f$basis$coordinates),f$basis$B)
-  expect_identical(mgcvST:::.spde_basis_at(f$basis,f$basis$coordinates,TRUE),f$basis$pc_training_basis)
-  expect_identical(mgcvST:::.spde_basis_at(f$basis,f$basis$coordinates[1:2,],TRUE),f$basis$pc_training_basis[1:2,])
+  expect_equal(mgcvST:::.spde_basis_at(f$basis,f$basis$coordinates,TRUE),f$basis$pc_training_basis,tolerance=1e-12)
+  expect_equal(mgcvST:::.spde_basis_at(f$basis,f$basis$coordinates[1:2,],TRUE),f$basis$pc_training_basis[1:2,],tolerance=1e-12)
+  expect_identical(calls, 3L)
 })
 
 test_that("predict.gam works on new locations and prediction blocks", {
@@ -86,8 +91,8 @@ test_that("predict.gam works on new locations and prediction blocks", {
     expect_equal(as.numeric(predict(fit,newdata=new,type="response")),
                  fit$family$linkinv(as.numeric(L %*% coef(fit))+new$offset0),tolerance=1e-12)
     training <- predict(fit,type="lpmatrix",block.size=11L)
-    expect_identical(as.numeric(training[,cols,drop=FALSE]),
-                     as.numeric(if(pc) f$basis$pc_training_basis else f$basis$B))
+    expect_equal(as.numeric(training[,cols,drop=FALSE]),
+                     as.numeric(if(pc) f$basis$pc_training_basis else f$basis$B),tolerance=1e-12)
     new$x[1] <- -5
     expect_error(predict(fit,newdata=new,type="lpmatrix"),"outside")
   }
@@ -99,7 +104,7 @@ test_that("old prepared bases can be upgraded without recomputing PCs", {
   legacy$pc_cached_dimension <- legacy$pc_training_basis <- legacy$pc_mesh_projection <- NULL
   legacy$coordinate_keys <- NULL
   testthat::local_mocked_bindings(matrixEigen=function(...) stop("eigen"),.package="CppMatrix")
-  expect_identical(mgcvST:::.spde_basis_at(legacy,legacy$coordinates,TRUE),f$basis$pc_training_basis)
+  expect_equal(mgcvST:::.spde_basis_at(legacy,legacy$coordinates,TRUE),f$basis$pc_training_basis,tolerance=1e-12)
   changed <- f$basis
   changed$pc_cutoff <- 1
   updated <- mgcvST:::.spde_basis_pc_cache(changed)

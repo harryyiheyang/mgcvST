@@ -1,18 +1,18 @@
-test_that("legacy switches exactly reproduce existing fitting outputs", {
+test_that("mandatory marginal preserves existing fitting outputs", {
   old <- old_st()
   f <- st_fixture()
   marginal_callback <- function(...) list(smooth.pvalue = .375)
   for (G in list(f$G, f$model)) {
     a <- old$mgcvST.estimate(f$Y, G, marginal_test = marginal_callback, retain_smooth = TRUE)
-    b <- mgcvST.estimate(f$Y, G, marginal = TRUE, diagnostics = TRUE,
+    b <- mgcvST.estimate(f$Y, G, diagnostics = TRUE,
                          marginal_test = marginal_callback, retain_smooth = TRUE)
     expect_identical(strip_elapsed(b), strip_elapsed(a))
-    fast <- mgcvST.estimate(f$Y, G, marginal = FALSE, diagnostics = FALSE,
-                            marginal_test = function(...) stop("must not run"))
+    fast <- mgcvST.estimate(f$Y, G, diagnostics = FALSE,
+                            marginal_test = marginal_callback)
     expect_identical(fast$working_error, a$working_error)
     expect_identical(fast$working_variance, a$working_variance)
     expect_identical(fast$lambda, a$lambda)
-    expect_true(all(is.na(fast$diagnostics$marginal_p_value)))
+    expect_true(all(fast$diagnostics$marginal_p_value == .375))
     expect_null(fast$marginal_data)
   }
 })
@@ -23,7 +23,7 @@ test_that("diagnostics FALSE does not invoke summary.gam", {
         tracer = quote(stop("summary was called")), print = FALSE)
   on.exit(untrace("summary.gam", where = asNamespace("mgcv")), add = TRUE)
   for (G in list(f$G, f$model)) {
-    fit <- mgcvST.estimate(f$Y, G, diagnostics = FALSE, marginal = FALSE)
+    fit <- mgcvST.estimate(f$Y, G, diagnostics = FALSE)
     expect_true(all(is.finite(fit$working_error)))
     if (!is.null(fit$diagnostics$wood_p_value)) expect_true(all(is.na(fit$diagnostics$wood_p_value)))
   }
@@ -45,7 +45,7 @@ test_that("model batches reuse one exact formal training lpmatrix", {
   )
   fit <- mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
-    diagnostics = FALSE, marginal = FALSE
+    diagnostics = FALSE
   )
   expect_identical(getOption("mgcvST.test_lpmatrix_count"), 1L)
   expect_true(all(is.finite(fit$working_error)))
@@ -74,7 +74,7 @@ test_that("unknown prediction methods disable exact-lpmatrix reuse", {
   )
   fit <- mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
-    diagnostics = FALSE, marginal = FALSE
+    diagnostics = FALSE
   )
   expect_identical(getOption("mgcvST.test_lpmatrix_count"), nrow(f$Y))
   expect_true(all(is.finite(fit$working_error)))
@@ -88,7 +88,7 @@ test_that("custom worker initialization disables shared prediction geometry", {
   fit <- mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
     worker_init = function() invisible(NULL),
-    diagnostics = FALSE, marginal = FALSE
+    diagnostics = FALSE
   )
   expect_true(all(vapply(fit$nuisance_covariance, is.null, logical(1L))))
   expect_true(all(is.finite(fit$working_error)))
@@ -126,7 +126,7 @@ test_that("Vp model projection is numerically equivalent with unchanged contract
 
 test_that("conditional nuisance state is compact, shared and CppMatrix-backed", {
   f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE, marginal = FALSE)
+  fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE)
   LN <- fit$geometry$nuisance_design
   blocks <- fit$nuisance_covariance
   expect_true(is.matrix(LN))
@@ -157,7 +157,7 @@ test_that("ordinary overall low-rank smooths share the same Vp machinery", {
     response ~ offset(offset0) + z + s(x, k = 6) + s(y, k = 6),
     f$data, f$basis, family = mgcv::nb()
   )
-  fit <- mgcvST.estimate(f$Y, model, diagnostics = FALSE, marginal = FALSE)
+  fit <- mgcvST.estimate(f$Y, model, diagnostics = FALSE)
   expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   testthat::local_mocked_bindings(
@@ -180,7 +180,9 @@ test_that("ordinary Liu engine is unchanged", {
 })
 
 test_that("new switches reject non-logical values", {
-  expect_error(mgcvST.estimate(NULL, NULL, marginal = NA), "marginal must")
+  expect_false("marginal" %in% names(formals(mgcvST.estimate)))
+  expect_error(mgcvST.estimate(NULL, NULL, marginal_test = NULL,
+                               marginal_args = list(), marginal = NA), "always runs")
   expect_error(mgcvST.estimate(NULL, NULL, diagnostics = 0), "diagnostics must")
   expect_error(mgcvST.estimate(NULL, NULL, retain_marginal = 1), "retain_marginal must")
 })

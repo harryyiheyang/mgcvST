@@ -79,9 +79,9 @@
   if (is.null(x$B) || is.null(x$penalty) || is.null(x$coordinates)) {
     stop("xt is missing the prepared SPDE basis matrices.")
   }
-  if (!is.null(loc) && (!identical(dim(loc), dim(x$coordinates)) ||
-      !isTRUE(all.equal(unname(loc), unname(x$coordinates), tolerance = 1e-10)))) {
-    stop("The smooth coordinates must match the rows used by spde_basis().")
+  if (!is.null(loc) && (!is.numeric(loc) || ncol(as.matrix(loc)) != 2L ||
+      any(!is.finite(loc)))) {
+    stop("The smooth coordinates must be a finite two-column numeric matrix.")
   }
   if (pc) {
     if (is.null(x$kappa)) {
@@ -100,16 +100,15 @@
   invisible(x)
 }
 
-# Exact floating-coordinate keys, for training subsets and mgcv's prediction
-# blocks. No rounding/tolerance-based matching of genuinely new coordinates.
+# Retained coordinate metadata for compatibility with saved basis objects.
 .spde_coordinate_keys <- function(loc) {
   x <- loc[, 1L]; y <- loc[, 2L]
   x[x == 0] <- 0; y[y == 0] <- 0
   paste(sprintf("%a", x), sprintf("%a", y), sep = ":")
 }
 
-# Training values keep the original (A Z) V multiplication order. Only NEW
-# locations use the saved Z V product, avoiding a dense n_new-by-full-rank B.
+# Retain original training values for compatibility and precompute Z V for
+# all coordinate evaluations, avoiding a dense n_new-by-full-rank B.
 .spde_basis_pc_cache <- function(basis) {
   .spde_basis_validate(basis, pc = TRUE)
   q <- which(basis$pc_cumulative >= basis$pc_cutoff)[1L]
@@ -126,27 +125,21 @@
 }
 
 # Evaluate a fixed prepared basis without rebuilding mesh/FEM/precision/PCs.
-.spde_basis_at <- function(basis, loc, pc = FALSE) {
+.spde_basis_at <- function(basis, loc, pc = FALSE, timing = NULL,
+                           stage = "prediction") {
+  t0 <- proc.time()[["elapsed"]]
+  if (!is.null(timing)) on.exit({
+    key <- paste0(stage, "_seconds")
+    timing[[key]] <- timing[[key]] + proc.time()[["elapsed"]] - t0
+    key <- paste0(stage, "_calls")
+    timing[[key]] <- timing[[key]] + 1L
+  })
   if (!is.logical(pc) || length(pc) != 1L || is.na(pc)) stop("pc must be TRUE or FALSE.")
   .spde_basis_validate(basis, pc = pc)
   loc <- as.matrix(loc)
   if (!is.numeric(loc) || length(dim(loc)) != 2L || ncol(loc) != 2L ||
       any(!is.finite(loc))) stop("loc must be a finite two-column numeric matrix.")
   if (pc) basis <- .spde_basis_pc_cache(basis)
-  training <- if (pc) basis$pc_training_basis else basis$B
-  if (identical(dim(loc), dim(basis$coordinates)) && all(loc == basis$coordinates)) {
-    return(training)
-  }
-  if (!nrow(loc)) return(training[integer(), , drop = FALSE])
-  # A training subset/block cannot have more rows than the training matrix.
-  # Do not stringify a large, genuinely new prediction grid just to probe the
-  # small training-row cache. Repeated oversized grids can use interpolation.
-  if (nrow(loc) <= nrow(basis$coordinates)) {
-    keys <- basis$coordinate_keys
-    if (is.null(keys)) keys <- .spde_coordinate_keys(basis$coordinates)
-    rows <- match(.spde_coordinate_keys(loc), keys)
-    if (!anyNA(rows)) return(training[rows, , drop = FALSE])
-  }
 
   transform <- basis$transform
   if (length(transform$center) != 2L || any(!is.finite(transform$center)) ||
@@ -158,6 +151,7 @@
   if (is.null(mesh$xy) || is.null(mesh$tv) || is.null(P) || nrow(P) != nrow(mesh$xy)) {
     stop("The basis does not contain aligned saved mesh and projection matrices.")
   }
+  if (!nrow(loc)) return(matrix(numeric(), 0L, ncol(P)))
   scaled <- sweep(loc, 2L, transform$center, "-") / transform$scale
   A <- .spde_basis_project(mesh, scaled)
   as.matrix(A %*% P)
@@ -193,11 +187,11 @@
 #'
 #' Constructs the observation projector and finite-element penalties once.
 #' The returned object is self-contained: fitting with `bs = "spde"` or
-#' `bs = "spdePC"` requires neither INLA, fmesher, sf, nor geometry.
-#' Prediction at new coordinates uses geometry for barycentric interpolation
+#' `bs = "spdePC"` requires neither INLA, fmesher nor sf.
+#' Basis construction and prediction use geometry for barycentric interpolation
 #' on the saved mesh. No FEM, penalty, precision or PC decomposition is
-#' recomputed. Outside-mesh coordinates cause an error. Training coordinates
-#' (including subsets/reordered prediction blocks) use cached basis rows.
+#' recomputed. Outside-mesh coordinates cause an error. Every evaluation uses
+#' the supplied coordinates, including training, subset and reordered rows.
 #' A fixed-kappa basis also saves `pc_mesh_projection = Z V` and the original
 #' training `pc_training_basis = B V`; new PC prediction never forms `A Z`.
 #'

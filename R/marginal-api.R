@@ -1,5 +1,6 @@
 # Extract only frozen-fit data, not a GAM/refit recipe or pair-score state.
 .mgcvst_marginal_geometry <- function(fit, X = NULL, test_component = 1L) {
+  if (is.null(X)) X <- fit$.taps_score_X
   if (is.null(X)) {
     X <- as.matrix(stats::predict(fit, newdata = fit$model, type = "lpmatrix"))
   }
@@ -19,16 +20,19 @@
   .working_family_id(fit$family$family)
   if (is.null(geometry)) {
     geometry <- .mgcvst_marginal_geometry(fit, test_component = test_component)
+    geometry$offset <- numeric(nrow(geometry$X))
   } else {
     current <- .mgcvst_marginal_geometry(fit, X = geometry$X,
                                         test_component = test_component)
+    current$offset <- numeric(nrow(current$X))
     if (!identical(current, geometry) || nrow(geometry$X) != length(fit$y)) {
-      stop("Marginal retention requires unchanged smooth geometry, rows and offsets within a chunk.")
+      stop("Marginal retention requires unchanged smooth geometry and rows within a chunk.")
     }
   }
   state <- fit[c("linear.predictors", "y", "prior.weights", "sig2",
                  "coefficients", "sp")]
   state$family_raw <- serialize(fit$family, NULL)
+  state$offset <- if (is.null(fit$offset)) numeric(length(fit$y)) else as.numeric(fit$offset)
   list(state = state, geometry = geometry)
 }
 
@@ -131,14 +135,16 @@
   d <- tryCatch(CompQuadForm::davies(q = z$statistic, lambda = z$lambda,
                                     lim = max_iter, acc = max_eps),
                 error = function(e) e)
-  failed <- inherits(d, "condition") || !is.finite(d$Qq) ||
-    d$Qq <= 0 || d$Qq > 1 || d$ifault != 0L
+  failed <- inherits(d, "condition") || !isTRUE(d$ifault == 0L) ||
+    length(d$Qq) != 1L || !is.finite(d$Qq) || d$Qq <= 0 || d$Qq > 1
   reason <- if (!failed) NA_character_ else if (inherits(d, "condition")) {
     conditionMessage(d)
   } else {
-    paste0("Davies numerical failure: Qq=", d$Qq, ", ifault=", d$ifault)
+    paste0("Davies numerical failure: Qq=", paste(d$Qq, collapse = ","),
+           ", ifault=", paste(d$ifault, collapse = ","))
   }
-  ifault <- if (inherits(d, "condition")) NA_integer_ else as.integer(d$ifault)
+  ifault <- if (inherits(d, "condition") || length(d$ifault) != 1L)
+    NA_integer_ else as.integer(d$ifault)
   if (failed && fallback == "liu") {
     p <- .mgcvst_marginal_liu(z$statistic, .mgcvst_marginal_moments(z$lambda))
     list(p_value = p, method_used = "liu", fallback_used = TRUE,

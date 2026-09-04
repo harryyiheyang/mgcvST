@@ -1,4 +1,4 @@
-R/marginal-taps.R and the TAPS arithmetic in R/marginal-api.R are adapted from
+R/taps-score-test.R, R/marginal-taps.R and the TAPS arithmetic in R/marginal-api.R are adapted from
 harryyiheyang/mgcv.taps commit fb48abb4409a69dd5f68fa0929e0f8cb21a438be:
 R/taps_score_test.R, R/extract_pseudo_response.R, R/basicfunction.R,
 and gammfast_working() in R/gammfast.R.

@@ -89,7 +89,10 @@ smooth.construct.spde.smooth.spec <- function(object, data, knots) {
   loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
   .spde_basis_validate(object$xt, loc)
   basis <- object$xt
-  object$X <- basis$B
+  object$timing <- list2env(list(basis_seconds = 0, basis_calls = 0L,
+                                prediction_seconds = 0, prediction_calls = 0L),
+                           parent = emptyenv())
+  object$X <- .spde_basis_at(basis, loc, timing = object$timing, stage = "basis")
 
   if (is.null(basis$kappa)) {
     object$S <- basis$penalty
@@ -125,5 +128,5 @@ smooth.construct.spde.smooth.spec <- function(object, data, knots) {
 #' @export
 Predict.matrix.spde.smooth <- function(object, data) {
   loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
-  .spde_basis_at(object$basis, loc)
+  .spde_basis_at(object$basis, loc, timing = object$timing)
 }

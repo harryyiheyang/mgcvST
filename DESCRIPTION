@@ -17,7 +17,9 @@ Roxygen: list(markdown = TRUE)
 Depends: R (>= 4.2.0)
 Imports:
     BiocParallel,
+    CompQuadForm,
     CppMatrix (>= 0.1.0),
+    geometry,
     glasso,
     graphics,
     Matrix,
@@ -30,12 +32,9 @@ LinkingTo:
     RcppArmadillo
 Suggests:
     testthat (>= 3.0.0),
-    CompQuadForm,
     data.table,
     fmesher,
-    geometry,
     INLA,
-    mgcv.taps,
     sf
 Additional_repositories: https://inla.r-inla-download.org/R/stable
 Config/roxygen2/version: 8.1.0

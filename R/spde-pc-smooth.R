@@ -20,7 +20,11 @@ smooth.construct.spdePC.smooth.spec <- function(object, data, knots) {
   V <- basis$pc_vectors[, seq_len(retained), drop = FALSE]
   evals <- basis$pc_values[seq_len(retained)]
 
-  object$X <- basis$pc_training_basis
+  object$timing <- list2env(list(basis_seconds = 0, basis_calls = 0L,
+                                prediction_seconds = 0, prediction_calls = 0L),
+                           parent = emptyenv())
+  object$X <- .spde_basis_at(basis, loc, pc = TRUE,
+                            timing = object$timing, stage = "basis")
   object$S <- list(diag(1 / evals))
   object$sp <- -1
   object$L <- NULL
@@ -31,7 +35,8 @@ smooth.construct.spdePC.smooth.spec <- function(object, data, knots) {
   object$no.rescale <- TRUE
   object$df <- object$bs.dim <- retained
   object$basis <- basis
-  object$score_basis <- basis$B
+  object$score_basis <- .spde_basis_at(basis, loc,
+                                      timing = object$timing, stage = "basis")
   object$pc_projection <- V
   object$pc_eigenvectors <- V
   object$pc_score_Q <- (V * rep(1 / evals, each = nrow(V))) %*% t(V)
@@ -58,5 +63,5 @@ smooth.construct.spdePC.smooth.spec <- function(object, data, knots) {
 #' @export
 Predict.matrix.spdePC.smooth <- function(object, data) {
   loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
-  .spde_basis_at(object$basis, loc, pc = TRUE)
+  .spde_basis_at(object$basis, loc, pc = TRUE, timing = object$timing)
 }

@@ -37,6 +37,8 @@ strip_elapsed <- function(x) {
   }
   if (!is.null(x$diagnostics)) {
     keep <- !grepl("_seconds$", names(x$diagnostics))
+    keep <- keep & !names(x$diagnostics) %in%
+      c("marginal_requested_method", "marginal_method", "marginal_fallback")
     x$diagnostics <- x$diagnostics[, keep, drop = FALSE]
   }
   x

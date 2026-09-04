@@ -3,9 +3,10 @@
 # Frozen-fit marginal TAPS, NOT the pairwise covariance statistic.
 .mgcvst_marginal_spectrum <- function(state, geometry, null.tol = 1e-10) {
   fit <- state
-  fit$family <- unserialize(state$family_raw)
+  if (is.null(fit[["family"]])) fit$family <- unserialize(state$family_raw)
   res <- .mgcvst_marginal_working(fit)
-  pseudo_response <- res$pseudo_response - geometry$offset
+  offset <- if (is.null(state$offset)) geometry$offset else state$offset
+  pseudo_response <- res$pseudo_response - offset
   V_phi <- res$V_phi
   phi0 <- res$phi0
   beta <- fit$coefficients

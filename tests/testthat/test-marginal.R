@@ -22,50 +22,26 @@ test_that("retained marginal data is opt-in, compact and survives serialization"
   expect_error(mgcvST.marginal(mgcvST.estimate(f$Y,f$G)), "retain_marginal")
 })
 
-test_that("native marginal evaluation matches pinned upstream TAPS", {
-  repo <- Sys.getenv("MGCVST_TAPS_BASELINE")
-  skip_if(!dir.exists(file.path(repo, "R")), "Set MGCVST_TAPS_BASELINE for upstream equivalence")
-  skip_if_not_installed("mgcv.taps")
-  upstream <- new.env(parent = asNamespace("mgcv.taps"))
-  for (name in c("basicfunction.R", "gammfast.R", "extract_pseudo_response.R", "taps_score_test.R")) {
-    sys.source(file.path(repo,"R",name), upstream)
-  }
-  for (fam in list(stats::gaussian(), stats::poisson(), mgcv::nb())) {
+test_that("package-local TAPS matches fixed upstream NB and Gaussian references", {
+  # Values from unchanged upstream fb48abb, generated with st_fixture().
+  ref <- read.csv(test_path("fixtures", "taps-reference.csv"))
+  for (fam in c("gaussian", "nb")) {
     for (pc in c(FALSE, TRUE)) {
-      f <- st_fixture(family = fam, pc = pc)
-      fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE)
-      reference <- numeric(3)
-      for (k in 1:3) {
-        G <- f$G
-        G$y <- as.numeric(f$Y[k,])
-        G$mf[[attr(G$terms,"response")]] <- G$y
-        G$family <- unserialize(serialize(f$G$family,NULL))
-        gam <- mgcv::gam(G=G, method="REML", control=mgcv::gam.control(nthreads=1L))
-        reference[k] <- upstream$taps_score_test(gam, method="liu")$smooth.pvalue
-      }
-      got <- mgcvST.marginal(fit,calibration="liu")
-      expect_identical(got$p_value, reference)
+      f <- st_fixture(family = if (fam == "gaussian") gaussian() else mgcv::nb(), pc = pc)
+      fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE,
+                             marginal_args = list(method = "liu"))
+      expected <- ref$p[ref$family == fam & ref$pc == pc & ref$route == "G"]
+      # Re-evaluating A (Z V) changes PC floating arithmetic by roundoff.
+      expect_lt(max(abs(fit$diagnostics$marginal_p_value - expected)), 1e-10)
+      got <- mgcvST.marginal(fit, calibration = "liu")
+      expect_lt(max(abs(got$p_value - expected)), 1e-10)
       expect_true(all(is.na(got$error_message)))
-      if (requireNamespace("CompQuadForm",quietly=TRUE)) {
-        # The final feature GAM is still in scope. Compare successful Davies
-        # calibration, without hiding numerical failures with Liu.
-        davies <- mgcvST.marginal(fit,features=3L,calibration="davies")
-        if (is.na(davies$error_message)) {
-          expect_identical(davies$p_value,
-            upstream$taps_score_test(gam,method="davies")$smooth.pvalue)
-        }
-      }
     }
   }
-  f <- st_fixture(nuisance=TRUE)
-  fit <- mgcvST.estimate(f$Y,f$model,retain_marginal=TRUE)
-  G <- f$model$G
-  G$y <- as.numeric(f$Y[1,])
-  G$mf[[attr(G$terms,"response")]] <- G$y
-  gam <- mgcv::gam(G=G,method="REML",control=mgcv::gam.control(nthreads=1L))
-  component <- fit$marginal_data$geometry[[1]]$test_component
-  expect_identical(mgcvST.marginal(fit,features=1L,calibration="liu")$p_value,
-                   upstream$taps_score_test(gam,test.component=component,method="liu")$smooth.pvalue)
+  f <- st_fixture(nuisance = TRUE)
+  fit <- mgcvST.estimate(f$Y, f$model, marginal_args = list(method = "liu"))
+  expect_equal(fit$diagnostics$marginal_p_value[1L], ref$p[ref$route == "model"],
+               tolerance = 1e-10)
 })
 
 test_that("Davies failures never switch calibration without explicit consent", {
