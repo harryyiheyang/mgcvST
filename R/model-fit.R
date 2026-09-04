@@ -142,12 +142,17 @@
                                     init_key, marginal_test, marginal_args,
                                     retain_smooth, marginal = TRUE,
                                     diagnostics = TRUE, retain_marginal = FALSE,
-                                    geometry_seed = NULL) {
+                                    geometry_seed = NULL,
+                                    allow_geometry_cache = TRUE) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   out <- vector("list", length(payload$index))
   marginal_geometry <- NULL
-  geometry_cache <- list2env(if (is.null(geometry_seed)) list() else geometry_seed,
-                            parent = emptyenv())
+  geometry_cache <- if (allow_geometry_cache) {
+    list2env(if (is.null(geometry_seed)) list() else geometry_seed,
+             parent = emptyenv())
+  } else {
+    NULL
+  }
   shared_geometry <- NULL
   for (j in seq_along(payload$index)) {
     fit <- tryCatch(
@@ -204,7 +209,9 @@
   }
   if (retain_marginal) attr(out, "marginal_geometry") <- marginal_geometry
   attr(out, "model_geometry") <- shared_geometry
-  if (is.null(geometry_seed)) attr(out, "geometry_seed") <- as.list(geometry_cache)
+  if (allow_geometry_cache && is.null(geometry_seed)) {
+    attr(out, "geometry_seed") <- as.list(geometry_cache)
+  }
   out
 }
 
@@ -259,7 +266,8 @@
     worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
     retain_smooth = retain_smooth, marginal = marginal,
-    diagnostics = diagnostics, retain_marginal = retain_marginal
+    diagnostics = diagnostics, retain_marginal = retain_marginal,
+    allow_geometry_cache = !length(source_files) && is.null(worker_init)
   )
   prefix <- list()
   seed <- NULL

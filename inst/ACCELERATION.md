@@ -73,7 +73,9 @@ the conditional penalized nuisance adjustment through LN and VpN. It never
 forms an n-by-n P. Projection products use CppMatrix matrixMultiply and solves
 use CppMatrix matrixSolve. Unknown/custom prediction methods, general.family,
 cross-penalty setups and coefficient rank drops retain the previous operator
-path. This statistical refactor is tested for numerical rather than bitwise
+path. Supplying source_files or worker_init also disables shared prediction
+geometry, because worker initialization may change method dispatch. This
+statistical refactor is tested for numerical rather than bitwise
 equivalence. Pure caching and duplicate-product changes remain subject to
 strict identity. The original diagnostic and result fields remain present;
 disabled optional results are NA.

@@ -83,6 +83,17 @@ test_that("unknown prediction methods disable exact-lpmatrix reuse", {
                   "rkhs_score_operator")
 })
 
+test_that("custom worker initialization disables shared prediction geometry", {
+  f <- st_fixture(nuisance = TRUE)
+  fit <- mgcvST.estimate(
+    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
+    worker_init = function() invisible(NULL),
+    diagnostics = FALSE, marginal = FALSE
+  )
+  expect_true(all(vapply(fit$nuisance_covariance, is.null, logical(1L))))
+  expect_true(all(is.finite(fit$working_error)))
+})
+
 test_that("Vp model projection is numerically equivalent with unchanged contract", {
   old <- old_st()
   f <- st_fixture(nuisance = TRUE)
