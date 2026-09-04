@@ -38,6 +38,12 @@ A self-contained object to pass directly as \code{xt}.
 Constructs the observation projector and finite-element penalties once.
 The returned object is self-contained: fitting with \code{bs = "spde"} or
 \code{bs = "spdePC"} requires neither INLA, fmesher, sf, nor geometry.
+Prediction at new coordinates uses geometry for barycentric interpolation
+on the saved mesh. No FEM, penalty, precision or PC decomposition is
+recomputed. Outside-mesh coordinates cause an error. Training coordinates
+(including subsets/reordered prediction blocks) use cached basis rows.
+A fixed-kappa basis also saves \verb{pc_mesh_projection = Z V} and the original
+training \verb{pc_training_basis = B V}; new PC prediction never forms \verb{A Z}.
 }
 \details{
 Coordinates are transformed using the scale stored by \code{\link[=spde_mesh]{spde_mesh()}}. Thus,

@@ -15,12 +15,12 @@ smooth.construct.spdePC.smooth.spec <- function(object, data, knots) {
   .spde_basis_warn_k(object, "spdePC")
   loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
   .spde_basis_validate(object$xt, loc, pc = TRUE)
-  basis <- object$xt
+  basis <- .spde_basis_pc_cache(object$xt)
   retained <- which(basis$pc_cumulative >= basis$pc_cutoff)[1L]
   V <- basis$pc_vectors[, seq_len(retained), drop = FALSE]
   evals <- basis$pc_values[seq_len(retained)]
 
-  object$X <- CppMatrix::matrixMultiply(basis$B, V)
+  object$X <- basis$pc_training_basis
   object$S <- list(diag(1 / evals))
   object$sp <- -1
   object$L <- NULL
@@ -58,6 +58,5 @@ smooth.construct.spdePC.smooth.spec <- function(object, data, knots) {
 #' @export
 Predict.matrix.spdePC.smooth <- function(object, data) {
   loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
-  .spde_basis_validate(object$basis, loc, pc = TRUE)
-  CppMatrix::matrixMultiply(object$basis$B, object$pc_projection)
+  .spde_basis_at(object$basis, loc, pc = TRUE)
 }

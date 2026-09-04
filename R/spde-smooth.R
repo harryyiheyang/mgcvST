@@ -125,6 +125,5 @@ smooth.construct.spde.smooth.spec <- function(object, data, knots) {
 #' @export
 Predict.matrix.spde.smooth <- function(object, data) {
   loc <- cbind(data[[object$term[1L]]], data[[object$term[2L]]])
-  .spde_basis_validate(object$basis, loc)
-  object$basis$B
+  .spde_basis_at(object$basis, loc)
 }
