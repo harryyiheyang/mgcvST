@@ -131,20 +131,19 @@
     if (v_is_matrix) out else as.vector(out)
   }
 
-    error  <- pseudo_response - CppMatrix::matrixVectorMultiply(A, alpha)
-    r      <- P_apply(error)
-    Gj_r   <- Gj_apply(r)
-    u      <- max(0,sum(r * Gj_r))
-    q      <- ncol(Bj)
-    eig_theta <- .mgcvst_marginal_matrixsqrt(Thetaj)
-    Theta_sqrt <- eig_theta$w
-    N      <- P_apply(Bj)
-    BtPB   <- CppMatrix::matrixMultiply(Bj, N, transA = TRUE)
-    Q_small <- CppMatrix::matrixListProduct(list(Theta_sqrt, BtPB, Theta_sqrt))
-    lambda  <- eigen(Q_small, symmetric = TRUE, only.values = TRUE)$values
-    lambda  <- lambda[lambda > 1e-15]
+  error  <- pseudo_response - CppMatrix::matrixVectorMultiply(A, alpha)
+  r      <- P_apply(error)
+  Gj_r   <- Gj_apply(r)
+  u      <- max(0,sum(r * Gj_r))
+  q      <- ncol(Bj)
+  eig_theta <- .mgcvst_marginal_matrixsqrt(Thetaj)
+  Theta_sqrt <- eig_theta$w
+  N      <- P_apply(Bj)
+  BtPB   <- CppMatrix::matrixMultiply(Bj, N, transA = TRUE)
+  Q_small <- CppMatrix::matrixListProduct(list(Theta_sqrt, BtPB, Theta_sqrt))
+  lambda  <- eigen(Q_small, symmetric = TRUE, only.values = TRUE)$values
+  lambda  <- lambda[lambda > 1e-15]
 
   list(statistic = u, lambda = lambda,
        smooth.term = smooth_terms[[test.component]]$label)
 }
-
