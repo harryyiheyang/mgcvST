@@ -46,11 +46,30 @@ test_that("native marginal evaluation matches pinned upstream TAPS", {
       got <- mgcvST.marginal(fit,calibration="liu")
       expect_identical(got$p_value, reference)
       expect_true(all(is.na(got$error_message)))
+      if (requireNamespace("CompQuadForm",quietly=TRUE)) {
+        # The final feature GAM is still in scope. Compare successful Davies
+        # calibration, without hiding numerical failures with Liu.
+        davies <- mgcvST.marginal(fit,features=3L,calibration="davies")
+        if (is.na(davies$error_message)) {
+          expect_identical(davies$p_value,
+            upstream$taps_score_test(gam,method="davies")$smooth.pvalue)
+        }
+      }
     }
   }
+  f <- st_fixture(nuisance=TRUE)
+  fit <- mgcvST.estimate(f$Y,f$model,retain_marginal=TRUE)
+  G <- f$model$G
+  G$y <- as.numeric(f$Y[1,])
+  G$mf[[attr(G$terms,"response")]] <- G$y
+  gam <- mgcv::gam(G=G,method="REML",control=mgcv::gam.control(nthreads=1L))
+  component <- fit$marginal_data$geometry[[1]]$test_component
+  expect_identical(mgcvST.marginal(fit,features=1L,calibration="liu")$p_value,
+                   upstream$taps_score_test(gam,test.component=component,method="liu")$smooth.pvalue)
 })
 
 test_that("Davies failures never switch calibration without explicit consent", {
+  skip_if_not_installed("CompQuadForm")
   z <- list(statistic = 100, lambda = c(1,2,3))
   testthat::local_mocked_bindings(davies = function(...) list(Qq=0,ifault=1L), .package="CompQuadForm")
   none <- mgcvST:::.mgcvst_marginal_davies(z,"none",1e-8,1e5)

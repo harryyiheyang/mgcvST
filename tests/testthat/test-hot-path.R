@@ -42,6 +42,7 @@ test_that("model score hot path and all pair output fields remain identical", {
     for (chunk in c(1L, 100L)) {
       a <- old$mgcvST.test(fit, pairs = pairs, highlight = matrix(c(1L,3L),1), calibration = cal, chunk_size = chunk)
       b <- mgcvST.test(fit, pairs = pairs, highlight = matrix(c(1L,3L),1), calibration = cal, chunk_size = chunk)
+      expect_identical(a$call,b$call)
       expect_identical(strip_elapsed(b), strip_elapsed(a))
     }
   }
