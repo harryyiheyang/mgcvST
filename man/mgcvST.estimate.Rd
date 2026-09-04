@@ -82,7 +82,10 @@ A compact object of class \code{mgcvST_fit} containing marginal score
 p-values, Wood audit values, feature IDs, working errors and variances,
 separate per-feature \code{dispersion} and \code{lambda}, shared score geometry,
 optimized fit criterion and its original mgcv name, exact residual degrees
-of freedom, timing, and convergence diagnostics. When
+of freedom, timing, and convergence diagnostics. A validated \code{model.set()}
+fit retains one shared \code{geometry$nuisance_design} and one small conditional
+nuisance block per feature in \code{nuisance_covariance}; full GAM and \code{Vp}
+objects are discarded. When
 \code{retain_smooth = TRUE}, it also contains \code{smooth_coefficients},
 \code{fit_basis}, \code{fit_penalty}, \code{row_id}, and \code{basis_metadata}. New objects do
 not store a redundant \code{field_scale}; score methods derive it as

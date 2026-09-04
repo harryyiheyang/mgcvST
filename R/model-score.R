@@ -118,7 +118,7 @@
   value <- if (was_vector) matrix(as.numeric(value), ncol = 1L) else as.matrix(value)
   WA <- .mgcvst_model_vsolve(operator$vsolve, value)
   rhs <- .magic_mm(operator$LN, WA, transA = TRUE)
-  adjustment <- .magic_mm(.magic_mm(operator$WN, operator$VpN), rhs)
+  adjustment <- .magic_mm(operator$WN_VpN, rhs)
   if (!is.null(rownames(operator$WN)) || !is.null(colnames(WA))) {
     dimnames(adjustment) <- list(rownames(operator$WN), colnames(WA))
   }
@@ -157,8 +157,10 @@
     stop("The feature has an incompatible conditional nuisance covariance.")
   }
   WN <- .mgcvst_model_vsolve(vsolve, LN)
+  WN_VpN <- .magic_mm(WN, VpN)
   operator <- structure(
-    list(n = nrow(LN), vsolve = vsolve, LN = LN, VpN = VpN, WN = WN),
+    list(n = nrow(LN), vsolve = vsolve, LN = LN, VpN = VpN,
+         WN = WN, WN_VpN = WN_VpN),
     class = "mgcvst_vp_score_operator"
   )
   list(operator = operator, target = target)

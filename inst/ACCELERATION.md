@@ -61,6 +61,24 @@ Strict-equivalence pair optimizations are independent of these API additions:
 * no changes to the existing ordinary-SPDE Liu summary cache, to the pair
   calibration formula, to signed dot products, or to numerical cutoffs.
 
-No warm starts, family reuse across fits, replacement of predicted lpmatrices
-by G$X, or nuisance-penalty eigensystem reuse is introduced. The original
-diagnostic and result fields remain present; disabled optional results are NA.
+No warm starts, family reuse across fits, or replacement of predicted
+lpmatrices by G$X is introduced. For model.set batches with registered SPDE
+methods and supported ordinary mgcv low-rank smoothers, the first successful
+fit obtains the exact formal training lpmatrix once. One nuisance design LN is
+retained for the batch, while each successful feature retains only its
+conditional Vp nuisance block; full Vp and GAM objects are discarded.
+
+The primary model score operator uses only the tested SPDE in Vs and applies
+the conditional penalized nuisance adjustment through LN and VpN. It never
+forms an n-by-n P. Projection products use CppMatrix matrixMultiply and solves
+use CppMatrix matrixSolve. Unknown/custom prediction methods, general.family,
+cross-penalty setups and coefficient rank drops retain the previous operator
+path. This statistical refactor is tested for numerical rather than bitwise
+equivalence. Pure caching and duplicate-product changes remain subject to
+strict identity. The original diagnostic and result fields remain present;
+disabled optional results are NA.
+
+Within one feature state, Vs-inverse times LN and its product with VpN are each
+computed once and reused for the working response and tested factors. These
+intermediates are released after a and M have been cached for the current pair
+chunk; they are not retained across all features.

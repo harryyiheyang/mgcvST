@@ -593,7 +593,10 @@
 #'   p-values, Wood audit values, feature IDs, working errors and variances,
 #'   separate per-feature `dispersion` and `lambda`, shared score geometry,
 #'   optimized fit criterion and its original mgcv name, exact residual degrees
-#'   of freedom, timing, and convergence diagnostics. When
+#'   of freedom, timing, and convergence diagnostics. A validated `model.set()`
+#'   fit retains one shared `geometry$nuisance_design` and one small conditional
+#'   nuisance block per feature in `nuisance_covariance`; full GAM and `Vp`
+#'   objects are discarded. When
 #'   `retain_smooth = TRUE`, it also contains `smooth_coefficients`,
 #'   `fit_basis`, `fit_penalty`, `row_id`, and `basis_metadata`. New objects do
 #'   not store a redundant `field_scale`; score methods derive it as
