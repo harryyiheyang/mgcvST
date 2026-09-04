@@ -32,11 +32,14 @@ test_that("diagnostics FALSE does not invoke summary.gam", {
 test_that("model batches reuse one exact formal training lpmatrix", {
   f <- st_fixture(nuisance = TRUE)
   original <- mgcvST:::.gam_training_lpmatrix
-  count <- 0L
+  old_options <- options(mgcvST.test_lpmatrix = original,
+                         mgcvST.test_lpmatrix_count = 0L)
+  on.exit(options(old_options), add = TRUE)
   testthat::local_mocked_bindings(
     .gam_training_lpmatrix = function(fit) {
-      count <<- count + 1L
-      original(fit)
+      options(mgcvST.test_lpmatrix_count =
+                getOption("mgcvST.test_lpmatrix_count") + 1L)
+      getOption("mgcvST.test_lpmatrix")(fit)
     },
     .package = "mgcvST"
   )
@@ -44,7 +47,7 @@ test_that("model batches reuse one exact formal training lpmatrix", {
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
     diagnostics = FALSE, marginal = FALSE
   )
-  expect_identical(count, 1L)
+  expect_identical(getOption("mgcvST.test_lpmatrix_count"), 1L)
   expect_true(all(is.finite(fit$working_error)))
 })
 
@@ -52,14 +55,20 @@ test_that("unknown prediction methods disable exact-lpmatrix reuse", {
   f <- st_fixture(nuisance = TRUE)
   original_lpmatrix <- mgcvST:::.gam_training_lpmatrix
   original_predictor <- mgcvST:::Predict.matrix.spde.smooth
-  count <- 0L
+  old_options <- options(
+    mgcvST.test_lpmatrix = original_lpmatrix,
+    mgcvST.test_lpmatrix_count = 0L,
+    mgcvST.test_predictor = original_predictor
+  )
+  on.exit(options(old_options), add = TRUE)
   testthat::local_mocked_bindings(
     Predict.matrix.spde.smooth = function(object, data) {
-      original_predictor(object, data)
+      getOption("mgcvST.test_predictor")(object, data)
     },
     .gam_training_lpmatrix = function(fit) {
-      count <<- count + 1L
-      original_lpmatrix(fit)
+      options(mgcvST.test_lpmatrix_count =
+                getOption("mgcvST.test_lpmatrix_count") + 1L)
+      getOption("mgcvST.test_lpmatrix")(fit)
     },
     .package = "mgcvST"
   )
@@ -67,11 +76,14 @@ test_that("unknown prediction methods disable exact-lpmatrix reuse", {
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
     diagnostics = FALSE, marginal = FALSE
   )
-  expect_identical(count, nrow(f$Y))
+  expect_identical(getOption("mgcvST.test_lpmatrix_count"), nrow(f$Y))
   expect_true(all(is.finite(fit$working_error)))
+  expect_true(all(vapply(fit$nuisance_covariance, is.null, logical(1L))))
+  expect_s3_class(mgcvST:::.mgcvst_model_operator(fit, 1L)$operator,
+                  "rkhs_score_operator")
 })
 
-test_that("model score hot path and all pair output fields remain identical", {
+test_that("Vp model projection is numerically equivalent with unchanged contract", {
   old <- old_st()
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(f$Y, f$model)
@@ -85,14 +97,64 @@ test_that("model score hot path and all pair output fields remain identical", {
       a <- old$mgcvST.test(fit, pairs = pairs, highlight = matrix(c(1L,3L),1), calibration = cal, chunk_size = chunk)
       b <- mgcvST.test(fit, pairs = pairs, highlight = matrix(c(1L,3L),1), calibration = cal, chunk_size = chunk)
       expect_identical(a$call,b$call)
-      expect_identical(strip_elapsed(b), strip_elapsed(a))
+      expect_numerically_equivalent_test(a, b)
     }
   }
-  for (i in 1:3) expect_identical(mgcvST:::.mgcvst_model_score_state(fit,i), old$.mgcvst_model_score_state(fit,i))
+  for (i in 1:3) {
+    a <- old$.mgcvst_model_score_state(fit, i)
+    b <- mgcvST:::.mgcvst_model_score_state(fit, i)
+    expect_equal(a$a, b$a, tolerance = 1e-10)
+    expect_equal(a$M, b$M, tolerance = 1e-10)
+    expect_identical(a$width, b$width)
+  }
   fit$smoothing_parameters[2,1] <- -1
   a <- old$mgcvST.test(fit, pairs = pairs)
   b <- mgcvST.test(fit, pairs = pairs)
-  expect_identical(strip_elapsed(a), strip_elapsed(b))
+  expect_numerically_equivalent_test(a, b)
+})
+
+test_that("conditional nuisance state is compact, shared and CppMatrix-backed", {
+  f <- st_fixture(nuisance = TRUE)
+  fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE, marginal = FALSE)
+  LN <- fit$geometry$nuisance_design
+  blocks <- fit$nuisance_covariance
+  expect_true(is.matrix(LN))
+  expect_identical(length(blocks), nrow(f$Y))
+  expect_true(all(vapply(blocks, is.matrix, logical(1L))))
+  expect_true(all(vapply(blocks, function(x) identical(dim(x), rep(ncol(LN), 2L)), logical(1L))))
+  expect_false(any(vapply(blocks[-1L], identical, logical(1L), y = blocks[[1L]])))
+  expect_null(fit$gam)
+  original_multiply <- CppMatrix::matrixMultiply
+  calls <- 0L
+  testthat::local_mocked_bindings(
+    matrixMultiply = function(...) {
+      calls <<- calls + 1L
+      original_multiply(...)
+    },
+    .package = "CppMatrix"
+  )
+  state <- mgcvST:::.mgcvst_model_score_state(fit, 1L)
+  expect_gt(calls, 0L)
+  expect_true(all(is.finite(c(state$a, state$M))))
+  expect_false(any(c("%*%", "crossprod", "tcrossprod") %in%
+                   all.names(body(mgcvST:::.mgcvst_model_apply_P))))
+})
+
+test_that("ordinary overall low-rank smooths share the same Vp machinery", {
+  f <- st_fixture()
+  model <- model.set(
+    response ~ offset(offset0) + z + s(x, k = 6) + s(y, k = 6),
+    f$data, f$basis, family = mgcv::nb()
+  )
+  fit <- mgcvST.estimate(f$Y, model, diagnostics = FALSE, marginal = FALSE)
+  expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
+  expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
+  testthat::local_mocked_bindings(
+    matrixEigen = function(...) stop("nuisance penalty was eigendecomposed"),
+    .package = "CppMatrix"
+  )
+  state <- mgcvST:::.mgcvst_model_score_state(fit, 1L)
+  expect_true(all(is.finite(c(state$a, state$M))))
 })
 
 test_that("ordinary Liu engine is unchanged", {

@@ -73,67 +73,8 @@
 
 # Construct aligned score states while reusing fixed-kappa SPDE factors.
 .mgcvst_graphical_susie_score_states <- function(fit, feature_index) {
-  geometry <- fit$geometry
-  cacheable <- all(vapply(
-    geometry$smooth,
-    function(s) {
-      isTRUE(s$fixed) ||
-        (!is.null(s$score_component) && length(s$penalties) == 1L &&
-           length(s$sp_index) == 1L)
-    },
-    logical(1L)
-  ))
-  if (!cacheable) {
-    return(lapply(
-      feature_index,
-      function(j) .mgcvst_model_score_state(fit, j)
-    ))
-  }
-
-  X <- geometry$X
-  base <- vector("list", length(geometry$smooth))
-  target_name <- rep(NA_character_, length(geometry$smooth))
-  for (j in seq_along(geometry$smooth)) {
-    s <- geometry$smooth[[j]]
-    if (s$fixed) {
-      X <- cbind(X, s$B)
-    } else {
-      base[[j]] <- .mgcvst_spde_factor(s$B, s$penalties[[1L]], 1)
-      target_name[j] <- s$score_component
-    }
-  }
-
-  out <- vector("list", length(feature_index))
-  for (k in seq_along(feature_index)) {
-    i <- feature_index[k]
-    phi <- as.numeric(fit$dispersion[i])
-    sp <- as.numeric(fit$smoothing_parameters[i, ])
-    target <- vector("list", sum(!is.na(target_name)))
-    names(target) <- target_name[!is.na(target_name)]
-    z <- 0L
-    for (j in which(!is.na(target_name))) {
-      z <- z + 1L
-      s <- geometry$smooth[[j]]
-      target[[z]] <- sqrt(phi / sp[s$sp_index]) * base[[j]]
-    }
-    T <- do.call(cbind, target)
-    operator <- .rkhs_score_operator_factor(
-      T, fit$working_variance[, i], X,
-      field_scale = 1, B = NULL, Q = NULL
-    )
-    F <- do.call(cbind, target)
-    Pe <- rkhs_score_apply_P(operator, fit$working_error[, i])
-    PF <- rkhs_score_apply_P(operator, F)
-    M <- .magic_mm(F, PF, transA = TRUE)
-    out[[k]] <- list(
-      a = as.numeric(.magic_mm(F, matrix(Pe, ncol = 1L), transA = TRUE)),
-      M = (M + t(M)) / 2,
-      width = vapply(target, ncol, integer(1L)),
-      target = target,
-      operator = operator
-    )
-  }
-  out
+  fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
+  lapply(feature_index, function(j) .mgcvst_model_score_state(fit, j))
 }
 
 #' Estimate a Graph-SuSiE network from an mgcvST fit

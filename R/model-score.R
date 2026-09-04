@@ -30,8 +30,8 @@
   })
 }
 
-# Construct one feature's full nuisance covariance and marked score factors.
-.mgcvst_model_operator <- function(fit, feature) {
+# Previous eigensystem representation for unsupported and old serialized fits.
+.mgcvst_model_operator_legacy <- function(fit, feature) {
   geometry <- fit$geometry
   phi <- as.numeric(fit$dispersion[feature])
   sp <- as.numeric(fit$smoothing_parameters[feature, ])
@@ -97,12 +97,87 @@
   list(operator = operator, target = target)
 }
 
+# Apply only Vs^{-1}; all matrix products use the CppMatrix backend.
+.mgcvst_model_vsolve <- function(operator, value) {
+  was_vector <- is.null(dim(value))
+  value <- if (was_vector) matrix(as.numeric(value), ncol = 1L) else as.matrix(value)
+  DinvY <- operator$Dinv * value
+  rhs <- .magic_mm(operator$field_factor, DinvY, transA = TRUE)
+  ans <- DinvY - .magic_mm(
+    operator$DinvT, .magic_solve(operator$woodbury, rhs)
+  )
+  if (was_vector) as.numeric(ans) else as.matrix(ans)
+}
+
+# Apply Vs^-1 - Vs^-1 LN VpN LN' Vs^-1 without constructing a dense P.
+.mgcvst_model_apply_P <- function(operator, value) {
+  if (!inherits(operator, "mgcvst_vp_score_operator")) {
+    return(rkhs_score_apply_P(operator, value))
+  }
+  was_vector <- is.null(dim(value))
+  value <- if (was_vector) matrix(as.numeric(value), ncol = 1L) else as.matrix(value)
+  WA <- .mgcvst_model_vsolve(operator$vsolve, value)
+  rhs <- .magic_mm(operator$LN, WA, transA = TRUE)
+  adjustment <- .magic_mm(.magic_mm(operator$WN, operator$VpN), rhs)
+  if (!is.null(rownames(operator$WN)) || !is.null(colnames(WA))) {
+    dimnames(adjustment) <- list(rownames(operator$WN), colnames(WA))
+  }
+  ans <- WA - adjustment
+  if (was_vector) as.numeric(ans) else as.matrix(ans)
+}
+
+# Primary conditional-Vp construction for validated ordinary mgcv geometry.
+.mgcvst_model_operator_vp <- function(fit, feature) {
+  geometry <- fit$geometry
+  phi <- as.numeric(fit$dispersion[feature])
+  sp <- as.numeric(fit$smoothing_parameters[feature, ])
+  if (!is.finite(phi) || phi <= 0 || any(!is.finite(sp)) || any(sp <= 0)) {
+    stop("The feature has invalid dispersion or smoothing parameters.")
+  }
+  target <- lapply(geometry$target, function(j) {
+    s <- geometry$smooth[[j]]
+    base <- fit$.mgcvst_fixed_factors[[j]]
+    if (inherits(base, "condition")) stop(base)
+    if (is.null(base)) {
+      .mgcvst_spde_factor(s$B, s$penalties[[1L]], phi / sp[s$sp_index])
+    } else {
+      sqrt(phi / sp[s$sp_index]) * base
+    }
+  })
+  names(target) <- names(geometry$target)
+  F <- do.call(cbind, target)
+  vsolve <- .rkhs_score_operator_factor(
+    F, fit$working_variance[, feature],
+    matrix(numeric(), nrow(F), 0L),
+    field_scale = 1, B = NULL, Q = NULL
+  )
+  LN <- geometry$nuisance_design
+  VpN <- fit$nuisance_covariance[[feature]]
+  if (!is.matrix(VpN) || !all(dim(VpN) == ncol(LN))) {
+    stop("The feature has an incompatible conditional nuisance covariance.")
+  }
+  WN <- .mgcvst_model_vsolve(vsolve, LN)
+  operator <- structure(
+    list(n = nrow(LN), vsolve = vsolve, LN = LN, VpN = VpN, WN = WN),
+    class = "mgcvst_vp_score_operator"
+  )
+  list(operator = operator, target = target)
+}
+
+.mgcvst_model_operator <- function(fit, feature) {
+  available <- !is.null(fit$geometry$nuisance_design) &&
+    length(fit$nuisance_covariance) >= feature &&
+    !is.null(fit$nuisance_covariance[[feature]])
+  if (available) .mgcvst_model_operator_vp(fit, feature) else
+    .mgcvst_model_operator_legacy(fit, feature)
+}
+
 # Low-rank score state for all marked components of one feature.
 .mgcvst_model_score_state <- function(fit, feature) {
   z <- .mgcvst_model_operator(fit, feature)
   F <- do.call(cbind, z$target)
-  Pe <- rkhs_score_apply_P(z$operator, fit$working_error[, feature])
-  PF <- rkhs_score_apply_P(z$operator, F)
+  Pe <- .mgcvst_model_apply_P(z$operator, fit$working_error[, feature])
+  PF <- .mgcvst_model_apply_P(z$operator, F)
   width <- vapply(z$target, ncol, integer(1L))
   a <- as.numeric(.magic_mm(F, matrix(Pe, ncol = 1L), transA = TRUE))
   M <- .magic_mm(F, PF, transA = TRUE)

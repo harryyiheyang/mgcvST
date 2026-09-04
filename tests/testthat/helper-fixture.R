@@ -29,9 +29,31 @@ old_st <- function() {
 
 strip_elapsed <- function(x) {
   x$call <- x$timing <- NULL
+  x$nuisance_covariance <- NULL
+  if (!is.null(x$geometry)) {
+    x$geometry$nuisance_columns <- NULL
+    x$geometry$nuisance_design <- NULL
+    x$geometry$nuisance_projection <- NULL
+  }
   if (!is.null(x$diagnostics)) {
     keep <- !grepl("_seconds$", names(x$diagnostics))
     x$diagnostics <- x$diagnostics[, keep, drop = FALSE]
   }
   x
+}
+
+expect_numerically_equivalent_test <- function(x, y, tolerance = 1e-10) {
+  numeric <- c("signed_score", "statistic", "information", "effective_rank",
+               "p_two_sided", "p_positive", "p_negative", "p_adjusted",
+               "p_positive_adjusted", "p_negative_adjusted")
+  expect_identical(names(x), names(y))
+  expect_identical(names(x$results), names(y$results))
+  for (name in numeric) {
+    expect_equal(x$results[[name]], y$results[[name]], tolerance = tolerance)
+    y$results[[name]] <- x$results[[name]]
+  }
+  expect_equal(x$threshold$raw_p_threshold, y$threshold$raw_p_threshold,
+               tolerance = tolerance)
+  y$threshold$raw_p_threshold <- x$threshold$raw_p_threshold
+  expect_identical(strip_elapsed(x), strip_elapsed(y))
 }

@@ -3,7 +3,8 @@
 .mgcvst_geometry_signature <- function(fit) {
   known <- c("spde.smooth", "spdePC.smooth", "tprs.smooth", "cr.smooth",
              "pspline.smooth", "cp.smooth", "tensor.smooth", "random.effect")
-  if (inherits(fit$family, "general.family") || is.null(fit$model)) return(NULL)
+  if (inherits(fit$family, "general.family") || is.null(fit$model) ||
+      length(fit$paraPen) || (!is.null(fit$H) && any(fit$H != 0))) return(NULL)
   for (sm in fit$smooth) {
     cl <- class(sm)[1L]
     if (!(cl %in% known)) return(NULL)
@@ -20,6 +21,25 @@
   list(terms = terms, model = fit$model[-response], smooth = fit$smooth,
        nsdf = fit$nsdf, xlevels = fit$xlevels, contrasts = fit$contrasts,
        coefficient_names = names(fit$coefficients), offset = fit$offset)
+}
+
+# Retain exactly one shared nuisance design and one small covariance per feature.
+.mgcvst_nuisance_state <- function(fit, geometry, cache) {
+  family <- .working_family_id(fit$family$family)
+  if (is.null(cache) || is.null(cache$L) || is.null(cache$signature) ||
+      !identical(.mgcvst_geometry_signature(fit), cache$signature) ||
+      !(family %in% c("gaussian", "poisson", "negative_binomial")) ||
+      fit$rank != length(fit$coefficients)) return(NULL)
+  tested <- sort(unique(unlist(lapply(
+    geometry$smooth[geometry$target], `[[`, "columns"), use.names = FALSE
+  )))
+  nuisance <- setdiff(seq_len(ncol(cache$L)), tested)
+  if (!length(nuisance) || !all(dim(fit$Vp) == ncol(cache$L))) return(NULL)
+  VpN <- as.matrix(fit$Vp[nuisance, nuisance, drop = FALSE])
+  if (any(!is.finite(VpN)) ||
+      !isTRUE(isSymmetric(VpN, tol = 100 * .Machine$double.eps))) return(NULL)
+  list(columns = nuisance, design = cache$L[, nuisance, drop = FALSE],
+       covariance = VpN)
 }
 
 .mgcvst_model_sp <- function(fit) {

@@ -98,6 +98,12 @@
   fit_seconds <- proc.time()[["elapsed"]] - t0
   W <- rkhs_extract_working_model(fit)
   geometry <- .mgcvst_cached_model_geometry(fit, geometry_cache)
+  nuisance <- .mgcvst_nuisance_state(fit, geometry, geometry_cache)
+  if (!is.null(nuisance)) {
+    geometry$nuisance_columns <- nuisance$columns
+    geometry$nuisance_design <- nuisance$design
+    geometry$nuisance_projection <- "conditional_Vp_block"
+  }
   fit_summary <- if (diagnostics) summary(fit) else NULL
   criterion <- if (length(fit$gcv.ubre) == 1L) as.numeric(fit$gcv.ubre) else NA_real_
   criterion_name <- if (length(fit$gcv.ubre) == 1L) names(fit$gcv.ubre) else NA_character_
@@ -117,6 +123,7 @@
     family_parameters = if (is.null(W$family_parameters)) numeric() else
       as.numeric(W$family_parameters),
     geometry = geometry,
+    nuisance_covariance = if (is.null(nuisance)) NULL else nuisance$covariance,
     sp = geometry$sp,
     coefficients = coefficients,
     residual_df = as.numeric(fit$df.residual),
@@ -197,7 +204,7 @@
   }
   if (retain_marginal) attr(out, "marginal_geometry") <- marginal_geometry
   attr(out, "model_geometry") <- shared_geometry
-  attr(out, "geometry_seed") <- as.list(geometry_cache)
+  if (is.null(geometry_seed)) attr(out, "geometry_seed") <- as.list(geometry_cache)
   out
 }
 
@@ -239,10 +246,6 @@
   if (length(chunk_size) != 1L || is.na(chunk_size) || chunk_size < 1L) {
     stop("chunk_size must be one positive integer.")
   }
-  ids <- split(seq_len(nrow(Y)), ceiling(seq_len(nrow(Y)) / chunk_size))
-  payload <- lapply(ids, function(i) list(
-    index = i, feature_id = feature_id[i], Y = Y[i, , drop = FALSE]
-  ))
   family_raw <- serialize(model$G$family, NULL)
   worker_bundle <- .mgcvst_worker_bundle()
   fit_chunk <- get(".mgcvst_model_fit_chunk", envir = worker_bundle,
@@ -322,6 +325,7 @@
     NULL
   }
   if (!is.null(coefficient)) names(coefficient) <- geometry$score_components
+  nuisance_covariance <- stats::setNames(vector("list", p), feature_id)
   for (j in seq_len(p)) {
     z <- fits[[j]]
     if (!available[j]) {
@@ -335,6 +339,7 @@
     dispersion[j] <- z$dispersion
     family_parameters[[j]] <- z$family_parameters
     smoothing_parameters[j, ] <- z$sp
+    nuisance_covariance[[j]] <- z$nuisance_covariance
     diagnostics$converged[j] <- z$converged
     diagnostics$marginal_p_value[j] <- z$marginal_p_value
     diagnostics$residual_df[j] <- z$residual_df
@@ -374,6 +379,7 @@
       smoothing_parameters = smoothing_parameters,
       family_parameters = family_parameters,
       geometry = geometry,
+      nuisance_covariance = nuisance_covariance,
       row_id = if (is.null(geometry)) NULL else geometry$row_id,
       offset = if (is.null(geometry)) model$offset else geometry$offset,
       linear_design = if (is.null(geometry)) NULL else geometry$X,
