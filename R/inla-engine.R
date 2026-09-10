@@ -395,9 +395,15 @@
       stop("Random block '", rnames[j],
            "' requires a positive-definite generic0 Q matrix.")
     }
-    if (!positive_definite) {
+    if (identical(kind, "nuisance")) {
       rankdef <- ncol(Q) - as.integer(Matrix::rankMatrix(Q)[1L])
-      if (rankdef < 1L || rankdef >= ncol(Q)) {
+      values <- as.numeric(CppMatrix::matrixEigen(as.matrix(Q))$values)
+      tolerance <- sqrt(.Machine$double.eps) * max(abs(values))
+      if (min(values) < -tolerance) {
+        stop("Nuisance block '", rnames[j],
+             "' requires a positive-semidefinite penalty.")
+      }
+      if (rankdef >= ncol(Q)) {
         stop("Nuisance block '", rnames[j],
              "' must have a nonzero positive-semidefinite penalty.")
       }
