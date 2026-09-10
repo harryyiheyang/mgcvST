@@ -46,6 +46,95 @@ remotes::install_github("harryyiheyang/mgcv.taps")
 remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 ```
 
+## INLA estimation with mandatory mean-zero spatial fields
+
+`inlaST.set()` and `inlaST.estimate()` provide an INLA estimator with the
+existing marginal and pairwise score-test interfaces. Every spatial field
+is constrained to average zero over the model observations, including
+each component of a global/local model.
+
+```r
+library(mgcvST)
+data(MISO_E13, package = "mgcvST")
+d <- MISO_E13$covariates
+basis <- spde_basis(MISO_E13$meshes$spde, as.matrix(d[c("x", "y")]),
+                    kappa = 0.1, project_intercept = TRUE)
+model <- inlaST.set(
+  response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
+  d, family = mgcv::nb(), precision_scale = "observation",
+  control = list(control.inla = list(tolerance = 1e-4))
+)
+Y <- t(as.matrix(MISO_E13$expression))
+fit <- inlaST.estimate(Y, model, retain_marginal = TRUE,
+                       marginal_args = list(method = "liu"))
+pairs <- t(combn(rownames(Y), 2L))
+result <- inlaST.test(fit, pairs = pairs, calibration = "liu")
+marginal <- inlaST.marginal(fit, calibration = "liu")
+```
+
+The backend uses fixed `kappa`, full SPDE bases and INLA empirical-Bayes
+estimates. Spatial log precision and NB log size default to improper flat
+objectives; Gaussian observation log precision defaults to
+\(N(0,3^2)\). Each prior can be replaced explicitly with a validated INLA
+prior. These estimates are not claimed to equal mgcv REML. Feature estimation uses
+raw sparse precision matrices. The default score backend also uses sparse
+precision solves for a single global SPDE; shared model setup and marginal
+testing retain dense geometry. See [implementation and statistical details](inst/notes/inla-estimator.md),
+the [runnable data example](inst/examples/inla_estimator.R), and the
+[benchmark script](inst/benchmarks/inla-estimator.R).
+
+The nuisance `Vp` now comes directly from INLA's constrained conditional
+posterior covariance; the previous expected-Fisher reconstruction is retained
+separately when `diagnostics = TRUE`; default fits skip that extra solve.
+The workflow remains experimental. In independent
+500-pair low-count NB validation (mean 0.3, size 2, 200 observations,
+36 nodes, `kappa = 6`), nominal 5% rejection was 14.4% on the original
+precision scale and 0.8% with `precision_scale = "observation"`, using native
+posterior `Vp` and the conditioned SPDE score kernel. The latter was
+substantially conservative, not exactly calibrated at 5%. These historical
+validation figures used normal \(N(0,3^2)\) priors on
+spatial log precision and NB log size, rather than the current flat defaults.
+
+The example explicitly uses observation-scale precision: the spatial flat
+log-prior is applied after normalizing the constrained field to unit average
+observation variance. This changes the parameterization and optimizer start
+on the FEM multiplier.
+`precision_scale = "raw"` remains the default. Fixed precisions and returned
+smoothing multipliers retain original FEM units. See the
+[mechanism investigation](inst/notes/inla-lowcount-investigation.md) and
+[earlier simulation interpretation](inst/notes/inla-estimated-null-interpretation.md).
+`inlaST.estimate(..., score_backend = "auto")` now uses an algebraically
+equivalent sparse score path for a single global SPDE with fixed nuisance
+terms. Use `score_backend = "dense"` for comparisons. Models with additional
+random blocks retain the dense path. The separate [raw-kernel research
+helper](inst/benchmarks/inla-raw-kernel-sparse.R) is not the production method.
+
+The complete formula above is prepared through the same mgcv geometry used by
+`mgcvST.set()`. Existing code may instead supply the legacy `basis`
+argument, or pass a prepared design as `inlaST.set(G = prepared$G)`.
+Estimator controls supplied to `inlaST.set(..., control = ...)` are stored
+in the model; `inlaST.estimate(..., control = ...)` overrides named values.
+Prior specifications are replaced as complete objects. For example, the
+historical normal prior can be requested with
+`precision_prior = list(prior = "normal", param = c(0, 1/9))`.
+For a global/local complete formula, the two SPDE terms cannot reuse exactly
+the same coordinate term names because mgcv then creates duplicate
+coefficient names. Use equal-valued aliases such as `u_local` and
+`v_local` for the second term, or supply the legacy named basis list.
+
+Flat priors are improper hyperpriors used for empirical-Bayes optimization;
+they do not certify a proper hyperparameter posterior or an interior maximum.
+Mean-zero constraints remain mandatory. See the
+[flat-prior and large-spot investigation](inst/notes/inla-flat-prior.md).
+
+The production score uses the SPDE kernel already conditioned on the
+observation-mean constraint. Centering that conditioned kernel again does not
+change it. The nuisance adjustment combines native INLA `Vp` with the
+expected-likelihood working state, so its resulting operator need not satisfy
+`P %*% 1 = 0` numerically. This does not make the conditioned kernel
+equivalent to either the raw kernel or a separately formed
+`C %*% G_raw %*% C`.
+
 ## Included data and observed spatial locations
 
 ```{r setup, message=FALSE}

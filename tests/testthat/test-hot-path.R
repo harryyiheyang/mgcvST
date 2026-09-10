@@ -126,7 +126,10 @@ test_that("Vp model projection is numerically equivalent with unchanged contract
 
 test_that("conditional nuisance state is compact, shared and CppMatrix-backed", {
   f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE)
+  fit <- mgcvST.estimate(
+    f$Y, f$model, diagnostics = FALSE,
+    BPPARAM = BiocParallel::SerialParam()
+  )
   LN <- fit$geometry$nuisance_design
   blocks <- fit$nuisance_covariance
   expect_true(is.matrix(LN))
@@ -157,7 +160,10 @@ test_that("ordinary overall low-rank smooths share the same Vp machinery", {
     response ~ offset(offset0) + z + s(x, k = 6) + s(y, k = 6),
     f$data, f$basis, family = mgcv::nb()
   )
-  fit <- mgcvST.estimate(f$Y, model, diagnostics = FALSE)
+  fit <- mgcvST.estimate(
+    f$Y, model, diagnostics = FALSE,
+    BPPARAM = BiocParallel::SerialParam()
+  )
   expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   testthat::local_mocked_bindings(

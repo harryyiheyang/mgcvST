@@ -27,6 +27,15 @@
 #' @export
 mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
                        G = NULL, ...) {
+  args <- c(list(formula = formula, data = data, G = G), list(...))
+  if (!missing(family)) args$family <- family
+  do.call(.mgcvst_set_prepare, args)
+}
+
+# Shared parsing/freezing implementation. INLA additionally supports Poisson;
+# the public mgcvST family contract remains unchanged.
+.mgcvst_set_prepare <- function(formula = NULL, data = NULL, family = mgcv::nb(),
+                               G = NULL, ..., .allow_poisson = FALSE) {
   t0 <- proc.time()[["elapsed"]]
   if (is.null(G)) {
     if (!inherits(formula, "formula") || length(formula) != 3L ||
@@ -56,7 +65,9 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
   if (names(G$mf)[response] %in% all.vars(G$formula[[3L]])) {
     stop("The response cannot also be a covariate or offset.")
   }
-  if (!(G$family$family == "gaussian" || grepl("^negative binomial", tolower(G$family$family)))) {
+  if (!(G$family$family == "gaussian" ||
+        (.allow_poisson && G$family$family == "poisson") ||
+        grepl("^negative binomial", tolower(G$family$family)))) {
     stop("mgcvST.set() supports negative binomial and Gaussian families.")
   }
   if (length(G$paraPen) || isTRUE(G$n.paraPen > 0) ||
@@ -74,20 +85,14 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
       G$smooth[[j]] <- sm
     }
   }
-  pseudo <- G
-  pseudo$model <- G$mf
-  pseudo$coefficients <- stats::setNames(numeric(ncol(G$X)), G$term.names)
-  pseudo$linear.predictors <- numeric(nrow(G$X))
-  class(pseudo) <- c("gam", "glm", "lm")
   setup_seconds <- proc.time()[["elapsed"]] - t0
-  t1 <- proc.time()[["elapsed"]]
-  L <- .gam_training_lpmatrix(pseudo)
-  if (!identical(dim(L), dim(G$X)) || !identical(colnames(L), G$term.names) ||
-      !isTRUE(all.equal(as.numeric(L), as.numeric(G$X), tolerance = 1e-10))) {
+  frozen <- .mgcvst_freeze_geometry(G)
+  L <- frozen$L
+  if (!isTRUE(all.equal(as.numeric(L), as.numeric(G$X), tolerance = 1e-10))) {
     stop("The prepared design and formal lpmatrix disagree; rebuild G at the supplied coordinates.")
   }
-  lpmatrix_seconds <- proc.time()[["elapsed"]] - t1
-  geometry <- .mgcvst_model_geometry(pseudo, L)
+  lpmatrix_seconds <- frozen$lpmatrix_seconds
+  geometry <- frozen$geometry
   components <- geometry$score_components
   structure(list(
     G = G, L = L, geometry = geometry, shared_design = TRUE,
@@ -100,4 +105,24 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
     timing = list(setup_seconds = setup_seconds, lpmatrix_seconds = lpmatrix_seconds,
                   elapsed = proc.time()[["elapsed"]] - t0)
   ), class = "mgcvST_model")
+}
+
+# Freeze the same formal prediction geometry for both estimator adapters.
+# External-G validation stays in .mgcvst_set_prepare(); the legacy basis
+# constructor also supports repeated coordinate labels across global/local.
+.mgcvst_freeze_geometry <- function(G) {
+  t0 <- proc.time()[["elapsed"]]
+  pseudo <- G
+  pseudo$model <- G$mf
+  pseudo$coefficients <- stats::setNames(numeric(ncol(G$X)), G$term.names)
+  pseudo$linear.predictors <- numeric(nrow(G$X))
+  class(pseudo) <- c("gam", "glm", "lm")
+  L <- .gam_training_lpmatrix(pseudo)
+  if (!identical(dim(L), dim(G$X)) || !identical(colnames(L), G$term.names)) {
+    stop("The prepared design and formal lpmatrix disagree.")
+  }
+  lpmatrix_seconds <- proc.time()[["elapsed"]] - t0
+  geometry <- .mgcvst_model_geometry(pseudo, L)
+  list(L = L, geometry = geometry, lpmatrix_seconds = lpmatrix_seconds,
+       elapsed = proc.time()[["elapsed"]] - t0)
 }

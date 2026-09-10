@@ -1,1 +1,6 @@
 ^\.git$
+^\.test-library$
+^\.final-library$
+^artifacts$
+^.*\.Rcheck$
+^mgcvST_.*\.(tar\.gz|zip)$

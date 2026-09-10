@@ -4,3 +4,8 @@ src/*.so
 src/*.a
 src/symbols.rds
 *.Rcheck/
+.test-library/
+.final-library/
+artifacts/
+mgcvST_*.tar.gz
+mgcvST_*.zip

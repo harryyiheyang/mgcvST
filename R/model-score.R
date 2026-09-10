@@ -22,6 +22,9 @@
 # Per-test geometry only. Cache conditions without moving failures out of
 # the original per-pair tryCatch or changing feature-validation precedence.
 .mgcvst_model_fixed_factors <- function(fit) {
+  if (identical(fit$score_backend, "sparse")) {
+    return(vector("list", length(fit$geometry$smooth)))
+  }
   lapply(fit$geometry$smooth, function(s) {
     if (s$fixed || is.null(s$score_component) || length(s$penalties) != 1L ||
         length(s$sp_index) != 1L) return(NULL)
@@ -176,6 +179,9 @@
 
 # Low-rank score state for all marked components of one feature.
 .mgcvst_model_score_state <- function(fit, feature) {
+  if (identical(fit$score_backend, "sparse")) {
+    return(.mgcvst_model_sparse_score_state(fit, feature))
+  }
   z <- .mgcvst_model_operator(fit, feature)
   F <- do.call(cbind, z$target)
   Pe <- .mgcvst_model_apply_P(z$operator, fit$working_error[, feature])

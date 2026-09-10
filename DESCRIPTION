@@ -1,6 +1,6 @@
 Package: mgcvST
 Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
-Version: 0.0.1
+Version: 0.0.1.9004
 Authors@R: person(given = "Yihe", family = "Yang",
     email = "yxy1234@case.edu", role = c("aut", "cre"))
 Description: Provides topology-aware boundary learning and finite-element mesh
@@ -23,6 +23,7 @@ Imports:
     glasso,
     graphics,
     Matrix,
+    methods,
     mgcv,
     Rcpp,
     stats,

@@ -282,6 +282,8 @@
     ".mgcvst_model_operator",
     ".mgcvst_model_operator_legacy", ".mgcvst_model_operator_vp",
     ".mgcvst_model_vsolve", ".mgcvst_model_apply_P",
+    ".mgcvst_model_sparse_constrained_solver",
+    ".mgcvst_model_sparse_score_state",
     ".mgcvst_model_score_state", ".mgcvst_model_pair_single",
     ".mgcvst_model_test_chunk",
     "rkhs_extract_working_model", ".magic_mm", ".magic_solve",
