@@ -2,5 +2,6 @@
 ^\.test-library$
 ^\.final-library$
 ^artifacts$
+^AGENTS\.md$
 ^.*\.Rcheck$
 ^mgcvST_.*\.(tar\.gz|zip)$

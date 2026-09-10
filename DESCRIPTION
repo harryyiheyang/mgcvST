@@ -1,6 +1,6 @@
 Package: mgcvST
 Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
-Version: 0.0.1.9004
+Version: 0.0.1.9005
 Authors@R: person(given = "Yihe", family = "Yang",
     email = "yxy1234@case.edu", role = c("aut", "cre"))
 Description: Provides topology-aware boundary learning and finite-element mesh
@@ -10,6 +10,8 @@ Description: Provides topology-aware boundary learning and finite-element mesh
     numerical core uses final IRLS working models, compact residual-precision
     operators, low-rank score summaries, and signed quadratic-form calibration
     without constructing observation-level residual projection matrices.
+    WGCNA module analysis uses the score covariance within explicitly selected
+    feature blocks from fitted mgcv or INLA models.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
@@ -34,9 +36,12 @@ LinkingTo:
 Suggests:
     testthat (>= 3.0.0),
     data.table,
+    dynamicTreeCut,
+    fastcluster,
     fmesher,
     INLA,
-    sf
+    sf,
+    WGCNA
 Additional_repositories: https://inla.r-inla-download.org/R/stable
 Config/roxygen2/version: 8.1.0
 Config/testthat/edition: 3

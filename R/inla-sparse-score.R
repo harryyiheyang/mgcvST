@@ -71,7 +71,7 @@
   }
 }
 
-.mgcvst_model_sparse_score_state <- function(fit, feature) {
+.mgcvst_model_sparse_score_state <- function(fit, feature, score_only = FALSE) {
   geometry <- fit$score_sparse
   if (!is.list(geometry) || is.null(geometry$coefficient_factor)) {
     stop("The fit lacks its sparse INLA score geometry.")
@@ -121,9 +121,12 @@
   h <- tvec - as.numeric(K %*% St)
   if (ncol(X)) h <- h - as.numeric(U %*% Vp %*% q)
 
+  a <- as.numeric(crossprod(T, h))
+  width <- stats::setNames(ncol(T), geometry$target)
+  if (score_only) return(list(a = a, width = width))
+
   KT <- as.matrix(K %*% T)
   SKT <- solve_S(KT)
-  a <- as.numeric(crossprod(T, h))
   M <- crossprod(T, KT) - crossprod(KT, SKT)
   if (ncol(X)) {
     UtT <- crossprod(U, T)
@@ -132,7 +135,7 @@
   M <- (M + t(M)) / 2
   list(
     a = a, M = M,
-    width = stats::setNames(ncol(T), geometry$target),
+    width = width,
     target = NULL, operator = NULL, backend = "sparse_conditioned_INLA"
   )
 }

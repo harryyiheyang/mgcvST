@@ -46,6 +46,39 @@ remotes::install_github("harryyiheyang/mgcv.taps")
 remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 ```
 
+## WGCNA modules from fitted score covariance
+
+`mgcvST.wgcna()` identifies modules within gene blocks selected for downstream
+analysis. It accepts a fitted `mgcvST.estimate()` or `inlaST.estimate()` result
+and preserves the current fit's score definition, including its nuisance
+adjustment. Each block uses the uncentered score covariance `crossprod(A) / q`,
+where `q` is the number of selected score coordinates, followed by correlation,
+WGCNA adjacency, topological overlap and dynamic tree cutting.
+
+```r
+install.packages(c("WGCNA", "dynamicTreeCut", "fastcluster"))
+
+# fit is an existing estimate; genes contains the selected feature IDs.
+W <- mgcvST.wgcna(fit, indices = genes)
+W$modules
+W$networks$selected$TOM
+
+# Analyze previously selected blocks separately, preserving their gene order.
+W <- mgcvST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2),
+                   group = "global", wgcna.para = list(power = 6))
+```
+
+The defaults are signed adjacency, power 6, signed TOM, average linkage,
+minimum module size 20 and `deepSplit = 1`. A named `wgcna.para` list overrides
+only the supplied settings. Specify `group` when a fit contains multiple
+score components. Module labels are local to each gene block; label zero
+indicates an unassigned gene. The result retains score coordinates, covariance,
+correlation, adjacency, TOM and the clustering tree for further analysis.
+
+See `help("mgcvST.wgcna")` for the interface and
+[the source reconciliation record](inst/notes/wgcna-integration.md) for the
+relationship between the earlier local WGCNA implementation and this release.
+
 ## INLA estimation with mandatory mean-zero spatial fields
 
 `inlaST.set()` and `inlaST.estimate()` provide an INLA estimator with the
