@@ -1,0 +1,3 @@
+"dataset","genes","spots","pairs","q","engine","setup_seconds","fit_seconds","compact_seconds","fit_seconds_includes_marginal"
+"unadjusted",635,2125,201295,298,"bam",NA,220.86,NA,FALSE
+"unadjusted",635,2125,201295,298,"inla",NA,287.55,0,TRUE

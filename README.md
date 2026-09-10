@@ -6,6 +6,13 @@ mesh construction, and covariance score tests for pairs of spatial
 features. The spatial range parameter `kappa` is fixed by design. An
 intercept is projected from the SPDE coefficient space before fitting.
 
+The primary analysis uses frequentist `mgcv` estimation, including `bam` for
+larger data. INLA supplies a supplementary sparse SPDE estimator. Paired
+validation holds the data, geometry and model terms fixed, then compares
+scientific outputs while retaining estimator differences and convergence
+diagnostics. See the [paired validation report](inst/notes/inla-bam-validation.md)
+and [recorded results](inst/validation/inla-bam/).
+
 The package provides two `mgcv` smooths:
 
 - `bs = "spde"` fits the full projected SPDE basis.
@@ -107,7 +114,7 @@ The backend uses fixed `kappa`, full SPDE bases and INLA empirical-Bayes
 estimates. Spatial log precision and NB log size default to improper flat
 objectives; Gaussian observation log precision defaults to
 \(N(0,3^2)\). Each prior can be replaced explicitly with a validated INLA
-prior. These estimates are not claimed to equal mgcv REML. Feature estimation uses
+prior. INLA and mgcv REML use distinct estimation procedures. Feature estimation uses
 raw sparse precision matrices. The default score backend also uses sparse
 precision solves for a single global SPDE; shared model setup and marginal
 testing retain dense geometry. See [implementation and statistical details](inst/notes/inla-estimator.md),

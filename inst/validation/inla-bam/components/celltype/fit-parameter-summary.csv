@@ -1,0 +1,2 @@
+"dataset","features","lambda_pearson","lambda_spearman","lambda_median_relative_difference","dispersion_bam_min","dispersion_bam_max","dispersion_inla_min","dispersion_inla_max","inla_nb_size_median","inla_nb_size_q25","inla_nb_size_q75","inla_nb_size_finite"
+"celltype",491,0.997843253109177,0.999614464036074,0.0317542871129627,1,1,1,1,27.9029902325293,9.93939629629572,76.9265589198443,491

@@ -1,0 +1,5 @@
+"dataset","engine","source","feature_count","measured_elapsed_seconds","package_version"
+"unadjusted","bam","artifacts/inla-bam-validation/real-network-audit/unadjusted-bam-full-wgcna.rds",635,100.52,"0.0.1.9005"
+"unadjusted","inla","artifacts/inla-bam-validation/real-network-audit/unadjusted-inla-full-wgcna.rds",635,2.01,"0.0.1.9005"
+"celltype","bam","artifacts/inla-bam-validation/real-network-audit/celltype-bam-full-wgcna.rds",491,85.90,"0.0.1.9005"
+"celltype","inla","artifacts/inla-bam-validation/real-network-audit/celltype-inla-full-wgcna.rds",491,2.29,"0.0.1.9005"

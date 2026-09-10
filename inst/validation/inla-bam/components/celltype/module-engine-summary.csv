@@ -1,0 +1,2 @@
+"dataset","features","bam_modules","inla_modules","bam_grey","inla_grey","adjusted_rand_index","exact_numeric_label_agreement"
+"celltype",491,3,3,0,0,0.99256699343103,0.9979633401222

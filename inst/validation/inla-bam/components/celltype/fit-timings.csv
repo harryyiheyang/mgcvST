@@ -1,0 +1,3 @@
+"dataset","genes","spots","pairs","q","engine","setup_seconds","fit_seconds","compact_seconds","fit_seconds_includes_marginal"
+"celltype",491,2125,120295,298,"bam",NA,189.93,NA,TRUE
+"celltype",491,2125,120295,298,"inla",NA,367.24,0,TRUE
