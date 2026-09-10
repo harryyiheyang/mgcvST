@@ -1,0 +1,18 @@
+Run date: 2026-09-10
+Package repository: https://github.com/harryyiheyang/mgcvST
+Global inference, scaling, WGCNA and real components:
+  source f2ba73886abe7382b53e8ae9ff82148ebbdccaea, version 0.0.1.9005
+Corrected random-nuisance inference and global/local simulation:
+  source 3e5a60d, version 0.0.1.9006
+Primary estimator: mgcv::bam(method="fREML", discrete=TRUE)
+Supplementary estimator: INLA with explicit flat log-hyperparameter priors
+CPU: Intel Core i7-14700K, 20 cores, 28 logical processors
+Memory visible to OS: 66819300 KiB
+OS: Microsoft Windows 11 Enterprise, 10.0.26200
+R: 4.6.1, x86_64-w64-mingw32
+Simulation design: 18 cases, 10 independent paired datasets each
+  10 inference cases, 1 global/local case, 4 WGCNA arms, 3 scaling sizes
+Additional reruns retain original inputs and are not independent replicates.
+Raw fits, input snapshots, manifests, logs and sessionInfo:
+  artifacts/inla-bam-validation/ in the local package checkout
+Concurrent lanes share the host; timings describe this validation workload.

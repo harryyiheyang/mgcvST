@@ -26,7 +26,14 @@ P <- rbindlist(P, fill = TRUE)
 J <- rbindlist(J, fill = TRUE)
 T <- rbindlist(T, fill = TRUE)
 P[, valid := is.finite(p_two_sided) & p_two_sided >= 0 & p_two_sided <= 1]
+P[, true_pair_correlation := fifelse(feature1 == "feature1" &
+  feature2 == "feature2", rho, 0)]
 J[, valid := is.finite(p) & p >= 0 & p <= 1]
+PT <- P[, .(independent_datasets = uniqueN(replicate), attempted_pairs = .N,
+  valid_pairs = sum(valid), invalid_pairs = sum(!valid),
+  raw_rejections = sum(p_two_sided[valid] < .05),
+  adjusted_rejections = sum(p_adjusted[valid] <= .05)),
+  by = .(case, backend, calibration, feature1, feature2, true_pair_correlation)]
 PS <- P[, .(independent_datasets = uniqueN(replicate), attempted_pairs = .N,
   valid_pairs = sum(valid), invalid_pairs = sum(!valid),
   raw_rejections = sum(p_two_sided[valid] < .05),
@@ -66,6 +73,7 @@ JC <- MJ[, .(independent_datasets = uniqueN(replicate), attempted_features = .N,
   decision_agreement = if (any(both)) mean((p_bam[both] < .05) == (p_inla[both] < .05)) else NA_real_),
   by = .(case, calibration)]
 fwrite(PS, file.path(dest, "inference-pair-counts.csv"))
+fwrite(PT, file.path(dest, "inference-pair-truth-counts.csv"))
 fwrite(JS, file.path(dest, "inference-marginal-counts.csv"))
 fwrite(PC, file.path(dest, "inference-pair-agreement.csv"))
 fwrite(JC, file.path(dest, "inference-marginal-agreement.csv"))

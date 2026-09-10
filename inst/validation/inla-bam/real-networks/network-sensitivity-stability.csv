@@ -1,0 +1,5 @@
+"dataset","backend","retained_feature_count","excluded_feature","module_ARI_full_vs_sensitivity","R_difference_mean_absolute","R_difference_max_absolute"
+"celltype","bam",490,"ENSDARG00000098458",1,0,0
+"celltype","inla",490,"ENSDARG00000098458",1,0,0
+"unadjusted","bam",634,"ENSDARG00000058105",0.978286995006853,0,0
+"unadjusted","inla",634,"ENSDARG00000058105",1,0,0

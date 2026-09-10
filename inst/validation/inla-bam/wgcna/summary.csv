@@ -1,0 +1,9 @@
+"arm","estimator","valid_datasets","modules_min","modules_max","grey_max","module_positive_replicates","truth_ARI_median","truth_ARI_min","truth_ARI_max","between_estimator_ARI_min","between_estimator_ARI_median"
+"independent","bam",10,0,0,90,0,NA,NA,NA,0,1
+"moderate","bam",10,3,3,1,10,0.869088275604144,0.697384333863094,0.966475346515058,0.931042979695212,1
+"strong_original","bam",10,3,3,0,10,1,0.966475346515058,1,1,1
+"strong_repeat","bam",10,3,3,0,10,1,0.966475346515058,1,1,1
+"independent","inla",10,0,1,90,1,NA,NA,NA,0,1
+"moderate","inla",10,3,3,1,10,0.869088275604144,0.697384333863094,0.966475346515058,0.931042979695212,1
+"strong_original","inla",10,3,3,0,10,1,0.966475346515058,1,1,1
+"strong_repeat","inla",10,3,3,0,10,1,0.966475346515058,1,1,1
