@@ -1,0 +1,11 @@
+Package: mgcvST
+Version: 0.0.1.9006
+Source commit: 3e5a60d
+R: 4.6.1
+Platform: x86_64-w64-mingw32
+Exit status: 0
+Errors: 0
+Warnings: 0
+Notes: 0
+Tests: FAIL 0 | WARN 0 | SKIP 4 | PASS 766
+Skipped: four pinned-source equivalence checks requiring MGCVST_BASELINE

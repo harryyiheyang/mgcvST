@@ -1,0 +1,10 @@
+"quantity","value"
+"all_method_rows",600
+"rows_per_calibration",300
+"unique_dataset_pairs",300
+"invalid_bam_rows_both_methods",34
+"invalid_bam_rows_per_method",17
+"both_valid_rows_both_methods",566
+"both_valid_rows_per_method",283
+"minimum_invalid_information",1.07544917434142e-11
+"maximum_invalid_information",6.30525702731001e-11

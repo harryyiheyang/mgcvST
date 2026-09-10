@@ -1,0 +1,2 @@
+"case","replicate","feature1","feature2","score","information","effective_rank_without_guard","positive_singular_values","maximum_singular_value","minimum_positive_singular_value","standardized_score","liu_p_without_guard","davies_Qq_without_guard","davies_ifault_without_guard"
+"gaussian_spatial_null",2,"feature1","feature3",7.4656833196553e-08,1.58807406085697e-11,3.05582665752129,35,2.55699502997627e-06,4.4573378724998e-10,0.0187341584002215,1,0.490521191924447,0
