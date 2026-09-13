@@ -16,6 +16,12 @@ scientific outputs while retaining estimator differences and convergence
 diagnostics. See the [paired validation report](inst/notes/inla-bam-validation.md)
 and [recorded results](inst/validation/inla-bam/).
 
+For stacked slices in three dimensions, the research route uses INLA alone,
+with geometry-adaptive tetrahedral meshes and flat log-precision and NB
+log-size objectives. The [3D feasibility study](inst/notes/inla3d-adaptive.md)
+provides standalone scripts and repeated simulations below 3,000 nodes.
+The public package mesh and score-test interfaces currently remain two-dimensional.
+
 The package provides two `mgcv` smooths:
 
 - `bs = "spde"` fits the full projected SPDE basis.
