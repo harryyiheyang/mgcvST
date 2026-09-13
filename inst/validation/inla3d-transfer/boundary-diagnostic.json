@@ -1,0 +1,40 @@
+[
+  {
+    "file": "langlieb-2-uncovered.csv",
+    "source_data_row": 5423701,
+    "tetrahedron_row": 3980,
+    "node_ids": [
+      2230,
+      4024,
+      2388,
+      2350
+    ],
+    "barycentric_weights": [
+      0.01875832971730307,
+      -1.3804979196078375e-14,
+      0.027825402927685976,
+      0.9534162673550247
+    ],
+    "minimum_weight": -1.3804979196078375e-14,
+    "clamped_coordinate_max_error": 2.6645352591003757e-15
+  },
+  {
+    "file": "langlieb-4-uncovered.csv",
+    "source_data_row": 917612,
+    "tetrahedron_row": 3980,
+    "node_ids": [
+      2230,
+      4024,
+      2388,
+      2350
+    ],
+    "barycentric_weights": [
+      0.01875832971730307,
+      -1.3804979196078375e-14,
+      0.027825402927685976,
+      0.9534162673550247
+    ],
+    "minimum_weight": -1.3804979196078375e-14,
+    "clamped_coordinate_max_error": 2.6645352591003757e-15
+  }
+]

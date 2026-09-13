@@ -1,0 +1,133 @@
+{
+  "created_date": "2026-09-13",
+  "purpose": "Portable aligned geometry and tetrahedral INLA 3D checks",
+  "datasets": [
+    {
+      "dataset": "magic",
+      "knots": 1962,
+      "tetrahedra": 7676,
+      "tetrahedra_index_base": 1,
+      "coordinates": "aligned_points.tsv.gz",
+      "mesh_nodes": "nodes.csv",
+      "mesh_cells": "tetrahedra.csv",
+      "mesh_unit": "mm",
+      "aligned_xy_unit": "um",
+      "aligned_z_unit": "um",
+      "source_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_units_per_mesh_unit": [
+        1000.0,
+        1000.0,
+        1000.0
+      ],
+      "transform": "mesh_xyz = (aligned_xyz - source_origin) / source_units_per_mesh_unit",
+      "physical_scale_verified": true,
+      "registration_source": "GEASO rigid output after correspondence",
+      "kappa_fixed": 5.180321329684422,
+      "local_h_interior_edge_median": 0.5459945329141376,
+      "kappa_rule": "sqrt(8) / median unique edge with both endpoints interior; fixed before fitting",
+      "kappa_estimated": false,
+      "alpha": 2,
+      "dimension": 3,
+      "nu": 0.5,
+      "native_constraint": "INLA::inla.spde2.matern(...,constr=TRUE)",
+      "known_limitations": [],
+      "observations": 97830,
+      "sections": 93
+    },
+    {
+      "dataset": "langlieb",
+      "knots": 4048,
+      "tetrahedra": 16409,
+      "tetrahedra_index_base": 1,
+      "coordinates": "aligned_points.tsv.gz",
+      "mesh_nodes": "nodes.csv",
+      "mesh_cells": "tetrahedra.csv",
+      "mesh_unit": "dimensionless, independently normalized axes",
+      "aligned_xy_unit": "native",
+      "aligned_z_unit": "nominal um",
+      "source_origin": [
+        -2020.4805439553047,
+        -2653.8442533707985,
+        0.0
+      ],
+      "source_units_per_mesh_unit": [
+        2012.08229817557,
+        1739.640477144505,
+        1716.6666666666667
+      ],
+      "transform": "mesh_xyz = (aligned_xyz - source_origin) / source_units_per_mesh_unit",
+      "physical_scale_verified": false,
+      "registration_source": "GEASO rigid output after correspondence",
+      "kappa_fixed": 8.241346871369783,
+      "local_h_interior_edge_median": 0.34319962123813397,
+      "kappa_rule": "sqrt(8) / median unique edge with both endpoints interior; fixed before fitting",
+      "kappa_estimated": false,
+      "alpha": 2,
+      "dimension": 3,
+      "nu": 0.5,
+      "native_constraint": "INLA::inla.spde2.matern(...,constr=TRUE)",
+      "known_limitations": [
+        "Uncalibrated XY:Z scale; normalized geometric mesh only.",
+        "Existing registration-chain drift is not corrected by meshing.",
+        "Per-section convex envelope does not model within-slice holes or separate tissue pieces."
+      ],
+      "observations": 5429770,
+      "sections": 98,
+      "aggregated_observations": 918923,
+      "aggregation": "native XY grid width 38.461538, nominal 50 um assuming 1.3 um/unit; within-grid components split with radius 3x slice median NN; total UMI summed; no gene matrix included",
+      "removed_author_sections": [
+        1,
+        3,
+        4
+      ]
+    },
+    {
+      "dataset": "mosta",
+      "knots": 4013,
+      "tetrahedra": 17903,
+      "tetrahedra_index_base": 1,
+      "coordinates": "aligned_points.tsv.gz",
+      "mesh_nodes": "nodes.csv",
+      "mesh_cells": "tetrahedra.csv",
+      "mesh_unit": "dimensionless, independently normalized axes",
+      "aligned_xy_unit": "native",
+      "aligned_z_unit": "author native",
+      "source_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_units_per_mesh_unit": [
+        653.5676409581956,
+        697.7745992633483,
+        293.3333333333333
+      ],
+      "transform": "mesh_xyz = (aligned_xyz - source_origin) / source_units_per_mesh_unit",
+      "physical_scale_verified": false,
+      "registration_source": "author H5AD obsm/3d_align_spatial",
+      "kappa_fixed": 6.709014921463094,
+      "local_h_interior_edge_median": 0.42158605366901913,
+      "kappa_rule": "sqrt(8) / median unique edge with both endpoints interior; fixed before fitting",
+      "kappa_estimated": false,
+      "alpha": 2,
+      "dimension": 3,
+      "nu": 0.5,
+      "native_constraint": "INLA::inla.spde2.matern(...,constr=TRUE)",
+      "known_limitations": [
+        "Uncalibrated XY:Z scale; normalized geometric mesh only.",
+        "Uses author published registration; does not claim to repair or independently validate GEASO.",
+        "Per-section convex envelope does not model within-slice holes or separate tissue pieces."
+      ],
+      "observations": 646893,
+      "sections": 70
+    }
+  ],
+  "original_expression_matrices_included": false,
+  "raw_sequences_included": false,
+  "self_contained_no_external_links": true,
+  "build_seconds": 80.22019220000948
+}

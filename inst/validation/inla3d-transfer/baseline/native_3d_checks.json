@@ -1,0 +1,52 @@
+{
+  "INLA": "26.6.8",
+  "fmesher": "0.8.0",
+  "R": "R version 4.6.1 (2026-06-24 ucrt)",
+  "checks": {
+    "magic": {
+      "status": "passed",
+      "dimension": 3,
+      "knots": 1962,
+      "tetrahedra": 7676,
+      "observed_check_points": 1116,
+      "A_nonzeros": 4448,
+      "A_row_sum_error": 3.330669073875e-16,
+      "A_coordinate_reconstruction_error": 1.7763568394e-15,
+      "Q_nonzeros": 149096,
+      "kappa_fixed": 5.180321329684,
+      "spatial_free_hyperparameters": 1,
+      "native_integral_constraint": true,
+      "seconds": 0.52
+    },
+    "langlieb": {
+      "status": "passed",
+      "dimension": 3,
+      "knots": 4048,
+      "tetrahedra": 16409,
+      "observed_check_points": 1176,
+      "A_nonzeros": 4697,
+      "A_row_sum_error": 3.330669073875e-16,
+      "A_coordinate_reconstruction_error": 1.7763568394e-15,
+      "Q_nonzeros": 313246,
+      "kappa_fixed": 8.24134687137,
+      "spatial_free_hyperparameters": 1,
+      "native_integral_constraint": true,
+      "seconds": 0.92
+    },
+    "mosta": {
+      "status": "passed",
+      "dimension": 3,
+      "knots": 4013,
+      "tetrahedra": 17903,
+      "observed_check_points": 840,
+      "A_nonzeros": 3343,
+      "A_row_sum_error": 3.330669073875e-16,
+      "A_coordinate_reconstruction_error": 1.7763568394e-15,
+      "Q_nonzeros": 330852,
+      "kappa_fixed": 6.709014921463,
+      "spatial_free_hyperparameters": 1,
+      "native_integral_constraint": true,
+      "seconds": 1.06
+    }
+  }
+}

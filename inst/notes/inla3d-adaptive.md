@@ -212,3 +212,12 @@ an earlier `vb` spelling was rejected. Formal runs turn warnings into errors.
 The initial failed trial and eight exploratory CCD fits remain in
 `artifacts/inla3d/`, outside the completed EB result set. CCD results are
 not pooled into the formal comparisons.
+
+## Real tissue transfer follow-up
+
+The subsequent [real tissue transfer audit](inla3d-transfer.md) reproduces the
+author's native 3D example, fits all 97,830 MAGIC observations with flat
+objectives, and completes ten conditional response simulations. It also
+checks full-point coverage of the supplied MAGIC, Langlieb and MOSTA meshes.
+These tissue-shaped meshes and their native integral constraint are distinct
+from the synthetic geometry studied above.
