@@ -94,11 +94,22 @@
     stop("Unused arguments in ...: ", paste(names(unused), collapse = ", "))
   }
   calibration <- match.arg(calibration)
+  inla_fit <- .mgcvst_inla_downstream(fitmgcvST)
+  inla_sparse <- .mgcvst_inla_sparse_downstream(fitmgcvST)
+  if (inla_fit && calibration != "liu") {
+    stop("INLA downstream tests support calibration = 'liu' only.")
+  }
+  if (inla_fit) {
+    .mgcvst_inla_serial_backend(BPPARAM)
+    .mgcvst_inla_require_sparse(fitmgcvST)
+  }
   if (calibration == "davies" &&
       !requireNamespace("CompQuadForm", quietly = TRUE)) {
     stop("calibration = 'davies' requires the optional CompQuadForm package.")
   }
-  if (is.null(threads)) threads <- BiocParallel::bpworkers(BPPARAM)
+  if (is.null(threads)) {
+    threads <- if (inla_sparse) 1L else BiocParallel::bpworkers(BPPARAM)
+  }
   threads <- as.integer(threads)
   if (length(threads) != 1L || is.na(threads) || threads < 1L) {
     stop("threads must be one positive integer.")
@@ -162,7 +173,8 @@
     0L
   }
   if (is.null(chunk_size)) {
-    chunk_size <- if (workers > 0L) ceiling(length(tested_rows) / workers) else 1L
+    chunk_size <- if (inla_sparse) .mgcvst_inla_pair_chunk_size(fitmgcvST) else if (workers > 0L)
+      ceiling(length(tested_rows) / workers) else 1L
   }
   chunk_size <- as.integer(chunk_size)
   if (length(chunk_size) != 1L || is.na(chunk_size) || chunk_size < 1L) {
@@ -172,6 +184,15 @@
   elapsed <- 0
   if (length(tested_rows)) {
     chunks <- split(tested_rows, ceiling(seq_along(tested_rows) / chunk_size))
+    if (inla_sparse) {
+      t0 <- proc.time()[["elapsed"]]
+      evaluated <- .mgcvst_inla_test_pairs(
+        fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
+        threads, chunk_size, verbose
+      )
+      elapsed <- proc.time()[["elapsed"]] - t0
+      evaluated <- split(evaluated$result, seq_len(nrow(evaluated$result)))
+    } else {
     payload <- lapply(chunks, function(rows) list(
       rows = rows, pairs = index[rows, , drop = FALSE]
     ))
@@ -189,6 +210,7 @@
     )
     elapsed <- proc.time()[["elapsed"]] - t0
     evaluated <- unlist(evaluated, recursive = FALSE)
+    }
     for (z in evaluated) {
       target <- z$pair_index
       names <- intersect(names(z), names(result))
@@ -245,8 +267,9 @@
       test_definition = test_definition,
       timing = list(
         elapsed = elapsed, summary_elapsed = 0, pair_elapsed = elapsed,
-        workers = workers, chunks = length(chunks),
-        backend = class(BPPARAM)[1L]
+        workers = if (inla_sparse) threads else workers,
+        chunks = length(chunks),
+        backend = if (inla_sparse) "C++ OpenMP" else class(BPPARAM)[1L]
       ),
       calibration = calibration,
       call = match.call()

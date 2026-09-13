@@ -209,6 +209,11 @@ mgcvST.marginal <- function(fitmgcvST, features = NULL,
     calibration = c("davies", "liu"), fallback = c("none", "liu"),
     BPPARAM = BiocParallel::SerialParam(), chunk_size = 100L, threads = 1L,
     null.tol = 1e-10, max_eps = 1e-8, max_iter = 1e5) {
+  if (identical(fitmgcvST$estimator, "INLA")) {
+    if (missing(calibration)) calibration <- "liu"
+    return(.inlast_marginal(fitmgcvST, features, match.arg(calibration),
+                            BPPARAM, chunk_size, threads))
+  }
   calibration <- match.arg(calibration)
   fallback <- match.arg(fallback)
   if (!inherits(fitmgcvST, "mgcvST_fit") || is.null(fitmgcvST$marginal_data)) {

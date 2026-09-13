@@ -85,6 +85,7 @@ test_that("WGCNA consumes conditioned sparse INLA score states", {
   ids <- paste0("gene", seq_len(p))
   fit <- structure(list(
     score_backend = "sparse",
+    estimator = "INLA",
     score_sparse = list(
       A = Matrix::Diagonal(n), Q = Matrix::Diagonal(n), constraint = g,
       projection = Z, coefficient_factor = Z, target = "global", sp_index = 1L
@@ -110,7 +111,7 @@ test_that("WGCNA consumes conditioned sparse INLA score states", {
 
   expected <- vapply(seq_len(p), function(i) {
     mgcvST:::.mgcvst_model_score_state(fit, i)$a
-  }, numeric(ncol(Z)))
+  }, numeric(n))
   colnames(expected) <- ids
   for (i in seq_len(p)) {
     full <- mgcvST:::.mgcvst_model_sparse_score_state(fit, i)
@@ -133,7 +134,7 @@ test_that("WGCNA consumes conditioned sparse INLA score states", {
 
   expect_equal(W$score$A, expected, tolerance = 2e-12)
   expect_identical(W$score$feature_id, ids)
-  expect_identical(W$score$width, c(global = ncol(Z)))
+  expect_identical(W$score$width, c(global = n))
 })
 
 test_that("WGCNA preserves overlapping block and score-group order", {

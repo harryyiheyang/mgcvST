@@ -92,7 +92,11 @@
 }
 
 # Reuse shared SPDE factors; retain all nuisance smoothers in each fitted V.
-.mgcvst_wgcna_scores <- function(fit, used, group, verbose) {
+.mgcvst_wgcna_scores <- function(fit, used, group, verbose, threads = 1L) {
+  if (.mgcvst_inla_downstream(fit)) {
+    .mgcvst_inla_require_sparse(fit)
+    return(.mgcvst_inla_wgcna_scores(fit, used, group, threads, verbose))
+  }
   legacy <- is.null(fit$geometry$smooth)
   if (legacy) {
     Q <- fit$geometry$Q
@@ -205,6 +209,8 @@
 #'   Blocks smaller than `minClusterSize` retain their matrices and receive
 #'   grey (zero) labels, without changing the requested module size.
 #' @param verbose Whether to display compact progress messages.
+#' @param threads Positive OpenMP thread count used by sparse INLA score
+#'   construction. It has no effect on mgcv score construction.
 #' @return An `mgcvST_wgcna` object with `modules` (component, feature ID, integer
 #'   module, color), named `networks` (feature IDs, covariance, correlation,
 #'   adjacency, TOM, tree, labels, modules, coordinate count `q`, and status),
@@ -221,13 +227,17 @@
 #' }
 #' @export
 mgcvST.wgcna <- function(fitmgcvST, indices, group = NULL,
-                         wgcna.para = NULL, verbose = FALSE) {
+                         wgcna.para = NULL, verbose = FALSE, threads = 1L) {
   started <- proc.time()[["elapsed"]]
   if (!inherits(fitmgcvST, "mgcvST_fit")) {
     stop("fitmgcvST must be returned by mgcvST.estimate() or inlaST.estimate().")
   }
   if (missing(indices) || is.null(indices)) stop("indices must explicitly select the genes to analyze.")
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) stop("verbose must be TRUE or FALSE.")
+  threads <- as.integer(threads)
+  if (length(threads) != 1L || is.na(threads) || threads < 1L) {
+    stop("threads must be one positive integer.")
+  }
   para <- .mgcvst_wgcna_parameters(wgcna.para)
   ids <- fitmgcvST$feature_id
   if (!is.character(ids) || anyNA(ids) || any(!nzchar(ids)) || anyDuplicated(ids)) {
@@ -263,7 +273,9 @@ mgcvST.wgcna <- function(fitmgcvST, indices, group = NULL,
     stop("Install packages 'WGCNA', 'dynamicTreeCut', and 'fastcluster' to use mgcvST.wgcna().")
   }
   t0 <- proc.time()[["elapsed"]]
-  score <- .mgcvst_wgcna_scores(fitmgcvST, used, group, verbose)
+  score <- .mgcvst_wgcna_scores(
+    fitmgcvST, used, group, verbose, threads = threads
+  )
   score_seconds <- proc.time()[["elapsed"]] - t0
   t0 <- proc.time()[["elapsed"]]
   networks <- modules <- vector("list", length(blocks))
@@ -271,7 +283,9 @@ mgcvST.wgcna <- function(fitmgcvST, indices, group = NULL,
   for (nm in names(blocks)) {
     id <- ids[blocks[[nm]]]
     A <- score$A[, match(id, score$feature_id), drop = FALSE]
-    S <- .magic_mm(A, A, transA = TRUE) / nrow(A)
+    normalization <- if (is.null(score$normalization)) nrow(A) else
+      score$normalization
+    S <- .magic_mm(A, A, transA = TRUE) / normalization
     dimnames(S) <- list(id, id)
     if (any(!is.finite(S)) || any(diag(S) <= 0)) stop("Block '", nm, "' has an invalid score covariance.")
     R <- stats::cov2cor(S)

@@ -1,3 +1,5 @@
+> Historical design audit at commit `96e5fca`. The implementation contract was subsequently narrowed to INLA-only, exact Liu, C++ sparse arithmetic and OpenMP. BiocParallel and approximate-calibration proposals below are not the selected implementation. See [the implemented route](inla-openmp.md). mgcv calculation paths are unchanged.
+
 # Sparse INLA downstream parallel design on Windows
 
 ## Scope and conclusion

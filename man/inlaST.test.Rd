@@ -13,7 +13,7 @@ inlaST.test(
   ...,
   pairs = NULL,
   highlight = NULL,
-  calibration = c("liu", "davies"),
+  calibration = "liu",
   chunk_size = NULL,
   threads = NULL,
   verbose = FALSE
@@ -29,7 +29,7 @@ inlaST.test(
 
 \item{method}{Method passed to \code{stats::p.adjust()} when \code{FDR = TRUE}.}
 
-\item{BPPARAM}{A \code{BiocParallelParam}; defaults to \code{SerialParam()}.}
+\item{BPPARAM}{Compatibility argument; only \code{SerialParam()} is accepted.}
 
 \item{...}{Reserved for future score options; currently unused arguments
 are rejected.}
@@ -40,7 +40,7 @@ one-based indices.}
 \item{highlight}{Optional two-column pairs that must be tested and retained.
 They may overlap \code{pairs}; non-overlapping highlights are appended.}
 
-\item{calibration}{Score calibration passed to \code{\link[=rkhs_score_calibrate]{rkhs_score_calibrate()}}.}
+\item{calibration}{Only \code{"liu"} is supported for INLA.}
 
 \item{chunk_size}{Positive number of tested pairs per task or C++ block.
 Liu calibration defaults to 10,000 pairs per interruptible block.}

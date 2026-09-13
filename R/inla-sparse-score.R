@@ -1,6 +1,6 @@
 # Sparse score backend for one fixed-kappa INLA SPDE target.  The fitted null
 # covariance retains the exact observation mean constraint and the nuisance
-# adjustment uses INLA's own conditional posterior Vp block.
+# adjustment uses the expected working curvature.
 
 .inlast_sparse_score_capability <- function(model) {
   spec <- model$inla_spec
@@ -33,19 +33,12 @@
   A <- methods::as(block$A, "CsparseMatrix")
   Q <- Matrix::forceSymmetric(methods::as(block$Q, "CsparseMatrix"))
   g <- as.numeric(block$constraint)
-  Z <- as.matrix(block$projection)
-  Qprojected <- crossprod(Z, as.matrix(Q %*% Z))
-  Qprojected <- (Qprojected + t(Qprojected)) / 2
-  R <- chol(Qprojected)
-  Tbase <- Z %*% backsolve(R, diag(ncol(Z)))
   list(
-    A = A, Q = Q, constraint = g, projection = Z,
-    coefficient_factor = Tbase,
+    A = A, Q = Q, constraint = g,
+    cache = new.env(parent = emptyenv()),
     target = "global", sp_index = as.integer(block$sp_index),
-    definition = paste(
-      "single fixed-kappa SPDE conditioned on the observation mean;",
-      "native INLA nuisance Vp"
-    )
+    normalization = ncol(Q) - 1L,
+    definition = "constrained sparse INLA; expected curvature; exact Liu"
   )
 }
 
@@ -71,71 +64,92 @@
   }
 }
 
-.mgcvst_model_sparse_score_state <- function(fit, feature, score_only = FALSE) {
+.inlast_sparse_prepare <- function(fit) {
   geometry <- fit$score_sparse
-  if (!is.list(geometry) || is.null(geometry$coefficient_factor)) {
+  if (!is.list(geometry) || is.null(geometry$Q)) {
     stop("The fit lacks its sparse INLA score geometry.")
   }
-  phi <- as.numeric(fit$dispersion[feature])
-  sp <- as.numeric(fit$smoothing_parameters[feature, geometry$sp_index])
-  if (length(phi) != 1L || length(sp) != 1L ||
-      !is.finite(phi) || phi <= 0 || !is.finite(sp) || sp <= 0) {
+  if (!is.environment(geometry$cache)) geometry$cache <- new.env(parent = emptyenv())
+  cache <- geometry$cache
+  valid <- identical(cache$Q, geometry$Q) &&
+    identical(cache$constraint, geometry$constraint) &&
+    mgcvst_inla_sparse_prepared_valid_cpp(cache$prepared)
+  if (!valid) {
+    Q <- methods::as(methods::as(geometry$Q, "generalMatrix"), "CsparseMatrix")
+    cache$prepared <- mgcvst_inla_sparse_prepare_cpp(Q, as.numeric(geometry$constraint))
+    cache$Q <- geometry$Q
+    cache$constraint <- geometry$constraint
+    cache$general_Q <- Q
+    g <- geometry$constraint / sqrt(sum(geometry$constraint^2))
+    Qg <- as.numeric(Q %*% g)
+    cache$penalty_norm <- sqrt(sum(Q@x^2) - 2 * sum(Qg^2) + sum(g * Qg)^2)
+  }
+  if (!identical(cache$A, geometry$A)) {
+    cache$general_A <- methods::as(methods::as(geometry$A, "generalMatrix"), "CsparseMatrix")
+    cache$A <- geometry$A
+  }
+  fit$score_sparse <- geometry
+  fit
+}
+
+.inlast_sparse_batch <- function(fit, features, threads = 1L,
+                                 score_only = FALSE, null_target = FALSE) {
+  fit <- .inlast_sparse_prepare(fit)
+  geometry <- fit$score_sparse
+  if (!is.list(geometry) || is.null(geometry$Q)) {
+    stop("The fit lacks its sparse INLA score geometry.")
+  }
+  phi <- as.numeric(fit$dispersion[features])
+  tau <- as.numeric(fit$smoothing_parameters[features, geometry$sp_index]) / phi
+  if (any(!is.finite(tau)) || any(tau <= 0)) {
     stop("The feature has invalid dispersion or smoothing parameters.")
   }
-  tau <- sp / phi
-  A <- geometry$A
-  Q <- geometry$Q
-  g <- geometry$constraint
-  T <- geometry$coefficient_factor / sqrt(tau)
-  e <- as.numeric(fit$working_error[, feature])
-  D <- as.numeric(fit$working_variance[, feature])
-  if (length(e) != nrow(A) || length(D) != nrow(A) ||
-      any(!is.finite(e)) || any(!is.finite(D)) || any(D <= 0)) {
-    stop("The feature has an invalid working state.")
+  Q <- geometry$cache$general_Q
+  if (null_target) {
+    scale <- geometry$cache$penalty_norm
+    if (!is.finite(scale) || scale <= 0) stop("The target penalty has invalid norm.")
+    tau[] <- 1 / scale
   }
-  X <- as.matrix(fit$geometry$nuisance_design)
-  Vp <- fit$nuisance_covariance[[feature]]
-  if (!is.matrix(Vp) || !all(dim(Vp) == ncol(X)) ||
-      any(!is.finite(Vp))) {
-    stop("The feature has an incompatible conditional nuisance covariance.")
-  }
-  Vp <- (Vp + t(Vp)) / 2
-
-  W <- 1 / D
-  K <- Matrix::forceSymmetric(Matrix::crossprod(A, A * W))
-  L <- if (ncol(X)) as.matrix(Matrix::crossprod(A, W * X)) else
-    matrix(numeric(), ncol(A), 0L)
-  tvec <- as.numeric(Matrix::crossprod(A, W * e))
-  solve_S <- .mgcvst_model_sparse_constrained_solver(
-    Matrix::forceSymmetric(tau * Q + K), g
+  out <- mgcvst_inla_sparse_batch_cpp(
+    geometry$cache$general_A, Q,
+    as.numeric(geometry$constraint), as.matrix(fit$geometry$nuisance_design),
+    fit$working_error[, features, drop = FALSE],
+    fit$working_variance[, features, drop = FALSE], tau,
+    as.integer(threads), score_only, null_target, 32L, geometry$cache$prepared
   )
-  solved_small <- solve_S(cbind(L, tvec))
-  SL <- if (ncol(X)) solved_small[, seq_len(ncol(X)), drop = FALSE] else
-    matrix(numeric(), ncol(A), 0L)
-  St <- as.numeric(solved_small[, ncol(X) + 1L])
-  U <- if (ncol(X)) L - as.matrix(K %*% SL) else
-    matrix(numeric(), ncol(A), 0L)
-  q <- if (ncol(X)) {
-    as.numeric(crossprod(X, W * e) - crossprod(L, St))
-  } else numeric()
-  h <- tvec - as.numeric(K %*% St)
-  if (ncol(X)) h <- h - as.numeric(U %*% Vp %*% q)
-
-  a <- as.numeric(crossprod(T, h))
-  width <- stats::setNames(ncol(T), geometry$target)
-  if (score_only) return(list(a = a, width = width))
-
-  KT <- as.matrix(K %*% T)
-  SKT <- solve_S(KT)
-  M <- crossprod(T, KT) - crossprod(KT, SKT)
-  if (ncol(X)) {
-    UtT <- crossprod(U, T)
-    M <- M - crossprod(UtT, Vp %*% UtT)
+  for (j in seq_along(out)) {
+    out[[j]]$width <- stats::setNames(length(out[[j]]$a), geometry$target)
+    out[[j]]$normalization <- ncol(Q) - 1L
+    out[[j]]$backend <- "sparse_conditioned_INLA_OpenMP"
   }
-  M <- (M + t(M)) / 2
-  list(
-    a = a, M = M,
-    width = width,
-    target = NULL, operator = NULL, backend = "sparse_conditioned_INLA"
+  out
+}
+
+.mgcvst_model_sparse_score_state <- function(fit, feature, score_only = FALSE) {
+  ans <- .inlast_sparse_batch(fit, feature, 1L, score_only)[[1L]]
+  if (!is.null(ans$error) && nzchar(ans$error)) stop(ans$error)
+  ans
+}
+
+.inlast_sparse_units <- function(fit, features, threads = 1L) {
+  fit <- .inlast_sparse_prepare(fit)
+  geometry <- fit$score_sparse
+  tau <- as.numeric(fit$smoothing_parameters[features, geometry$sp_index]) /
+    as.numeric(fit$dispersion[features])
+  mgcvst_inla_sparse_units_cpp(
+    geometry$cache$general_A, geometry$cache$general_Q,
+    as.numeric(geometry$constraint), as.matrix(fit$geometry$nuisance_design),
+    fit$working_error[, features, drop = FALSE],
+    fit$working_variance[, features, drop = FALSE], tau,
+    as.integer(threads), geometry$cache$prepared
+  )
+}
+
+.inlast_sparse_materialize <- function(fit, units, threads = 1L) {
+  fit <- .inlast_sparse_prepare(fit)
+  geometry <- fit$score_sparse
+  mgcvst_inla_sparse_materialize_cpp(
+    units, geometry$cache$general_Q, as.numeric(geometry$constraint),
+    as.integer(threads), geometry$cache$prepared, 32L
   )
 }

@@ -17,7 +17,8 @@ inlaST.estimate(
   marginal_test = NULL,
   marginal_args = list(),
   retain_marginal = FALSE,
-  score_backend = c("auto", "dense", "sparse")
+  score_backend = c("auto", "dense", "sparse"),
+  threads = 1L
 )
 }
 \arguments{
@@ -27,7 +28,8 @@ inlaST.estimate(
 
 \item{feature_id}{Unique feature identifiers.}
 
-\item{BPPARAM}{A \code{BiocParallelParam} controlling feature-level parallelism.}
+\item{BPPARAM}{Compatibility argument; only \code{SerialParam()} is accepted.
+INLA fitting uses \code{control$num_threads}; downstream uses OpenMP \code{threads}.}
 
 \item{chunk_size}{Positive number of features per task.}
 
@@ -75,6 +77,8 @@ mesh backend for one global fixed-kappa SPDE with fixed-effect nuisance
 terms only, and otherwise uses \code{"dense"}. \code{"sparse"} requires that
 supported structure and errors before fitting when it is unavailable.
 When omitted, the setting saved by \code{\link[=inlaST.set]{inlaST.set()}} is used.}
+
+\item{threads}{OpenMP threads for sparse downstream marginal construction.}
 }
 \value{
 An \code{inlaST_fit} that is also an \code{mgcvST_model_fit}.
@@ -88,16 +92,13 @@ Hyperparameter priors remain part of INLA's empirical-Bayes
 estimates; these are not mgcv REML estimates. \code{mgcv::nb(theta = value)}
 fixes NB size, and a conflicting \code{control$nb_size} is rejected. The
 working model uses conditional latent estimates and expected Fisher
-variances. Its nuisance \code{Vp} block is extracted directly from INLA's
-constrained conditional Gaussian posterior precision, rather than rebuilt
-from the expected Fisher matrix. The existing score calibration is applied to these inputs;
+variances. Sparse downstream scores rebuild the nuisance covariance from
+the same expected Fisher matrix and use exact Liu trace moments;
 this does not establish finite-sample calibration after hyperparameter
 estimation. Every spatial component's constraint residual and observed
 spatial mean are retained in the result.
 The score uses the SPDE covariance conditioned on observation mean zero.
-Centering this kernel again has no effect. The native nuisance \code{Vp} with
-expected working variances does not in general guarantee \verb{P 1 = 0}, so an
-unconstrained raw kernel cannot be substituted using centering invariance.
+The sparse score uses a matching expected-curvature nuisance adjustment.
 Flat hyperpriors need not yield proper hyperparameter posteriors. They are
 supported only as empirical-Bayes optimization objectives in the current
 single-configuration engine. A returned finite precision or zero optimizer

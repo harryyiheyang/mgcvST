@@ -425,7 +425,8 @@ inlaST.set <- function(
 #' @param Y Numeric feature-by-observation matrix.
 #' @param model An object returned by [inlaST.set()].
 #' @param feature_id Unique feature identifiers.
-#' @param BPPARAM A `BiocParallelParam` controlling feature-level parallelism.
+#' @param BPPARAM Compatibility argument; only `SerialParam()` is accepted.
+#'   INLA fitting uses `control$num_threads`; downstream uses OpenMP `threads`.
 #' @param chunk_size Positive number of features per task.
 #' @param offset Optional shared observation offset or matrix matching `Y`.
 #' @param control Named INLA engine overrides for controls saved by
@@ -468,21 +469,19 @@ inlaST.set <- function(
 #' estimates; these are not mgcv REML estimates. `mgcv::nb(theta = value)`
 #' fixes NB size, and a conflicting `control$nb_size` is rejected. The
 #' working model uses conditional latent estimates and expected Fisher
-#' variances. Its nuisance `Vp` block is extracted directly from INLA's
-#' constrained conditional Gaussian posterior precision, rather than rebuilt
-#' from the expected Fisher matrix. The existing score calibration is applied to these inputs;
+#' variances. Sparse downstream scores rebuild the nuisance covariance from
+#' the same expected Fisher matrix and use exact Liu trace moments;
 #' this does not establish finite-sample calibration after hyperparameter
 #' estimation. Every spatial component's constraint residual and observed
 #' spatial mean are retained in the result.
 #' The score uses the SPDE covariance conditioned on observation mean zero.
-#' Centering this kernel again has no effect. The native nuisance `Vp` with
-#' expected working variances does not in general guarantee `P 1 = 0`, so an
-#' unconstrained raw kernel cannot be substituted using centering invariance.
+#' The sparse score uses a matching expected-curvature nuisance adjustment.
 #' Flat hyperpriors need not yield proper hyperparameter posteriors. They are
 #' supported only as empirical-Bayes optimization objectives in the current
 #' single-configuration engine. A returned finite precision or zero optimizer
 #' status does not establish that the maximum is interior; zero spatial
 #' variance and the Poisson limit of the NB model require boundary checks.
+#' @param threads OpenMP threads for sparse downstream marginal construction.
 #' @return An `inlaST_fit` that is also an `mgcvST_model_fit`.
 #' @export
 inlaST.estimate <- function(
@@ -491,10 +490,21 @@ inlaST.estimate <- function(
     offset = NULL, control = list(), retain_smooth = FALSE,
     diagnostics = FALSE, marginal_test = NULL, marginal_args = list(),
     retain_marginal = FALSE,
-    score_backend = c("auto", "dense", "sparse")) {
+    score_backend = c("auto", "dense", "sparse"), threads = 1L) {
   if (!requireNamespace("INLA", quietly = TRUE)) {
     stop("inlaST.estimate() requires the INLA package.")
   }
+  if (!inherits(BPPARAM, "SerialParam")) {
+    stop("INLA uses its own fitting threads and downstream OpenMP; BiocParallel workers are disabled.")
+  }
+  if (length(threads) != 1L || !is.numeric(threads) || !is.finite(threads) ||
+      threads < 1 || threads > .Machine$integer.max ||
+      threads != as.integer(threads)) stop("threads must be a positive integer.")
+  if (!is.list(marginal_args)) stop("marginal_args must be a named list.")
+  if (!is.null(marginal_args$method) && !identical(marginal_args$method, "liu")) {
+    stop("INLA supports only marginal method = 'liu'.")
+  }
+  marginal_args$method <- "liu"
   checked <- .inlast_validate_estimate(
     Y, model, feature_id, BPPARAM, chunk_size, offset, control,
     retain_smooth, diagnostics
@@ -515,6 +525,9 @@ inlaST.estimate <- function(
   score_sparse <- if (identical(score_backend, "sparse")) {
     .inlast_sparse_score_geometry(model)
   } else NULL
+  if (identical(score_backend, "sparse") && !is.null(marginal_test)) {
+    stop("Custom marginal tests are unavailable on the sparse INLA path.")
+  }
   if (!is.null(marginal_test) && !is.function(marginal_test)) {
     stop("marginal_test must be NULL or a function.")
   }
@@ -541,10 +554,10 @@ inlaST.estimate <- function(
   groups <- split(seq_len(nrow(Y)), ceiling(seq_len(nrow(Y)) / chunk_size))
   workers <- max(1L, min(length(groups), BiocParallel::bpworkers(BPPARAM)))
   t0 <- proc.time()[["elapsed"]]
-  chunks <- BiocParallel::bplapply(
+  chunks <- lapply(
     groups, .inlast_fit_chunk, Y = Y, spec = model$inla_spec,
     base_offset = model$offset, extra_offset = offset, control = control,
-    diagnostics = diagnostics, BPPARAM = BPPARAM
+    diagnostics = diagnostics
   )
   fit_elapsed <- proc.time()[["elapsed"]] - t0
   fits <- unlist(chunks, recursive = FALSE)
@@ -619,6 +632,7 @@ inlaST.estimate <- function(
     if (!is.null(offset)) {
       total_offset_j <- total_offset_j + if (is.matrix(offset)) offset[j, ] else offset
     }
+    if (!identical(score_backend, "sparse")) {
     marginal_t0 <- proc.time()[["elapsed"]]
     faux <- tryCatch(.inlast_as_gam(z, model, Y[j, ], total_offset_j),
                      error = function(e) e)
@@ -651,6 +665,7 @@ inlaST.estimate <- function(
         if (is.null(marginal_geometry)) marginal_geometry <- captured$geometry
         marginal_state[[j]] <- captured$state
       }
+    }
     }
     if (!is.null(coefficient)) {
       for (name in names(coefficient)) coefficient[[name]][j, ] <- z$coefficients[[name]]
@@ -714,6 +729,22 @@ inlaST.estimate <- function(
       state = marginal_state,
       definition = "frozen_INLA_conditional_marginal_TAPS"
     )
+  }
+  if (identical(score_backend, "sparse")) {
+    ans$marginal_data <- list(version = 2L, definition = "sparse_INLA_marginal_TAPS_Liu")
+    valid <- which(diagnostics_table$converged)
+    if (length(valid)) {
+      marginal_t0 <- proc.time()[["elapsed"]]
+      marginal <- .inlast_marginal(ans, valid, chunk_size = min(16L, chunk_size), threads = threads)
+      ans$marginal_data$result <- marginal
+      ans$diagnostics$marginal_p_value[valid] <- marginal$p_value
+      ans$diagnostics$marginal_requested_method[valid] <- "liu"
+      ans$diagnostics$marginal_method[valid] <- "liu"
+      ans$diagnostics$marginal_fallback[valid] <- FALSE
+      ans$diagnostics$error_message[valid] <- marginal$error_message
+      ans$timing$marginal_elapsed <- proc.time()[["elapsed"]] - marginal_t0
+    }
+    if (!retain_marginal) ans$marginal_data <- NULL
   }
   ans
 }

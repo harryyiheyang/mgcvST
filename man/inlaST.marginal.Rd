@@ -7,7 +7,7 @@
 inlaST.marginal(
   fitinlaST,
   features = NULL,
-  calibration = c("davies", "liu"),
+  calibration = "liu",
   fallback = c("none", "liu"),
   BPPARAM = BiocParallel::SerialParam(),
   chunk_size = 100L,
@@ -23,11 +23,11 @@ inlaST.marginal(
 
 \item{features}{Unique feature IDs or one-based indices; NULL selects all.}
 
-\item{calibration}{Either \code{"davies"} or \code{"liu"}.}
+\item{calibration}{Only \code{"liu"} is supported for INLA.}
 
 \item{fallback}{Either \code{"none"} (default) or explicit Davies-to-Liu fallback.}
 
-\item{BPPARAM}{BiocParallel configuration; defaults to serial execution.}
+\item{BPPARAM}{Compatibility argument; only \code{SerialParam()} is accepted.}
 
 \item{chunk_size}{Number of features per interruptible task/block.}
 

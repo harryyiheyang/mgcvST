@@ -4,7 +4,7 @@
 \title{Identify co-expression modules within explicitly selected gene blocks}
 \usage{
 mgcvST.wgcna(fitmgcvST, indices, group = NULL,
-  wgcna.para = NULL, verbose = FALSE)
+  wgcna.para = NULL, verbose = FALSE, threads = 1L)
 
 \method{print}{mgcvST_wgcna}(x, ...)
 }
@@ -24,6 +24,9 @@ component; it is an error when the fit contains multiple score components.}
 names are errors. Blocks smaller than \code{minClusterSize} retain their
 matrices and receive grey (zero) labels, without changing the requested size.}
 \item{verbose}{Whether to display compact progress messages.}
+
+\item{threads}{Positive OpenMP thread count used by sparse INLA score
+construction. It has no effect on mgcv score construction.}
 \item{x}{An \code{mgcvST_wgcna} result.}
 \item{...}{Unused.}
 }

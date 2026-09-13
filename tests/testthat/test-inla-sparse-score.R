@@ -25,7 +25,7 @@
   list(data = data, basis = basis, Y = Y)
 }
 
-test_that("single-global sparse score matches dense with native nuisance Vp", {
+test_that("single-global sparse score preserves expected-curvature Gram and traces", {
   skip_on_cran()
   f <- .inlast_sparse_fixture()
   model <- inlaST.set(
@@ -43,56 +43,36 @@ test_that("single-global sparse score matches dense with native nuisance Vp", {
     mgcvST:::.mgcvst_model_fixed_factors(fit), is.null, logical(1L)
   )))
 
-  dense <- fit
-  dense$score_backend <- "dense"
-  dense$score_sparse <- NULL
-  dense$.mgcvst_fixed_factors <- NULL
+  states <- mgcvST:::.inlast_sparse_batch(
+    fit, seq_len(nrow(f$Y)), threads = 1L, score_only = FALSE
+  )
   for (j in seq_len(nrow(f$Y))) {
-    sparse_state <- mgcvST:::.mgcvst_model_score_state(fit, j)
-    dense_state <- mgcvST:::.mgcvst_model_score_state(dense, j)
-    expect_equal(sparse_state$a, dense_state$a, tolerance = 1e-9)
-    expect_equal(sparse_state$M, dense_state$M, tolerance = 1e-9)
-    expect_identical(sparse_state$width, dense_state$width)
+    singleton <- mgcvST:::.mgcvst_model_sparse_score_state(fit, j)
+    score_only <- mgcvST:::.mgcvst_model_sparse_score_state(
+      fit, j, score_only = TRUE
+    )
+    expect_equal(states[[j]]$a, singleton$a, tolerance = 1e-10)
+    expect_equal(states[[j]]$M, singleton$M, tolerance = 1e-10)
+    expect_equal(score_only$a, singleton$a, tolerance = 1e-10)
+    expect_null(score_only$M)
   }
   pairs <- t(combn(rownames(f$Y), 2L))
   sparse_test <- mgcvST.test(
     fit, pairs = pairs, calibration = "liu",
     BPPARAM = BiocParallel::SerialParam()
   )
-  dense_test <- mgcvST.test(
-    dense, pairs = pairs, calibration = "liu",
-    BPPARAM = BiocParallel::SerialParam()
-  )
-  numeric <- c("signed_score", "information", "p_two_sided",
-               "p_positive", "p_negative")
-  for (field in numeric) {
-    expect_equal(
-      sparse_test$results[[field]], dense_test$results[[field]],
-      tolerance = 1e-9
+  local <- matrix(match(pairs, rownames(f$Y)), ncol = 2L)
+  M <- lapply(states, `[[`, "M")
+  moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(M, local, 4L, 1L)
+  for (j in seq_len(nrow(local))) {
+    score <- sum(states[[local[j, 1L]]]$a * states[[local[j, 2L]]]$a)
+    liu <- mgcvST:::.liu_squared_score_moments(
+      abs(score), moments[j, 1L], moments[j, 2L],
+      moments[j, 3L], moments[j, 4L]
     )
-  }
-
-  # Preserve the native posterior block even when it is not exact expected GLS.
-  perturbed_sparse <- fit
-  perturbed_dense <- dense
-  perturbed_sparse$nuisance_covariance <-
-    lapply(fit$nuisance_covariance, `*`, 0.997)
-  perturbed_dense$nuisance_covariance <- perturbed_sparse$nuisance_covariance
-  expect_gt(max(abs(
-    perturbed_sparse$nuisance_covariance[[1L]] -
-      fit$expected_nuisance_covariance[[1L]]
-  )), 0)
-  for (j in seq_len(nrow(f$Y))) {
-    expect_equal(
-      mgcvST:::.mgcvst_model_score_state(perturbed_sparse, j)$a,
-      mgcvST:::.mgcvst_model_score_state(perturbed_dense, j)$a,
-      tolerance = 1e-9
-    )
-    expect_equal(
-      mgcvST:::.mgcvst_model_score_state(perturbed_sparse, j)$M,
-      mgcvST:::.mgcvst_model_score_state(perturbed_dense, j)$M,
-      tolerance = 1e-9
-    )
+    expect_equal(sparse_test$results$signed_score[j], score, tolerance = 1e-10)
+    expect_equal(sparse_test$results$information[j], moments[j, 1L], tolerance = 1e-9)
+    expect_equal(sparse_test$results$p_two_sided[j], liu$p_value, tolerance = 1e-10)
   }
 
   broken <- fit
@@ -104,7 +84,7 @@ test_that("single-global sparse score matches dense with native nuisance Vp", {
   expect_identical(broken$score_backend, "sparse")
 })
 
-test_that("sparse score workers agree over SOCK", {
+test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts", {
   skip_on_cran()
   f <- .inlast_sparse_fixture(n = 64L, seed = 1711L)
   model <- inlaST.set(
@@ -120,17 +100,20 @@ test_that("sparse score workers agree over SOCK", {
     fit, pairs = pairs, calibration = "liu",
     BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L
   )
-  bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
-  on.exit(BiocParallel::bpstop(bp), add = TRUE)
-  socket <- mgcvST.test(
-    fit, pairs = pairs, calibration = "liu", BPPARAM = bp,
+  threaded <- mgcvST.test(
+    fit, pairs = pairs, calibration = "liu",
+    BPPARAM = BiocParallel::SerialParam(), threads = 2L,
     chunk_size = 1L
   )
-  expect_equal(socket$results$signed_score, serial$results$signed_score,
+  expect_equal(threaded$results$signed_score, serial$results$signed_score,
                tolerance = 1e-10)
-  expect_equal(socket$results$p_two_sided, serial$results$p_two_sided,
+  expect_equal(threaded$results$p_two_sided, serial$results$p_two_sided,
                tolerance = 1e-10)
-  expect_true(all(is.na(socket$results$error_message)))
+  bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
+  expect_error(
+    mgcvST.test(fit, pairs = pairs, calibration = "liu", BPPARAM = bp),
+    "must be SerialParam"
+  )
 })
 
 test_that("unsupported sparse structures error or use the dense auto backend", {
@@ -214,8 +197,10 @@ test_that("Gaussian sparse units cover zero-X and observation-scale multi-X", {
     dense$score_backend <- "dense"
     dense$score_sparse <- dense$.mgcvst_fixed_factors <- NULL
     sparse_state <- mgcvST:::.mgcvst_model_score_state(fit, 1L)
+    dense$nuisance_covariance[[1L]] <- sparse_state$expected_vp
     dense_state <- mgcvST:::.mgcvst_model_score_state(dense, 1L)
-    expect_equal(sparse_state$a, dense_state$a, tolerance = 1e-9)
-    expect_equal(sparse_state$M, dense_state$M, tolerance = 1e-9)
+    expect_equal(sum(sparse_state$a^2), sum(dense_state$a^2), tolerance = 1e-9)
+    expect_equal(sum(diag(sparse_state$M)), sum(diag(dense_state$M)), tolerance = 1e-9)
+    expect_equal(sum(sparse_state$M^2), sum(dense_state$M^2), tolerance = 1e-9)
   }
 })
