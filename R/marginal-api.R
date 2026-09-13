@@ -166,7 +166,18 @@
       state <- payload$state[[k]]
       if (inherits(state, "condition")) stop(state)
       if (is.null(state)) stop("No retained marginal state for this feature.")
-      z <- .mgcvst_marginal_spectrum(state, geometry[[payload$geometry_index[k]]], null.tol)
+      current_geometry <- geometry[[payload$geometry_index[k]]]
+      cache <- state$marginal_cache
+      use_cache <- is.list(cache) &&
+        identical(cache$null.tol, null.tol) &&
+        identical(cache$test_component, as.integer(current_geometry$test_component)) &&
+        length(cache$lambda) && is.finite(cache$statistic) &&
+        all(is.finite(cache$lambda))
+      z <- if (use_cache) {
+        cache[c("statistic", "lambda", "smooth.term")]
+      } else {
+        .mgcvst_marginal_spectrum(state, current_geometry, null.tol)
+      }
       if (!length(z$lambda) || !is.finite(z$statistic) || any(!is.finite(z$lambda))) {
         stop("Marginal TAPS produced an empty or non-finite quadratic-form spectrum.")
       }

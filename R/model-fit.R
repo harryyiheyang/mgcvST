@@ -206,6 +206,11 @@
         NA_character_ else marginal_result$method
       fit$marginal_fallback <- if (inherits(marginal_result, "condition"))
         NA else marginal_result$fallback
+      if (retain_marginal && !inherits(marginal_result, "condition") &&
+          !is.null(fit$marginal_state) &&
+          !inherits(fit$marginal_state, "condition")) {
+        fit$marginal_state$marginal_cache <- marginal_result$cache
+      }
       fit$marginal_error <- if (inherits(marginal_result, "condition")) {
         .mgcvst_condition(marginal_result)
       } else {

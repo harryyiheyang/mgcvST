@@ -232,6 +232,7 @@
 # Run the requested corrected marginal score calibration.
 .mgcvst_marginal_score <- function(fit, marginal_test, marginal_args,
                                    test_component = 1L) {
+  cacheable <- is.null(marginal_test) && is.null(marginal_args$lpmatrix)
   if (is.null(marginal_test)) marginal_test <- taps_score_test
   if (!is.function(marginal_test)) {
     stop("marginal_test must be NULL or a function.")
@@ -255,8 +256,9 @@
   if (!is.character(used) || length(used) != 1L) used <- NA_character_
   fallback <- if (is.na(requested) || is.na(used)) NA else
     identical(requested, "davies") && identical(used, "liu")
+  cache <- if (cacheable) attr(score, "marginal_spectrum", exact = TRUE) else NULL
   list(p_value = p_value, requested_method = requested,
-       method = used, fallback = fallback)
+       method = used, fallback = fallback, cache = cache)
 }
 
 # Clone the minimal package function closure needed on remote workers.
@@ -285,7 +287,11 @@
     ".mgcvst_model_sparse_constrained_solver",
     ".mgcvst_model_sparse_score_state",
     ".mgcvst_model_score_state", ".mgcvst_model_pair_single",
-    ".mgcvst_model_test_chunk",
+    ".mgcvst_pack_symmetric", ".mgcvst_unpack_symmetric",
+    ".mgcvst_pack_score_state", ".mgcvst_unpack_score_state",
+    ".mgcvst_dense_temp_dir", ".mgcvst_dense_cleanup",
+    ".mgcvst_dense_pair_groups",
+    ".mgcvst_dense_pair_chunk", ".mgcvst_model_state_shard",
     "rkhs_extract_working_model", ".magic_mm", ".magic_solve",
     ".as_numeric_matrix", ".rkhs_score_operator_factor",
     "rkhs_score_operator", "rkhs_score_apply_P",
@@ -486,6 +492,10 @@
       marginal_requested_method[j] <- marginal_result$requested_method
       marginal_method[j] <- marginal_result$method
       marginal_fallback[j] <- marginal_result$fallback
+      if (retain_marginal && !is.null(marginal_state[[j]]) &&
+          !inherits(marginal_state[[j]], "condition")) {
+        marginal_state[[j]]$marginal_cache <- marginal_result$cache
+      }
     }
   }
 
@@ -894,10 +904,8 @@ print.mgcvST_fit <- function(x, ...) {
   index
 }
 
-# Construct each feature-level score summary once for the Liu pair engine.
-.mgcvst_liu_summaries <- function(fitmgcvST, used, verbose) {
-  geometry <- fitmgcvST$geometry
-  field_scale <- .mgcvst_field_scale(fitmgcvST)
+# Construct the shared dense score factor once for every requested feature.
+.mgcvst_legacy_shared_score_factor <- function(geometry) {
   Q <- as.matrix(geometry$Q)
   allow_psd <- isTRUE(geometry$score_precision_psd)
   if (allow_psd) {
@@ -919,6 +927,14 @@ print.mgcvST_fit <- function(x, ...) {
     Rinv <- Matrix::solve(R, Matrix::Diagonal(nrow(Q)))
     T0 <- .magic_mm(geometry$B, as.matrix(Rinv))
   }
+  T0
+}
+
+# Construct each feature-level score summary once for the Liu pair engine.
+.mgcvst_liu_summaries <- function(fitmgcvST, used, verbose) {
+  geometry <- fitmgcvST$geometry
+  field_scale <- .mgcvst_field_scale(fitmgcvST)
+  T0 <- .mgcvst_legacy_shared_score_factor(geometry)
 
   a <- H <- vector("list", length(used))
   has_summary <- rep(FALSE, length(used))
@@ -954,6 +970,30 @@ print.mgcvST_fit <- function(x, ...) {
     error_message = error_message,
     elapsed = proc.time()[["elapsed"]] - t0
   )
+}
+
+# Construct and write packed legacy score states for one feature-first chunk.
+.mgcvst_legacy_score_unit_chunk <- function(payload, T0, X_fixed) {
+  .mgcvst_thread_limit()
+  paths <- character(length(payload$feature))
+  for (j in seq_along(payload$feature)) {
+    state <- tryCatch({
+      T <- sqrt(payload$field_scale[j]) * T0
+      op <- .rkhs_score_operator_factor(
+        T, payload$working_variance[, j], X_fixed,
+        field_scale = payload$field_scale[j]
+      )
+      summary <- rkhs_score_summary(payload$working_error[, j], op)
+      .mgcvst_pack_score_state(list(
+        a = summary$a, M = summary$H, width = length(summary$a)
+      ))
+    }, error = function(e) list(error = conditionMessage(e)))
+    key <- as.character(payload$feature[j])
+    path <- file.path(payload$directory, paste0("feature-", key, ".rds"))
+    saveRDS(state, path, compress = FALSE)
+    paths[j] <- path
+  }
+  stats::setNames(paths, as.character(payload$feature))
 }
 
 # Evaluate Liu-calibrated pairs from feature summaries in bounded C++ blocks.
@@ -1320,39 +1360,58 @@ print.mgcvST_fit <- function(x, ...) {
       result$error_message[target] <- evaluated$error_message
       chunks <- seq_len(ceiling(length(tested_rows) / chunk_size))
     } else {
-      chunks <- split(
-        tested_rows, ceiling(seq_along(tested_rows) / chunk_size)
+      used <- sort(unique(as.vector(index[tested_rows, , drop = FALSE])))
+      T0 <- .mgcvst_legacy_shared_score_factor(fitmgcvST$geometry)
+      state_dir <- .mgcvst_dense_temp_dir()
+      on.exit(.mgcvst_dense_cleanup(state_dir), add = TRUE)
+      feature_chunk_size <- max(1L, ceiling(length(used) / max(1L, workers)))
+      feature_groups <- split(
+        used, ceiling(seq_along(used) / feature_chunk_size)
+      )
+      feature_payload <- lapply(feature_groups, function(features) list(
+        feature = features,
+        working_error = fitmgcvST$working_error[, features, drop = FALSE],
+        working_variance = fitmgcvST$working_variance[, features, drop = FALSE],
+        field_scale = field_scale[features], directory = state_dir
+      ))
+      t0 <- proc.time()[["elapsed"]]
+      shard_paths <- BiocParallel::bplapply(
+        feature_payload, .mgcvst_legacy_score_unit_chunk,
+        T0 = T0, X_fixed = fitmgcvST$geometry$X, BPPARAM = BPPARAM
+      )
+      summary_elapsed <- proc.time()[["elapsed"]] - t0
+      shard_paths <- unlist(shard_paths, use.names = FALSE)
+      names(shard_paths) <- as.character(used)
+      packed_bytes <- 8 * ncol(T0) * (ncol(T0) + 1) / 2
+      unpacked_bytes <- 8 * ncol(T0)^2
+      max_features <- max(1L, floor(
+        (256 * 1024^2) / (packed_bytes + unpacked_bytes)
+      ))
+      chunks <- .mgcvst_dense_pair_groups(
+        tested_rows, index, chunk_size, max_features
       )
       payload <- lapply(chunks, function(rows) {
-        used <- unique(as.vector(t(index[rows, , drop = FALSE])))
-        local <- match(index[rows, , drop = FALSE], used)
-        local <- matrix(local, ncol = 2L)
+        local_used <- unique(as.vector(t(index[rows, , drop = FALSE])))
         list(
-          pair_index = rows,
-          pairs = local,
-          feature_id = fitmgcvST$feature_id[used],
-          working_error = fitmgcvST$working_error[, used, drop = FALSE],
-          working_variance = fitmgcvST$working_variance[, used, drop = FALSE],
-          field_scale = field_scale[used]
+          rows = rows,
+          pairs = index[rows, , drop = FALSE],
+          shards = shard_paths[as.character(local_used)]
         )
       })
-      worker_bundle <- .mgcvst_worker_bundle()
-      test_chunk <- get(".mgcvst_test_chunk", envir = worker_bundle,
-                        inherits = FALSE)
       t0 <- proc.time()[["elapsed"]]
       evaluated <- BiocParallel::bplapply(
-        payload, test_chunk,
-        geometry = fitmgcvST$geometry, calibration = calibration,
-        BPPARAM = BPPARAM
+        payload, .mgcvst_dense_pair_chunk,
+        calibration = calibration, BPPARAM = BPPARAM
       )
-      elapsed <- proc.time()[["elapsed"]] - t0
-      evaluated <- do.call(rbind, evaluated)
+      elapsed <- summary_elapsed + proc.time()[["elapsed"]] - t0
+      evaluated <- do.call(rbind, unlist(evaluated, recursive = FALSE))
       core <- c(
-        "signed_score", "statistic", "information", "effective_rank",
+        "signed_score", "information", "effective_rank",
         "p_two_sided", "p_positive", "p_negative", "error_message"
       )
       target <- match(evaluated$pair_index, result$pair_index)
       result[target, core] <- evaluated[, core, drop = FALSE]
+      result$statistic[target] <- evaluated$signed_score^2
     }
   }
 

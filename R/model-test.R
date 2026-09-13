@@ -16,44 +16,20 @@
   get(target, envir = environment(.mgcvst_test_engine), inherits = TRUE)
 }
 
-# Evaluate a chunk with one already-selected model score function.
-.mgcvst_model_test_chunk <- function(payload, fit, pair_function,
-                                      calibration) {
+# Construct each requested model score state once and write one packed shard.
+.mgcvst_model_state_shard <- function(features, fit, paths) {
   .mgcvst_thread_limit()
-  fit$.mgcvst_state_cache <- new.env(parent = emptyenv())
-  if (is.null(fit$.mgcvst_fixed_factors)) {
-    fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
-  }
-  out <- vector("list", length(payload$rows))
-  for (k in seq_along(payload$rows)) {
-    i <- payload$pairs[k, 1L]
-    j <- payload$pairs[k, 2L]
-    z <- tryCatch(
-      pair_function(fit, i, j, calibration = calibration),
-      error = function(e) e
-    )
+  for (k in seq_along(features)) {
+    z <- tryCatch(.mgcvst_model_score_state(fit, features[k]),
+                  error = function(e) e)
     if (inherits(z, "condition")) {
-      out[[k]] <- data.frame(
-        pair_index = payload$rows[k],
-        signed_score = NA_real_, information = NA_real_,
-        effective_rank = NA_real_, p_two_sided = NA_real_,
-        p_positive = NA_real_, p_negative = NA_real_,
-        error_message = conditionMessage(z),
-        stringsAsFactors = FALSE
-      )
-      next
+      unit <- list(error = conditionMessage(z))
+    } else {
+      unit <- .mgcvst_pack_score_state(z)
     }
-    out[[k]] <- data.frame(
-      pair_index = payload$rows[k], signed_score = z$score,
-      information = z$information,
-      effective_rank = z$effective_rank,
-      p_two_sided = z$p_two_sided, p_positive = z$p_positive,
-      p_negative = z$p_negative,
-      error_message = NA_character_,
-      stringsAsFactors = FALSE
-    )
+    saveRDS(unit, paths[k])
   }
-  out
+  features
 }
 
 # Shared orchestration for model.set() score engines.
@@ -193,20 +169,40 @@
       elapsed <- proc.time()[["elapsed"]] - t0
       evaluated <- split(evaluated$result, seq_len(nrow(evaluated$result)))
     } else {
-    payload <- lapply(chunks, function(rows) list(
-      rows = rows, pairs = index[rows, , drop = FALSE]
-    ))
+    chunks <- .mgcvst_dense_pair_groups(tested_rows, index, chunk_size)
+    used <- sort(unique(as.vector(index[tested_rows, , drop = FALSE])))
+    feature_workers <- max(1L, min(length(used), BiocParallel::bpworkers(BPPARAM)))
+    feature_groups <- split(used, ceiling(seq_along(used) /
+      ceiling(length(used) / feature_workers)))
+    cache_dir <- .mgcvst_dense_temp_dir()
+    on.exit(.mgcvst_dense_cleanup(cache_dir), add = TRUE)
     worker_bundle <- .mgcvst_worker_bundle()
-    test_chunk <- get(".mgcvst_model_test_chunk", envir = worker_bundle,
-                      inherits = FALSE)
-    pair_worker <- get(deparse(substitute(pair_function)), envir = worker_bundle,
+    state_shard <- get(".mgcvst_model_state_shard", envir = worker_bundle,
                        inherits = FALSE)
+    test_chunk <- get(".mgcvst_dense_pair_chunk", envir = worker_bundle,
+                      inherits = FALSE)
     t0 <- proc.time()[["elapsed"]]
     test_fit <- fitmgcvST
     test_fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(test_fit)
+    shard_paths <- file.path(cache_dir, paste0("state-", used, ".rds"))
+    names(shard_paths) <- as.character(used)
+    shards <- BiocParallel::bplapply(
+      seq_along(feature_groups), function(k, groups, paths, fit, worker_fun) {
+        feature <- groups[[k]]
+        worker_fun(feature, fit, paths[as.character(feature)])
+      }, groups = feature_groups, paths = shard_paths, fit = test_fit,
+      worker_fun = state_shard, BPPARAM = BPPARAM
+    )
+    payload <- lapply(chunks, function(rows) {
+      pair <- index[rows, , drop = FALSE]
+      feature <- sort(unique(as.vector(pair)))
+      list(
+        rows = rows, pairs = pair,
+        shards = shard_paths[as.character(feature)]
+      )
+    })
     evaluated <- BiocParallel::bplapply(
-      payload, test_chunk, fit = test_fit, pair_function = pair_worker,
-      calibration = calibration, BPPARAM = BPPARAM
+      payload, test_chunk, calibration = calibration, BPPARAM = BPPARAM
     )
     elapsed <- proc.time()[["elapsed"]] - t0
     evaluated <- unlist(evaluated, recursive = FALSE)

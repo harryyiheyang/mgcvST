@@ -1,5 +1,7 @@
 # mgcvST unnecessary recomputation audit
 
+Implementation update: version 0.0.1.9008 addresses call-wide model-set pair reuse, legacy Davies shared-factor/feature reuse, and retained marginal spectrum replay. See [dense-reuse.md](dense-reuse.md) for the implemented lifecycle and remaining cross-call work. The findings below preserve the original audit snapshot.
+
 Scope: independent, read-only audit of the canonical checkout `C:/Users/yxy1234/Downloads/mgcvST`, snapshot `96e5fca46119c878a8aa6f310d83dd1c807b98e4` plus the uncommitted working-tree state present on 2026-09-13. This report evaluates repeated computation only. It does not assess statistical validity, calibration, style, or propose new analysis behavior.
 
 ## Executive finding

@@ -15,11 +15,48 @@ test_that("retained marginal data is opt-in, compact and survives serialization"
   expect_length(fit$marginal_data$geometry, 1L)
   expect_length(fit$marginal_data$state, 3L)
   expect_false(any(vapply(fit$marginal_data$state, inherits, logical(1), what = "gam")))
+  expect_true(all(vapply(fit$marginal_data$state, function(z) {
+    is.numeric(z$marginal_cache$statistic) &&
+      length(z$marginal_cache$lambda) > 0L
+  }, logical(1L))))
   a <- mgcvST.marginal(fit, calibration = "liu")
   b <- mgcvST.marginal(unserialize(serialize(fit, NULL)), calibration = "liu", features = c(3L,1L))
   expect_identical(unname(b$p_value), unname(a$p_value[c(3,1)]))
   expect_true(all(is.finite(a$p_value)))
   expect_error(mgcvST.marginal(mgcvST.estimate(f$Y,f$G)), "retain_marginal")
+
+  calls <- 0L
+  original <- mgcvST:::.mgcvst_marginal_spectrum
+  testthat::local_mocked_bindings(
+    .mgcvst_marginal_spectrum = function(...) {
+      calls <<- calls + 1L
+      original(...)
+    },
+    .package = "mgcvST"
+  )
+  payload <- list(index = 1L, state = fit$marginal_data$state[1L],
+                  geometry_index = fit$marginal_data$geometry_index[1L])
+  cached <- mgcvST:::.mgcvst_marginal_chunk(
+    payload, fit$marginal_data$geometry, "liu", "none",
+    1e-10, 1e-8, 1e5, 1L
+  )
+  expect_identical(calls, 0L)
+  expect_identical(cached[[1L]]$statistic,
+                   fit$marginal_data$state[[1L]]$marginal_cache$statistic)
+  recomputed <- mgcvST:::.mgcvst_marginal_chunk(
+    payload, fit$marginal_data$geometry, "liu", "none",
+    1e-9, 1e-8, 1e5, 1L
+  )
+  expect_identical(calls, 1L)
+  expect_true(is.finite(recomputed[[1L]]$statistic))
+})
+
+test_that("custom marginal callbacks do not populate the built-in spectrum cache", {
+  callback <- function(fit, test.component, n_threads) {
+    data.frame(smooth.pvalue = 0.25, method = "custom")
+  }
+  z <- mgcvST:::.mgcvst_marginal_score(list(), callback, list())
+  expect_null(z$cache)
 })
 
 test_that("package-local TAPS matches fixed upstream NB and Gaussian references", {

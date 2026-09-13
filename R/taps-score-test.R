@@ -35,5 +35,11 @@ taps_score_test <- function(fit, test.component = 1L, null.tol = 1e-10,
   } else {
     p <- .mgcvst_marginal_liu(z$statistic, .mgcvst_marginal_moments(z$lambda))
   }
-  data.frame(smooth.term = z$smooth.term, smooth.pvalue = p, method = method)
+  out <- data.frame(smooth.term = z$smooth.term, smooth.pvalue = p, method = method)
+  attr(out, "marginal_spectrum") <- list(
+    statistic = z$statistic, lambda = z$lambda,
+    smooth.term = z$smooth.term, null.tol = null.tol,
+    test_component = as.integer(test.component)
+  )
+  out
 }
