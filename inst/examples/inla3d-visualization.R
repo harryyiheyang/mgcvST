@@ -67,6 +67,22 @@ lim_rate <- c(0, max(stats::quantile(D$observed_rate, 0.98, names = FALSE),
 lim_fold <- c(0, stats::quantile(D$spatial_fold, 0.98, names = FALSE))
 blue_scale <- c("#FFFFFF", "#6BAED6", "#08306B")
 plotly_blue_scale <- list(c(0, "#FFFFFF"), c(0.5, "#6BAED6"), c(1, "#08306B"))
+scale_blue <- function(limits, name) {
+  scale_colour_gradientn(
+    colours = blue_scale, limits = limits, oob = scales::squish, name = name,
+    guide = guide_colourbar(
+      barwidth = grid::unit(2.5, "mm"), barheight = grid::unit(12, "mm"),
+      title.theme = element_text(size = 5.2),
+      label.theme = element_text(size = 5)
+    )
+  )
+}
+plotly_colorbar <- function(title) {
+  list(
+    title = list(text = title, font = list(size = 10)),
+    thickness = 15, len = 0.5, tickfont = list(size = 9)
+  )
+}
 D$axon_x <- D$x + 0.42 * D$z
 D$axon_y <- D$y + 0.24 * D$z
 z_show <- uz[unique(round(seq(1, length(uz), length.out = 6L)))]
@@ -78,8 +94,8 @@ theme_set(
   theme_classic(base_size = 7, base_family = "Arial") +
     theme(axis.line = element_line(linewidth = 0.3),
           axis.ticks = element_line(linewidth = 0.3),
-          legend.title = element_text(size = 6.5),
-          legend.text = element_text(size = 6),
+          legend.title = element_text(size = 5.2),
+          legend.text = element_text(size = 5),
           plot.title = element_text(size = 7.5, face = "bold"),
           plot.subtitle = element_text(size = 6.2),
           plot.tag = element_text(size = 9, face = "bold"))
@@ -87,8 +103,7 @@ theme_set(
 
 p1 <- ggplot(D, aes(axon_x, axon_y, colour = count)) +
   geom_point(size = 0.12, alpha = 0.68) +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_count,
-                         oob = scales::squish, name = "Raw count") +
+  scale_blue(lim_count, "Raw count") +
   coord_equal() +
   labs(title = "Observed Snap25 count",
        subtitle = sprintf("All 97,830 observations; upper colors capped at count %.0f (98th percentile)",
@@ -97,8 +112,7 @@ p1 <- ggplot(D, aes(axon_x, axon_y, colour = count)) +
 
 p2 <- ggplot(D, aes(axon_x, axon_y, colour = observed_rate)) +
   geom_point(size = 0.12, alpha = 0.68) +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_rate,
-                         oob = scales::squish, name = "Count per\n10,000 UMI") +
+  scale_blue(lim_rate, "Count per\n10,000 UMI") +
   coord_equal() +
   labs(title = "Observed normalized expression",
        subtitle = "count/(total UMI/10,000); shared rate scale",
@@ -106,8 +120,7 @@ p2 <- ggplot(D, aes(axon_x, axon_y, colour = observed_rate)) +
 
 p3 <- ggplot(D, aes(axon_x, axon_y, colour = fitted_rate)) +
   geom_point(size = 0.12, alpha = 0.68) +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_rate,
-                         oob = scales::squish, name = "Fitted count per\n10,000 UMI") +
+  scale_blue(lim_rate, "Fitted count per\n10,000 UMI") +
   coord_equal() +
   labs(title = "Fitted expression rate",
        subtitle = "exp(eta); shared rate scale",
@@ -115,8 +128,7 @@ p3 <- ggplot(D, aes(axon_x, axon_y, colour = fitted_rate)) +
 
 p4 <- ggplot(D[sx, ], aes(y, z, colour = spatial_fold)) +
   geom_point(size = 0.3, alpha = 0.75) +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_fold,
-                         oob = scales::squish, name = "Spatial\nfold-change") +
+  scale_blue(lim_fold, "Spatial\nfold-change") +
   coord_equal() +
   labs(title = "Central X slab", subtitle = sprintf("|x - %.2f| <= %.2f; n = %s", cx, 0.04 * rx,
                                                     format(sum(sx), big.mark = ",")),
@@ -124,8 +136,7 @@ p4 <- ggplot(D[sx, ], aes(y, z, colour = spatial_fold)) +
 
 p5 <- ggplot(D[sy, ], aes(x, z, colour = spatial_fold)) +
   geom_point(size = 0.3, alpha = 0.75) +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_fold,
-                         oob = scales::squish, name = "Spatial\nfold-change") +
+  scale_blue(lim_fold, "Spatial\nfold-change") +
   coord_equal() +
   labs(title = "Central Y slab", subtitle = sprintf("|y - %.2f| <= %.2f; n = %s", cy, 0.04 * ry,
                                                    format(sum(sy), big.mark = ",")),
@@ -133,8 +144,7 @@ p5 <- ggplot(D[sy, ], aes(x, z, colour = spatial_fold)) +
 
 p6 <- ggplot(D[sz, ], aes(x, y, colour = spatial_fold)) +
   geom_point(size = 0.3, alpha = 0.75) +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_fold,
-                         oob = scales::squish, name = "Spatial\nfold-change") +
+  scale_blue(lim_fold, "Spatial\nfold-change") +
   coord_equal() +
   labs(title = "Central Z plane", subtitle = sprintf("z = %.2f; n = %s", cz,
                                                     format(sum(sz), big.mark = ",")),
@@ -144,8 +154,7 @@ p6 <- ggplot(D[sz, ], aes(x, y, colour = spatial_fold)) +
 p7 <- ggplot(Dz, aes(x, y, colour = observed_rate)) +
   geom_point(size = 0.16, alpha = 0.65) +
   facet_wrap(~z_panel, nrow = 1) + coord_equal() +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_rate,
-                         oob = scales::squish, name = "Count per\n10,000 UMI") +
+  scale_blue(lim_rate, "Count per\n10,000 UMI") +
   labs(title = "Observed normalized expression across selected Z planes",
        subtitle = "Six evenly spaced observed planes; every point in each plane",
        x = "x", y = "y")
@@ -153,8 +162,7 @@ p7 <- ggplot(Dz, aes(x, y, colour = observed_rate)) +
 p8 <- ggplot(Dz, aes(x, y, colour = fitted_rate)) +
   geom_point(size = 0.16, alpha = 0.65) +
   facet_wrap(~z_panel, nrow = 1) + coord_equal() +
-  scale_colour_gradientn(colours = blue_scale, limits = lim_rate,
-                         oob = scales::squish, name = "Fitted count per\n10,000 UMI") +
+  scale_blue(lim_rate, "Fitted count per\n10,000 UMI") +
   labs(title = "Fitted expression rate across the same Z planes",
        subtitle = "Same units and color scale as the observed row",
        x = "x", y = "y")
@@ -193,26 +201,26 @@ p3d <- add_trace(p3d, data = D, x = ~x, y = ~y, z = ~z, text = hover,
                  name = "Raw count", visible = TRUE,
                  marker = list(size = 1.25, opacity = 0.72, color = D$count,
                                colorscale = plotly_blue_scale, cmin = lim_count[1L], cmax = lim_count[2L],
-                               colorbar = list(title = "Raw count")))
+                               colorbar = plotly_colorbar("Raw count")))
 p3d <- add_trace(p3d, data = D, x = ~x, y = ~y, z = ~z, text = hover,
                  hoverinfo = "text", type = "scatter3d", mode = "markers",
                  name = "Observed rate", visible = FALSE,
                  marker = list(size = 1.25, opacity = 0.72, color = D$observed_rate,
                                colorscale = plotly_blue_scale, cmin = lim_rate[1L], cmax = lim_rate[2L],
-                               colorbar = list(title = "Count per<br>10,000 UMI")))
+                               colorbar = plotly_colorbar("Count per<br>10,000 UMI")))
 p3d <- add_trace(p3d, data = D, x = ~x, y = ~y, z = ~z, text = hover,
                  hoverinfo = "text", type = "scatter3d", mode = "markers",
                  name = "Fitted rate", visible = FALSE,
                  marker = list(size = 1.25, opacity = 0.72, color = D$fitted_rate,
                                colorscale = plotly_blue_scale, cmin = lim_rate[1L], cmax = lim_rate[2L],
-                               colorbar = list(title = "Fitted count per<br>10,000 UMI")))
+                               colorbar = plotly_colorbar("Fitted count per<br>10,000 UMI")))
 p3d <- add_trace(p3d, data = D, x = ~x, y = ~y, z = ~z, text = hover,
                  hoverinfo = "text", type = "scatter3d", mode = "markers",
                  name = "Spatial fold-change", visible = FALSE,
                  marker = list(size = 1.25, opacity = 0.72, color = D$spatial_fold,
                                colorscale = plotly_blue_scale,
                                cmin = lim_fold[1L], cmax = lim_fold[2L],
-                               colorbar = list(title = "Spatial fold-change<br>(1 = intercept reference)")))
+                               colorbar = plotly_colorbar("Spatial fold-change<br>(1 = intercept reference)")))
 p3d <- layout(
   p3d,
   title = "MAGIC Snap25: all 97,830 observations",

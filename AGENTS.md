@@ -12,6 +12,12 @@
 - Preserve the author's successfully run analysis semantics. Keep research scripts flat and debuggable; use short variable names and minimal comments. Do not introduce error suppression or version-suffix backup files.
 - Package helpers may implement reusable numerical or API mechanics. Prefer CppMatrix for supported matrix operations. Validate user inputs with clear errors.
 
+## INLA hyperparameter priors
+
+- Use explicit flat priors on INLA's internal hyperparameter scales in the package and its exploratory comparisons. This applies to added random-effect precision and correlation/range parameters as well as the existing spatial precision and negative-binomial size. State the internal scale explicitly.
+- Do not introduce PC or other shrinkage priors as defaults. The author reports that flat was the setting that agreed with mgcv and produced uniform null p-values; alternatives caused shrinkage or convergence problems in those experiments. Use a different prior only when the author explicitly requests that comparison.
+- Preserve this calibration baseline when extending the model. New latent blocks still require their own type-I error and null p-value calibration; the existing results do not establish calibration of an extension.
+
 ## Academic writing
 
 - Before drafting or revising academic prose, read `C:/Users/yxy1234/Documents/Y_Yang_Academic_Writing_Style_Guide.md` and `C:/Users/yxy1234/Downloads/SKILL.md` when available. The personal guide and the author's explicit instructions take precedence.
