@@ -1,5 +1,9 @@
 # Low-count INLA score inflation: mechanism review
 
+This is a historical experiment using the recorded non-flat hyperpriors.
+Those settings are preserved as part of the experiment; they are not the
+current flat defaults.
+
 This review concerns the `nb03_pair_k6` null experiment: 200 observations, true NB size 2, mean count 0.3, two independent nonzero mean-zero SPDE fields, and zero cross-feature covariance. The completed estimated-hyperparameter procedure rejected about 15% at nominal 5% with either the conditioned or raw score kernel. The near equality of those two rates rules out score-kernel projection as the explanation for the large inflation.
 
 ## Score quantities and where hyperparameters enter

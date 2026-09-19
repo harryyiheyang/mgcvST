@@ -1,5 +1,8 @@
 # Interpretation of the re-estimated-hyperparameter null simulation
 
+The non-flat hyperpriors described below belong to this historical experiment.
+The current estimator defaults to flat internal log-hyperparameter priors.
+
 This note records the independent review of the simulation protocol and worker code, followed by the completed results. All seven scenarios have now finished with 500 independent replicates each (5,500 INLA feature fits). Earlier sections retain the detailed reasoning from the sequential review; the final results and the matched bam comparison are summarized below.
 
 These historical INLA results used the original expected-Fisher reconstruction

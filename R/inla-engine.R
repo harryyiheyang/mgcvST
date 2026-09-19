@@ -41,7 +41,7 @@
     ),
     gaussian_precision = NULL,
     gaussian_precision_prior = list(
-      prior = "normal", param = c(0, 1 / 9), initial = 0
+      prior = "flat", param = numeric(), initial = 0
     ),
     nb_size = NULL,
     nb_size_prior = list(

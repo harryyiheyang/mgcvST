@@ -34,17 +34,12 @@
   }, numeric(1L))
 }
 
-test_that("INLA defaults spatial precision and NB size to flat", {
+test_that("INLA defaults estimated precision and NB size hyperparameters to flat", {
   control <- mgcvST:::.inlast_control()
   fields <- c("precision_prior", "gaussian_precision_prior", "nb_size_prior")
   for (field in fields) {
-    if (field %in% c("precision_prior", "nb_size_prior")) {
-      expect_identical(control[[field]]$prior, "flat")
-      expect_length(control[[field]]$param, 0L)
-    } else {
-      expect_identical(control[[field]]$prior, "normal")
-      expect_equal(control[[field]]$param, c(0, 1 / 9), tolerance = 0)
-    }
+    expect_identical(control[[field]]$prior, "flat")
+    expect_length(control[[field]]$param, 0L)
     expect_identical(control[[field]]$initial, 0)
 
     bad <- list()
@@ -133,6 +128,44 @@ test_that("inlaST Gaussian mode agrees with a fixed-hyperparameter oracle", {
     tolerance = 3e-5
   )
   expect_lt(max(abs(.inlast_spatial_means(fit))), 5e-8)
+})
+
+test_that("default Gaussian variance agrees with a restricted likelihood oracle", {
+  skip_on_cran()
+  f <- .inlast_fixture(seed = 2401L)
+  d <- f$data
+  n <- nrow(d)
+  y <- 0.6 + 0.4 * d$z + d$offset0 +
+    0.35 * sin(2 * pi * d$x) - 0.25 * cos(2 * pi * d$y) +
+    rnorm(n, sd = 0.3)
+  model <- inlaST.set(
+    response ~ z + offset(offset0), d, f$basis, family = gaussian(),
+    control = list(fixed_precision = 2.5)
+  )
+  fit <- inlaST.estimate(
+    matrix(y, nrow = 1L, dimnames = list("gaussian_flat", NULL)), model,
+    BPPARAM = BiocParallel::SerialParam()
+  )
+  target <- fit$geometry$target[["global"]]
+  X <- fit$geometry$X
+  B <- fit$geometry$smooth[[target]]$B
+  Q <- fit$geometry$smooth[[target]]$penalties[[1L]]
+  G <- B %*% solve(2.5 * Q, t(B))
+  residual <- y - model$offset
+  # Independently integrate the spatial field and unpenalized fixed effects.
+  objective <- function(log_phi) {
+    V <- exp(log_phi) * diag(n) + G
+    Vi <- solve(V)
+    ViX <- Vi %*% X
+    XtViX <- crossprod(X, ViX)
+    P <- Vi - ViX %*% solve(XtViX, t(ViX))
+    as.numeric(determinant(V, logarithm = TRUE)$modulus +
+      determinant(XtViX, logarithm = TRUE)$modulus +
+      crossprod(residual, P %*% residual))
+  }
+  exact <- optimize(objective, interval = log(c(0.01, 2)), tol = 1e-10)
+  expect_true(fit$diagnostics$converged)
+  expect_lt(abs(log(fit$dispersion[[1L]]) - exact$minimum), 2e-3)
 })
 
 test_that("inlaST enforces observation-mean zero for Poisson and NB fits", {

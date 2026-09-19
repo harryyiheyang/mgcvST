@@ -50,11 +50,13 @@ lists \code{precision_prior}, \code{gaussian_precision_prior} and \code{nb_size_
 contain \code{prior}, \code{param}, and logarithmic \code{initial} values (default zero).
 Spatial precision and NB size default to \code{prior = "flat"} with no
 parameters on the log scale. Gaussian observation precision defaults to
-\verb{prior = "normal", param = c(0, 1/9)}, encoding
-\code{log(parameter) ~ N(0, 3^2)}. Custom normal, registered scalar INLA priors,
-and INLA expression/table priors are supported. Normal parameters are
-mean and precision. A flat log-hyperparameter objective corresponds to
-density proportional to \code{1/parameter} on its positive scale.
+\verb{prior = "flat", param = numeric(), initial = 0}, a flat prior on the
+internal log precision \code{-log(variance)}. On the variance scale this has
+density proportional to \code{1/variance}; it is a Gaussian dispersion prior,
+distinct from the negative-binomial size prior. Custom normal, registered
+scalar INLA priors, and INLA expression/table priors remain supported. Normal
+parameters are mean and precision. A flat log-hyperparameter objective
+corresponds to density proportional to \code{1/parameter} on its positive scale.
 \code{control.inla} accepts supported numerical tuning, with Gaussian latent
 strategy and EB integration enforced. \code{poisson_screen_phi} (default \code{1.1})
 is the Poisson prescreen threshold: with a negative-binomial family, each

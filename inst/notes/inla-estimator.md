@@ -93,7 +93,7 @@ The `control` argument is a named list. Unknown control names are rejected.
 | `gaussian_precision` | `NULL` | Optional fixed inverse Gaussian residual variance. |
 | `nb_size` | `NULL` | Optional fixed negative-binomial size, with variance `mu + mu^2 / size`. |
 | `precision_prior` | `list(prior="flat", param=numeric(), initial=0)` | Improper flat objective on log latent precision. |
-| `gaussian_precision_prior` | `list(prior="normal", param=c(0,1/9), initial=0)` | `log(observation precision) ~ N(0, 3^2)`. |
+| `gaussian_precision_prior` | `list(prior="flat", param=numeric(), initial=0)` | Flat objective on log inverse Gaussian residual variance. |
 | `nb_size_prior` | `list(prior="flat", param=numeric(), initial=0)` | Improper flat objective on log NB size. |
 | `control.inla` | `list()` | Validated numerical INLA tuning such as `tolerance`; Gaussian/EB strategy remains mandatory. |
 | `fixed_effect_precision` | `0` | Fixed effects are unpenalized by default. |
@@ -104,8 +104,16 @@ such as `fixed_precision`, `gaussian_precision` and `nb_size` are on their
 natural positive scales. The mgcv-compatible smoothing multiplier is
 `lambda = dispersion * precision`, where `dispersion` is the Gaussian
 residual variance and is one for Poisson and negative-binomial observations.
-INLA's normal prior takes `(mean, precision)`, so `1/9` encodes standard
-deviation 3. A flat prior may be abbreviated as `list(prior="flat")`; it is
+The Gaussian observation distribution remains Gaussian. Its residual variance
+`sigma^2` is the Gaussian dispersion parameter; INLA parameterizes its inverse
+as `precision = 1/sigma^2`. A flat prior on `log(precision) = -log(sigma^2)`
+corresponds to density proportional to `1/sigma^2` on the variance scale. This
+is distinct from NB size: the NB conditional variance is `mu + mu^2/size`,
+and its working dispersion multiplier is one in this interface.
+
+An explicitly requested normal hyperprior takes `(mean, precision)`, so
+`1/9` encodes standard deviation 3. A flat prior may be abbreviated as
+`list(prior="flat")`; it is
 an improper density constant on the internal logarithmic scale. Registered
 scalar INLA priors and explicit `expression:` or `table:` definitions are
 validated and passed through with their actual parameters recorded in the
