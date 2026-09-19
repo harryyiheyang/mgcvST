@@ -151,22 +151,10 @@ test_that("inlaST enforces observation-mean zero for Poisson and NB fits", {
 
   for (case_name in names(responses)) {
     case <- responses[[case_name]]
-    if (identical(case_name, "negative_binomial")) {
-      local <- spde_basis(
-        f$mesh, f$basis$coordinates, kappa = 2,
-        project_intercept = TRUE
-      )
-      model <- inlaST.set(
-        response ~ z + offset(offset0), d,
-        list(global = f$basis, local = local), family = case$family,
-        setting = "global_local"
-      )
-    } else {
-      model <- inlaST.set(
-        response ~ z + offset(offset0), d, f$basis,
-        family = case$family
-      )
-    }
+    model <- inlaST.set(
+      response ~ z + offset(offset0), d, f$basis,
+      family = case$family
+    )
     fit <- inlaST.estimate(
       matrix(case$y, nrow = 1L, dimnames = list("feature", NULL)),
       model, retain_smooth = TRUE,
@@ -308,7 +296,7 @@ test_that("inlaST compact fits run the existing covariance score path", {
   fit <- testthat::with_mocked_bindings(
     inlaST.estimate(
       Y, model, BPPARAM = BiocParallel::SerialParam(), control = list(),
-      marginal_args = list(method = "liu"), retain_marginal = TRUE
+      retain_marginal = TRUE
     ),
     gam = function(...) stop("mgcv::gam() was called during INLA estimation"),
     bam = function(...) stop("mgcv::bam() was called during INLA estimation"),

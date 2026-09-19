@@ -20,12 +20,11 @@ signal <- basis$B %*% u
 Y <- t(1 + signal + matrix(rnorm(length(signal), sd = sqrt(phi)), nrow(signal)))
 rownames(Y) <- paste0("feature", seq_len(nrow(Y)))
 fit <- inlaST.estimate(
-  Y, model, control = list(fixed_precision = tau, gaussian_precision = 1 / phi),
-  marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SerialParam()
+  Y, model, control = list(fixed_precision = tau, gaussian_precision = 1 / phi), BPPARAM = BiocParallel::SerialParam()
 )
 stopifnot(all(fit$diagnostics$converged))
 pairs <- matrix(seq_len(2L * reps), ncol = 2L, byrow = TRUE)
-test <- mgcvST.test(fit, pairs = pairs, calibration = "davies", threads = 1L)
+test <- mgcvST.test(fit, pairs = pairs, calibration = "liu", threads = 1L)
 p <- test$results$p_two_sided
 stopifnot(length(p) == reps, all(is.finite(p)))
 rejected <- sum(p < .05)
@@ -39,6 +38,7 @@ utils::write.csv(summary, file.path(out, "null-summary.csv"), row.names = FALSE)
 writeLines(c(
   "Independent Gaussian fields simulated and fitted with identical fixed hyperparameters.",
   "All spatial fields obey the observation mean-zero constraint.",
+  "INLA sparse pair testing uses Liu calibration.",
   "This small smoke experiment does not establish calibration after hyperparameter estimation,",
   "for negative-binomial observations, or in extreme multiple-testing tails."
 ), file.path(out, "null-scope.txt"))

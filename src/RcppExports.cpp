@@ -12,6 +12,23 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// mgcvst_dense_score_batch_cpp
+Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0, const arma::mat& variance, const arma::mat& error, const arma::vec& scale, const arma::mat& X, const Rcpp::List& nuisance, int threads);
+RcppExport SEXP _mgcvST_mgcvst_dense_score_batch_cpp(SEXP T0SEXP, SEXP varianceSEXP, SEXP errorSEXP, SEXP scaleSEXP, SEXP XSEXP, SEXP nuisanceSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type T0(T0SEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type variance(varianceSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type error(errorSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type scale(scaleSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type nuisance(nuisanceSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_dense_score_batch_cpp(T0, variance, error, scale, X, nuisance, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_inla_sparse_prepare_cpp
 SEXP mgcvst_inla_sparse_prepare_cpp(const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint);
 RcppExport SEXP _mgcvST_mgcvst_inla_sparse_prepare_cpp(SEXP Q_mapSEXP, SEXP constraintSEXP) {
@@ -121,6 +138,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 7},
     {"_mgcvST_mgcvst_inla_sparse_prepare_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepare_cpp, 2},
     {"_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp, 1},
     {"_mgcvST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_batch_cpp, 13},

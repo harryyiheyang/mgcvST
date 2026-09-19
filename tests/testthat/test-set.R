@@ -28,6 +28,15 @@ test_that("set freezes a formal design with two factors, nuisance and changed co
     fit <- testthat::with_mocked_bindings(
       mgcvST.estimate(f$Y, model, offset = offset,
         BPPARAM = BiocParallel::SerialParam(), chunk_size = 2L,
+        # This test verifies the frozen design against direct mgcv fits with
+        # the requested family; disable the Poisson prescreen so near-Poisson
+        # synthetic genes are not routed away from nb().
+        control = local({
+          k <- mgcv::gam.control(nthreads = 1L)
+          k$ncv.threads <- 1L
+          k$poisson_screen_phi <- 0
+          k
+        }),
         marginal_args = list(method = "liu"), retain_marginal = TRUE),
       .gam_training_lpmatrix = function(...) stop("L rebuilt during estimate"),
       .package = "mgcvST"

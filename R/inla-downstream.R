@@ -9,6 +9,8 @@
 #' @inheritParams mgcvST.test
 #' @param calibration Only `"liu"` is supported for INLA.
 #' @param BPPARAM Compatibility argument; only `SerialParam()` is accepted.
+#' @param threads Positive number of OpenMP threads for sparse INLA feature
+#'   preparation and Liu pair calculations. `NULL` uses one thread.
 #' @return The `mgcvST_test` object returned by [mgcvST.test()].
 #' @export
 inlaST.test <- function(

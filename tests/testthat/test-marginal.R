@@ -61,6 +61,11 @@ test_that("custom marginal callbacks do not populate the built-in spectrum cache
 
 test_that("package-local TAPS matches fixed upstream NB and Gaussian references", {
   # Values from unchanged upstream fb48abb, generated with st_fixture().
+  # Exception: the nb fixture gene "response2" is Poisson-prescreen routed
+  # (covariate-only phi = 1.070 <= 1.1). Its two rows were re-pinned when the
+  # mgcv routing family changed from poisson() to quasipoisson(): the routed
+  # fit now carries its estimated dispersion instead of forcing phi = 1.
+  # Every other row is byte-for-byte the upstream value.
   ref <- read.csv(test_path("fixtures", "taps-reference.csv"))
   for (fam in c("gaussian", "nb")) {
     for (pc in c(FALSE, TRUE)) {

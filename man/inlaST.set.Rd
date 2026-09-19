@@ -9,13 +9,14 @@ inlaST.set(
   data = NULL,
   basis = NULL,
   family = mgcv::nb(),
-  setting = c("global", "global_local"),
+  setting = "global",
   coordinates = c("x", "y"),
   precision_scale = c("raw", "observation"),
   G = NULL,
   control = list(),
-  score_backend = c("auto", "dense", "sparse"),
-  ...
+  ...,
+  mesh = NULL,
+  kappa = NULL
 )
 }
 \arguments{
@@ -23,12 +24,12 @@ inlaST.set(
 
 \item{data}{Model data with one row per spatial observation.}
 
-\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object for \code{setting = "global"}, or
-a named \code{list(global = ..., local = ...)} for \code{setting = "global_local"}.}
+\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object.}
 
 \item{family}{An mgcv family object. The default is \code{mgcv::nb()}.}
 
-\item{setting}{Either \code{"global"} or \code{"global_local"}.}
+\item{setting}{The model uses one \code{"global"} spatial score process.
+\code{setting = "global_local"} is not supported.}
 
 \item{coordinates}{Character vector naming the two coordinate columns.}
 
@@ -46,10 +47,20 @@ data and basis. Its full SPDE terms must satisfy the observation constraint.}
 \item{control}{Named engine controls stored in the model and inherited by
 \code{\link[=inlaST.estimate]{inlaST.estimate()}}. See that function for priors and numerical controls.}
 
-\item{score_backend}{Default score implementation inherited by
-\code{\link[=inlaST.estimate]{inlaST.estimate()}}: \code{"auto"}, \code{"dense"}, or \code{"sparse"}.}
-
 \item{...}{Additional arguments passed to \code{mgcv::gam(..., fit = FALSE)}.}
+
+\item{mesh}{Optional mesh selecting the native sparse setup: an
+\code{\link[=spde_mesh]{spde_mesh()}}, an \code{fm_mesh_2d}, or an \code{fm_mesh_3d}. When supplied, the
+single spatial term is built directly from \code{mesh}, \code{kappa} and
+\code{coordinates}; \code{formula} then contains only the response, an optional
+\code{offset()} and parametric terms, and no dense observation-by-coefficient
+basis is ever formed. Any smooth term in \code{formula} is rejected; see the
+nuisance-smooth section. Mesh dimension (2 or 3) is detected
+automatically.}
+
+\item{kappa}{Fixed positive spatial scale required by \code{mesh}. With
+\code{alpha = 2} the Matern smoothness is \code{nu = 1} in 2D and \code{nu = 1/2} in 3D,
+and the practical range is \code{sqrt(8 * nu) / kappa}.}
 }
 \value{
 An \code{inlaST_model} for \code{\link[=inlaST.estimate]{inlaST.estimate()}}.
@@ -66,8 +77,20 @@ separately through \code{basis}, as in \code{\link[=model.set]{model.set()}}. Fo
 the observation mean-zero constraint. A supplied \code{G} must already have a
 compatible constrained SPDE design; otherwise rebuild it from formula/data.
 Supported families are Gaussian with identity link, Poisson
-with log link, and negative binomial with log link. Full fixed-kappa SPDE
-bases and nuisance smoothers with one penalty are supported. Spatial
+with log link, and negative binomial with log link. Exactly one full
+fixed-kappa SPDE basis is the tested spatial target, and it is the only
+smooth the model may contain. Spatial
 mean-zero constraints cannot be disabled. Observation weights and
 additional cross-penalties are not supported.
+}
+\section{Nuisance smooths}{
+
+The native INLA setup uses one spatial target and parametric nuisance terms.
+A non-target \code{s()}, \code{te()}, \code{ti()} or \code{t2()} term is
+rejected at setup.
+
+Parametric covariates are supported: numeric columns, factors and
+their interactions all enter the nuisance design as fixed effects. A second
+spatial (\code{bs = "spde"}) term is rejected, and the total nuisance design is
+capped at 200 columns.
 }

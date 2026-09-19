@@ -51,13 +51,11 @@
     character(1L)
   )
   marked <- which(nzchar(score_component))
-  if (!length(marked) || sum(score_component == "global") != 1L ||
-      sum(score_component == "local") > 1L) {
-    stop("The model must mark one global and at most one local SPDE component.")
+  if (length(marked) != 1L || sum(score_component == "global") != 1L) {
+    stop("The model must mark exactly one global SPDE score component. The ",
+         "second 'local' geographic process was removed from mgcvST.")
   }
-  target <- stats::setNames(marked, score_component[marked])
-  expected <- if ("local" %in% names(target)) c("global", "local") else "global"
-  target <- target[expected]
+  target <- stats::setNames(marked, "global")
   for (name in names(target)) {
     z <- smooth[[target[[name]]]]
     if (z$fixed || length(z$penalties) != 1L) {
@@ -80,7 +78,8 @@
 # Fit and reduce one feature under a model.set() setup.
 .mgcvst_model_fit_one <- function(response, G0, family_raw, method, control,
                                   gam_args, retain_smooth, diagnostics = TRUE,
-                                  geometry_cache = NULL, offset = NULL) {
+                                  geometry_cache = NULL, offset = NULL,
+                                  poisson = FALSE, routed_family_raw = NULL) {
   G <- G0
   response_index <- attr(G$terms, "response")
   if (length(response_index) != 1L || response_index < 1L ||
@@ -89,7 +88,9 @@
   }
   G$y <- as.numeric(response)
   G$mf[[response_index]] <- as.numeric(response)
-  G$family <- unserialize(family_raw)
+  # Poisson prescreen routing (R/family-prescreen.R); FALSE keeps the model
+  # family. TRUE selects the quasipoisson routing family in the mgcv path.
+  G$family <- unserialize(if (isTRUE(poisson)) routed_family_raw else family_raw)
   if (!is.null(offset)) {
     G$offset <- (if (is.null(G0$offset)) numeric(length(response)) else G0$offset) + offset
   }
@@ -134,6 +135,7 @@
     residual_df = as.numeric(fit$df.residual),
     criterion = criterion,
     criterion_name = criterion_name,
+    family_used = W$family,
     converged = isTRUE(fit$converged),
     outer_convergence = paste(fit$outer.info$conv, collapse = "; "),
     fit_seconds = fit_seconds,
@@ -148,7 +150,8 @@
                                     retain_smooth,
                                     diagnostics = TRUE, retain_marginal = FALSE,
                                     geometry_seed = NULL,
-                                    allow_geometry_cache = TRUE) {
+                                    allow_geometry_cache = TRUE,
+                                    routed_family_raw = NULL) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   out <- vector("list", length(payload$index))
   marginal_geometry <- NULL
@@ -164,7 +167,9 @@
       .mgcvst_model_fit_one(
         payload$Y[j, ], G0, family_raw, method, control, gam_args,
         retain_smooth, diagnostics = diagnostics, geometry_cache = geometry_cache,
-        offset = if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset
+        offset = if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset,
+        poisson = isTRUE(payload$poisson[j]),
+        routed_family_raw = routed_family_raw
       ),
       error = function(e) e
     )
@@ -270,6 +275,12 @@
     stop("BPPARAM must inherit from 'BiocParallelParam'.")
   }
   if (!is.list(control)) stop("control must be returned by mgcv::gam.control().")
+  # Poisson prescreen (R/family-prescreen.R). The knob lives in control and is
+  # removed before control reaches mgcv::gam(), which rejects unknown entries.
+  screen_threshold <- .mgcvst_prescreen_threshold(
+    control[["poisson_screen_phi", exact = TRUE]]
+  )
+  control[["poisson_screen_phi"]] <- NULL
   control$nthreads <- 1L
   control$ncv.threads <- 1L
   forbidden <- intersect(names(gam_args), c("G", "family", "method", "control"))
@@ -292,6 +303,20 @@
     stop("chunk_size must be one positive integer.")
   }
   family_raw <- serialize(model$G$family, NULL)
+  # mgcv-path routing target: quasipoisson, not poisson. See mgcvST.estimate().
+  routed_family_raw <- serialize(stats::quasipoisson(link = "log"), NULL)
+  base_offset <- if (is.null(model$G$offset)) numeric(ncol(Y)) else
+    as.numeric(model$G$offset)
+  prescreen <- .mgcvst_prescreen_route(
+    Y, X = .mgcvst_prescreen_design(model$G),
+    offset = if (is.null(offset)) base_offset else if (is.matrix(offset))
+      sweep(offset, 2L, base_offset, "+") else base_offset + offset,
+    threshold = screen_threshold,
+    active = isTRUE(tryCatch(
+      identical(.working_family_id(model$G$family$family), "negative_binomial"),
+      error = function(e) FALSE
+    ))
+  )
   worker_bundle <- .mgcvst_worker_bundle()
   fit_chunk <- get(".mgcvst_model_fit_chunk", envir = worker_bundle,
                    inherits = FALSE)
@@ -306,6 +331,7 @@
     marginal_test = marginal_test, marginal_args = marginal_args,
     retain_smooth = retain_smooth,
     diagnostics = diagnostics, retain_marginal = retain_marginal,
+    routed_family_raw = routed_family_raw,
     allow_geometry_cache = frozen || (cache_worthwhile && !length(source_files) &&
       is.null(worker_init))
   )
@@ -315,7 +341,9 @@
   if (!frozen) repeat {
     first <- do.call(fit_chunk, c(list(payload = list(
       index = next_index, feature_id = feature_id[next_index],
-      Y = Y[next_index, , drop = FALSE])), fit_args))
+      Y = Y[next_index, , drop = FALSE],
+      poisson = prescreen$poisson[next_index],
+      prescreen_phi = prescreen$phi[next_index])), fit_args))
     prefix[[length(prefix) + 1L]] <- first
     seed <- attr(first, "geometry_seed")
     next_index <- next_index + 1L
@@ -325,7 +353,8 @@
   ids <- split(remaining, ceiling(remaining / chunk_size))
   payload <- lapply(ids, function(i) list(
     index = i, feature_id = feature_id[i], Y = Y[i, , drop = FALSE],
-    offset = if (is.matrix(offset)) offset[i, , drop = FALSE] else offset
+    offset = if (is.matrix(offset)) offset[i, , drop = FALSE] else offset,
+    poisson = prescreen$poisson[i], prescreen_phi = prescreen$phi[i]
   ))
   tail <- if (length(payload)) do.call(BiocParallel::bplapply, c(
     list(X = payload, FUN = fit_chunk, geometry_seed = seed, BPPARAM = BPPARAM),
@@ -365,7 +394,9 @@
     criterion = NA_real_, criterion_name = NA_character_,
     fit_seconds = NA_real_, outer_convergence = NA_character_,
     error_class = NA_character_, error_message = NA_character_,
-    error_call = NA_character_, stringsAsFactors = FALSE
+    error_call = NA_character_,
+    prescreen_phi = prescreen$phi, family_used = NA_character_,
+    stringsAsFactors = FALSE
   )
   coefficient <- if (retain_smooth && !is.null(geometry)) {
     lapply(geometry$score_components, function(name) {
@@ -401,6 +432,7 @@
     diagnostics$criterion_name[j] <- z$criterion_name
     diagnostics$fit_seconds[j] <- z$fit_seconds
     diagnostics$outer_convergence[j] <- z$outer_convergence
+    diagnostics$family_used[j] <- z$family_used
     if (!is.null(z$marginal_error)) {
       diagnostics$error_class[j] <- z$marginal_error$class
       diagnostics$error_message[j] <- z$marginal_error$message
@@ -447,7 +479,7 @@
       ),
       smooth_coefficients = coefficient,
       retain_smooth = retain_smooth,
-      test_engine = if (length(model$components) == 1L) "single_model" else NULL,
+      test_engine = "single_model",
       call = call
     ),
     class = c("mgcvST_model_fit", "mgcvST_fit", "mgcvST")

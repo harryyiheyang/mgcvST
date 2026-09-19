@@ -86,11 +86,11 @@ for (i in tasks) {
 
   t0 <- proc.time()[["elapsed"]]
   S <- inlaST.set(response ~ offset(offset0), d, basis, family = nb(),
-                    control = ctl, score_backend = "sparse")
+                    control = ctl)
   inla_setup_seconds <- proc.time()[["elapsed"]] - t0
   t0 <- proc.time()[["elapsed"]]
   I <- inlaST.estimate(Y, S, control = ctl, BPPARAM = bp,
-    retain_smooth = TRUE, retain_marginal = TRUE, marginal_args = list(method = "liu"))
+    retain_smooth = TRUE, retain_marginal = TRUE)
   inla_estimator_seconds <- proc.time()[["elapsed"]] - t0
   saveRDS(I, file.path(dest, "inla-fit.rds"))
   if (any(!I$diagnostics$converged) || any(!is.finite(I$working_error))) {

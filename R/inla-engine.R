@@ -51,7 +51,10 @@
     control.inla = list(),
     num_threads = 1L,
     verbose = FALSE,
-    keep_fit = FALSE
+    keep_fit = FALSE,
+    # Poisson prescreen threshold on the covariate-only Pearson dispersion; see
+    # R/family-prescreen.R. Used by inlaST.estimate() only, never by the engine.
+    poisson_screen_phi = 1.1
   )
   unknown <- setdiff(names(control), names(defaults))
   if (length(unknown)) {
@@ -82,6 +85,9 @@
     if (!is.logical(out[[nm]]) || length(out[[nm]]) != 1L ||
         is.na(out[[nm]])) stop("control$", nm, " must be TRUE or FALSE.")
   }
+  # Validated here so a bad threshold fails once in the parent; the value is
+  # consumed by inlaST.estimate() before any feature is dispatched.
+  .mgcvst_prescreen_threshold(out[["poisson_screen_phi", exact = TRUE]])
   for (nm in c("gaussian_precision", "nb_size")) {
     if (!is.null(out[[nm]])) {
       out[[nm]] <- as.numeric(out[[nm]])
@@ -700,8 +706,17 @@
   names(constraint_residual_uncorrected) <- names(random_mode)
   active_constraint <- !is.na(constraint_residual_uncorrected)
   if (any(active_constraint)) {
+    # This guard catches a constraint INLA ignored, not the roundoff of the
+    # constraint solve itself.  The residual g'u is a sum over the q mesh nodes,
+    # so its floating-point noise grows with the latent dimension as well as
+    # with the size of the field; for the observation-mean constraint
+    # ||g||_1 = 1, hence |g'u| <= max|u| and sqrt(q) * max|u| is the natural
+    # roundoff budget.  A genuinely unenforced constraint leaves a residual of
+    # the order of the field's own observation mean, orders of magnitude above
+    # this bound.
     scale <- vapply(which(active_constraint), function(j) {
-      1 + sum(abs(z$constraints[[j]]) * abs(random_mode[[j]]))
+      u <- random_mode[[j]]
+      1 + sqrt(length(u)) * max(abs(u))
     }, numeric(1L))
     if (any(abs(constraint_residual_uncorrected[active_constraint]) >
             1e-6 * scale)) {

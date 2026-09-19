@@ -230,7 +230,7 @@ for (family_name in args$families) for (iteration in seq_len(args$repeats)) {
     control = list(
       precision_prior = historical_normal,
       nb_size_prior = historical_normal
-    ), marginal_args = list(method = "liu")
+    )
   ))
   inla_score <- elapsed(mgcvST.test(
     inla_fit$value, pairs = pairs, calibration = "liu",

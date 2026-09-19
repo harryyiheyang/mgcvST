@@ -29,7 +29,8 @@
   if (is.null(cache) || is.null(cache$L) ||
       (!isTRUE(cache$frozen) && (is.null(cache$signature) ||
        !identical(.mgcvst_geometry_signature(fit), cache$signature))) ||
-      !(family %in% c("gaussian", "poisson", "negative_binomial")) ||
+      !(family %in% c("gaussian", "poisson", "quasipoisson",
+                      "negative_binomial")) ||
       fit$rank != length(fit$coefficients)) return(NULL)
   tested <- sort(unique(unlist(lapply(
     geometry$smooth[geometry$target], `[[`, "columns"), use.names = FALSE

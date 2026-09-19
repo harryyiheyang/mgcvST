@@ -46,11 +46,12 @@ recorded prior configuration. In particular, the earlier low-count
 size, before the current flat defaults.
 
 The package uses sparse raw SPDE precision during INLA fitting. From version
-0.0.1.9001, `score_backend="auto"` also uses sparse precision solves for a
-single global SPDE with fixed nuisance terms. This computes the same score
-as `score_backend="dense"`, including native INLA `Vp`, without constructing
-a dense observation-by-mesh score factor for each feature. Models with
-additional random blocks retain the dense backend. Shared model setup and
+0.0.1.9001 the score itself also uses sparse precision solves for a single
+global SPDE with fixed nuisance terms; since the sparse-only refactor this is
+the only INLA score. It computes the same score the removed dense backend did,
+including native INLA `Vp`, without constructing a dense observation-by-mesh
+score factor for each feature. Models with additional random blocks are now
+rejected at `inlaST.set()` instead of falling back. Shared model setup and
 marginal testing still use dense constrained geometry, and the score summary
 is mesh-dimensional and dense. Consequently the relevant dimensions are
 both the number of observations and the number of mesh nodes. The benchmark

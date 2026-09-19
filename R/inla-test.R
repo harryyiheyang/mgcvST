@@ -3,13 +3,11 @@
   identical(fit$estimator, "INLA")
 }
 
-.mgcvst_inla_sparse_downstream <- function(fit) {
-  .mgcvst_inla_downstream(fit) && identical(fit$score_backend, "sparse")
-}
-
 .mgcvst_inla_require_sparse <- function(fit) {
   if (!identical(fit$score_backend, "sparse")) {
-    stop("INLA downstream tests require a supported single-global sparse score geometry.")
+    stop("INLA downstream tests require the single-global sparse score ",
+         "geometry built by inlaST.set()/inlaST.estimate(); the dense INLA ",
+         "score no longer exists.")
   }
   invisible(NULL)
 }
@@ -151,7 +149,8 @@
   list(result = out, elapsed = elapsed)
 }
 
-.mgcvst_inla_wgcna_scores <- function(fit, used, group, threads, verbose) {
+.mgcvst_inla_wgcna_scores <- function(fit, used, threads, verbose) {
+  group <- "global"
   fit <- .inlast_sparse_prepare(fit)
   blocks <- split(seq_along(used), ceiling(seq_along(used) / 32L))
   states <- vector("list", length(used))
@@ -176,9 +175,6 @@
   coordinate_width <- length(states[[1L]]$a)
   normalization <- as.integer(states[[1L]]$normalization)
   width <- stats::setNames(coordinate_width, "global")
-  if (!identical(group, "global")) {
-    stop("The sparse INLA score batch supports only the global score component.")
-  }
   A <- do.call(cbind, lapply(states, `[[`, "a"))
   colnames(A) <- fit$feature_id[used]
   if (nrow(A) != coordinate_width || any(!is.finite(A))) {

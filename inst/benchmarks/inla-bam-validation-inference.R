@@ -116,8 +116,7 @@ bp <- BiocParallel::SerialParam()
 
 S <- timed(inlaST.set(form, dat, basis, family = fam))
 I <- timed(inlaST.estimate(Y, S$value, retain_smooth = TRUE,
-  retain_marginal = TRUE, BPPARAM = bp, control = ctl,
-  marginal_args = list(method = "liu")))
+  retain_marginal = TRUE, BPPARAM = bp, control = ctl))
 
 dat$response <- Y[1L, ]
 bform <- update(form, . ~ . + s(x, y, bs = "spde", xt = basis))

@@ -9,7 +9,7 @@ model.set(
   data,
   basis,
   family = mgcv::nb(),
-  setting = c("global", "global_local"),
+  setting = "global",
   coordinates = c("x", "y"),
   ...
 )
@@ -19,12 +19,12 @@ model.set(
 
 \item{data}{Model data with one row per spatial observation.}
 
-\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object for \code{setting = "global"}, or
-a named \code{list(global = ..., local = ...)} for \code{setting = "global_local"}.}
+\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object.}
 
 \item{family}{An mgcv family object. The default is \code{mgcv::nb()}.}
 
-\item{setting}{Either \code{"global"} or \code{"global_local"}.}
+\item{setting}{The model uses one \code{"global"} spatial score process.
+\code{setting = "global_local"} is not supported.}
 
 \item{coordinates}{Character vector naming the two coordinate columns.}
 
@@ -42,8 +42,7 @@ factors, interactions, offsets, and additional mgcv smoothers on the
 right-hand side are retained.
 }
 \details{
-\code{setting = "global"} takes one object returned by \code{\link[=spde_basis]{spde_basis()}}.
-\code{setting = "global_local"} takes a named list containing \code{global} and
-\code{local} basis objects. Other user smoothers contribute nuisance covariance
-to the marginal working model but are not global/local score directions.
+\code{basis} is one object returned by \code{\link[=spde_basis]{spde_basis()}}: the model carries exactly
+one spatial score process. Other user smoothers contribute nuisance
+covariance to the marginal working model but are not score directions.
 }

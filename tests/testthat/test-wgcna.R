@@ -137,7 +137,7 @@ test_that("WGCNA consumes conditioned sparse INLA score states", {
   expect_identical(W$score$width, c(global = n))
 })
 
-test_that("WGCNA preserves overlapping block and score-group order", {
+test_that("WGCNA preserves overlapping block order", {
   skip_if_not_installed("WGCNA")
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
@@ -151,48 +151,42 @@ test_that("WGCNA preserves overlapping block and score-group order", {
     score_component = "global", penalties = list(diag(c(1, 2, 3))),
     sp_index = 1L
   )
-  local <- list(
-    B = matrix(rnorm(n * 2L), n, 2L), fixed = FALSE,
-    score_component = "local", penalties = list(diag(c(1, 2))),
-    sp_index = 2L
-  )
   nuisance <- list(
     B = cbind(1, seq_len(n) / n), fixed = FALSE,
-    score_component = NULL, penalties = list(diag(c(0, 2))), sp_index = 3L
+    score_component = NULL, penalties = list(diag(c(0, 2))), sp_index = 2L
   )
   fit <- structure(list(
     feature_id = ids,
     working_error = matrix(rnorm(n * p), n, p),
     working_variance = matrix(runif(n * p, 0.7, 1.4), n, p),
     dispersion = seq(0.8, 1.2, length.out = p),
-    smoothing_parameters = cbind(rep(1.1, p), rep(1.3, p), rep(0.8, p)),
+    smoothing_parameters = cbind(rep(1.1, p), rep(0.8, p)),
     geometry = list(
-      X = matrix(1, n, 1L), smooth = list(global, local, nuisance),
-      target = list(global = 1L, local = 2L)
+      X = matrix(1, n, 1L), smooth = list(global, nuisance),
+      target = list(global = 1L)
     ),
-    score_components = c("global", "local")
+    score_components = "global"
   ), class = c("mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
   colnames(fit$working_error) <- colnames(fit$working_variance) <- ids
   rownames(fit$smoothing_parameters) <- ids
-  colnames(fit$smoothing_parameters) <- c("global", "local", "s(z)")
+  colnames(fit$smoothing_parameters) <- c("global", "s(z)")
   fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(fit)
   blocks <- list(second = c("g6", "g2", "g4"),
                  first = c("g4", "g1", "g2"))
 
-  expect_error(mgcvST.wgcna(fit, blocks), "group must explicitly select")
-  W <- mgcvST.wgcna(fit, blocks, group = c("local", "global"))
+  W <- mgcvST.wgcna(fit, blocks)
   states <- lapply(match(W$score$feature_id, ids), function(i) {
     mgcvST:::.mgcvst_model_score_state(fit, i)
   })
-  A <- vapply(states, function(z) c(z$a[4:5], z$a[1:3]), numeric(5L))
+  A <- vapply(states, function(z) z$a[1:3], numeric(3L))
   colnames(A) <- W$score$feature_id
 
   expect_identical(names(W$networks), names(blocks))
   expect_identical(W$networks$second$feature_id, blocks$second)
   expect_identical(W$networks$first$feature_id, blocks$first)
   expect_identical(W$score$feature_id, unique(unlist(blocks, use.names = FALSE)))
-  expect_identical(W$score$group, c("local", "global"))
-  expect_identical(W$score$width, c(local = 2L, global = 3L))
+  expect_identical(W$score$group, "global")
+  expect_identical(W$score$width, c(global = 3L))
   expect_equal(W$score$A, A, tolerance = 1e-10)
 })
 
@@ -261,11 +255,10 @@ test_that("WGCNA runs after a real sparse INLA estimate", {
     c = eta - 0.1 * cos(2 * pi * dat$y) + rnorm(n, sd = 0.3)
   )
   model <- inlaST.set(
-    response ~ z + offset(offset0), dat, basis, family = gaussian(),
-    score_backend = "sparse"
+    response ~ z + offset(offset0), dat, basis, family = gaussian()
   )
   fit <- inlaST.estimate(
-    Y, model, score_backend = "sparse", diagnostics = FALSE,
+    Y, model, diagnostics = FALSE,
     BPPARAM = BiocParallel::SerialParam(),
     control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)
   )
@@ -282,4 +275,34 @@ test_that("WGCNA runs after a real sparse INLA estimate", {
   expect_identical(fit$score_backend, "sparse")
   expect_equal(W$score$A, A, tolerance = 1e-9)
   expect_true(all(is.finite(W$networks$selected$TOM)))
+
+  # inlaST.wgcna() is the explicit sparse sibling: same kernel, same shared
+  # downstream, so the same result. Its similarity S must also equal the
+  # cross-products of the score vectors, computed here without it.
+  V <- inlaST.wgcna(
+    fit, rownames(Y),
+    wgcna.para = list(minClusterSize = 2L, deepSplit = 0L)
+  )
+  expect_s3_class(V, "mgcvST_wgcna")
+  expect_equal(V$score$A, A, tolerance = 1e-9)
+  expect_identical(V$networks$selected$covariance,
+                   W$networks$selected$covariance)
+  expect_identical(V$modules$module, W$modules$module)
+  expect_identical(V$modules$color, W$modules$color)
+  S_direct <- crossprod(A) / V$score$normalization
+  dimnames(S_direct) <- dimnames(V$networks$selected$covariance)
+  expect_equal(V$networks$selected$covariance, S_direct, tolerance = 1e-8)
+  expect_identical(V$score$normalization, W$score$normalization)
+  expect_identical(V$settings$wgcna.para, W$settings$wgcna.para)
+})
+
+test_that("inlaST.wgcna rejects an mgcv fit and names the right entry point", {
+  skip_on_cran()
+  skip_if_not_installed("geometry")
+  f <- st_fixture()
+  fit <- mgcvST.estimate(f$Y, f$G)
+  expect_error(
+    inlaST.wgcna(fit, rownames(f$Y)),
+    "requires a fit returned by inlaST.estimate"
+  )
 })

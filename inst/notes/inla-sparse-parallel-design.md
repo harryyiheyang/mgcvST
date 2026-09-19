@@ -1,11 +1,11 @@
-> Historical design audit at commit `96e5fca`. The implementation contract was subsequently narrowed to INLA-only, exact Liu, C++ sparse arithmetic and OpenMP. BiocParallel and approximate-calibration proposals below are not the selected implementation. See [the implemented route](inla-openmp.md). mgcv calculation paths are unchanged.
+> Historical design audit at commit `96e5fca`. `graphical_susie()` referenced below was deleted from the package after this audit; only `mgcvST.wgcna()`/`inlaST.wgcna()` remain as sparse-score downstream consumers. The implementation contract was subsequently narrowed to INLA-only, exact Liu, C++ sparse arithmetic and OpenMP. BiocParallel and approximate-calibration proposals below are not the selected implementation. See [the implemented route](inla-openmp.md). mgcv calculation paths are unchanged.
 
 # Sparse INLA downstream parallel design on Windows
 
 ## Scope and conclusion
 
-This audit covers the current sparse INLA score path used by marginal tests,
-pairwise tests, `mgcvST.WGCNA()` and `graphical_susie()`. The current safe
+This audit covered a former sparse INLA score path used by marginal tests,
+pairwise tests, `mgcvST.wgcna()` and `graphical_susie()`. The historical safe
 Windows unit of parallelism is an independent R process created by
 `BiocParallel::SnowParam(type = "SOCK")`, with one numerical thread inside
 each process. Sparse `A` and `Q` matrices may be serialized to those processes.
@@ -16,7 +16,7 @@ OpenMP threads.
 Sparse storage does not imply a sparse factor of comparable size. Ordering and
 the graph of `tau * Q + A'WA` determine Cholesky fill-in. Resource planning must
 measure the factor nonzeros and worker peak memory, in addition to `nnzero(Q)`.
-The current route is also not sparse end to end: `score_sparse$coefficient_factor`
+That former route was also not sparse end to end: `score_sparse$coefficient_factor`
 is the dense projected `Tbase`, and a full pair state contains dense `M`.
 
 ## Current implementation

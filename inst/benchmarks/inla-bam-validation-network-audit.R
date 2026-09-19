@@ -46,7 +46,7 @@ for (dataset in datasets) {
     for (backend in c("bam", "inla")) {
       started <- proc.time()[["elapsed"]]
       network <- mgcvST.wgcna(
-        fits[[backend]], indices = ids, group = "global", verbose = TRUE
+        fits[[backend]], indices = ids, verbose = TRUE
       )
       elapsed <- proc.time()[["elapsed"]] - started
       results[[backend]] <- network

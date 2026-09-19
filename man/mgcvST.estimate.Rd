@@ -62,7 +62,21 @@ This opt-in representation supports prediction and other downstream uses
 without retaining full \code{gam} objects.}
 
 \item{control}{An \code{mgcv::gam.control()} object. Internal thread counts are
-always forced to one.}
+always forced to one. It may additionally carry \code{poisson_screen_phi}
+(default \code{1.1}), the Poisson prescreen threshold: with a negative-binomial
+family, each feature first gets an offset-and-covariate-only Poisson GLM,
+and a feature whose Pearson dispersion
+\code{phi = sum((y - mu)^2 / mu) / (n - p)} is at most the threshold is fitted
+with \code{stats::quasipoisson(link = "log")} instead. The Poisson and
+quasipoisson point estimates agree, while the routed mgcv fit estimates its
+scale and smoothing parameters from the full spatial model. The screening phi
+is retained in diagnostics and is not passed as a fixed \code{fit$sig2}. In
+the INLA path, routed features use plain Poisson. Set the
+threshold to \code{0} to disable the screen (\code{NULL} restores the default);
+other families ignore it. The entry is removed before \code{control} reaches
+\code{mgcv::gam()}. Per-feature \code{prescreen_phi} and \code{family_used} are reported
+in the diagnostics, and \code{family_used} reads \code{"quasipoisson"} for a routed
+gene.}
 
 \item{...}{Additional arguments passed to \code{mgcv::gam(G = G, ...)}.}
 

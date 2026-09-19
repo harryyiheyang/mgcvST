@@ -17,7 +17,29 @@ For stacked slices in three dimensions, the research route uses INLA alone,
 with geometry-adaptive tetrahedral meshes and flat log-precision and NB
 log-size objectives. The [3D feasibility study](inst/notes/inla3d-adaptive.md)
 provides standalone scripts and repeated simulations below 3,000 nodes.
-The public package mesh and score-test interfaces currently remain two-dimensional.
+The public `mgcv` score interface is two-dimensional; the native INLA interface
+supports both two-dimensional triangulations and three-dimensional
+tetrahedral meshes.
+
+![Three-dimensional Snap25 example. Observed and fitted expression use the same
+count-per-10,000-UMI color scale; the Z-plane view shows the fitted spatial
+fold-change relative to the intercept. White denotes zero, blue deepens with
+value, and upper values are capped at the 98th percentile for display. All
+97,830 observations are retained.](man/figures/inla3d-snap25.png)
+
+The figure visualizes an already saved full-data INLA fit; it was not refitted
+through the current native API. See the [3D transfer and validation notes](inst/notes/inla3d-transfer.md)
+for its provenance. The full point cloud and orthogonal plane show how to inspect
+the fitted pattern, which is descriptive and does not by itself establish spatial
+significance. A reproducible current-API simulation is provided in
+`inst/examples/inla3d-visualization-native-demo.R`; the real-data visualization
+script is `inst/examples/inla3d-visualization.R`.
+
+The [flat-prior calibration and parallel stress study](inst/notes/inla-stress-validation.md)
+adds 4,000 null datasets and matched public parallel checks. Its
+[3D spectrum diagnostics](inst/notes/inla-score-spectrum.md) identify a
+curvature mismatch in the experimental score calculation and retain the
+original results alongside separate sensitivity analyses.
 
 The package provides two `mgcv` smooths:
 
@@ -75,15 +97,16 @@ W$modules
 W$networks$selected$TOM
 
 # Analyze previously selected blocks separately, preserving their gene order.
-W <- mgcvST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2),
-                   group = "global", wgcna.para = list(power = 6))
+W <- mgcvST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2), wgcna.para = list(power = 6))
 ```
 
 The defaults are signed adjacency, power 6, signed TOM, average linkage,
 minimum module size 20 and `deepSplit = 1`. A named `wgcna.para` list overrides
-only the supplied settings. Specify `group` when a fit contains multiple
-score components. Module labels are local to each gene block; label zero
-indicates an unassigned gene. The result retains score coordinates, covariance,
+only the supplied settings. For a fit from `inlaST.estimate()` use
+`inlaST.wgcna()`, the sparse-kernel sibling with the same arguments and the
+same downstream splitting; `mgcvST.wgcna()` also accepts an INLA fit and
+dispatches to that same sparse kernel. Module labels are local to each gene
+block; label zero indicates an unassigned gene. The result retains score coordinates, covariance,
 correlation, adjacency, TOM and the clustering tree for further analysis.
 
 See `help("mgcvST.wgcna")` for the interface and
@@ -94,8 +117,8 @@ relationship between the earlier local WGCNA implementation and this release.
 
 `inlaST.set()` and `inlaST.estimate()` provide an INLA estimator with the
 existing marginal and pairwise score-test interfaces. Every spatial field
-is constrained to average zero over the model observations, including
-each component of a global/local model.
+is constrained to average zero over the model observations for the global
+spatial score process.
 
 ```r
 library(mgcvST)
@@ -147,11 +170,11 @@ on the FEM multiplier.
 smoothing multipliers retain original FEM units. See the
 [mechanism investigation](inst/notes/inla-lowcount-investigation.md) and
 [earlier simulation interpretation](inst/notes/inla-estimated-null-interpretation.md).
-`inlaST.estimate(..., score_backend = "auto")` now uses an algebraically
-equivalent sparse score path for a single global SPDE with fixed nuisance
-terms. Use `score_backend = "dense"` for comparisons. Models with additional
-random blocks retain the dense path. The separate [raw-kernel research
-helper](inst/benchmarks/inla-raw-kernel-sparse.R) is not the production method.
+The INLA path uses the native sparse score kernel for a single global SPDE with
+fixed nuisance terms. A model with additional random blocks is rejected by
+`inlaST.set()` with the reason from the sparse capability gate. The separate
+[raw-kernel research helper](inst/benchmarks/inla-raw-kernel-sparse.R) is not
+the production method.
 
 The complete formula above is prepared through the same mgcv geometry used by
 `mgcvST.set()`. Existing code may instead supply the legacy `basis`
@@ -161,10 +184,9 @@ in the model; `inlaST.estimate(..., control = ...)` overrides named values.
 Prior specifications are replaced as complete objects. For example, the
 historical normal prior can be requested with
 `precision_prior = list(prior = "normal", param = c(0, 1/9))`.
-For a global/local complete formula, the two SPDE terms cannot reuse exactly
-the same coordinate term names because mgcv then creates duplicate
-coefficient names. Use equal-valued aliases such as `u_local` and
-`v_local` for the second term, or supply the legacy named basis list.
+The public model interface uses one global SPDE score process. Additional
+smooth terms may be included as nuisance structure, but they are not additional
+spatial score components.
 
 Flat priors are improper hyperpriors used for empirical-Bayes optimization;
 they do not certify a proper hyperparameter posterior or an interior maximum.

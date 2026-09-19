@@ -6,6 +6,7 @@
 #'
 #' @importFrom mgcv Predict.matrix smooth.construct
 #' @importFrom Rcpp evalCpp
+#' @importFrom utils object.size
 #' @useDynLib mgcvST, .registration = TRUE
 #' @keywords internal
 "_PACKAGE"

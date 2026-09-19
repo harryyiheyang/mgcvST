@@ -22,7 +22,7 @@
     b = eta + 0.1 * cos(2 * pi * data$y) + rnorm(n, sd = 0.3),
     c = eta - 0.1 * sin(2 * pi * data$y) + rnorm(n, sd = 0.3)
   )
-  list(data = data, basis = basis, Y = Y)
+  list(data = data, basis = basis, Y = Y, mesh = mesh)
 }
 
 test_that("single-global sparse score preserves expected-curvature Gram and traces", {
@@ -32,11 +32,10 @@ test_that("single-global sparse score preserves expected-curvature Gram and trac
     response ~ z + offset(offset0), f$data, f$basis, family = gaussian()
   )
   fit <- inlaST.estimate(
-    f$Y, model, score_backend = "auto", diagnostics = TRUE,
+    f$Y, model, diagnostics = TRUE,
     BPPARAM = BiocParallel::SerialParam(),
     control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09)
   )
-  expect_identical(fit$score_backend_requested, "auto")
   expect_identical(fit$score_backend, "sparse")
   expect_true(is.list(fit$score_sparse))
   expect_true(all(vapply(
@@ -91,7 +90,7 @@ test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts",
     response ~ z + offset(offset0), f$data, f$basis, family = gaussian()
   )
   fit <- inlaST.estimate(
-    f$Y, model, score_backend = "sparse",
+    f$Y, model,
     BPPARAM = BiocParallel::SerialParam(),
     control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)
   )
@@ -116,33 +115,93 @@ test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts",
   )
 })
 
-test_that("unsupported sparse structures error or use the dense auto backend", {
+test_that("a nuisance smooth is rejected at set() on both INLA paths", {
   skip_on_cran()
   f <- .inlast_sparse_fixture(n = 56L, seed = 1721L)
   s <- mgcv::s
-  model <- inlaST.set(
-    response ~ s(z, k = 5) + offset(offset0),
-    f$data, f$basis, family = gaussian()
+  # The current sparse INLA contract accepts parametric covariates and one
+  # spatial field. A smooth term is rejected before model construction.
+  expected <- "nuisance smooths are not yet supported in the INLA path"
+  expect_error(
+    inlaST.set(
+      response ~ s(z, k = 5) + offset(offset0),
+      f$data, f$basis, family = gaussian()
+    ),
+    expected
   )
   expect_error(
-    inlaST.estimate(
-      f$Y[1L, , drop = FALSE], model, score_backend = "sparse",
-      BPPARAM = BiocParallel::SerialParam(),
-      control = list(fixed_precision = c(2, 2), gaussian_precision = 1 / 0.09)
+    inlaST.set(
+      response ~ s(z, k = 5) + offset(offset0), data = f$data,
+      family = gaussian(), mesh = f$mesh, kappa = 1.2,
+      coordinates = c("x", "y")
     ),
-    "exactly one random block"
+    expected
   )
+  expect_match(mgcvST:::.INLAST_NUISANCE_SMOOTH_MESSAGE,
+               "INLA-native smooth [(]binned rw2[)]")
+  expect_match(mgcvST:::.INLAST_NUISANCE_SMOOTH_MESSAGE,
+               "Supply parametric covariates instead")
+})
+
+test_that("parametric covariates remain fully supported on both INLA paths", {
+  skip_on_cran()
+  f <- .inlast_sparse_fixture(n = 56L, seed = 1721L)
+  f$data$lu <- as.numeric(scale(f$data$exposure))
+  legacy <- inlaST.set(
+    response ~ lu + offset(offset0), f$data, f$basis, family = gaussian()
+  )
+  expect_length(legacy$inla_spec$random, 1L)
+  expect_true(mgcvST:::.inlast_sparse_score_capability(legacy)$eligible)
+  expect_identical(legacy$inla_spec$fixed$names, c("(Intercept)", "lu"))
+  expect_equal(unname(as.matrix(legacy$inla_spec$fixed$X)),
+               unname(as.matrix(legacy$inla_spec$nuisance_design)))
   fit <- inlaST.estimate(
-    f$Y[1L, , drop = FALSE], model, score_backend = "auto",
-    BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = c(2, 2), gaussian_precision = 1 / 0.09)
+    f$Y, legacy, diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(),
+    control = list(gaussian_precision = 1 / 0.09)
   )
-  expect_identical(fit$score_backend_requested, "auto")
-  expect_identical(fit$score_backend, "dense")
-  expect_null(fit$score_sparse)
-  expect_true(is.finite(
-    mgcvST:::.mgcvst_model_score_state(fit, 1L)$M[1L, 1L]
-  ))
+  expect_true(all(fit$diagnostics$converged))
+  expect_identical(ncol(fit$geometry$nuisance_design), 2L)
+
+  # A factor covariate is a parametric term too.
+  f$data$grp <- factor(rep(c("a", "b", "c"), length.out = nrow(f$data)))
+  factored <- inlaST.set(
+    response ~ grp + offset(offset0), f$data, f$basis, family = gaussian()
+  )
+  expect_identical(ncol(factored$inla_spec$fixed$X), 3L)
+  expect_length(factored$inla_spec$random, 1L)
+})
+
+test_that("a second spatial SPDE term is still rejected at set()", {
+  skip_on_cran()
+  f <- .inlast_sparse_fixture(n = 56L, seed = 1723L)
+  s <- mgcv::s
+  basis <- f$basis
+  # Complete-formula route: two spatial SPDE terms would need two random
+  # blocks, which the sparse kernel cannot carry.
+  expect_error(
+    inlaST.set(
+      response ~ s(x, y, bs = "spde", xt = basis) +
+        s(x, y, bs = "spde", xt = basis) + offset(offset0),
+      data = f$data, family = gaussian()
+    ),
+    "exactly one spatial SPDE term"
+  )
+})
+
+test_that("a wide parametric nuisance design is rejected with a dedicated message", {
+  expect_error(mgcvST:::.inlast_check_nuisance_width(201L),
+               "dedicated implementation")
+  expect_silent(mgcvST:::.inlast_check_nuisance_width(200L))
+  skip_on_cran()
+  f <- .inlast_sparse_fixture(n = 260L, seed = 1725L)
+  # A factor with many levels expands to a wide dense nuisance design.
+  f$data$grp <- factor(rep(seq_len(210L), length.out = nrow(f$data)))
+  expect_error(
+    inlaST.set(
+      response ~ grp + offset(offset0), f$data, f$basis, family = gaussian()
+    ),
+    "dedicated implementation"
+  )
 })
 
 test_that("Gaussian sparse units cover zero-X and observation-scale multi-X", {
@@ -172,8 +231,7 @@ test_that("Gaussian sparse units cover zero-X and observation-scale multi-X", {
       expect_identical(dim(model$inla_spec$fixed$X), c(nrow(f$data), 0L))
     }
     fit <- inlaST.estimate(
-      case$response, model, score_backend = "auto",
-      diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(),
+      case$response, model, diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(),
       control = list(fixed_precision = 0.8, gaussian_precision = 5)
     )
     expect_true(fit$diagnostics$converged, info = case_name)
@@ -192,15 +250,5 @@ test_that("Gaussian sparse units cover zero-X and observation-scale multi-X", {
     expect_lt(abs(diagnostic$constraint_residual_uncorrected[[1L]]), 1e-6)
     expect_lt(abs(diagnostic$constraint_residual[[1L]]), 1e-14)
     expect_lt(abs(diagnostic$observation_spatial_mean[[1L]]), 1e-14)
-
-    dense <- fit
-    dense$score_backend <- "dense"
-    dense$score_sparse <- dense$.mgcvst_fixed_factors <- NULL
-    sparse_state <- mgcvST:::.mgcvst_model_score_state(fit, 1L)
-    dense$nuisance_covariance[[1L]] <- sparse_state$expected_vp
-    dense_state <- mgcvST:::.mgcvst_model_score_state(dense, 1L)
-    expect_equal(sum(sparse_state$a^2), sum(dense_state$a^2), tolerance = 1e-9)
-    expect_equal(sum(diag(sparse_state$M)), sum(diag(dense_state$M)), tolerance = 1e-9)
-    expect_equal(sum(sparse_state$M^2), sum(dense_state$M^2), tolerance = 1e-9)
   }
 })

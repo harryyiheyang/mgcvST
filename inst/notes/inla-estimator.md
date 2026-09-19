@@ -7,14 +7,15 @@ complete mgcv formula containing `s(..., bs="spde", xt=basis)`. The same
 adapter also accepts a prepared `G` from `mgcvST.set()` and the historical
 separate `basis` argument. These routes share mgcv formula parsing and score
 geometry; feature estimation does not call `gam()` or `bam()`.
-For a global/local complete formula, give the second SPDE term equal-valued
-coordinate aliases such as `u_local` and `v_local`. Reusing exactly the
-same coordinate term names in both SPDE terms causes duplicate mgcv
-coefficient names. The legacy named basis-list workflow is unaffected.
+The current package accepts exactly one global SPDE target. `setting =
+"global_local"`, a second SPDE term, and a named global/local basis list were
+removed. A native sparse setup may instead supply `mesh`, fixed `kappa`, and
+two- or three-dimensional `coordinates`; its formula contains only the
+response, offset and parametric covariates.
 
 ## Required centering constraint
 
-For each spatial component, let `A` map the raw finite-element mesh
+For the single spatial component, let `A` map the raw finite-element mesh
 coefficients `u` to the **actual model observations**. The enforced constraint
 is
 
@@ -24,15 +25,14 @@ crossprod(g, u) = 0
 ```
 
 Thus `mean(A %*% u) = 0`. This is not generally equivalent to summing mesh
-coefficients to zero, or to integrating the field over the mesh. Global and
-local fields each obey their own constraint. The constraint cannot be
-disabled by an estimator control. An unconstrained input basis is converted
-to the observation-centered basis during setup.
+coefficients to zero, or to integrating the field over the mesh. The
+constraint cannot be disabled by an estimator control. An unconstrained input
+basis is converted to the observation-centered basis during setup.
 
 INLA receives the raw sparse precision matrix and a linear constraint.
-For a single global SPDE, the default score backend also uses sparse raw
-coordinates and constrained precision solves. Model setup retains the
-equivalent projected geometry for compatibility and marginal testing.
+The sparse score uses raw coordinates and constrained precision solves.
+Legacy setup retains equivalent projected geometry for formula compatibility;
+native mesh setup retains only the sparse projector and precision.
 
 ## Statistical interpretation
 
@@ -136,14 +136,13 @@ crossproduct costs, while this INLA backend retains the raw SPDE precision
 sparsity. Either may win for a particular mesh size. Fitting speedup need not
 equal total pipeline speedup.
 
-`inlaST.estimate(..., score_backend="auto")` selects the sparse score path
-when the model has exactly one global target SPDE and only fixed nuisance
-terms. It preserves the conditioned score kernel and native nuisance `Vp`;
-it does not change the statistical test. `score_backend="dense"` enables
-the original implementation for comparisons. Additional random blocks or
-global/local targets use the dense path under `"auto"`; explicitly requesting
-`"sparse"` for an unsupported model raises an error. Numerical errors on a
-supported sparse path are not silently replaced with a different method.
+`inlaST.estimate()` always uses the sparse score path, which requires exactly
+one global target SPDE and only fixed nuisance terms. It preserves the
+conditioned score kernel and native nuisance `Vp`; it does not change the
+statistical test. The dense INLA score has been removed: a model with
+additional random blocks is rejected by `inlaST.set()` with the capability
+reason, and there is no `score_backend` argument any more. Numerical errors on
+the sparse path are not silently replaced with a different method.
 
 The sparse path forms `A' D^-1 A` and solves constrained systems with
 `tau Q + A' D^-1 A`. It avoids building an observation-by-mesh score factor

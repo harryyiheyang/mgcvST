@@ -93,7 +93,7 @@ test_that("sparse INLA WGCNA scores retain redundant coordinates and q-1 scale",
     .inlast_sparse_batch = batch,
     .package = "mgcvST")
   z <- mgcvST:::.mgcvst_inla_wgcna_scores(
-    fit, c(3L, 1L, 2L), "global", threads = 3L, verbose = FALSE
+    fit, c(3L, 1L, 2L), threads = 3L, verbose = FALSE
   )
   expect_identical(seen_threads, 3L)
   expect_identical(z$width, c(global = 3L))

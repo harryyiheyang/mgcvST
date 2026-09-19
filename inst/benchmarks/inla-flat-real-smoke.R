@@ -14,7 +14,7 @@ rows <- lapply(c("flat_spatial","flat_both"),function(variant) {
   ctl <- list(precision_prior=flat,nb_size_prior=historical_normal)
   if(variant=="flat_both") ctl$nb_size_prior <- flat
   fit <- inlaST.estimate(Y,model,diagnostics=TRUE,BPPARAM=BiocParallel::SerialParam(),control=ctl)
-  score <- mgcvST.test(fit,pairs=matrix(rownames(Y),nrow=1),calibration="davies",BPPARAM=BiocParallel::SerialParam())
+  score <- mgcvST.test(fit,pairs=matrix(rownames(Y),nrow=1),calibration="liu",BPPARAM=BiocParallel::SerialParam())
   saveRDS(list(fit=fit,score=score,raw=model$inla_spec$random[[1]],Y=Y),file.path(out,paste0(variant,".rds")))
   data.frame(variant=variant,gene=rownames(Y),mean_count=rowMeans(Y),
     converged=fit$diagnostics$converged,mean_error=apply(abs(fit$observation_spatial_mean),1,max),

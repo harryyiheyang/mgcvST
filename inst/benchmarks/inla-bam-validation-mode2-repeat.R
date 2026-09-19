@@ -30,10 +30,8 @@ for (dataset in datasets) {
   if (length(jj) != 1L) stop("Expected one nonzero mode status for ", dataset, ".")
   t0 <- proc.time()[["elapsed"]]
   repeat.fit <- inlaST.estimate(input$Y[jj, , drop = FALSE], model,
-    feature_id = input$feature_id[jj], retain_marginal = TRUE,
-    marginal_args = list(method = "liu"), diagnostics = TRUE,
-    BPPARAM = SerialParam(), chunk_size = 1L, control = ctl,
-    score_backend = "sparse")
+    feature_id = input$feature_id[jj], retain_marginal = TRUE, diagnostics = TRUE,
+    BPPARAM = SerialParam(), chunk_size = 1L, control = ctl)
   seconds <- proc.time()[["elapsed"]] - t0
   result <- list(dataset = dataset, feature_id = input$feature_id[jj],
     original_diagnostics = original$diagnostics[jj, , drop = FALSE],

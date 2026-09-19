@@ -1,3 +1,9 @@
+> Historical validation record. The runs below used the package versions named
+> in this document. They remain evidence for those runs and are not current
+> operational instructions: current INLA models accept one global SPDE target,
+> reject nuisance smooth/random-block designs, and use sparse Liu downstream
+> calibration.
+
 # Local paired validation of bam and flat-prior INLA
 
 ## Purpose and source
@@ -17,8 +23,8 @@ INLA uses `list(prior = "flat", param = numeric(), initial = 0)` for spatial
 log precision and NB log size; Gaussian simulations also explicitly use a
 flat Gaussian observation log precision objective. Each comparison holds the response,
 mesh, fixed kappa, observation-mean constraints, covariates and offsets fixed
-between estimators. INLA retains sparse fitting and its sparse score backend
-where supported; models with extra random blocks use the established backend.
+between estimators. INLA retained sparse fitting where supported; historical
+models with extra random blocks used an implementation no longer in the package.
 
 ## Replication and coverage
 
@@ -85,7 +91,6 @@ checkpoints, so choose a fresh output location when a new fit is intended.
 | Script suffix | Invocation / scope |
 | --- | --- |
 | `inference.R` | `--task=1` through `--task=100`, one fixed manifest row per process |
-| `multigroup.R` | `--replicate=1` through `--replicate=10` |
 | `scaling.R` | No arguments runs all 30 manifest rows; `--task=1` selects one |
 | `wgcna.R` | No arguments runs all four arms, ten seeds each |
 | `components.R` | No arguments runs both full observed components |

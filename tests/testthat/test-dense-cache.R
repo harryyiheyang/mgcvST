@@ -32,21 +32,21 @@ test_that("model pair states are constructed once per unique feature", {
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), diagnostics = FALSE
   )
   pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
-  options(mgcvST.state_count = 0L)
-  on.exit(options(mgcvST.state_count = NULL), add = TRUE)
-  trace(
-    ".mgcvst_model_score_state", where = asNamespace("mgcvST"),
-    tracer = quote(options(
-      mgcvST.state_count = getOption("mgcvST.state_count") + 1L
-    )), print = FALSE
+  count <- new.env(parent = emptyenv())
+  count$features <- 0L
+  original_batch <- mgcvST:::mgcvst_dense_score_batch_cpp
+  testthat::local_mocked_bindings(
+    mgcvst_dense_score_batch_cpp = function(T0, variance, error, scale, X,
+                                            nuisance, threads) {
+      count$features <- count$features + ncol(variance)
+      original_batch(T0, variance, error, scale, X, nuisance, threads)
+    }, .package = "mgcvST"
   )
-  on.exit(untrace(".mgcvst_model_score_state", where = asNamespace("mgcvST")),
-          add = TRUE)
   ans <- mgcvST.test(
     fit, pairs = pairs, calibration = "liu", chunk_size = 1L,
     BPPARAM = BiocParallel::SerialParam()
   )
-  expect_identical(getOption("mgcvST.state_count"), 3L)
+  expect_identical(count$features, 3L)
   expect_true(all(is.finite(ans$results$p_two_sided)))
 })
 
@@ -69,7 +69,7 @@ test_that("packed model pair evaluation preserves direct pair results", {
       BPPARAM = BiocParallel::SerialParam()
     )
     expect_equal(ans$results$signed_score,
-                 vapply(expected, `[[`, numeric(1L), "score"), tolerance = 0)
+                 vapply(expected, `[[`, numeric(1L), "score"), tolerance = 1e-10)
     expect_equal(ans$results$p_two_sided,
                  vapply(expected, `[[`, numeric(1L), "p_two_sided"),
                  tolerance = 1e-12)

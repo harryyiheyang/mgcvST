@@ -30,7 +30,7 @@ test_that("legacy Davies builds each score state once per call", {
   reference <- do.call(rbind, reference)
 
   original_factor <- mgcvST:::.mgcvst_legacy_shared_score_factor
-  original_summary <- mgcvST:::rkhs_score_summary
+  original_batch <- mgcvST:::mgcvst_dense_score_batch_cpp
   count <- new.env(parent = emptyenv())
   count$factor <- 0L
   count$summary <- 0L
@@ -39,9 +39,10 @@ test_that("legacy Davies builds each score state once per call", {
       count$factor <- count$factor + 1L
       original_factor(geometry)
     },
-    rkhs_score_summary = function(error, operator) {
-      count$summary <- count$summary + 1L
-      original_summary(error, operator)
+    mgcvst_dense_score_batch_cpp = function(T0, variance, error, scale, X,
+                                            nuisance, threads) {
+      count$summary <- count$summary + ncol(variance)
+      original_batch(T0, variance, error, scale, X, nuisance, threads)
     },
     .package = "mgcvST"
   )

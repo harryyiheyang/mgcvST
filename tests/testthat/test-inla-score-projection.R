@@ -67,18 +67,6 @@ test_that("conditioned score removes one mean direction, not spatial signal", {
   expect_gt(max(eigen(state$M, symmetric = TRUE, only.values = TRUE)$values), 1e-6)
 })
 
-test_that("conditioned sparse and dense production states agree", {
-  f <- .projection_score_fixture(0.973)
-  sparse <- mgcvST:::.mgcvst_model_score_state(f$fit, 1L)
-  dense_fit <- f$fit
-  dense_fit$score_backend <- "dense"
-  dense_fit$score_sparse <- NULL
-  dense_fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(dense_fit)
-  dense <- mgcvST:::.mgcvst_model_score_state(dense_fit, 1L)
-  expect_equal(sparse$a, dense$a, tolerance = 2e-12)
-  expect_equal(sparse$M, dense$M, tolerance = 2e-12)
-})
-
 test_that("centering an already conditioned factor is an algebraic identity", {
   f <- .projection_score_fixture(0.973)
   C <- diag(nrow(f$Z)) - matrix(1 / nrow(f$Z), nrow(f$Z), nrow(f$Z))

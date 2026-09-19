@@ -34,7 +34,8 @@
         value <- .inlast_prepare_basis(spec$xt, do.call(cbind, xy))
         component <- .spde_basis_component(spec)$component
         if (component %in% names(prepared)) {
-          stop("Supply only one SPDE term for each global/local component.")
+          stop("Supply exactly one spatial SPDE term; mgcvST carries a single ",
+               "spatial score process.")
         }
         value$basis$component <- value$basis$score.component <- component
         prepared[[component]] <<- value

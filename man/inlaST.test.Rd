@@ -45,8 +45,8 @@ They may overlap \code{pairs}; non-overlapping highlights are appended.}
 \item{chunk_size}{Positive number of tested pairs per task or C++ block.
 Liu calibration defaults to 10,000 pairs per interruptible block.}
 
-\item{threads}{Positive number of OpenMP threads for the Liu C++ kernel.
-\code{NULL} uses \code{bpworkers(BPPARAM)} without launching Snow workers.}
+\item{threads}{Positive number of OpenMP threads for sparse INLA feature preparation
+and Liu pair calculations. \code{NULL} uses one thread.}
 
 \item{verbose}{Logical; report Liu summary and block progress.}
 }

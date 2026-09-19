@@ -14,10 +14,7 @@ inlaST.estimate(
   control = list(),
   retain_smooth = FALSE,
   diagnostics = FALSE,
-  marginal_test = NULL,
-  marginal_args = list(),
   retain_marginal = FALSE,
-  score_backend = c("auto", "dense", "sparse"),
   threads = 1L
 )
 }
@@ -28,8 +25,11 @@ inlaST.estimate(
 
 \item{feature_id}{Unique feature identifiers.}
 
-\item{BPPARAM}{Compatibility argument; only \code{SerialParam()} is accepted.
-INLA fitting uses \code{control$num_threads}; downstream uses OpenMP \code{threads}.}
+\item{BPPARAM}{A \code{BiocParallelParam} distributing feature chunks over
+workers. Each worker fits its own features with INLA using
+\code{control$num_threads} (default one), so workers multiply rather than share
+threads; downstream marginal work uses OpenMP \code{threads} in the manager.
+\code{SerialParam()} keeps everything in one process.}
 
 \item{chunk_size}{Positive number of features per task.}
 
@@ -56,7 +56,15 @@ and INLA expression/table priors are supported. Normal parameters are
 mean and precision. A flat log-hyperparameter objective corresponds to
 density proportional to \code{1/parameter} on its positive scale.
 \code{control.inla} accepts supported numerical tuning, with Gaussian latent
-strategy and EB integration enforced. Unknown controls are rejected.}
+strategy and EB integration enforced. \code{poisson_screen_phi} (default \code{1.1})
+is the Poisson prescreen threshold: with a negative-binomial family, each
+feature first gets an offset-and-covariate-only Poisson GLM, and a feature
+whose Pearson dispersion \code{phi = sum((y - mu)^2 / mu) / (n - p)} is at most
+the threshold is fitted with the Poisson family instead. Set it to \code{0} to
+disable the screen (\code{NULL} restores the default); other families ignore it.
+The per-feature
+\code{phi} and the family actually used are reported in the diagnostics as
+\code{prescreen_phi} and \code{family_used}. Unknown controls are rejected.}
 
 \item{retain_smooth}{Retain estimated score-component coefficients.}
 
@@ -65,18 +73,7 @@ expected-Fisher nuisance covariance for comparison with native \code{Vp}.
 When \code{FALSE}, that extra solve is skipped and its per-feature entries
 in \code{expected_nuisance_covariance} are \code{NULL}.}
 
-\item{marginal_test}{Optional marginal-score callback. \code{NULL} uses the
-package-local TAPS score test.}
-
-\item{marginal_args}{Named arguments passed to the marginal score test.}
-
 \item{retain_marginal}{Retain the frozen state needed by \code{\link[=mgcvST.marginal]{mgcvST.marginal()}}.}
-
-\item{score_backend}{Score-state implementation. \code{"auto"} uses the sparse
-mesh backend for one global fixed-kappa SPDE with fixed-effect nuisance
-terms only, and otherwise uses \code{"dense"}. \code{"sparse"} requires that
-supported structure and errors before fitting when it is unavailable.
-When omitted, the setting saved by \code{\link[=inlaST.set]{inlaST.set()}} is used.}
 
 \item{threads}{OpenMP threads for sparse downstream marginal construction.}
 }
@@ -99,6 +96,11 @@ estimation. Every spatial component's constraint residual and observed
 spatial mean are retained in the result.
 The score uses the SPDE covariance conditioned on observation mean zero.
 The sparse score uses a matching expected-curvature nuisance adjustment.
+The INLA path is sparse-only: the sparse kernel is the sole score and
+marginal implementation, there is no dense score, no custom marginal
+callback and no fallback. A design the sparse capability gate rejects makes
+\code{\link[=inlaST.set]{inlaST.set()}} error at setup, and a model that somehow reaches this
+function without that geometry errors here.
 Flat hyperpriors need not yield proper hyperparameter posteriors. They are
 supported only as empirical-Bayes optimization objectives in the current
 single-configuration engine. A returned finite precision or zero optimizer

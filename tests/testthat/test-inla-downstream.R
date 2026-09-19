@@ -10,7 +10,6 @@ test_that("INLA-named downstream wrappers are exact delegates", {
   f <- st_fixture(n = 45L, family = gaussian())
   fit <- mgcvST.estimate(
     f$Y[1:2, ], f$model, retain_marginal = TRUE,
-    marginal_args = list(method = "liu"),
     BPPARAM = BiocParallel::SerialParam()
   )
   class(fit) <- c("inlaST_fit", class(fit))

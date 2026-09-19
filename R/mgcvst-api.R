@@ -328,7 +328,8 @@
                               gam_args, source_files, worker_init, init_key,
                               marginal_test, marginal_args,
                               retain_smooth,
-                              diagnostics = TRUE, retain_marginal = FALSE) {
+                              diagnostics = TRUE, retain_marginal = FALSE,
+                              routed_family_raw = NULL) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   ids <- payload$index
   Y <- payload$Y
@@ -370,12 +371,23 @@
     stop("G does not contain a reusable model-frame response column.")
   }
 
+  # Poisson prescreen routing (R/family-prescreen.R). Absent flags keep the
+  # model family for every feature, so the unscreened path is unchanged.
+  poisson_route <- payload$poisson
+  if (is.null(poisson_route)) poisson_route <- rep(FALSE, k)
+  prescreen_phi <- payload$prescreen_phi
+  if (is.null(prescreen_phi)) prescreen_phi <- rep(NA_real_, k)
+  family_used <- rep(NA_character_, k)
+
   G1 <- G0
   for (j in seq_len(k)) {
     response <- as.numeric(Y[j, ])
     G1$y <- response
     G1$mf[[response_index]] <- response
-    G1$family <- unserialize(family_raw)
+    G1$family <- unserialize(
+      if (isTRUE(poisson_route[j])) routed_family_raw else family_raw
+    )
+    family_used[j] <- .working_family_id(G1$family$family)
 
     t0 <- proc.time()[["elapsed"]]
     fit_result <- tryCatch(
@@ -529,6 +541,8 @@
     error_class = error_class,
     error_message = error_message,
     error_call = error_call,
+    prescreen_phi = prescreen_phi,
+    family_used = family_used,
     stringsAsFactors = FALSE
   )
   list(
@@ -618,7 +632,21 @@
 #' @param method Fitting method passed to `mgcv::gam()`. `"REML"` is the
 #'   default.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
-#'   always forced to one.
+#'   always forced to one. It may additionally carry `poisson_screen_phi`
+#'   (default `1.1`), the Poisson prescreen threshold: with a negative-binomial
+#'   family, each feature first gets an offset-and-covariate-only Poisson GLM,
+#'   and a feature whose Pearson dispersion
+#'   `phi = sum((y - mu)^2 / mu) / (n - p)` is at most the threshold is fitted
+#'   with `stats::quasipoisson(link = "log")` instead. The Poisson and
+#'   quasipoisson point estimates agree, while the routed mgcv fit estimates
+#'   its scale and smoothing parameters from the full spatial model. The
+#'   screening phi is retained in diagnostics and is not passed as a fixed
+#'   `fit$sig2`. In the INLA path, routed features use plain Poisson. Set the
+#'   threshold to `0` to disable the screen (`NULL` restores the default);
+#'   other families ignore it. The entry is removed before `control` reaches
+#'   `mgcv::gam()`. Per-feature `prescreen_phi` and `family_used` are reported
+#'   in the diagnostics, and `family_used` reads `"quasipoisson"` for a routed
+#'   gene.
 #' @param ... Additional arguments passed to `mgcv::gam(G = G, ...)`.
 #' @return A compact object of class `mgcvST_fit` containing marginal score
 #'   p-values, Wood audit values, feature IDs, working errors and variances,
@@ -738,14 +766,34 @@ mgcvST.estimate <- function(
   if (length(chunk_size) != 1L || is.na(chunk_size) || chunk_size < 1L) {
     stop("chunk_size must be one positive integer.")
   }
+  # Poisson prescreen (R/family-prescreen.R). The knob lives in control and is
+  # removed before control reaches mgcv::gam(), which rejects unknown entries.
+  screen_threshold <- .mgcvst_prescreen_threshold(
+    control[["poisson_screen_phi", exact = TRUE]]
+  )
+  control[["poisson_screen_phi"]] <- NULL
+  prescreen <- .mgcvst_prescreen_route(
+    Y, X = .mgcvst_prescreen_design(G), offset = G$offset,
+    threshold = screen_threshold,
+    active = isTRUE(tryCatch(
+      identical(.working_family_id(G$family$family), "negative_binomial"),
+      error = function(e) FALSE
+    ))
+  )
   chunk_id <- ceiling(seq_len(nrow(Y)) / chunk_size)
   ids <- split(seq_len(nrow(Y)), chunk_id)
   payload <- lapply(ids, function(i) list(
     index = i,
     feature_id = feature_id[i],
-    Y = Y[i, , drop = FALSE]
+    Y = Y[i, , drop = FALSE],
+    poisson = prescreen$poisson[i],
+    prescreen_phi = prescreen$phi[i]
   ))
   family_raw <- serialize(G$family, NULL)
+  # A prescreen-routed gene is fitted in the mgcv path with quasipoisson.
+  # mgcv estimates the routed scale from the full spatial model. The INLA path
+  # uses plain poisson because INLA has no quasi families.
+  routed_family_raw <- serialize(stats::quasipoisson(link = "log"), NULL)
   worker_bundle <- .mgcvst_worker_bundle()
   fit_chunk <- get(".mgcvst_fit_chunk", envir = worker_bundle,
                    inherits = FALSE)
@@ -760,6 +808,7 @@ mgcvST.estimate <- function(
     retain_smooth = retain_smooth,
     diagnostics = diagnostics,
     retain_marginal = retain_marginal,
+    routed_family_raw = routed_family_raw,
     BPPARAM = BPPARAM
   )
   elapsed <- proc.time()[["elapsed"]] - t0
@@ -931,7 +980,8 @@ print.mgcvST_fit <- function(x, ...) {
 }
 
 # Construct each feature-level score summary once for the Liu pair engine.
-.mgcvst_liu_summaries <- function(fitmgcvST, used, verbose) {
+.mgcvst_liu_summaries <- function(fitmgcvST, used, verbose, threads = 1L) {
+  t0 <- proc.time()[["elapsed"]]
   geometry <- fitmgcvST$geometry
   field_scale <- .mgcvst_field_scale(fitmgcvST)
   T0 <- .mgcvst_legacy_shared_score_factor(geometry)
@@ -939,29 +989,27 @@ print.mgcvST_fit <- function(x, ...) {
   a <- H <- vector("list", length(used))
   has_summary <- rep(FALSE, length(used))
   error_message <- rep(NA_character_, length(used))
-  t0 <- proc.time()[["elapsed"]]
-  for (j in seq_along(used)) {
-    i <- used[j]
-    summary_result <- tryCatch(
-      {
-        T <- sqrt(field_scale[i]) * T0
-        op <- .rkhs_score_operator_factor(
-          T, fitmgcvST$working_variance[, i], geometry$X,
-          field_scale = field_scale[i]
-        )
-        rkhs_score_summary(fitmgcvST$working_error[, i], op)
-      },
-      error = function(e) e
+  for (first in seq.int(1L, length(used), by = 32L)) {
+    rows <- first:min(length(used), first + 31L)
+    ids <- used[rows]
+    units <- mgcvst_dense_score_batch_cpp(
+      T0, fitmgcvST$working_variance[, ids, drop = FALSE],
+      fitmgcvST$working_error[, ids, drop = FALSE], field_scale[ids],
+      geometry$X, list(), threads
     )
-    if (inherits(summary_result, "condition")) {
-      error_message[j] <- conditionMessage(summary_result)
-    } else {
-      a[[j]] <- summary_result$a
-      H[[j]] <- summary_result$H
-      has_summary[j] <- TRUE
+    for (k in seq_along(rows)) {
+      j <- rows[k]
+      z <- units[[k]]
+      if (!is.null(z$error)) {
+        error_message[j] <- z$error
+      } else {
+        a[[j]] <- z$a
+        H[[j]] <- z$H
+        has_summary[j] <- TRUE
+      }
     }
-    if (verbose && (j %% 100L == 0L || j == length(used))) {
-      message("Constructed Liu summaries for ", j, " of ", length(used),
+    if (verbose) {
+      message("Constructed Liu summaries for ", max(rows), " of ", length(used),
               " features.")
     }
   }
@@ -973,21 +1021,20 @@ print.mgcvST_fit <- function(x, ...) {
 }
 
 # Construct and write packed legacy score states for one feature-first chunk.
-.mgcvst_legacy_score_unit_chunk <- function(payload, T0, X_fixed) {
+.mgcvst_legacy_score_unit_chunk <- function(payload, T0, X_fixed, threads = 1L) {
   .mgcvst_thread_limit()
   paths <- character(length(payload$feature))
+  units <- mgcvst_dense_score_batch_cpp(
+    T0, payload$working_variance, payload$working_error, payload$field_scale,
+    X_fixed, list(), threads
+  )
   for (j in seq_along(payload$feature)) {
-    state <- tryCatch({
-      T <- sqrt(payload$field_scale[j]) * T0
-      op <- .rkhs_score_operator_factor(
-        T, payload$working_variance[, j], X_fixed,
-        field_scale = payload$field_scale[j]
-      )
-      summary <- rkhs_score_summary(payload$working_error[, j], op)
+    z <- units[[j]]
+    state <- if (is.null(z$error)) {
       .mgcvst_pack_score_state(list(
-        a = summary$a, M = summary$H, width = length(summary$a)
+        a = z$a, M = z$H, width = length(z$a)
       ))
-    }, error = function(e) list(error = conditionMessage(e)))
+    } else list(error = z$error)
     key <- as.character(payload$feature[j])
     path <- file.path(payload$directory, paste0("feature-", key, ".rds"))
     saveRDS(state, path, compress = FALSE)
@@ -1201,8 +1248,9 @@ print.mgcvST_fit <- function(x, ...) {
 #' @param calibration Score calibration passed to [rkhs_score_calibrate()].
 #' @param chunk_size Positive number of tested pairs per task or C++ block.
 #'   Liu calibration defaults to 10,000 pairs per interruptible block.
-#' @param threads Positive number of OpenMP threads for the Liu C++ kernel.
-#'   `NULL` uses `bpworkers(BPPARAM)` without launching Snow workers.
+#' @param threads Positive number of OpenMP threads for feature score preparation
+#'   and the Liu pair kernel. `NULL` uses `bpworkers(BPPARAM)`. Model pair tasks
+#'   and Davies calibration use `BPPARAM` after preparation has completed.
 #' @param verbose Logical; report Liu summary and block progress.
 #' @return A compact `mgcvST_test` object containing pair results, adjusted
 #'   p-values, discovery/highlight/retention flags, threshold metadata, and
@@ -1343,7 +1391,7 @@ print.mgcvST_fit <- function(x, ...) {
   if (length(tested_rows)) {
     if (calibration == "liu") {
       used <- sort(unique(as.vector(index[tested_rows, , drop = FALSE])))
-      summaries <- .mgcvst_liu_summaries(fitmgcvST, used, verbose)
+      summaries <- .mgcvst_liu_summaries(fitmgcvST, used, verbose, threads)
       summary_elapsed <- summaries$elapsed
       evaluated <- .mgcvst_liu_pairs(
         index[tested_rows, , drop = FALSE], tested_rows,
@@ -1364,7 +1412,7 @@ print.mgcvST_fit <- function(x, ...) {
       T0 <- .mgcvst_legacy_shared_score_factor(fitmgcvST$geometry)
       state_dir <- .mgcvst_dense_temp_dir()
       on.exit(.mgcvst_dense_cleanup(state_dir), add = TRUE)
-      feature_chunk_size <- max(1L, ceiling(length(used) / max(1L, workers)))
+      feature_chunk_size <- 32L
       feature_groups <- split(
         used, ceiling(seq_along(used) / feature_chunk_size)
       )
@@ -1375,9 +1423,9 @@ print.mgcvST_fit <- function(x, ...) {
         field_scale = field_scale[features], directory = state_dir
       ))
       t0 <- proc.time()[["elapsed"]]
-      shard_paths <- BiocParallel::bplapply(
+      shard_paths <- lapply(
         feature_payload, .mgcvst_legacy_score_unit_chunk,
-        T0 = T0, X_fixed = fitmgcvST$geometry$X, BPPARAM = BPPARAM
+        T0 = T0, X_fixed = fitmgcvST$geometry$X, threads = threads
       )
       summary_elapsed <- proc.time()[["elapsed"]] - t0
       shard_paths <- unlist(shard_paths, use.names = FALSE)

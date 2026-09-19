@@ -96,7 +96,7 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
   components <- geometry$score_components
   structure(list(
     G = G, L = L, geometry = geometry, shared_design = TRUE,
-    setting = if (length(components) == 1L) "global" else "global_local",
+    setting = "global",
     components = components, formula = G$formula, internal_formula = G$formula,
     response = names(G$mf)[response],
     kappa = stats::setNames(vapply(geometry$target, function(j) G$smooth[[j]]$kappa,
@@ -109,7 +109,7 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
 
 # Freeze the same formal prediction geometry for both estimator adapters.
 # External-G validation stays in .mgcvst_set_prepare(); the legacy basis
-# constructor also supports repeated coordinate labels across global/local.
+# constructor also supports repeated coordinate labels in the model formula.
 .mgcvst_freeze_geometry <- function(G) {
   t0 <- proc.time()[["elapsed"]]
   pseudo <- G

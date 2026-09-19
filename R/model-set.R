@@ -23,25 +23,28 @@
 #' factors, interactions, offsets, and additional mgcv smoothers on the
 #' right-hand side are retained.
 #'
-#' `setting = "global"` takes one object returned by [spde_basis()].
-#' `setting = "global_local"` takes a named list containing `global` and
-#' `local` basis objects. Other user smoothers contribute nuisance covariance
-#' to the marginal working model but are not global/local score directions.
+#' `basis` is one object returned by [spde_basis()], and the model carries one
+#' global spatial score process. Other user smoothers contribute nuisance
+#' covariance to the marginal working model but are not score directions.
 #'
 #' @param formula A two-sided mgcv-style formula.
 #' @param data Model data with one row per spatial observation.
-#' @param basis A prepared [spde_basis()] object for `setting = "global"`, or
-#'   a named `list(global = ..., local = ...)` for `setting = "global_local"`.
+#' @param basis A prepared [spde_basis()] object.
 #' @param family An mgcv family object. The default is `mgcv::nb()`.
-#' @param setting Either `"global"` or `"global_local"`.
+#' @param setting The model uses one `"global"` spatial score process.
+#'   `setting = "global_local"` is not supported.
 #' @param coordinates Character vector naming the two coordinate columns.
 #' @param ... Additional arguments passed to `mgcv::gam(..., fit = FALSE)`.
 #' @return An object of class `mgcvST_model` for [mgcvST.estimate()].
 #' @export
 model.set <- function(
     formula, data, basis, family = mgcv::nb(),
-    setting = c("global", "global_local"), coordinates = c("x", "y"), ...) {
-  setting <- match.arg(setting)
+    setting = "global", coordinates = c("x", "y"), ...) {
+  if (!identical(setting, "global")) {
+    stop("setting must be \"global\". The second \"local\" geographic process ",
+         "(setting = \"global_local\") was removed from mgcvST; supply one ",
+         "spde_basis() object.")
+  }
   if (!inherits(formula, "formula") || length(formula) != 3L) {
     stop("formula must be a two-sided formula.")
   }
@@ -62,24 +65,10 @@ model.set <- function(
   xy <- as.matrix(data[, coordinates, drop = FALSE])
   storage.mode(xy) <- "double"
   if (any(!is.finite(xy))) stop("Coordinate columns must be finite numeric values.")
-  if (setting == "global") {
-    if (!inherits(basis, "mgcvST_spde_basis")) {
-      stop("basis must be an object returned by spde_basis().")
-    }
-    basis <- list(global = basis)
-  } else {
-    if (!is.list(basis) || !all(c("global", "local") %in% names(basis)) ||
-        !inherits(basis$global, "mgcvST_spde_basis") ||
-        !inherits(basis$local, "mgcvST_spde_basis")) {
-      stop("basis must contain prepared global and local SPDE basis objects.")
-    }
-    if (is.null(basis$global$kappa) || is.null(basis$local$kappa)) {
-      stop("global_local requires two bases constructed with fixed kappa.")
-    }
-    if (basis$local$kappa <= basis$global$kappa) {
-      stop("The local basis kappa must be greater than the global basis kappa.")
-    }
+  if (!inherits(basis, "mgcvST_spde_basis")) {
+    stop("basis must be an object returned by spde_basis().")
   }
+  basis <- list(global = basis)
   if (any(vapply(basis, function(x) is.null(x$kappa), logical(1L)))) {
     stop("model.set() requires fixed-kappa bases for covariance score testing.")
   }
@@ -95,7 +84,6 @@ model.set <- function(
   }
   env <- new.env(parent = environment(formula))
   env$.mgcvST_basis_global <- basis$global
-  if (setting == "global_local") env$.mgcvST_basis_local <- basis$local
   env$s <- mgcv::s
   formula0 <- formula
   environment(formula0) <- env
@@ -105,24 +93,17 @@ model.set <- function(
     .mgcvst_spde_call(coordinates, ".mgcvST_basis_global"),
     as.name(bridge)
   )
-  if (setting == "global_local") {
-    formula0 <- .mgcvst_formula_add(
-      formula0,
-      .mgcvst_spde_call(coordinates, ".mgcvST_basis_local"),
-      as.name(bridge)
-    )
-  }
   environment(formula0) <- env
   data[[bridge]] <- numeric(nrow(data))
   G <- mgcv::gam(
     formula0, data = data, family = family, fit = FALSE,
     na.action = stats::na.fail, ...
   )
-  components <- if (setting == "global") "global" else c("global", "local")
+  components <- "global"
   structure(
     list(
       G = G,
-      setting = setting,
+      setting = "global",
       components = components,
       formula = formula,
       internal_formula = formula0,

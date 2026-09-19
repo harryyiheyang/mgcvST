@@ -226,7 +226,7 @@ for (dataset in datasets) {
     inla.setup.seconds <- NA_real_
   } else {
     S <- timed(inlaST.set(form, dat, basis, family = nb(link = "log"),
-      control = ctl, score_backend = "sparse"))
+      control = ctl))
     inla.model <- S$value
     inla.setup.seconds <- S$seconds
     saveRDS(inla.model, inla.model.file, compress = FALSE)
@@ -238,10 +238,10 @@ for (dataset in datasets) {
   } else {
     inla.bp <- if (dataset == "celltype") SerialParam() else bp
     I <- timed(inlaST.estimate(Y, inla.model, feature_id = ids,
-      retain_marginal = TRUE, marginal_args = list(method = "liu"),
+      retain_marginal = TRUE,
       diagnostics = TRUE, BPPARAM = inla.bp,
       chunk_size = if (dataset == "celltype") 1L else ceiling(length(ids) / workers),
-      control = ctl, score_backend = "sparse"))
+      control = ctl))
     inla.fit <- I$value
     inla.seconds <- I$seconds
     saveRDS(inla.fit, inla.file, compress = FALSE)
@@ -408,7 +408,7 @@ for (dataset in datasets) {
     }
     wgcna.file <- file.path(d.out, paste0(engine, "-wgcna.rds"))
     if (!file.exists(wgcna.file)) {
-      W <- timed(mgcvST.wgcna(fits[[engine]], indices = ids, group = "global"))
+      W <- timed(mgcvST.wgcna(fits[[engine]], indices = ids))
       saveRDS(W$value, wgcna.file, compress = FALSE)
       write.csv(data.frame(dataset = dataset, engine = engine,
         stage = "wgcna", seconds = W$seconds),

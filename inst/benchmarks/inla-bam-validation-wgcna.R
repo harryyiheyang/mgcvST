@@ -104,7 +104,7 @@ arms <- data.frame(
 )
 
 inla_model <- inlaST.set(expression_label ~ offset(offset0), D, basis,
-                         family = mgcv::nb(), score_backend = "sparse")
+                         family = mgcv::nb())
 bam_data <- D
 bam_data$expression_label <- 0
 bam_formula <- expression_label ~ offset(offset0) +
@@ -198,7 +198,7 @@ for (a in seq_len(nrow(arms))) {
       BiocParallel::bpRNGseed(BP) <- seed
       inla_fit <- timed(inlaST.estimate(
         Y, inla_model, feature_id = ids, BPPARAM = BP, chunk_size = 1L,
-        retain_smooth = FALSE, diagnostics = TRUE, score_backend = "sparse",
+        retain_smooth = FALSE, diagnostics = TRUE,
         control = list(precision_prior = flat, nb_size_prior = flat)
       ))
       saveRDS(inla_fit, inla.checkpoint, compress = TRUE)
@@ -215,7 +215,7 @@ for (a in seq_len(nrow(arms))) {
       inla_net <- readRDS(inla.net.checkpoint)
     } else {
       inla_net <- timed(mgcvST.wgcna(
-        inla_fit$value, indices = ids, group = "global", wgcna.para = para
+        inla_fit$value, indices = ids, wgcna.para = para
       ))
       saveRDS(inla_net, inla.net.checkpoint, compress = TRUE)
     }
@@ -265,7 +265,7 @@ for (a in seq_len(nrow(arms))) {
       saveRDS(bam_comp, bam.compact.checkpoint, compress = TRUE)
     }
     bam_net <- timed(mgcvST.wgcna(
-      bam_comp$value, indices = ids, group = "global", wgcna.para = para
+      bam_comp$value, indices = ids, wgcna.para = para
     ))
 
     Rz <- stats::cov2cor(CppMatrix::matrixMultiply(

@@ -87,46 +87,42 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   .inlast_expect_same_set_geometry(by_formula, by_basis)
   .inlast_expect_same_set_geometry(by_G, by_basis)
 
-  local <- spde_basis(
-    f$mesh, as.matrix(d[c("u", "v")]), kappa = 5,
-    project_intercept = TRUE
+  # The public setup contract accepts one global spatial process only.
+  expect_error(
+    inlaST.set(complete, d, gaussian(), setting = "global_local",
+               control = stored),
+    "setting must be \"global\""
   )
-  local$component <- local$score.component <- "local"
-  two_component <- inlaST.set(
-    response ~ z + offset(offset0), d,
-    list(global = basis, local = local), family = gaussian(),
-    setting = "global_local", coordinates = c("u", "v"), control = stored
+  expect_error(
+    inlaST.set(G = prepared$G, setting = "global_local", control = stored),
+    "setting must be \"global\""
   )
-  expect_identical(two_component$setting, "global_local")
-  expect_identical(two_component$components, c("global", "local"))
-  expect_true(all(vapply(two_component$inla_spec$random[1:2], function(block) {
-    expected <- as.numeric(crossprod(block$A, rep(1 / nrow(d), nrow(d))))
-    isTRUE(block$target) && isTRUE(all.equal(block$constraint, expected,
-                                            tolerance = 1e-12)) &&
-      max(abs(colMeans(as.matrix(block$A %*% block$projection)))) < 1e-10
-  }, logical(1L))))
-
+  expect_error(
+    model.set(response ~ z + offset(offset0), d, basis,
+              family = gaussian(), setting = "global_local",
+              coordinates = c("u", "v")),
+    "setting must be \"global\""
+  )
+  # A second SPDE term is a duplicate, and the component tag must be global.
+  second_basis <- spde_basis(
+    f$mesh, as.matrix(d[c("u", "v")]), kappa = 5, project_intercept = TRUE
+  )
   d$u_local <- d$u
   d$v_local <- d$v
   complete_two <- response ~ z + offset(offset0) +
     s(u, v, bs = "spde", xt = basis) +
-    s(u_local, v_local, bs = "spde", xt = local)
-  inferred_two <- inlaST.set(complete_two, d, gaussian(), control = stored)
-  prepared_two <- mgcvST.set(complete_two, d, gaussian())
-  frozen_two <- inlaST.set(G = prepared_two$G, control = stored)
-  expect_identical(inferred_two$setting, "global_local")
-  expect_identical(frozen_two$setting, "global_local")
-  .inlast_expect_same_set_geometry(inferred_two, two_component)
-  .inlast_expect_same_set_geometry(frozen_two, two_component)
-
+    s(u_local, v_local, bs = "spde", xt = second_basis)
   expect_error(
-    inlaST.set(complete, d, gaussian(), setting = "global_local",
-               control = stored),
-    "setting|component|global_local"
+    inlaST.set(complete_two, d, gaussian(), control = stored),
+    "exactly one spatial SPDE term"
   )
+  local_basis <- second_basis
+  local_basis$component <- local_basis$score.component <- "local"
   expect_error(
-    inlaST.set(G = prepared$G, setting = "global_local", control = stored),
-    "setting|component|global_local"
+    inlaST.set(response ~ z + offset(offset0) +
+                 s(u, v, bs = "spde", xt = local_basis),
+               d, gaussian(), control = stored),
+    "xt\\$component must be 'global'"
   )
 
   uncentred <- spde_basis(
@@ -159,11 +155,56 @@ test_that("diagnostic covariance is optional and leaves the native score unchang
   for (field in c("nuisance_covariance", "working_error", "working_variance")) {
     expect_equal(ordinary[[field]], diagnostic[[field]], tolerance = 1e-9)
   }
-  a <- inlaST.test(ordinary, pairs = matrix(c(1, 2), 1), calibration = "davies")
-  b <- inlaST.test(diagnostic, pairs = matrix(c(1, 2), 1), calibration = "davies")
+  a <- inlaST.test(ordinary, pairs = matrix(c(1, 2), 1), calibration = "liu")
+  b <- inlaST.test(diagnostic, pairs = matrix(c(1, 2), 1), calibration = "liu")
   for (field in c("signed_score", "information", "p_two_sided")) {
     expect_equal(a$results[[field]], b$results[[field]], tolerance = 1e-9)
   }
+})
+
+test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geometry", {
+  skip_on_cran()
+  skip_if_not_installed("INLA")
+  skip_if_not_installed("geometry")
+  f <- .inlast_set_workflow_fixture(n = 28L, seed = 1605L)
+  control <- list(fixed_precision = 1.25, gaussian_precision = 4)
+  legacy <- inlaST.set(
+    response ~ z + offset(offset0), f$data, f$basis, family = gaussian(),
+    coordinates = c("u", "v"), control = control
+  )
+  native <- inlaST.set(
+    response ~ z + offset(offset0), f$data, family = gaussian(), mesh = f$mesh,
+    kappa = .7, coordinates = c("u", "v"), control = control
+  )
+  expect_s3_class(native, "inlaST_native_model")
+  expect_true(native$native)
+  expect_equal(as.matrix(native$inla_spec$random[[1L]]$A),
+               as.matrix(legacy$inla_spec$random[[1L]]$A), tolerance = 1e-12)
+  expect_equal(as.matrix(native$inla_spec$random[[1L]]$Q),
+               as.matrix(legacy$inla_spec$random[[1L]]$Q), tolerance = 1e-12)
+  expect_equal(native$inla_spec$random[[1L]]$constraint,
+               legacy$inla_spec$random[[1L]]$constraint, tolerance = 1e-12)
+  native_score <- mgcvST:::.inlast_sparse_score_geometry(native)
+  expect_identical(native_score$normalization,
+                   ncol(native$inla_spec$random[[1L]]$Q) - 1L)
+
+  skip_if_not_installed("fmesher")
+  xyz <- as.matrix(expand.grid(
+    x = seq(0, 1, length.out = 3L), y = seq(0, 1, length.out = 3L),
+    z = seq(0, 1, length.out = 3L)
+  ))
+  mesh3 <- fmesher::fm_mesh_3d(loc = xyz, tv = geometry::delaunayn(xyz))
+  d3 <- data.frame(x = runif(18L, .05, .95), y = runif(18L, .05, .95),
+                   z = runif(18L, .05, .95), a = rnorm(18L))
+  native3 <- inlaST.set(
+    response ~ a, d3, family = gaussian(), mesh = mesh3, kappa = .7,
+    coordinates = c("x", "y", "z"), control = control
+  )
+  expect_s3_class(native3, "inlaST_native_model")
+  expect_identical(native3$spde$dim, 3L)
+  expect_identical(ncol(native3$inla_spec$random[[1L]]$A), nrow(xyz))
+  native3_score <- mgcvST:::.inlast_sparse_score_geometry(native3)
+  expect_identical(native3_score$normalization, nrow(xyz) - 1L)
 })
 
 test_that("stored INLA controls are inherited and explicit controls override", {
@@ -176,13 +217,11 @@ test_that("stored INLA controls are inherited and explicit controls override", {
                  ))
   model <- inlaST.set(
     response ~ z + offset(offset0), f$data, f$basis,
-    family = gaussian(), coordinates = c("u", "v"), control = stored,
-    score_backend = "dense"
+    family = gaussian(), coordinates = c("u", "v"), control = stored
   )
   inherited <- inlaST.estimate(
     f$Y, model, retain_smooth = TRUE, retain_marginal = TRUE,
-    BPPARAM = BiocParallel::SerialParam(), control = list(),
-    marginal_args = list(method = "liu")
+    BPPARAM = BiocParallel::SerialParam(), control = list()
   )
   overridden <- inlaST.estimate(
     f$Y[1L, , drop = FALSE], model, retain_smooth = TRUE,
@@ -190,8 +229,7 @@ test_that("stored INLA controls are inherited and explicit controls override", {
     control = list(
       fixed_precision = 2,
       precision_prior = list(prior = "flat", param = numeric(), initial = 1)
-    ),
-    marginal_args = list(method = "liu")
+    )
   )
 
   expect_equal(unname(inherited$dispersion), rep(.25, 2L), tolerance = 1e-12)
@@ -205,7 +243,7 @@ test_that("stored INLA controls are inherited and explicit controls override", {
   expect_true(all(vapply(inherited$nuisance_covariance, is.matrix, logical(1L))))
   expect_identical(inherited$geometry$nuisance_projection,
                    "conditional_INLA_block")
-  expect_identical(inherited$score_backend, "dense")
+  expect_identical(inherited$score_backend, "sparse")
   expect_identical(
     inherited$estimation$control$precision_prior,
     list(prior = "normal", param = c(0, 1 / 9), initial = -.5)
@@ -273,15 +311,13 @@ test_that("set control and native geometry survive serialization and SOCK", {
   .inlast_expect_same_set_geometry(restored, model, tolerance = 0)
   serial <- inlaST.estimate(
     f$Y, model, retain_smooth = TRUE,
-    BPPARAM = BiocParallel::SerialParam(), control = list(),
-    marginal_args = list(method = "liu")
+    BPPARAM = BiocParallel::SerialParam(), control = list()
   )
   bp <- BiocParallel::SnowParam(2L, type = "SOCK")
   parallel <- tryCatch(
     inlaST.estimate(
       f$Y, restored, retain_smooth = TRUE, BPPARAM = bp,
-      control = list(), chunk_size = 1L,
-      marginal_args = list(method = "liu")
+      control = list(), chunk_size = 1L
     ),
     finally = BiocParallel::bpstop(bp)
   )

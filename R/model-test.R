@@ -17,8 +17,35 @@
 }
 
 # Construct each requested model score state once and write one packed shard.
-.mgcvst_model_state_shard <- function(features, fit, paths) {
+.mgcvst_model_state_shard <- function(features, fit, paths, threads = 1L,
+                                      native = NULL) {
   .mgcvst_thread_limit()
+  if (!is.null(native)) {
+    for (first in seq.int(1L, length(features), by = 32L)) {
+      rows <- first:min(length(features), first + 31L)
+      ids <- features[rows]
+      phi <- fit$dispersion[ids]
+      sp <- fit$smoothing_parameters[ids, , drop = FALSE]
+      bad <- !is.finite(phi) | phi <= 0 |
+        rowSums(!is.finite(sp) | sp <= 0) > 0L
+      units <- mgcvst_dense_score_batch_cpp(
+        native$T0, fit$working_variance[, ids, drop = FALSE],
+        fit$working_error[, ids, drop = FALSE],
+        fit$dispersion[ids] / fit$smoothing_parameters[ids, native$sp_index],
+        native$X, fit$nuisance_covariance[ids], threads
+      )
+      for (k in seq_along(ids)) {
+        z <- units[[k]]
+        if (bad[k]) z <- list(error =
+          "The feature has invalid dispersion or smoothing parameters.")
+        unit <- if (is.null(z$error)) {
+          .mgcvst_pack_score_state(list(a = z$a, M = z$H, width = native$width))
+        } else list(error = z$error)
+        saveRDS(unit, paths[rows[k]])
+      }
+    }
+    return(features)
+  }
   for (k in seq_along(features)) {
     z <- tryCatch(.mgcvst_model_score_state(fit, features[k]),
                   error = function(e) e)
@@ -30,6 +57,23 @@
     saveRDS(unit, paths[k])
   }
   features
+}
+
+# The current mgcv model has one marked SPDE and conditional nuisance covariance.
+.mgcvst_model_dense_preparation <- function(fit, features) {
+  geometry <- fit$geometry
+  if (identical(fit$score_backend, "sparse") || length(geometry$target) != 1L ||
+      is.null(geometry$nuisance_design) ||
+      length(fit$nuisance_covariance) < max(features) ||
+      any(vapply(fit$nuisance_covariance[features], is.null, logical(1L)))) {
+    return(NULL)
+  }
+  j <- unname(geometry$target[[1L]])
+  s <- geometry$smooth[[j]]
+  T0 <- fit$.mgcvst_fixed_factors[[j]]
+  if (s$fixed || length(s$sp_index) != 1L || !is.matrix(T0)) return(NULL)
+  list(T0 = T0, X = geometry$nuisance_design, sp_index = s$sp_index,
+       width = stats::setNames(ncol(T0), names(geometry$target)))
 }
 
 # Shared orchestration for model.set() score engines.
@@ -70,8 +114,9 @@
     stop("Unused arguments in ...: ", paste(names(unused), collapse = ", "))
   }
   calibration <- match.arg(calibration)
+  # INLA fits use the sparse score kernel, so the INLA predicate selects the
+  # corresponding downstream execution path.
   inla_fit <- .mgcvst_inla_downstream(fitmgcvST)
-  inla_sparse <- .mgcvst_inla_sparse_downstream(fitmgcvST)
   if (inla_fit && calibration != "liu") {
     stop("INLA downstream tests support calibration = 'liu' only.")
   }
@@ -84,7 +129,7 @@
     stop("calibration = 'davies' requires the optional CompQuadForm package.")
   }
   if (is.null(threads)) {
-    threads <- if (inla_sparse) 1L else BiocParallel::bpworkers(BPPARAM)
+    threads <- if (inla_fit) 1L else BiocParallel::bpworkers(BPPARAM)
   }
   threads <- as.integer(threads)
   if (length(threads) != 1L || is.na(threads) || threads < 1L) {
@@ -149,7 +194,7 @@
     0L
   }
   if (is.null(chunk_size)) {
-    chunk_size <- if (inla_sparse) .mgcvst_inla_pair_chunk_size(fitmgcvST) else if (workers > 0L)
+    chunk_size <- if (inla_fit) .mgcvst_inla_pair_chunk_size(fitmgcvST) else if (workers > 0L)
       ceiling(length(tested_rows) / workers) else 1L
   }
   chunk_size <- as.integer(chunk_size)
@@ -157,10 +202,11 @@
     stop("chunk_size must be one positive integer.")
   }
   chunks <- list()
-  elapsed <- 0
+  elapsed <- summary_elapsed <- 0
+  native_preparation <- FALSE
   if (length(tested_rows)) {
     chunks <- split(tested_rows, ceiling(seq_along(tested_rows) / chunk_size))
-    if (inla_sparse) {
+    if (inla_fit) {
       t0 <- proc.time()[["elapsed"]]
       evaluated <- .mgcvst_inla_test_pairs(
         fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
@@ -184,15 +230,22 @@
     t0 <- proc.time()[["elapsed"]]
     test_fit <- fitmgcvST
     test_fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(test_fit)
+    native <- .mgcvst_model_dense_preparation(test_fit, used)
+    native_preparation <- !is.null(native)
     shard_paths <- file.path(cache_dir, paste0("state-", used, ".rds"))
     names(shard_paths) <- as.character(used)
-    shards <- BiocParallel::bplapply(
+    if (native_preparation) {
+      .mgcvst_model_state_shard(used, test_fit, shard_paths, threads, native)
+    } else {
+    BiocParallel::bplapply(
       seq_along(feature_groups), function(k, groups, paths, fit, worker_fun) {
         feature <- groups[[k]]
         worker_fun(feature, fit, paths[as.character(feature)])
       }, groups = feature_groups, paths = shard_paths, fit = test_fit,
       worker_fun = state_shard, BPPARAM = BPPARAM
     )
+    }
+    summary_elapsed <- proc.time()[["elapsed"]] - t0
     payload <- lapply(chunks, function(rows) {
       pair <- index[rows, , drop = FALSE]
       feature <- sort(unique(as.vector(pair)))
@@ -262,10 +315,14 @@
       ),
       test_definition = test_definition,
       timing = list(
-        elapsed = elapsed, summary_elapsed = 0, pair_elapsed = elapsed,
-        workers = if (inla_sparse) threads else workers,
+        elapsed = elapsed, summary_elapsed = summary_elapsed,
+        pair_elapsed = elapsed - summary_elapsed,
+        workers = if (inla_fit) threads else workers,
         chunks = length(chunks),
-        backend = if (inla_sparse) "C++ OpenMP" else class(BPPARAM)[1L]
+        backend = if (inla_fit) "C++ OpenMP" else class(BPPARAM)[1L],
+        preparation_backend = if (inla_fit || native_preparation)
+          "C++ OpenMP" else class(BPPARAM)[1L],
+        preparation_threads = if (inla_fit || native_preparation) threads else workers
       ),
       calibration = calibration,
       call = match.call()

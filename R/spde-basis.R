@@ -166,19 +166,19 @@
   }
 }
 
+# The package carries one global spatial score process.
 .spde_basis_component <- function(object) {
   component <- object$xt$component
   if (is.null(component)) component <- "global"
   if (!is.character(component) || length(component) != 1L ||
-      is.na(component) || !(component %in% c("global", "local"))) {
-    stop("xt$component must be 'global' or 'local'.")
+      is.na(component) || !identical(component, "global")) {
+    stop("xt$component must be 'global'. The second 'local' geographic ",
+         "process was removed from mgcvST.")
   }
   score.component <- object$xt$score.component
-  if (!is.null(score.component) &&
-      (!is.character(score.component) || length(score.component) != 1L ||
-       is.na(score.component) ||
-       !(score.component %in% c("global", "local")))) {
-    stop("xt$score.component must be NULL, 'global', or 'local'.")
+  if (!is.null(score.component) && !identical(score.component, "global")) {
+    stop("xt$score.component must be NULL or 'global'. The second 'local' ",
+         "geographic process was removed from mgcvST.")
   }
   list(component = component, score.component = score.component)
 }
