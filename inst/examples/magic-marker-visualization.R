@@ -24,6 +24,8 @@ theme_set(
       axis.ticks = element_line(linewidth = 0.3),
       legend.title = element_text(size = 5.2),
       legend.text = element_text(size = 5),
+      legend.position = "bottom",
+      legend.box = "horizontal",
       plot.title = element_text(size = 7.5, face = "bold"),
       plot.subtitle = element_text(size = 6.2)
     )
@@ -58,7 +60,8 @@ for (i in seq_along(c("Foxp1", "Tfap2b"))) {
       colours = blue_scale, limits = lim, oob = scales::squish,
       name = "Count per\n10,000 UMI",
       guide = guide_colourbar(
-        barwidth = grid::unit(2.5, "mm"), barheight = grid::unit(12, "mm"),
+        direction = "horizontal", position = "bottom",
+        barwidth = grid::unit(35, "mm"), barheight = grid::unit(2.5, "mm"),
         title.theme = element_text(size = 5.2),
         label.theme = element_text(size = 5)
       )

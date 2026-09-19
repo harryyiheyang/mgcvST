@@ -71,7 +71,8 @@ scale_blue <- function(limits, name) {
   scale_colour_gradientn(
     colours = blue_scale, limits = limits, oob = scales::squish, name = name,
     guide = guide_colourbar(
-      barwidth = grid::unit(2.5, "mm"), barheight = grid::unit(12, "mm"),
+      direction = "horizontal", position = "bottom",
+      barwidth = grid::unit(35, "mm"), barheight = grid::unit(2.5, "mm"),
       title.theme = element_text(size = 5.2),
       label.theme = element_text(size = 5)
     )
@@ -79,8 +80,9 @@ scale_blue <- function(limits, name) {
 }
 plotly_colorbar <- function(title) {
   list(
-    title = list(text = title, font = list(size = 10)),
-    thickness = 15, len = 0.5, tickfont = list(size = 9)
+    title = list(text = title, side = "top", font = list(size = 10)),
+    orientation = "h", x = 0.5, xanchor = "center", y = -0.22,
+    yanchor = "top", thickness = 10, len = 0.5, tickfont = list(size = 9)
   )
 }
 D$axon_x <- D$x + 0.42 * D$z
@@ -96,8 +98,10 @@ theme_set(
           axis.ticks = element_line(linewidth = 0.3),
           legend.title = element_text(size = 5.2),
           legend.text = element_text(size = 5),
-          plot.title = element_text(size = 7.5, face = "bold"),
-          plot.subtitle = element_text(size = 6.2),
+          legend.position = "bottom",
+          legend.box = "horizontal",
+          plot.title = element_text(size = 6.2, face = "bold"),
+          plot.subtitle = element_text(size = 5.2),
           plot.tag = element_text(size = 9, face = "bold"))
 )
 
@@ -156,7 +160,7 @@ p7 <- ggplot(Dz, aes(x, y, colour = observed_rate)) +
   facet_wrap(~z_panel, nrow = 1) + coord_equal() +
   scale_blue(lim_rate, "Count per\n10,000 UMI") +
   labs(title = "Observed normalized expression across selected Z planes",
-       subtitle = "Six evenly spaced observed planes; every point in each plane",
+       subtitle = "Six sections spanning z; every point in each plane",
        x = "x", y = "y")
 
 p8 <- ggplot(Dz, aes(x, y, colour = fitted_rate)) +
@@ -167,9 +171,10 @@ p8 <- ggplot(Dz, aes(x, y, colour = fitted_rate)) +
        subtitle = "Same units and color scale as the observed row",
        x = "x", y = "y")
 
-fig <- (p1 | p2 | p3) / (p4 | p5 | p6) / p7 / p8 +
-  plot_layout(heights = c(1.05, 1, 0.72, 0.72), guides = "keep") +
-  plot_annotation(tag_levels = "a")
+fig <- ((p1 | p2 | p3) / (p4 | p5 | p6) / p7 / p8 +
+  plot_layout(heights = c(1.05, 1, 0.72, 0.72), guides = "collect") +
+  plot_annotation(tag_levels = "a")) &
+  theme(legend.position = "bottom", legend.box = "horizontal")
 
 ggsave(file.path(out, "magic-snap25-inla3d.png"), fig,
        width = 183, height = 255, units = "mm", dpi = 600, bg = "white")
@@ -225,6 +230,7 @@ p3d <- layout(
   p3d,
   title = "MAGIC Snap25: all 97,830 observations",
   showlegend = FALSE,
+  margin = list(t = 90, b = 85),
   scene = list(xaxis = list(title = "x"), yaxis = list(title = "y"),
                zaxis = list(title = "z"), aspectmode = "data"),
   updatemenus = list(list(type = "dropdown", x = 0.02, y = 1.08,
@@ -270,8 +276,12 @@ Z <- aggregate(spatial_fold ~ z, D, function(x) {
 Z <- data.frame(z = Z$z, Z$spatial_fold, row.names = NULL)
 write.csv(Z, file.path(out, "spatial-fold-by-z.csv"), row.names = FALSE)
 
-readme_fig <- p2 | p3 | p6 +
-  plot_layout(guides = "keep") + plot_annotation(tag_levels = "a")
+readme_fig <- ((p2 + theme(legend.position = "bottom") |
+  p3 + theme(legend.position = "bottom") |
+  p6 + theme(legend.position = "bottom")) +
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "a")) &
+  theme(legend.position = "bottom", legend.box = "horizontal")
 ggsave("man/figures/inla3d-snap25.png", readme_fig,
        width = 180, height = 62, units = "mm", dpi = 300, bg = "white")
 saveRDS(D, file.path(out, "plotting-data.rds"), compress = "xz")

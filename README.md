@@ -6,40 +6,13 @@ mesh construction, and covariance score tests for pairs of spatial
 features. The spatial range parameter `kappa` is fixed by design. An
 intercept is projected from the SPDE coefficient space before fitting.
 
-The primary analysis uses frequentist `mgcv` estimation, including `bam` for
-larger data. INLA supplies a supplementary sparse SPDE estimator. Paired
-validation holds the data, geometry and model terms fixed, then compares
-scientific outputs while retaining estimator differences and convergence
-diagnostics. See the [paired validation report](inst/notes/inla-bam-validation.md)
-and [recorded results](inst/validation/inla-bam/).
-
-For stacked slices in three dimensions, the research route uses INLA alone,
-with geometry-adaptive tetrahedral meshes and flat log-precision and NB
-log-size objectives. The [3D feasibility study](inst/notes/inla3d-adaptive.md)
-provides standalone scripts and repeated simulations below 3,000 nodes.
-The public `mgcv` score interface is two-dimensional; the native INLA interface
-supports both two-dimensional triangulations and three-dimensional
-tetrahedral meshes.
-
-![Three-dimensional Snap25 example. Observed and fitted expression use the same
-count-per-10,000-UMI color scale; the Z-plane view shows the fitted spatial
-fold-change relative to the intercept. White denotes zero, blue deepens with
-value, and upper values are capped at the 98th percentile for display. All
-97,830 observations are retained.](man/figures/inla3d-snap25.png)
-
-The figure visualizes an already saved full-data INLA fit; it was not refitted
-through the current native API. See the [3D transfer and validation notes](inst/notes/inla3d-transfer.md)
-for its provenance. The full point cloud and orthogonal plane show how to inspect
-the fitted pattern, which is descriptive and does not by itself establish spatial
-significance. A reproducible current-API simulation is provided in
-`inst/examples/inla3d-visualization-native-demo.R`; the real-data visualization
-script is `inst/examples/inla3d-visualization.R`.
-
-The [flat-prior calibration and parallel stress study](inst/notes/inla-stress-validation.md)
-adds 4,000 null datasets and matched public parallel checks. Its
-[3D spectrum diagnostics](inst/notes/inla-score-spectrum.md) identify a
-curvature mismatch in the experimental score calculation and retain the
-original results alongside separate sensitivity analyses.
+The primary analysis uses frequentist `mgcv` estimation, including `bam`
+for larger data. INLA supplies a supplementary sparse SPDE estimator.
+Paired validation holds the data, geometry and model terms fixed, then
+compares scientific outputs while retaining estimator differences and
+convergence diagnostics. See the [paired validation
+report](inst/notes/inla-bam-validation.md) and [recorded
+results](inst/validation/inla-bam/).
 
 The package provides two `mgcv` smooths:
 
@@ -48,19 +21,22 @@ The package provides two `mgcv` smooths:
   `G = Q^{-1}` and retains the leading directions specified by
   `xt$pc_cutoff`. The fitted smooth stores `pc_score_Q`, the positive
   semidefinite score precision in the full projected coordinates, so
-  that `score_test()` tests the original score space after truncation.
+  that the raw-`G` workflow below tests the original score space after
+  truncation.
 
 Two small spatial-transcriptomics data sets are included: `MISO_E13` and
 `Visium_B`. Each contains covariates, three selected genes, a baseline
-mesh, and a finer mesh for the `0.999` principal-component analysis. All
-figures and results below are generated when this document is rendered.
+mesh, and a finer mesh for the `0.999` principal-component analysis.
+Their figures and results are regenerated when this document is
+rendered. The final MAGIC figure is reproduced separately from the
+larger local data and saved fits.
 
 ## Installation
 
 `mgcvST` uses CRAN, Bioconductor, and INLA dependencies. The
-high-throughput `mgcvST.estimate()` workflow also uses the corrected
-marginal score from `mgcv.taps`; the fitted-field figures below use
-`mgcViz`.
+high-throughput `mgcvST.estimate()` workflow includes its corrected
+marginal score calculation; the fitted-field figures below use
+`ggplot2`.
 
 ``` r
 install.packages("remotes")
@@ -68,27 +44,27 @@ install.packages("BiocManager")
 BiocManager::install("BiocParallel", ask = FALSE)
 
 install.packages(
-  c("mgcViz", "INLA"),
+  c("ggplot2", "INLA"),
   repos = c(
     getOption("repos"),
     INLA = "https://inla.r-inla-download.org/R/stable"
   )
 )
 
-remotes::install_github("harryyiheyang/mgcv.taps")
 remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 ```
 
 ## WGCNA modules from fitted score covariance
 
-`mgcvST.wgcna()` identifies modules within gene blocks selected for downstream
-analysis. It accepts a fitted `mgcvST.estimate()` or `inlaST.estimate()` result
-and preserves the current fit's score definition, including its nuisance
-adjustment. Each block uses the uncentered score covariance `crossprod(A) / q`,
-where `q` is the number of selected score coordinates, followed by correlation,
-WGCNA adjacency, topological overlap and dynamic tree cutting.
+`mgcvST.wgcna()` identifies modules within gene blocks selected for
+downstream analysis. It accepts a fitted `mgcvST.estimate()` or
+`inlaST.estimate()` result and preserves the current fit’s score
+definition, including its nuisance adjustment. Each block uses the
+uncentered score covariance `crossprod(A) / q`, where `q` is the number
+of selected score coordinates, followed by correlation, WGCNA adjacency,
+topological overlap and dynamic tree cutting.
 
-```r
+``` r
 install.packages(c("WGCNA", "dynamicTreeCut", "fastcluster"))
 
 # fit is an existing estimate; genes contains the selected feature IDs.
@@ -101,26 +77,28 @@ W <- mgcvST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2), wgcna.p
 ```
 
 The defaults are signed adjacency, power 6, signed TOM, average linkage,
-minimum module size 20 and `deepSplit = 1`. A named `wgcna.para` list overrides
-only the supplied settings. For a fit from `inlaST.estimate()` use
-`inlaST.wgcna()`, the sparse-kernel sibling with the same arguments and the
-same downstream splitting; `mgcvST.wgcna()` also accepts an INLA fit and
-dispatches to that same sparse kernel. Module labels are local to each gene
-block; label zero indicates an unassigned gene. The result retains score coordinates, covariance,
-correlation, adjacency, TOM and the clustering tree for further analysis.
+minimum module size 20 and `deepSplit = 1`. A named `wgcna.para` list
+overrides only the supplied settings. For a fit from `inlaST.estimate()`
+use `inlaST.wgcna()`, the sparse-kernel sibling with the same arguments
+and the same downstream splitting; `mgcvST.wgcna()` also accepts an INLA
+fit and dispatches to that same sparse kernel. Module labels are local
+to each gene block; label zero indicates an unassigned gene. The result
+retains score coordinates, covariance, correlation, adjacency, TOM and
+the clustering tree for further analysis.
 
-See `help("mgcvST.wgcna")` for the interface and
-[the source reconciliation record](inst/notes/wgcna-integration.md) for the
-relationship between the earlier local WGCNA implementation and this release.
+See `help("mgcvST.wgcna")` for the interface and [the source
+reconciliation record](inst/notes/wgcna-integration.md) for the
+relationship between the earlier local WGCNA implementation and this
+release.
 
 ## INLA estimation with mandatory mean-zero spatial fields
 
-`inlaST.set()` and `inlaST.estimate()` provide an INLA estimator with the
-existing marginal and pairwise score-test interfaces. Every spatial field
-is constrained to average zero over the model observations for the global
-spatial score process.
+`inlaST.set()` and `inlaST.estimate()` provide an INLA estimator with
+the existing marginal and pairwise score-test interfaces. Every spatial
+field is constrained to average zero over the model observations for the
+global spatial score process.
 
-```r
+``` r
 library(mgcvST)
 data(MISO_E13, package = "mgcvST")
 d <- MISO_E13$covariates
@@ -140,66 +118,73 @@ marginal <- inlaST.marginal(fit, calibration = "liu")
 ```
 
 The backend uses fixed `kappa`, full SPDE bases and INLA empirical-Bayes
-estimates. Spatial log precision and NB log size default to improper flat
-objectives; Gaussian observation log precision defaults to
-\(N(0,3^2)\). Each prior can be replaced explicitly with a validated INLA
-prior. INLA and mgcv REML use distinct estimation procedures. Feature estimation uses
-raw sparse precision matrices. The default score backend also uses sparse
-precision solves for a single global SPDE; shared model setup and marginal
-testing retain dense geometry. See [implementation and statistical details](inst/notes/inla-estimator.md),
-the [runnable data example](inst/examples/inla_estimator.R), and the
-[benchmark script](inst/benchmarks/inla-estimator.R).
+estimates. Spatial log precision, NB log size and Gaussian observation
+log precision default to flat hyperparameter objectives. For Gaussian
+observations, this is a prior on inverse residual variance; the
+observation distribution remains Gaussian. Each prior can be replaced
+explicitly with a validated INLA prior. INLA and mgcv REML use distinct
+estimation procedures. Feature estimation uses raw sparse precision
+matrices. The default score backend also uses sparse precision solves
+for a single global SPDE; shared model setup and marginal testing retain
+dense geometry. See [implementation and statistical
+details](inst/notes/inla-estimator.md), the [runnable data
+example](inst/examples/inla_estimator.R), and the [benchmark
+script](inst/benchmarks/inla-estimator.R).
 
-The nuisance `Vp` now comes directly from INLA's constrained conditional
-posterior covariance; the previous expected-Fisher reconstruction is retained
-separately when `diagnostics = TRUE`; default fits skip that extra solve.
-The workflow remains experimental. In independent
-500-pair low-count NB validation (mean 0.3, size 2, 200 observations,
-36 nodes, `kappa = 6`), nominal 5% rejection was 14.4% on the original
-precision scale and 0.8% with `precision_scale = "observation"`, using native
+The nuisance `Vp` now comes directly from INLA’s constrained conditional
+posterior covariance; the previous expected-Fisher reconstruction is
+retained separately when `diagnostics = TRUE`; default fits skip that
+extra solve. The workflow remains experimental. In independent 500-pair
+low-count NB validation (mean 0.3, size 2, 200 observations, 36 nodes,
+`kappa = 6`), nominal 5% rejection was 14.4% on the original precision
+scale and 0.8% with `precision_scale = "observation"`, using native
 posterior `Vp` and the conditioned SPDE score kernel. The latter was
-substantially conservative, not exactly calibrated at 5%. These historical
-validation figures used normal \(N(0,3^2)\) priors on
-spatial log precision and NB log size, rather than the current flat defaults.
+substantially conservative, not exactly calibrated at 5%. These
+historical validation figures used normal $N(0,3^2)$ priors on spatial
+log precision and NB log size, rather than the current flat defaults.
 
-The example explicitly uses observation-scale precision: the spatial flat
-log-prior is applied after normalizing the constrained field to unit average
-observation variance. This changes the parameterization and optimizer start
-on the FEM multiplier.
-`precision_scale = "raw"` remains the default. Fixed precisions and returned
-smoothing multipliers retain original FEM units. See the
-[mechanism investigation](inst/notes/inla-lowcount-investigation.md) and
-[earlier simulation interpretation](inst/notes/inla-estimated-null-interpretation.md).
-The INLA path uses the native sparse score kernel for a single global SPDE with
-fixed nuisance terms. A model with additional random blocks is rejected by
-`inlaST.set()` with the reason from the sparse capability gate. The separate
-[raw-kernel research helper](inst/benchmarks/inla-raw-kernel-sparse.R) is not
-the production method.
+The example explicitly uses observation-scale precision: the spatial
+flat log-prior is applied after normalizing the constrained field to
+unit average observation variance. This changes the parameterization and
+optimizer start on the FEM multiplier. `precision_scale = "raw"` remains
+the default. Fixed precisions and returned smoothing multipliers retain
+original FEM units. See the [mechanism
+investigation](inst/notes/inla-lowcount-investigation.md) and [earlier
+simulation
+interpretation](inst/notes/inla-estimated-null-interpretation.md). The
+INLA path uses the native sparse score kernel for a single global SPDE
+with fixed nuisance terms. A model with additional random blocks is
+rejected by `inlaST.set()` with the reason from the sparse capability
+gate. The separate [raw-kernel research
+helper](inst/benchmarks/inla-raw-kernel-sparse.R) is not the production
+method.
 
-The complete formula above is prepared through the same mgcv geometry used by
-`mgcvST.set()`. Existing code may instead supply the legacy `basis`
-argument, or pass a prepared design as `inlaST.set(G = prepared$G)`.
-Estimator controls supplied to `inlaST.set(..., control = ...)` are stored
-in the model; `inlaST.estimate(..., control = ...)` overrides named values.
-Prior specifications are replaced as complete objects. For example, the
+The complete formula above is prepared through the same mgcv geometry
+used by `mgcvST.set()`. Existing code may instead supply the legacy
+`basis` argument, or pass a prepared design as
+`inlaST.set(G = prepared$G)`. Estimator controls supplied to
+`inlaST.set(..., control = ...)` are stored in the model;
+`inlaST.estimate(..., control = ...)` overrides named values. Prior
+specifications are replaced as complete objects. For example, the
 historical normal prior can be requested with
-`precision_prior = list(prior = "normal", param = c(0, 1/9))`.
-The public model interface uses one global SPDE score process. Additional
-smooth terms may be included as nuisance structure, but they are not additional
-spatial score components.
+`precision_prior = list(prior = "normal", param = c(0, 1/9))`. The
+public model interface uses one global SPDE score process. Additional
+smooth terms may be included as nuisance structure, but they are not
+additional spatial score components.
 
-Flat priors are improper hyperpriors used for empirical-Bayes optimization;
-they do not certify a proper hyperparameter posterior or an interior maximum.
-Mean-zero constraints remain mandatory. See the
-[flat-prior and large-spot investigation](inst/notes/inla-flat-prior.md).
+Flat priors are improper hyperpriors used for empirical-Bayes
+optimization; they do not certify a proper hyperparameter posterior or
+an interior maximum. Mean-zero constraints remain mandatory. See the
+[flat-prior and large-spot
+investigation](inst/notes/inla-flat-prior.md).
 
 The production score uses the SPDE kernel already conditioned on the
-observation-mean constraint. Centering that conditioned kernel again does not
-change it. The nuisance adjustment combines native INLA `Vp` with the
-expected-likelihood working state, so its resulting operator need not satisfy
-`P %*% 1 = 0` numerically. This does not make the conditioned kernel
-equivalent to either the raw kernel or a separately formed
-`C %*% G_raw %*% C`.
+observation-mean constraint. Centering that conditioned kernel again
+does not change it. The nuisance adjustment combines native INLA `Vp`
+with the expected-likelihood working state, so its resulting operator
+need not satisfy `P %*% 1 = 0` numerically. This does not make the
+conditioned kernel equivalent to either the raw kernel or a separately
+formed `C %*% G_raw %*% C`.
 
 ## Included data and observed spatial locations
 
@@ -211,7 +196,7 @@ knitr::opts_chunk$set(
 )
 
 library(mgcv)
-library(mgcViz)
+library(ggplot2)
 library(mgcvST)
 
 data(MISO_E13, package = "mgcvST")
@@ -239,67 +224,77 @@ each included spot. The maps below display all observed spots, coloured
 by the raw count of one selected gene in each slice.
 
 ``` r
-col_miso <- hcl.colors(100L, "YlOrRd")[cut(
-  log1p(MISO_E13$expression$Mapt), breaks = 100L, include.lowest = TRUE
-)]
-col_visium <- hcl.colors(100L, "YlOrRd")[cut(
-  log1p(Visium_B$expression$mt_co3), breaks = 100L, include.lowest = TRUE
-)]
-
-op <- par(mfrow = c(1L, 2L), mar = c(4, 4, 3, 1))
-plot(
-  D_miso$x, D_miso$y, pch = 16L, cex = 0.55, col = col_miso,
-  asp = 1, xlab = "x", ylab = "y", main = "MISO E13: Mapt"
-)
-plot(
-  D_visium$x, D_visium$y, pch = 16L, cex = 0.55, col = col_visium,
-  asp = 1, xlab = "x", ylab = "y", main = "Visium B: mt_co3"
-)
+p_obs_miso <- ggplot2::ggplot(D_miso, ggplot2::aes(x, y)) +
+  ggplot2::geom_point(ggplot2::aes(colour = MISO_E13$expression$Mapt), size = 1.3) +
+  ggplot2::coord_equal() +
+  ggplot2::scale_colour_gradientn(
+    colours = c("#FFFFFF", "#6BAED6", "#08306B"),
+    limits = c(0, max(MISO_E13$expression$Mapt)), name = "Raw count",
+    guide = ggplot2::guide_colourbar(direction = "horizontal", title.position = "left",
+      barwidth = grid::unit(40, "mm"), barheight = grid::unit(2.5, "mm"))
+  ) +
+  ggplot2::theme_classic() +
+  ggplot2::theme(legend.position = "bottom", legend.direction = "horizontal",
+    legend.box = "horizontal", plot.margin = ggplot2::margin(6, 16, 6, 6)) +
+  ggplot2::labs(title = "MISO E13: Mapt")
+p_obs_visium <- ggplot2::ggplot(D_visium, ggplot2::aes(x, y)) +
+  ggplot2::geom_point(ggplot2::aes(colour = Visium_B$expression$mt_co3), size = 0.9) +
+  ggplot2::coord_equal() +
+  ggplot2::scale_colour_gradientn(
+    colours = c("#FFFFFF", "#6BAED6", "#08306B"),
+    limits = c(0, max(Visium_B$expression$mt_co3)), name = "Raw count",
+    guide = ggplot2::guide_colourbar(direction = "horizontal", title.position = "left",
+      barwidth = grid::unit(40, "mm"), barheight = grid::unit(2.5, "mm"))
+  ) +
+  ggplot2::theme_classic() +
+  ggplot2::theme(legend.position = "bottom", legend.direction = "horizontal",
+    legend.box = "horizontal", plot.margin = ggplot2::margin(6, 16, 6, 6)) +
+  ggplot2::labs(title = "Visium B: mt_co3")
+grid::grid.newpage()
+grid::pushViewport(grid::viewport(layout = grid::grid.layout(1, 2)))
+print(p_obs_miso, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 1))
+print(p_obs_visium, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 2))
+grid::popViewport()
 ```
 
 <div class="figure">
 
-<img src="README_files/figure-gfm/observed-spots-1.png" alt="Spatial spot maps for the MISO E13 and Visium B examples."  />
+<img src="README_files/figure-gfm/observed-spots-1.png" alt="Spatial spot maps for the MISO E13 and Visium B examples, with horizontal legends below."  />
 <p class="caption">
 
-Observed spots in the two bundled slices. Colours show raw counts for
-the named gene.
+All observed spots in the two bundled slices. Each horizontal scale
+shows linear raw counts for its named gene, with white at zero.
 </p>
 
 </div>
-
-``` r
-par(op)
-```
 
 ## MISO E13: PC-truncated SPDE fit, random field, and score test
 
 The following chunk fits `Mapt` and `Map1b` on the finer MISO mesh. It
 fixes `kappa = 0.1`, estimates only the smoothing parameter by REML, and
-retains the `0.999` covariance-trace PC basis. `score_test()` uses the
-stored positive-semidefinite `pc_score_Q` in the full projected
-coordinate system.
+retains the `0.999` covariance-trace PC basis. For the pairwise test,
+the raw `gam(..., fit = FALSE)` setup is passed directly to
+`mgcvST.estimate()`. This path uses the stored positive-semidefinite
+`pc_score_Q` in the full projected coordinate system.
 
 ``` r
 D_miso_mapt <- D_miso
 D_miso_map1b <- D_miso
 D_miso_mapt$response <- MISO_E13$expression$Mapt
 D_miso_map1b$response <- MISO_E13$expression$Map1b
+basis_miso_pc <- spde_basis(
+  MISO_E13$meshes$spdePC_g999, as.matrix(D_miso[, c("x", "y")]),
+  kappa = 0.1, pc_cutoff = 0.999
+)
 
 fit_miso_mapt <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = list(
-      mesh = MISO_E13$meshes$spdePC_g999,
-      pc_cutoff = 0.999
-    ), sp = c(-1, 0.1)),
+    s(x, y, bs = "spdePC", xt = basis_miso_pc, sp = -1),
   data = D_miso_mapt, family = nb(link = "log"), method = "REML"
 )
 fit_miso_map1b <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = list(
-      mesh = MISO_E13$meshes$spdePC_g999,
-      pc_cutoff = 0.999
-    ), sp = c(-1, 0.1)),
+    s(x, y, bs = "spdePC", xt = basis_miso_pc, sp = -1),
   data = D_miso_map1b, family = nb(link = "log"), method = "REML"
 )
 
@@ -313,14 +308,27 @@ data.frame(
 #>   full_projected_dimension retained_dimension retained_trace score_Q_rank
 #> 1                      150                112      0.9990077          112
 
-score_miso <- score_test(fit_miso_mapt, fit_miso_map1b, method = "liu")
+G_miso_pc <- gam(
+  formula(fit_miso_mapt), data = D_miso_mapt,
+  family = nb(link = "log"), method = "REML", fit = FALSE,
+  control = gam.control(nthreads = 1L, ncv.threads = 1L)
+)
+Y_miso_pc <- t(as.matrix(MISO_E13$expression[, c("Mapt", "Map1b")]))
+fit_pair_miso <- mgcvST.estimate(
+  Y_miso_pc, G_miso_pc, BPPARAM = BiocParallel::SerialParam()
+)
+score_miso <- mgcvST.test(
+  fit_pair_miso, pairs = matrix(c("Mapt", "Map1b"), nrow = 1L),
+  calibration = "liu", FDR = FALSE,
+  BPPARAM = BiocParallel::SerialParam(), threads = 1L
+)
 data.frame(
   pair = "Mapt--Map1b",
-  signed_score = score_miso$signed_score,
-  quadratic_statistic = score_miso$quadratic_statistic,
-  information = score_miso$information,
-  calibration = score_miso$method,
-  p_value = score_miso$p_value
+  signed_score = score_miso$results$signed_score,
+  quadratic_statistic = score_miso$results$statistic,
+  information = score_miso$results$information,
+  calibration = score_miso$calibration,
+  p_value = score_miso$results$p_two_sided
 )
 #>          pair signed_score quadratic_statistic information calibration
 #> 1 Mapt--Map1b     25.87039             669.277    29.23742         liu
@@ -328,23 +336,36 @@ data.frame(
 #> 1 5.044071e-06
 ```
 
-`mgcViz` evaluates the fitted random field on a regular grid through the
-registered `spdePC` prediction matrix.
+The fitted random field is evaluated on a regular grid through the
+registered `spdePC` prediction matrix. Predictions are restricted to the
+intersection of the supplied domain and its triangulation, preserving
+boundaries and holes.
 
 ``` r
-viz_miso <- getViz(fit_miso_mapt)
-p_miso <- plot(sm(viz_miso, 1L)) +
-  l_fitRaster() + l_fitContour() +
-  ggplot2::labs(title = "MISO E13: Mapt fitted random field")
+p_miso <- ggplot2::ggplot(grid_miso, ggplot2::aes(x, y)) +
+  ggplot2::geom_raster(ggplot2::aes(fill = field), na.rm = TRUE) +
+  ggplot2::geom_contour(data = grid_miso, ggplot2::aes(x, y, z = field),
+    inherit.aes = FALSE, colour = "black", linewidth = 0.2, na.rm = TRUE) +
+  ggplot2::scale_fill_viridis_c(name = "Spatial field", na.value = "grey85") +
+  ggplot2::coord_equal(expand = FALSE) +
+  ggplot2::theme_classic() +
+  ggplot2::labs(title = "MISO E13: Mapt fitted random field") +
+  ggplot2::theme(legend.position = "bottom", legend.direction = "horizontal",
+    legend.box = "horizontal") +
+  ggplot2::guides(fill = ggplot2::guide_colourbar(direction = "horizontal",
+    title.position = "left", barwidth = grid::unit(70, "mm"),
+    barheight = grid::unit(2.5, "mm")),
+    colour = ggplot2::guide_legend(nrow = 1))
 print(p_miso)
 ```
 
 <div class="figure">
 
-<img src="README_files/figure-gfm/miso-random-field-1.png" alt="Fitted spatial random field for Mapt in MISO E13."  />
+<img src="README_files/figure-gfm/miso-random-field-1.png" alt="Fitted spatial random field for Mapt in MISO E13, with a horizontal legend below."  />
 <p class="caption">
 
-MISO E13 Mapt fitted PC-truncated SPDE random field from mgcViz.
+MISO E13 Mapt fitted PC-truncated SPDE random field, evaluated inside
+the supplied mesh.
 </p>
 
 </div>
@@ -360,21 +381,19 @@ D_visium_mtco3 <- D_visium
 D_visium_braf <- D_visium
 D_visium_mtco3$response <- Visium_B$expression$mt_co3
 D_visium_braf$response <- Visium_B$expression$BRAFhuman
+basis_visium_pc <- spde_basis(
+  Visium_B$meshes$spdePC_g999, as.matrix(D_visium[, c("x", "y")]),
+  kappa = 0.1, pc_cutoff = 0.999
+)
 
 fit_visium_mtco3 <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = list(
-      mesh = Visium_B$meshes$spdePC_g999,
-      pc_cutoff = 0.999
-    ), sp = c(-1, 0.1)),
+    s(x, y, bs = "spdePC", xt = basis_visium_pc, sp = -1),
   data = D_visium_mtco3, family = nb(link = "log"), method = "REML"
 )
 fit_visium_braf <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = list(
-      mesh = Visium_B$meshes$spdePC_g999,
-      pc_cutoff = 0.999
-    ), sp = c(-1, 0.1)),
+    s(x, y, bs = "spdePC", xt = basis_visium_pc, sp = -1),
   data = D_visium_braf, family = nb(link = "log"), method = "REML"
 )
 
@@ -388,16 +407,27 @@ data.frame(
 #>   full_projected_dimension retained_dimension retained_trace score_Q_rank
 #> 1                      498                228      0.9990019          228
 
-score_visium <- score_test(
-  fit_visium_mtco3, fit_visium_braf, method = "liu"
+G_visium_pc <- gam(
+  formula(fit_visium_mtco3), data = D_visium_mtco3,
+  family = nb(link = "log"), method = "REML", fit = FALSE,
+  control = gam.control(nthreads = 1L, ncv.threads = 1L)
+)
+Y_visium_pc <- t(as.matrix(Visium_B$expression[, c("mt_co3", "BRAFhuman")]))
+fit_pair_visium <- mgcvST.estimate(
+  Y_visium_pc, G_visium_pc, BPPARAM = BiocParallel::SerialParam()
+)
+score_visium <- mgcvST.test(
+  fit_pair_visium, pairs = matrix(c("mt_co3", "BRAFhuman"), nrow = 1L),
+  calibration = "liu", FDR = FALSE,
+  BPPARAM = BiocParallel::SerialParam(), threads = 1L
 )
 data.frame(
   pair = "mt_co3--BRAFhuman",
-  signed_score = score_visium$signed_score,
-  quadratic_statistic = score_visium$quadratic_statistic,
-  information = score_visium$information,
-  calibration = score_visium$method,
-  p_value = score_visium$p_value
+  signed_score = score_visium$results$signed_score,
+  quadratic_statistic = score_visium$results$statistic,
+  information = score_visium$results$information,
+  calibration = score_visium$calibration,
+  p_value = score_visium$results$p_two_sided
 )
 #>                pair signed_score quadratic_statistic information calibration
 #> 1 mt_co3--BRAFhuman    -65.03883             4230.05     69.6801         liu
@@ -406,7 +436,6 @@ data.frame(
 ```
 
 ``` r
-viz_visium <- getViz(fit_visium_mtco3)
 visium_rings <- sf::st_geometry(
   Visium_B$meshes$spdePC_g999$domain.original
 )[[1L]]
@@ -418,26 +447,36 @@ visium_holes <- do.call(rbind, lapply(
     hole = i
   )
 ))
-p_visium <- plot(sm(viz_visium, 1L)) +
-  l_fitRaster() + l_fitContour() +
+p_visium <- ggplot2::ggplot(grid_visium, ggplot2::aes(x, y)) +
+  ggplot2::geom_raster(ggplot2::aes(fill = field), na.rm = TRUE) +
+  ggplot2::geom_contour(data = grid_visium, ggplot2::aes(x, y, z = field),
+    inherit.aes = FALSE, colour = "black", linewidth = 0.2, na.rm = TRUE) +
+  ggplot2::scale_fill_viridis_c(name = "Spatial field", na.value = "grey85") +
+  ggplot2::coord_equal(expand = FALSE) +
+  ggplot2::theme_classic() +
   ggplot2::geom_polygon(
     data = visium_holes,
     mapping = ggplot2::aes(x = x, y = y, group = hole),
     inherit.aes = FALSE, fill = "grey85", colour = "grey65",
     linewidth = 0.25, show.legend = FALSE
   ) +
-  ggplot2::labs(title = "Visium B: mt_co3 fitted random field")
+  ggplot2::labs(title = "Visium B: mt_co3 fitted random field") +
+  ggplot2::theme(legend.position = "bottom", legend.direction = "horizontal",
+    legend.box = "horizontal") +
+  ggplot2::guides(fill = ggplot2::guide_colourbar(direction = "horizontal",
+    title.position = "left", barwidth = grid::unit(70, "mm"),
+    barheight = grid::unit(2.5, "mm")),
+    colour = ggplot2::guide_legend(nrow = 1))
 print(p_visium)
 ```
 
 <div class="figure">
 
-<img src="README_files/figure-gfm/visium-random-field-1.png" alt="Fitted spatial random field for mt_co3 in Visium B, with the two excluded interior holes shown in grey."  />
+<img src="README_files/figure-gfm/visium-random-field-1.png" alt="Fitted spatial random field for mt_co3 in Visium B, with two excluded interior holes in grey and a horizontal legend below."  />
 <p class="caption">
 
-Visium B mt_co3 fitted PC-truncated SPDE random field from mgcViz. Grey
-polygons are the two interior holes excluded by the manual SPDE
-boundary.
+Visium B mt_co3 fitted PC-truncated SPDE random field. Grey polygons are
+the two interior holes excluded by the manual SPDE boundary.
 </p>
 
 </div>
@@ -455,10 +494,12 @@ after estimation.
 genes_miso <- c("Mapt", "Map1b", "Hist1h2ao")
 D_miso_setup <- D_miso
 D_miso_setup$response <- MISO_E13$expression[[genes_miso[1L]]]
+basis_miso_full <- spde_basis(
+  MISO_E13$meshes$spde, as.matrix(D_miso_setup[, c("x", "y")]), kappa = 0.1
+)
 G_miso <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spde", xt = list(mesh = MISO_E13$meshes$spde),
-      sp = c(-1, 0.1)),
+    s(x, y, bs = "spde", xt = basis_miso_full, sp = -1),
   data = D_miso_setup, family = nb(link = "log"), method = "REML",
   fit = FALSE, control = gam.control(nthreads = 1L, ncv.threads = 1L)
 )
@@ -473,12 +514,12 @@ test_batch_miso <- mgcvST.test(
   BPPARAM = BiocParallel::SerialParam(), calibration = "liu", threads = 1L
 )
 test_batch_miso$results[, c(
-  "feature1", "feature2", "score", "p_value", "p_adjusted", "status"
+  "feature1", "feature2", "signed_score", "p_two_sided", "p_adjusted"
 )]
-#>   feature1  feature2     score      p_value   p_adjusted status
-#> 1     Mapt     Map1b  25.44474 1.455816e-06 4.367447e-06     ok
-#> 2     Mapt Hist1h2ao -10.67423 1.473115e-02 1.473115e-02     ok
-#> 3    Map1b Hist1h2ao -16.88088 3.383823e-04 5.075734e-04     ok
+#>   feature1  feature2 signed_score  p_two_sided   p_adjusted
+#> 1     Mapt     Map1b     25.44474 1.455816e-06 4.367447e-06
+#> 2     Mapt Hist1h2ao    -10.67423 1.473115e-02 1.473115e-02
+#> 3    Map1b Hist1h2ao    -16.88088 3.383823e-04 5.075734e-04
 ```
 
 For the packaged three-core versions, set an output directory and source
@@ -495,29 +536,15 @@ source(system.file("examples", "MISO_E13.R", package = "mgcvST"))
 source(system.file("examples", "Visium_B.R", package = "mgcvST"))
 ```
 
-## Reproduce the bundled simulations
+## Simulation reference scripts
 
-`inst/examples/null.R` performs the null tail/type-I simulation. Its
-defaults are 100,000 simulations and 20 workers.
-`inst/examples/alternative.R` uses 100 replicates at each of 100
-correlation values. Both compare the baseline and `0.999` PC-truncated
-representations on the included MISO E13 and Visium B examples and save
-their results under `MGCVST_EXAMPLE_OUTPUT`.
-
-For a quick local smoke run, reduce the counts before sourcing either
-script.
-
-``` r
-Sys.setenv(
-  MGCVST_EXAMPLE_OUTPUT = normalizePath("mgcvST-results"),
-  MGCVST_EXAMPLE_WORKERS = 3,
-  MGCVST_EXAMPLE_NULL_REPS = 300,
-  MGCVST_EXAMPLE_POWER_REPS = 10
-)
-
-source(system.file("examples", "null.R", package = "mgcvST"))
-source(system.file("examples", "alternative.R", package = "mgcvST"))
-```
+`inst/examples/null.R` and `inst/examples/alternative.R` retain the
+original null-tail and power simulation designs for the baseline and
+`0.999` PC-truncated representations. These historical scripts use
+earlier smooth and score interfaces and require migration before running
+with the current release. See the [paired validation
+report](inst/notes/inla-bam-validation.md) for the settings and results
+of the newer INLA–mgcv comparisons.
 
 ## Construct a mesh from a boundary
 
@@ -531,3 +558,46 @@ boundary <- spde_boundary_learn(loc, n_holes = 0L)
 mesh <- spde_mesh(boundary, loc = loc, target = 150L)
 plot(mesh)
 ```
+
+## Three-dimensional MAGIC example
+
+The native INLA interface also supports tetrahedral meshes for stacked
+sections. The MAGIC example contains 97,830 measured spots on 93
+sections, with their recorded, unequal z spacing retained. Its supplied
+mesh has 1,962 nodes and 7,676 tetrahedra. Tfap2b is one of the regional
+markers displayed in Figure 5d of the [source
+paper](https://doi.org/10.1038/s41588-024-01906-4).
+
+<figure>
+<img src="man/figures/magic-3d-overview.png"
+alt="MAGIC section stack, tetrahedral mesh and three-dimensional fitted Tfap2b expression, shown as static projections with horizontal legends below." />
+<figcaption aria-hidden="true">MAGIC section stack, tetrahedral mesh and
+three-dimensional fitted Tfap2b expression, shown as static projections
+with horizontal legends below.</figcaption>
+</figure>
+
+The panels show the observed section stack, the supplied mesh with its
+nodes and triangular boundary faces, and fitted Tfap2b expression at the
+observed locations. All panels use the same projection and physical
+scale. The mesh view shows a cutaway of its original boundary faces
+(face-centre x ≤ 4.72 mm), together with all nodes. Expression is
+displayed as a linear rate per 10,000 UMI, starting at white for zero
+and increasing through blue; values above the 98th percentile (4.62)
+share the darkest colour.
+
+The fitted expression comes from the saved full-data, spatial-only INLA
+model with flat hyperparameter priors and the historical integral
+constraint. Section-level random effects remain an ongoing
+investigation. See the [marker and section-effect
+exploration](inst/notes/magic-slide-exploration.md) and [data
+construction instructions](inst/notes/magic-data.md). Reproduce this
+figure with `inst/examples/magic-readme-3d.R` after preparing the local
+MAGIC data and saved fits. A separate current-native-API simulation is
+available in `inst/examples/inla3d-visualization-native-demo.R`.
+
+The [3D feasibility study](inst/notes/inla3d-adaptive.md) records the
+geometry-adaptive mesh experiments, and the [transfer
+notes](inst/notes/inla3d-transfer.md) describe the real-data geometry.
+The [flat-prior stress study](inst/notes/inla-stress-validation.md) and
+[spectrum diagnostics](inst/notes/inla-score-spectrum.md) retain the
+experimental score results and their subsequent sensitivity analyses.

@@ -19,8 +19,9 @@ colnames(xyz) <- c("x", "y", "z")
 plotly_blue_scale <- list(c(0, "#FFFFFF"), c(0.5, "#6BAED6"), c(1, "#08306B"))
 plotly_colorbar <- function(title) {
   list(
-    title = list(text = title, font = list(size = 10)),
-    thickness = 15, len = 0.5, tickfont = list(size = 9)
+    title = list(text = title, side = "top", font = list(size = 10)),
+    orientation = "h", x = 0.5, xanchor = "center", y = -0.22,
+    yanchor = "top", thickness = 10, len = 0.5, tickfont = list(size = 9)
   )
 }
 
@@ -89,7 +90,7 @@ p3d <- layout(
   p3d,
   title = list(text = "MAGIC markers: 97,830 observations", x = 0.5, xanchor = "center"),
   showlegend = FALSE,
-  margin = list(t = 90),
+  margin = list(t = 90, b = 85),
   scene = list(xaxis = list(title = "x (mm)"), yaxis = list(title = "y (mm)"),
                zaxis = list(title = "z (mm)"), aspectmode = "data"),
   updatemenus = list(list(type = "dropdown", x = 0.02, y = 0.90, buttons = list(

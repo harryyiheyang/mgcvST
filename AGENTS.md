@@ -4,7 +4,7 @@
 
 - This Git checkout is the package development and release source. The separate `magicST/mgcvST` directory contains historical research source and must not be copied over this repository as a whole.
 - The author works on multiple computers. Before editing, fetch and reconcile the remote branch with local work. Preserve the author's changes; do not force-push to resolve divergence.
-- After completing and validating an authorized package update, commit and push it during the same task. The author has provided standing authorization for this workflow. Report the pushed commit and local checkout path; explicitly report any push failure.
+- Complete and validate changes locally, then present a reviewable preview. Push only after the author explicitly approves the proposed changes. This approval requirement supersedes the earlier standing authorization to push automatically.
 - Preserve running research jobs, saved input data, and historical simulation source unless the author explicitly requests their replacement.
 
 ## R code
