@@ -96,8 +96,9 @@ The `control` argument is a named list. Unknown control names are rejected.
 | `gaussian_precision_prior` | `list(prior="flat", param=numeric(), initial=0)` | Flat objective on log inverse Gaussian residual variance. |
 | `nb_size_prior` | `list(prior="flat", param=numeric(), initial=0)` | Improper flat objective on log NB size. |
 | `control.inla` | `list()` | Validated numerical INLA tuning such as `tolerance`; Gaussian/EB strategy remains mandatory. |
-| `fixed_effect_precision` | `0` | Fixed effects are unpenalized by default. |
 | `verbose` | `FALSE` | INLA engine output. |
+
+Fixed effects are always passed to INLA with explicit zero precision.
 
 Prior `initial` values are on INLA's internal logarithmic scale. Fixed values
 such as `fixed_precision`, `gaussian_precision` and `nb_size` are on their

@@ -73,7 +73,7 @@
 # dense through the score kernel's exact GLS Vp / P construction, so an
 # accidentally huge one (a factor with hundreds of levels, a wide interaction)
 # is a performance and conditioning hazard rather than a supported model.
-.INLAST_MAX_NUISANCE_COLUMNS <- 200L
+.INLAST_MAX_NUISANCE_COLUMNS <- 1000L
 
 .inlast_check_nuisance_width <- function(p_x, detail = NULL) {
   p_x <- as.integer(p_x)
@@ -90,10 +90,10 @@
 # One message for both setup paths, so the unsupported structure is stated
 # identically wherever a caller meets it.
 .INLAST_NUISANCE_SMOOTH_MESSAGE <- paste(
-  "nuisance smooths are not yet supported in the INLA path; planned: an",
-  "INLA-native smooth (binned rw2) fitted jointly with the spatial field and",
-  "profiled out taps-style in the score kernel. Supply parametric covariates",
-  "instead."
+  "nuisance smooths are not supported by the frozen-design INLA path.",
+  "Native mesh setup accepts categorical s(group, bs = 're') terms and",
+  "full-rank-penalty s(..., bs = 'gp') terms. Other nuisance smooths are",
+  "unsupported."
 )
 
 .inlast_reject_nuisance_smooth <- function(labels) {
@@ -125,7 +125,7 @@
   nuisance <- setdiff(seq_len(ncol(model$L)), tested)
   geometry$nuisance_columns <- nuisance
   geometry$nuisance_design <- model$L[, nuisance, drop = FALSE]
-  geometry$nuisance_projection <- "conditional_INLA_block"
+  geometry$nuisance_projection <- "expected_Fisher_penalized_Vp"
   .inlast_check_nuisance_width(length(nuisance))
   model$geometry <- geometry
 
@@ -212,18 +212,25 @@
 #' Supported families are Gaussian with identity link, Poisson
 #' with log link, and negative binomial with log link. Exactly one full
 #' fixed-kappa SPDE basis is the tested spatial target, and it is the only
-#' smooth the model may contain. Spatial
-#' mean-zero constraints cannot be disabled. Observation weights and
-#' additional cross-penalties are not supported.
+#' smooth in a frozen design. Native mesh setup also supports any number of
+#' admissible iid nuisance blocks. Spatial mean-zero constraints cannot be
+#' disabled. Observation weights and additional cross-penalties are not
+#' supported.
 #'
 #' @section Nuisance smooths:
-#' The native INLA setup uses one spatial target and parametric nuisance terms.
-#' A non-target `s()`, `te()`, `ti()` or `t2()` term is rejected at setup.
+#' The native INLA setup supports one spatial target and any number of
+#' categorical `s(group, bs = "re")` terms or `s(..., bs = "gp")` terms whose
+#' penalty is full rank after the observation intercept is projected out.
+#' Each GP design and penalty are transformed together and whitened to an iid
+#' block. Every iid block retains its estimated precision penalty in the small
+#' nuisance `Vp` block alongside the unpenalized fixed effects. Numeric
+#' random-effect groups, `by=` nuisance terms, rank-deficient GP penalties and
+#' other smooth bases are outside the native INLA model.
 #'
 #' Parametric covariates are supported: numeric columns, factors and
 #' their interactions all enter the nuisance design as fixed effects. A second
 #' spatial (`bs = "spde"`) term is rejected, and the total nuisance design is
-#' capped at 200 columns.
+#' capped at 1000 columns.
 #'
 #' @inheritParams model.set
 #' @param G Optional frozen `gam.prefit` design, supplied instead of formula,
@@ -234,10 +241,9 @@
 #'   [spde_mesh()], an `fm_mesh_2d`, or an `fm_mesh_3d`. When supplied, the
 #'   single spatial term is built directly from `mesh`, `kappa` and
 #'   `coordinates`; `formula` then contains only the response, an optional
-#'   `offset()` and parametric terms, and no dense observation-by-coefficient
-#'   basis is ever formed. Any smooth term in `formula` is rejected; see the
-#'   nuisance-smooth section. Mesh dimension (2 or 3) is detected
-#'   automatically.
+#'   `offset()`, parametric terms, and admissible nuisance terms. The spatial
+#'   projector remains sparse; the bounded nuisance design is dense. See the
+#'   nuisance-smooth section. Mesh dimension (2 or 3) is detected automatically.
 #' @param kappa Fixed positive spatial scale required by `mesh`. With
 #'   `alpha = 2` the Matern smoothness is `nu = 1` in 2D and `nu = 1/2` in 3D,
 #'   and the practical range is `sqrt(8 * nu) / kappa`.
@@ -441,8 +447,7 @@ inlaST.set <- function(
 # function. Every serialized argument (sparse Matrix blocks, plain lists and
 # vectors) is likewise free of mgcvST classes.
 .inlast_chunk_task <- function() {
-  task <- function(index, Y, spec, base_offset, extra_offset, control,
-                   diagnostics, libpaths, poisson = NULL) {
+  task <- function(payload, spec, base_offset, control, diagnostics, libpaths) {
     if (length(libpaths)) .libPaths(unique(c(libpaths, .libPaths())))
     # A worker can arrive with mgcvST already loaded from another library:
     # deserialising exported globals (e.g. testthat's topLevelEnvironment
@@ -457,8 +462,9 @@ inlaST.set <- function(
       if (!same) try(unloadNamespace("mgcvST"), silent = TRUE)
     }
     fun <- get(".inlast_fit_chunk", envir = asNamespace("mgcvST"))
-    fun(index, Y, spec, base_offset, extra_offset, control, diagnostics,
-        poisson)
+    index <- payload$index
+    fun(seq_along(index), payload$Y, spec, base_offset,
+        payload$extra_offset, control, diagnostics, payload$poisson)
   }
   environment(task) <- baseenv()
   task
@@ -498,8 +504,9 @@ inlaST.set <- function(
 #' @param feature_id Unique feature identifiers.
 #' @param BPPARAM A `BiocParallelParam` distributing feature chunks over
 #'   workers. Each worker fits its own features with INLA using
-#'   `control$num_threads` (default one), so workers multiply rather than share
-#'   threads; downstream marginal work uses OpenMP `threads` in the manager.
+#'   `control$num_threads` (default `1L`). Setting it to `NULL` lets INLA choose
+#'   its own thread count, which can oversubscribe BiocParallel workers.
+#'   Downstream marginal work uses OpenMP `threads` in the manager.
 #'   `SerialParam()` keeps everything in one process.
 #' @param chunk_size Positive number of features per task.
 #' @param offset Optional shared observation offset or matrix matching `Y`.
@@ -509,7 +516,9 @@ inlaST.set <- function(
 #'   merge by name. Explicit `NULL` resets optional fixed parameters, except
 #'   NB size fixed by the model family. The supported approximation is
 #'   `int_strategy = "eb"`, `latent_strategy = "gaussian"`. `num_threads`
-#'   defaults to one. Optional positive `fixed_precision`,
+#'   defaults to `1L`; set it explicitly to raise INLA's thread count per worker.
+#'   Fixed effects always use explicit zero precision in INLA.
+#'   Optional positive `fixed_precision`,
 #'   `gaussian_precision`, and `nb_size` fix latent precision multipliers,
 #'   inverse Gaussian residual variance, and NB size, respectively.
 #'   `fixed_precision` values always refer to the original FEM multiplier,
@@ -537,16 +546,18 @@ inlaST.set <- function(
 #'   `phi` and the family actually used are reported in the diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
 #' @param retain_smooth Retain estimated score-component coefficients.
-#' @param diagnostics Retain per-feature INLA diagnostics and compute the
-#'   expected-Fisher nuisance covariance for comparison with native `Vp`.
-#'   When `FALSE`, that extra solve is skipped and its per-feature entries
-#'   in `expected_nuisance_covariance` are `NULL`.
+#' @param diagnostics Retain an additional reference to the expected-Fisher
+#'   nuisance covariance in `expected_nuisance_covariance`. This covariance
+#'   is always reconstructed for `nuisance_covariance`; no extra solve is needed.
 #' @param retain_marginal Retain the frozen state needed by [mgcvST.marginal()].
 #' @details Hyperparameter priors remain part of INLA's empirical-Bayes
 #' estimates; these are not mgcv REML estimates. `mgcv::nb(theta = value)`
 #' fixes NB size, and a conflicting `control$nb_size` is rejected. The
 #' working model uses conditional latent estimates and expected Fisher
-#' variances. Sparse downstream scores rebuild the nuisance covariance from
+#' variances with INLA `config = FALSE`. The small coefficient covariance
+#' is reconstructed by sparse precision solves without an observation-level inverse.
+#' Cross-feature iid effects are treated as independent in pairwise calibration.
+#' Sparse downstream scores rebuild the nuisance covariance from
 #' the same expected Fisher matrix and use exact Liu trace moments;
 #' this does not establish finite-sample calibration after hyperparameter
 #' estimation. Every spatial component's constraint residual and observed
@@ -622,21 +633,29 @@ inlaST.estimate <- function(
   workers <- max(1L, min(length(groups), BiocParallel::bpworkers(BPPARAM)))
   # Feature chunks are independent latent Gaussian models. The spec is plain
   # sparse data, INLA's external binary uses per-process working directories,
-  # and control$num_threads stays at its default of one inside each worker, so
-  # chunk-level BiocParallel parallelism is safe.
+  # and the caller controls the INLA thread count inside each worker.
   t0 <- proc.time()[["elapsed"]]
+  n <- ncol(Y)
+  p <- nrow(Y)
+  payloads <- lapply(groups, function(index) {
+    extra_offset <- if (is.null(offset) || !is.matrix(offset)) offset else
+      offset[index, , drop = FALSE]
+    list(index = index, Y = Y[index, , drop = FALSE],
+         extra_offset = extra_offset,
+         poisson = if (any(prescreen$poisson)) prescreen$poisson[index] else NULL)
+  })
+  rm(Y)
+  checked$Y <- NULL
   chunks <- BiocParallel::bplapply(
-    groups, .inlast_chunk_task(), Y = Y, spec = model$inla_spec,
-    base_offset = model$offset, extra_offset = offset, control = control,
-    diagnostics = diagnostics, libpaths = .libPaths(),
-    poisson = if (any(prescreen$poisson)) prescreen$poisson else NULL,
+    payloads, .inlast_chunk_task(), spec = model$inla_spec,
+    base_offset = model$offset,
+    control = control, diagnostics = diagnostics, libpaths = .libPaths(),
     BPPARAM = BPPARAM
   )
+  rm(payloads)
   fit_elapsed <- proc.time()[["elapsed"]] - t0
   fits <- unlist(chunks, recursive = FALSE)
 
-  n <- ncol(Y)
-  p <- nrow(Y)
   E <- V <- matrix(NA_real_, n, p, dimnames = list(NULL, feature_id))
   dispersion <- stats::setNames(rep(NA_real_, p), feature_id)
   family_parameters <- stats::setNames(vector("list", p), feature_id)
@@ -753,6 +772,8 @@ inlaST.estimate <- function(
     mean_constraint_active = TRUE,
     call = match.call()
   ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
+  chunks <- NULL
+  fits <- NULL
   ans$marginal_data <- list(version = 2L, definition = "sparse_INLA_marginal_TAPS_Liu")
   valid <- which(diagnostics_table$converged)
   if (length(valid)) {

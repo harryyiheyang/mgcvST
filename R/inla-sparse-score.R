@@ -9,8 +9,15 @@
     which(vapply(random, function(x) isTRUE(x$target), logical(1L)))
   } else integer()
   reasons <- character()
-  if (!is.list(random) || length(random) != 1L) {
-    reasons <- c(reasons, "exactly one random block is required")
+  if (!is.list(random) || !length(random)) {
+    reasons <- c(reasons, "one SPDE target block is required")
+  }
+  nuisance <- if (is.list(random) && length(random) > 1L) random[-1L] else list()
+  if (length(nuisance) &&
+      !all(vapply(nuisance, function(z) {
+        identical(z$kind, "nuisance") && identical(z$subtype, "iid")
+      }, logical(1L)))) {
+    reasons <- c(reasons, "every nuisance random block must be iid")
   }
   if (length(target) != 1L || !identical(target, 1L)) {
     reasons <- c(reasons, "exactly one target SPDE block is required")
@@ -38,7 +45,7 @@
     cache = new.env(parent = emptyenv()),
     target = "global", sp_index = as.integer(block$sp_index),
     normalization = ncol(Q) - 1L,
-    definition = "constrained sparse INLA; expected curvature; exact Liu"
+    definition = "constrained sparse INLA; expected curvature; penalized nuisance Vp"
   )
 }
 
@@ -92,6 +99,19 @@
   fit
 }
 
+.inlast_sparse_nuisance_precision <- function(fit, features) {
+  spec <- fit$model$inla_spec
+  if (is.null(spec)) spec <- fit$inla_spec
+  if (is.null(spec)) return(NULL)
+  blocks <- which(vapply(spec$random, function(z) !isTRUE(z$target), logical(1L)))
+  if (!length(blocks)) return(NULL)
+  width <- vapply(spec$random[blocks], function(z) ncol(z$A), integer(1L))
+  sp <- vapply(spec$random[blocks], function(z) as.integer(z$sp_index), integer(1L))
+  precision <- t(fit$smoothing_parameters[features, sp, drop = FALSE] /
+                   as.numeric(fit$dispersion[features]))
+  .inlast_iid_nuisance_precision(ncol(spec$fixed$X), width, precision, length(features))
+}
+
 .inlast_sparse_batch <- function(fit, features, threads = 1L,
                                  score_only = FALSE, null_target = FALSE) {
   fit <- .inlast_sparse_prepare(fit)
@@ -115,7 +135,8 @@
     as.numeric(geometry$constraint), as.matrix(fit$geometry$nuisance_design),
     fit$working_error[, features, drop = FALSE],
     fit$working_variance[, features, drop = FALSE], tau,
-    as.integer(threads), score_only, null_target, 32L, geometry$cache$prepared
+    as.integer(threads), score_only, null_target, 32L, geometry$cache$prepared,
+    nuisance_precision = .inlast_sparse_nuisance_precision(fit, features)
   )
   for (j in seq_along(out)) {
     out[[j]]$width <- stats::setNames(length(out[[j]]$a), geometry$target)
@@ -141,7 +162,8 @@
     as.numeric(geometry$constraint), as.matrix(fit$geometry$nuisance_design),
     fit$working_error[, features, drop = FALSE],
     fit$working_variance[, features, drop = FALSE], tau,
-    as.integer(threads), geometry$cache$prepared
+    as.integer(threads), geometry$cache$prepared,
+    nuisance_precision = .inlast_sparse_nuisance_precision(fit, features)
   )
 }
 

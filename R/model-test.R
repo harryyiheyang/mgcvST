@@ -135,7 +135,7 @@
   if (length(threads) != 1L || is.na(threads) || threads < 1L) {
     stop("threads must be one positive integer.")
   }
-  .mgcvst_thread_limit()
+  if (!inla_fit) .mgcvst_thread_limit()
 
   index <- .mgcvst_pair_index(pairs, fitmgcvST$feature_id)
   highlight_index <- matrix(integer(), nrow = 0L, ncol = 2L)

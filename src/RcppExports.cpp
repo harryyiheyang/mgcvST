@@ -53,8 +53,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_inla_sparse_batch_cpp
-Rcpp::List mgcvst_inla_sparse_batch_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> E, const Eigen::Map<Eigen::MatrixXd> D, const Eigen::Map<Eigen::VectorXd> tau, int threads, bool score_only, bool null_target, int block_size, SEXP prepared, bool unit_only);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_batch_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP ESEXP, SEXP DSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP score_onlySEXP, SEXP null_targetSEXP, SEXP block_sizeSEXP, SEXP preparedSEXP, SEXP unit_onlySEXP) {
+Rcpp::List mgcvst_inla_sparse_batch_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> E, const Eigen::Map<Eigen::MatrixXd> D, const Eigen::Map<Eigen::VectorXd> tau, int threads, bool score_only, bool null_target, int block_size, SEXP prepared, bool unit_only, Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision);
+RcppExport SEXP _mgcvST_mgcvst_inla_sparse_batch_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP ESEXP, SEXP DSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP score_onlySEXP, SEXP null_targetSEXP, SEXP block_sizeSEXP, SEXP preparedSEXP, SEXP unit_onlySEXP, SEXP nuisance_precisionSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -71,13 +71,14 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type block_size(block_sizeSEXP);
     Rcpp::traits::input_parameter< SEXP >::type prepared(preparedSEXP);
     Rcpp::traits::input_parameter< bool >::type unit_only(unit_onlySEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_batch_cpp(A_map, Q_map, constraint, X, E, D, tau, threads, score_only, null_target, block_size, prepared, unit_only));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type nuisance_precision(nuisance_precisionSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_batch_cpp(A_map, Q_map, constraint, X, E, D, tau, threads, score_only, null_target, block_size, prepared, unit_only, nuisance_precision));
     return rcpp_result_gen;
 END_RCPP
 }
 // mgcvst_inla_sparse_units_cpp
-Rcpp::List mgcvst_inla_sparse_units_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> E, const Eigen::Map<Eigen::MatrixXd> D, const Eigen::Map<Eigen::VectorXd> tau, int threads, SEXP prepared);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_units_cpp(SEXP ASEXP, SEXP QSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP ESEXP, SEXP DSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP preparedSEXP) {
+Rcpp::List mgcvst_inla_sparse_units_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> E, const Eigen::Map<Eigen::MatrixXd> D, const Eigen::Map<Eigen::VectorXd> tau, int threads, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision);
+RcppExport SEXP _mgcvST_mgcvst_inla_sparse_units_cpp(SEXP ASEXP, SEXP QSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP ESEXP, SEXP DSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -90,7 +91,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type tau(tauSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
     Rcpp::traits::input_parameter< SEXP >::type prepared(preparedSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_units_cpp(A, Q, constraint, X, E, D, tau, threads, prepared));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type nuisance_precision(nuisance_precisionSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_units_cpp(A, Q, constraint, X, E, D, tau, threads, prepared, nuisance_precision));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -141,8 +143,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 7},
     {"_mgcvST_mgcvst_inla_sparse_prepare_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepare_cpp, 2},
     {"_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp, 1},
-    {"_mgcvST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_batch_cpp, 13},
-    {"_mgcvST_mgcvst_inla_sparse_units_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_units_cpp, 9},
+    {"_mgcvST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_batch_cpp, 14},
+    {"_mgcvST_mgcvst_inla_sparse_units_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_units_cpp, 10},
     {"_mgcvST_mgcvst_inla_sparse_materialize_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_cpp, 6},
     {"_mgcvST_mgcvst_marginal_liu_moments_cpp", (DL_FUNC) &_mgcvST_mgcvst_marginal_liu_moments_cpp, 2},
     {"_mgcvST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_trace_powers_cpp, 4},

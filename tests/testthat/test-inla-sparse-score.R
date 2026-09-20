@@ -119,9 +119,9 @@ test_that("a nuisance smooth is rejected at set() on both INLA paths", {
   skip_on_cran()
   f <- .inlast_sparse_fixture(n = 56L, seed = 1721L)
   s <- mgcv::s
-  # The current sparse INLA contract accepts parametric covariates and one
-  # spatial field. A smooth term is rejected before model construction.
-  expected <- "nuisance smooths are not yet supported in the INLA path"
+  # Frozen designs reject nuisance smooths; native mesh setup accepts the
+  # supported random-effect and whitened-GP iid blocks.
+  expected <- "nuisance smooths are not supported by the frozen-design INLA path"
   expect_error(
     inlaST.set(
       response ~ s(z, k = 5) + offset(offset0),
@@ -135,12 +135,10 @@ test_that("a nuisance smooth is rejected at set() on both INLA paths", {
       family = gaussian(), mesh = f$mesh, kappa = 1.2,
       coordinates = c("x", "y")
     ),
-    expected
+    "nuisance term must be"
   )
   expect_match(mgcvST:::.INLAST_NUISANCE_SMOOTH_MESSAGE,
-               "INLA-native smooth [(]binned rw2[)]")
-  expect_match(mgcvST:::.INLAST_NUISANCE_SMOOTH_MESSAGE,
-               "Supply parametric covariates instead")
+               "Native mesh setup")
 })
 
 test_that("parametric covariates remain fully supported on both INLA paths", {
@@ -189,13 +187,13 @@ test_that("a second spatial SPDE term is still rejected at set()", {
 })
 
 test_that("a wide parametric nuisance design is rejected with a dedicated message", {
-  expect_error(mgcvST:::.inlast_check_nuisance_width(201L),
+  expect_error(mgcvST:::.inlast_check_nuisance_width(1001L),
                "dedicated implementation")
-  expect_silent(mgcvST:::.inlast_check_nuisance_width(200L))
+  expect_silent(mgcvST:::.inlast_check_nuisance_width(1000L))
   skip_on_cran()
-  f <- .inlast_sparse_fixture(n = 260L, seed = 1725L)
+  f <- .inlast_sparse_fixture(n = 1100L, seed = 1725L)
   # A factor with many levels expands to a wide dense nuisance design.
-  f$data$grp <- factor(rep(seq_len(210L), length.out = nrow(f$data)))
+  f$data$grp <- factor(rep(seq_len(1010L), length.out = nrow(f$data)))
   expect_error(
     inlaST.set(
       response ~ grp + offset(offset0), f$data, f$basis, family = gaussian()

@@ -34,7 +34,6 @@
     method_requested = "liu", method_used = "liu", fallback_used = FALSE,
     fallback_reason = NA_character_, davies_ifault = NA_integer_,
     error_message = NA_character_, stringsAsFactors = FALSE)
-  .mgcvst_thread_limit()
   for (rows in split(seq_along(i), ceiling(seq_along(i) / chunk_size))) {
     z <- .inlast_sparse_batch(fit, i[rows], threads, null_target = TRUE)
     for (j in seq_along(rows)) {

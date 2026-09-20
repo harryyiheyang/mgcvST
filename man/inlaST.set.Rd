@@ -53,10 +53,9 @@ data and basis. Its full SPDE terms must satisfy the observation constraint.}
 \code{\link[=spde_mesh]{spde_mesh()}}, an \code{fm_mesh_2d}, or an \code{fm_mesh_3d}. When supplied, the
 single spatial term is built directly from \code{mesh}, \code{kappa} and
 \code{coordinates}; \code{formula} then contains only the response, an optional
-\code{offset()} and parametric terms, and no dense observation-by-coefficient
-basis is ever formed. Any smooth term in \code{formula} is rejected; see the
-nuisance-smooth section. Mesh dimension (2 or 3) is detected
-automatically.}
+\code{offset()}, parametric terms, and admissible nuisance terms. The spatial
+projector remains sparse; the bounded nuisance design is dense. See the
+nuisance-smooth section. Mesh dimension (2 or 3) is detected automatically.}
 
 \item{kappa}{Fixed positive spatial scale required by \code{mesh}. With
 \code{alpha = 2} the Matern smoothness is \code{nu = 1} in 2D and \code{nu = 1/2} in 3D,
@@ -79,18 +78,24 @@ compatible constrained SPDE design; otherwise rebuild it from formula/data.
 Supported families are Gaussian with identity link, Poisson
 with log link, and negative binomial with log link. Exactly one full
 fixed-kappa SPDE basis is the tested spatial target, and it is the only
-smooth the model may contain. Spatial
-mean-zero constraints cannot be disabled. Observation weights and
-additional cross-penalties are not supported.
+smooth in a frozen design. Native mesh setup also supports any number of
+admissible iid nuisance blocks. Spatial mean-zero constraints cannot be
+disabled. Observation weights and additional cross-penalties are not
+supported.
 }
 \section{Nuisance smooths}{
 
-The native INLA setup uses one spatial target and parametric nuisance terms.
-A non-target \code{s()}, \code{te()}, \code{ti()} or \code{t2()} term is
-rejected at setup.
+The native INLA setup supports one spatial target and any number of
+categorical \code{s(group, bs = "re")} terms or \code{s(..., bs = "gp")} terms whose
+penalty is full rank after the observation intercept is projected out.
+Each GP design and penalty are transformed together and whitened to an iid
+block. Every iid block retains its estimated precision penalty in the small
+nuisance \code{Vp} block alongside the unpenalized fixed effects. Numeric
+random-effect groups, \code{by=} nuisance terms, rank-deficient GP penalties and
+other smooth bases are outside the native INLA model.
 
 Parametric covariates are supported: numeric columns, factors and
 their interactions all enter the nuisance design as fixed effects. A second
 spatial (\code{bs = "spde"}) term is rejected, and the total nuisance design is
-capped at 200 columns.
+capped at 1000 columns.
 }

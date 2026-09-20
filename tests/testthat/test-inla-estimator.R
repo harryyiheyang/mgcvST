@@ -84,8 +84,7 @@ test_that("inlaST Gaussian mode agrees with a fixed-hyperparameter oracle", {
     family = gaussian()
   )
   control <- list(
-    fixed_precision = 2.5, gaussian_precision = 1 / 0.09,
-    fixed_effect_precision = 0
+    fixed_precision = 2.5, gaussian_precision = 1 / 0.09
   )
   engine <- mgcvST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset, control = control
@@ -222,8 +221,7 @@ test_that("NB joint mode satisfies the fixed-hyperparameter penalized score equa
   engine <- mgcvST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset,
     control = list(
-      fixed_precision = tau, nb_size = 4,
-      fixed_effect_precision = 0
+      fixed_precision = tau, nb_size = 4
     )
   )
 
@@ -249,7 +247,7 @@ test_that("NB joint mode satisfies the fixed-hyperparameter penalized score equa
   expect_lt(abs(mean(B %*% u)), 1e-10)
 })
 
-test_that("INLA nuisance covariance is the constrained conditional posterior block", {
+test_that("INLA nuisance covariance uses expected curvature without configs", {
   skip_on_cran()
   f <- .inlast_fixture(n = 64L, seed = 918L)
   d <- f$data
@@ -263,53 +261,20 @@ test_that("INLA nuisance covariance is the constrained conditional posterior blo
   engine <- mgcvST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset,
     control = list(
-      fixed_precision = 1.7, nb_size = 2,
-      fixed_effect_precision = 0, keep_fit = TRUE
+      fixed_precision = 1.7, nb_size = 2, keep_fit = TRUE
     ), diagnostics = TRUE
   )
 
-  posterior <- mgcvST:::.inlast_posterior_vp(
-    engine$inla, model$inla_spec
-  )
-  expect_equal(
-    engine$nuisance_covariance,
-    posterior$nuisance_covariance,
-    tolerance = 1e-12
-  )
-  expect_equal(
-    unname(diag(engine$nuisance_covariance)),
-    unname(engine$inla$summary.fixed[, "sd"]^2),
-    tolerance = 2e-6
-  )
-  expect_true(is.matrix(engine$expected_nuisance_covariance))
-  expect_identical(
-    dim(engine$expected_nuisance_covariance),
-    dim(engine$nuisance_covariance)
-  )
-
-  config <- engine$inla$misc$configs$config[[1L]]
-  full <- mgcvST:::.inlast_posterior_covariance_selected(
-    engine$inla, seq_len(nrow(config$Q))
-  )
-  constraint <- engine$inla$misc$configs$constr$A
-  expect_lt(max(abs(constraint %*% full$covariance)), 1e-8)
-
-  contents <- engine$inla$misc$configs$contents
-  offset <- engine$inla$misc$configs$mnpred
-  expected_variance <- rep(NA_real_, nrow(config$Q))
-  for (j in seq_along(contents$tag)) {
-    tag <- contents$tag[j]
-    start <- contents$start[j] - offset
-    if (start < 1L || start > length(expected_variance)) next
-    index <- start + seq_len(contents$length[j]) - 1L
-    if (tag %in% names(engine$inla$summary.random)) {
-      expected_variance[index] <- engine$inla$summary.random[[tag]]$sd^2
-    } else if (tag %in% rownames(engine$inla$summary.fixed)) {
-      expected_variance[index] <- engine$inla$summary.fixed[tag, "sd"]^2
-    }
-  }
-  expect_false(anyNA(expected_variance))
-  expect_equal(diag(full$covariance), expected_variance, tolerance = 2e-6)
+  X <- model$geometry$X
+  B <- model$geometry$smooth[[1L]]$B
+  Q <- model$geometry$smooth[[1L]]$penalties[[1L]]
+  T <- cbind(X, B)
+  H <- crossprod(T / sqrt(engine$working_variance)) +
+    as.matrix(Matrix::bdiag(matrix(0, ncol(X), ncol(X)), 1.7 * Q))
+  oracle <- solve(H)[seq_len(ncol(X)), seq_len(ncol(X)), drop = FALSE]
+  expect_equal(unname(engine$nuisance_covariance), unname(oracle), tolerance = 1e-9)
+  expect_identical(engine$expected_nuisance_covariance, engine$nuisance_covariance)
+  expect_null(engine$inla$misc$configs)
 })
 
 test_that("inlaST compact fits run the existing covariance score path", {

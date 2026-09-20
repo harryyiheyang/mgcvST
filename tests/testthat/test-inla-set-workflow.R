@@ -60,8 +60,7 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   f <- .inlast_set_workflow_fixture()
   d <- f$data
   basis <- f$basis
-  stored <- list(fixed_precision = 1.25, gaussian_precision = 4,
-                 fixed_effect_precision = 0)
+  stored <- list(fixed_precision = 1.25, gaussian_precision = 4)
 
   by_basis <- inlaST.set(
     response ~ z + offset(offset0), d, basis,
@@ -135,7 +134,7 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   expect_error(inlaST.set(G = bad_G), "mean|cent|formula|projection")
 })
 
-test_that("diagnostic covariance is optional and leaves the native score unchanged", {
+test_that("diagnostic covariance reuses the required expected solve", {
   skip_on_cran()
   f <- .inlast_set_workflow_fixture()
   model <- inlaST.set(
@@ -145,10 +144,6 @@ test_that("diagnostic covariance is optional and leaves the native score unchang
   )
   diagnostic <- inlaST.estimate(f$Y, model, diagnostics = TRUE)
   expect_true(all(vapply(diagnostic$expected_nuisance_covariance, is.matrix, logical(1))))
-  testthat::local_mocked_bindings(
-    .inlast_expected_covariance = function(...) stop("Unrequested diagnostic solve"),
-    .package = "mgcvST"
-  )
   ordinary <- inlaST.estimate(f$Y, model)
   expect_true(all(ordinary$diagnostics$converged))
   expect_true(all(vapply(ordinary$expected_nuisance_covariance, is.null, logical(1))))
@@ -211,7 +206,6 @@ test_that("stored INLA controls are inherited and explicit controls override", {
   skip_on_cran()
   f <- .inlast_set_workflow_fixture(seed = 1602L)
   stored <- list(fixed_precision = 1.25, gaussian_precision = 4,
-                 fixed_effect_precision = 0,
                  precision_prior = list(
                    prior = "normal", param = c(0, 1 / 9), initial = -.5
                  ))
@@ -242,7 +236,7 @@ test_that("stored INLA controls are inherited and explicit controls override", {
   expect_lt(max(abs(.inlast_set_workflow_spatial_mean(inherited))), 1e-10)
   expect_true(all(vapply(inherited$nuisance_covariance, is.matrix, logical(1L))))
   expect_identical(inherited$geometry$nuisance_projection,
-                   "conditional_INLA_block")
+                   "expected_Fisher_penalized_Vp")
   expect_identical(inherited$score_backend, "sparse")
   expect_identical(
     inherited$estimation$control$precision_prior,
@@ -301,8 +295,7 @@ test_that("set control and native geometry survive serialization and SOCK", {
   basis <- f$basis
   complete <- response ~ z + offset(offset0) +
     s(u, v, bs = "spde", xt = basis)
-  stored <- list(fixed_precision = 1.4, gaussian_precision = 5,
-                 fixed_effect_precision = 0)
+  stored <- list(fixed_precision = 1.4, gaussian_precision = 5)
   model <- inlaST.set(complete, f$data, gaussian(), control = stored)
   restored <- unserialize(serialize(model, NULL))
 
@@ -332,5 +325,5 @@ test_that("set control and native geometry survive serialization and SOCK", {
   expect_lt(max(abs(.inlast_set_workflow_spatial_mean(parallel, 1L))), 1e-10)
   expect_lt(max(abs(.inlast_set_workflow_spatial_mean(parallel, 2L))), 1e-10)
   expect_identical(parallel$geometry$nuisance_projection,
-                   "conditional_INLA_block")
+                   "expected_Fisher_penalized_Vp")
 })

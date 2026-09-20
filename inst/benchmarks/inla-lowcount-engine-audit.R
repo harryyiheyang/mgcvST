@@ -134,7 +134,7 @@ for (j in seq_along(responses)) {
     model$inla_spec, y, offset = model$offset,
     control = list(
       fixed_precision = tau, nb_size = size,
-      fixed_effect_precision = 0, keep_fit = TRUE
+      keep_fit = TRUE
     )
   )
   posterior <- inlast_posterior_vp(engine$inla, model$inla_spec)

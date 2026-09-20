@@ -27,8 +27,9 @@ inlaST.estimate(
 
 \item{BPPARAM}{A \code{BiocParallelParam} distributing feature chunks over
 workers. Each worker fits its own features with INLA using
-\code{control$num_threads} (default one), so workers multiply rather than share
-threads; downstream marginal work uses OpenMP \code{threads} in the manager.
+\code{control$num_threads} (default \code{1L}). Setting it to \code{NULL} lets INLA choose
+its own thread count, which can oversubscribe BiocParallel workers.
+Downstream marginal work uses OpenMP \code{threads} in the manager.
 \code{SerialParam()} keeps everything in one process.}
 
 \item{chunk_size}{Positive number of features per task.}
@@ -41,7 +42,9 @@ prior list replaces the whole prior; numerical \code{control.inla} entries
 merge by name. Explicit \code{NULL} resets optional fixed parameters, except
 NB size fixed by the model family. The supported approximation is
 \code{int_strategy = "eb"}, \code{latent_strategy = "gaussian"}. \code{num_threads}
-defaults to one. Optional positive \code{fixed_precision},
+defaults to \code{1L}; set it explicitly to raise INLA's thread count per worker.
+Fixed effects always use explicit zero precision in INLA.
+Optional positive \code{fixed_precision},
 \code{gaussian_precision}, and \code{nb_size} fix latent precision multipliers,
 inverse Gaussian residual variance, and NB size, respectively.
 \code{fixed_precision} values always refer to the original FEM multiplier,
@@ -54,9 +57,10 @@ parameters on the log scale. Gaussian observation precision defaults to
 internal log precision \code{-log(variance)}. On the variance scale this has
 density proportional to \code{1/variance}; it is a Gaussian dispersion prior,
 distinct from the negative-binomial size prior. Custom normal, registered
-scalar INLA priors, and INLA expression/table priors remain supported. Normal
-parameters are mean and precision. A flat log-hyperparameter objective
-corresponds to density proportional to \code{1/parameter} on its positive scale.
+scalar INLA priors, and INLA expression/table priors remain supported.
+Normal parameters are mean and precision. A flat log-hyperparameter
+objective corresponds to density proportional to \code{1/parameter} on its
+positive scale.
 \code{control.inla} accepts supported numerical tuning, with Gaussian latent
 strategy and EB integration enforced. \code{poisson_screen_phi} (default \code{1.1})
 is the Poisson prescreen threshold: with a negative-binomial family, each
@@ -70,10 +74,9 @@ The per-feature
 
 \item{retain_smooth}{Retain estimated score-component coefficients.}
 
-\item{diagnostics}{Retain per-feature INLA diagnostics and compute the
-expected-Fisher nuisance covariance for comparison with native \code{Vp}.
-When \code{FALSE}, that extra solve is skipped and its per-feature entries
-in \code{expected_nuisance_covariance} are \code{NULL}.}
+\item{diagnostics}{Retain an additional reference to the expected-Fisher
+nuisance covariance in \code{expected_nuisance_covariance}. This covariance
+is always reconstructed for \code{nuisance_covariance}; no extra solve is needed.}
 
 \item{retain_marginal}{Retain the frozen state needed by \code{\link[=mgcvST.marginal]{mgcvST.marginal()}}.}
 
@@ -91,7 +94,10 @@ Hyperparameter priors remain part of INLA's empirical-Bayes
 estimates; these are not mgcv REML estimates. \code{mgcv::nb(theta = value)}
 fixes NB size, and a conflicting \code{control$nb_size} is rejected. The
 working model uses conditional latent estimates and expected Fisher
-variances. Sparse downstream scores rebuild the nuisance covariance from
+variances with INLA \code{config = FALSE}. The small coefficient covariance
+is reconstructed by sparse precision solves without an observation-level inverse.
+Cross-feature iid effects are treated as independent in pairwise calibration.
+Sparse downstream scores rebuild the nuisance covariance from
 the same expected Fisher matrix and use exact Liu trace moments;
 this does not establish finite-sample calibration after hyperparameter
 estimation. Every spatial component's constraint residual and observed

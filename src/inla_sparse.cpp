@@ -79,6 +79,7 @@ struct FeatureResult {
   Vec a;
   Mat M;
   Mat Vp;
+  Vec nuisance_score;
   SpMat K;
   Mat U;
   SpMat H_L;
@@ -199,13 +200,18 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
     bool null_target = false,
     int block_size = 32,
     SEXP prepared = R_NilValue,
-    bool unit_only = false) {
+    bool unit_only = false,
+    Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision = R_NilValue) {
   const SpMat A = A_map;
   const SpMat Q = Q_map;
   const int n = A.rows();
   const int m = A.cols();
   const int px = X.cols();
   const int features = E.cols();
+  Mat nuisance_penalty = Mat::Zero(px, features);
+  if (nuisance_precision.isNotNull()) {
+    nuisance_penalty = Rcpp::as<Mat>(nuisance_precision.get());
+  }
 
   if (Q.rows() != m || Q.cols() != m) Rcpp::stop("Q must be square and aligned with A.");
   if (m < 2) Rcpp::stop("The constrained SPDE block must contain at least two coefficients.");
@@ -218,8 +224,13 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
   if (tau.size() != features || !tau.allFinite() || (tau.array() <= 0).any()) {
     Rcpp::stop("tau must contain one positive finite value per feature.");
   }
-  if (!X.allFinite() || !E.allFinite() || !D.allFinite() || (D.array() <= 0).any()) {
-    Rcpp::stop("X, E, and D must contain finite values and D must be positive.");
+  if (nuisance_penalty.rows() != px ||
+      nuisance_penalty.cols() != features ||
+      !nuisance_penalty.allFinite() ||
+      (nuisance_penalty.array() < 0).any()) {
+    Rcpp::stop(
+      "nuisance_precision must be a finite non-negative ncol(X)-by-feature matrix."
+    );
   }
   if (threads < 1) Rcpp::stop("threads must be positive.");
   if (block_size < 1) Rcpp::stop("block_size must be positive.");
@@ -243,10 +254,6 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
     cache = pointer.get();
     if (cache->Q.rows() != m || cache->constraint.size() != m ||
         !cache->constraint.isApprox(constraint, 0.0)) {
-      Rcpp::stop("prepared is not aligned with Q and constraint.");
-    }
-    SpMat difference = cache->Q - Q;
-    if (difference.norm() != 0.0) {
       Rcpp::stop("prepared is not aligned with Q and constraint.");
     }
   }
@@ -285,6 +292,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
 
         Mat U;
         Mat Vp;
+        Vec nuisance_score;
         Vec h;
         HFactor hfactor;
         Vec hinv_g;
@@ -292,14 +300,16 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
 
         if (null_target) {
           U = L;
+          nuisance_score = xte;
           if (px) {
             Mat J = X.transpose() * WX;
+            J.diagonal() += nuisance_penalty.col(f);
             Eigen::LDLT<Mat> jfactor(0.5 * (J + J.transpose()));
             if (jfactor.info() != Eigen::Success || !jfactor.isPositive()) {
               throw std::runtime_error("The expected marginal nuisance information is not positive definite.");
             }
             Vp = jfactor.solve(Mat::Identity(px, px));
-            h = tvec - U * (Vp * xte);
+            h = tvec - U * (Vp * nuisance_score);
           } else {
             Vp.resize(0, 0);
             h = tvec;
@@ -318,9 +328,10 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
           Mat SL = px ? constrained_solve(hfactor, constraint, L, hinv_g, hden) : Mat(m, 0);
           Vec St = constrained_solve(hfactor, constraint, tvec, hinv_g, hden);
           U = px ? L - K * SL : Mat(m, 0);
-          Vec q = px ? xte - L.transpose() * St : Vec(0);
+          nuisance_score = px ? xte - L.transpose() * St : Vec(0);
           Mat J = px ? X.transpose() * WX - L.transpose() * SL : Mat(0, 0);
           if (px) {
+            J.diagonal() += nuisance_penalty.col(f);
             Eigen::LDLT<Mat> jfactor(0.5 * (J + J.transpose()));
             if (jfactor.info() != Eigen::Success || !jfactor.isPositive()) {
               throw std::runtime_error("The expected nuisance information is not positive definite.");
@@ -328,7 +339,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
             Vp = jfactor.solve(Mat::Identity(px, px));
           } else Vp.resize(0, 0);
           h = tvec - K * St;
-          if (px) h.noalias() -= U * (Vp * q);
+          if (px) h.noalias() -= U * (Vp * nuisance_score);
         }
 
         Vec a = project_coordinates(apply_Bt(qfactor, h), coordinate_constraint) /
@@ -336,6 +347,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
         result[f].a = a;
         result[f].statistic = a.squaredNorm();
         result[f].Vp = Vp;
+        result[f].nuisance_score = nuisance_score;
         result[f].constraint_norm = std::abs(coordinate_constraint.norm() - 1.0);
 
         if (unit_only) {
@@ -390,6 +402,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
         Rcpp::Named("a") = result[f].a,
         Rcpp::Named("statistic") = result[f].statistic,
         Rcpp::Named("expected_vp") = result[f].Vp,
+        Rcpp::Named("nuisance_score") = result[f].nuisance_score,
         Rcpp::Named("tau") = result[f].tau,
         Rcpp::Named("K") = result[f].K,
         Rcpp::Named("U") = result[f].U,
@@ -432,10 +445,11 @@ Rcpp::List mgcvst_inla_sparse_units_cpp(
     const Eigen::Map<Eigen::MatrixXd> D,
     const Eigen::Map<Eigen::VectorXd> tau,
     int threads = 1,
-    SEXP prepared = R_NilValue) {
+    SEXP prepared = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision = R_NilValue) {
   return mgcvst_inla_sparse_batch_cpp(
     A, Q, constraint, X, E, D, tau, threads, false, false, 32,
-    prepared, true
+    prepared, true, nuisance_precision
   );
 }
 
@@ -474,10 +488,6 @@ Rcpp::List mgcvst_inla_sparse_materialize_cpp(
   }
   if (!cache->valid || cache->Q.rows() != m ||
       !cache->constraint.isApprox(constraint, 0.0)) {
-    Rcpp::stop("prepared is not aligned with Q and constraint.");
-  }
-  SpMat difference = cache->Q - Q;
-  if (difference.norm() != 0.0) {
     Rcpp::stop("prepared is not aligned with Q and constraint.");
   }
 

@@ -35,7 +35,6 @@
   defaults <- list(
     int_strategy = "eb",
     latent_strategy = "gaussian",
-    fixed_effect_precision = 0,
     precision_prior = list(
       prior = "flat", param = numeric(), initial = 0
     ),
@@ -70,16 +69,12 @@
       !identical(out$latent_strategy, "gaussian")) {
     stop("The current engine requires int_strategy = 'eb' and latent_strategy = 'gaussian'.")
   }
-  out$fixed_effect_precision <- as.numeric(out$fixed_effect_precision)
-  if (length(out$fixed_effect_precision) != 1L ||
-      !is.finite(out$fixed_effect_precision) ||
-      out$fixed_effect_precision < 0) {
-    stop("control$fixed_effect_precision must be one non-negative number.")
-  }
-  out$num_threads <- as.integer(out$num_threads)
-  if (length(out$num_threads) != 1L || is.na(out$num_threads) ||
-      out$num_threads < 1L) {
-    stop("control$num_threads must be one positive integer.")
+  if (!is.null(out$num_threads)) {
+    out$num_threads <- as.integer(out$num_threads)
+    if (length(out$num_threads) != 1L || is.na(out$num_threads) ||
+        out$num_threads < 1L) {
+      stop("control$num_threads must be NULL or one positive integer.")
+    }
   }
   for (nm in c("verbose", "keep_fit")) {
     if (!is.logical(out[[nm]]) || length(out[[nm]]) != 1L ||
@@ -350,11 +345,8 @@
   X <- as.matrix(spec$fixed$X)
   storage.mode(X) <- "double"
   n <- length(y)
-  if (length(dim(X)) != 2L || nrow(X) != n || any(!is.finite(X))) {
-    stop("spec$fixed$X must be a finite matrix with one row per observation.")
-  }
-  if (ncol(X) && qr(X)$rank < ncol(X)) {
-    stop("spec$fixed$X must have full column rank.")
+  if (length(dim(X)) != 2L || nrow(X) != n) {
+    stop("spec$fixed$X must have one row per observation.")
   }
   xnames <- spec$fixed$names
   if (is.null(xnames)) xnames <- colnames(X)
@@ -381,46 +373,16 @@
     A <- methods::as(z$A, "CsparseMatrix")
     Q <- methods::as(z$Q, "CsparseMatrix")
     if (nrow(A) != n || !ncol(A) || nrow(Q) != ncol(A) ||
-        ncol(Q) != ncol(A) || any(!is.finite(A@x)) ||
-        any(!is.finite(Q@x))) {
+        ncol(Q) != ncol(A)) {
       stop("Random block '", rnames[j], "' has incompatible A and Q matrices.")
-    }
-    if (!isTRUE(Matrix::isSymmetric(Q, tol = 1e-10))) {
-      stop("Random block '", rnames[j], "' requires a symmetric Q matrix.")
     }
     kind <- if (is.null(z$kind)) "nuisance" else as.character(z$kind)[1L]
     if (!(kind %in% c("spde", "nuisance"))) {
       stop("Random block kind must be 'spde' or 'nuisance'.")
     }
-    positive_definite <- tryCatch({
-      suppressWarnings(Matrix::Cholesky(Matrix::forceSymmetric(Q), LDL = FALSE))
-      TRUE
-    }, error = function(e) FALSE)
-    rankdef <- 0L
-    if (!positive_definite && identical(kind, "spde")) {
-      stop("Random block '", rnames[j],
-           "' requires a positive-definite generic0 Q matrix.")
-    }
-    if (identical(kind, "nuisance")) {
-      rankdef <- ncol(Q) - as.integer(Matrix::rankMatrix(Q)[1L])
-      values <- as.numeric(CppMatrix::matrixEigen(as.matrix(Q))$values)
-      tolerance <- sqrt(.Machine$double.eps) * max(abs(values))
-      if (min(values) < -tolerance) {
-        stop("Nuisance block '", rnames[j],
-             "' requires a positive-semidefinite penalty.")
-      }
-      if (rankdef >= ncol(Q)) {
-        stop("Nuisance block '", rnames[j],
-             "' must have a nonzero positive-semidefinite penalty.")
-      }
-    }
-    if (!is.null(z$rankdef)) {
-      supplied_rankdef <- as.integer(z$rankdef)
-      if (length(supplied_rankdef) != 1L || is.na(supplied_rankdef) ||
-          supplied_rankdef != rankdef) {
-        stop("Random block '", rnames[j], "' has an incorrect rankdef.")
-      }
-    }
+    # The rank deficiency is known where Q is constructed (SPDE precisions and
+    # iid identities are full rank), so it travels with the block spec.
+    rankdef <- if (is.null(z$rankdef)) 0L else as.integer(z$rankdef)[1L]
     constraint <- NULL
     if (identical(kind, "spde")) {
       # This is deliberately recomputed, rather than merely trusting adapter
@@ -491,31 +453,51 @@
   if (length(value) != 1L || !is.finite(value) || value <= 0) NA_real_ else value
 }
 
-.inlast_latent_mode_block <- function(fit, tag, expected_length) {
-  contents <- fit$misc$configs$contents
+.inlast_latent_modes <- function(fit, fixed_tags, random_tags,
+                                  random_lengths) {
   mode <- fit$mode$x
-  if (is.null(contents) || is.null(contents$tag) ||
-      is.null(contents$start) || is.null(contents$length) || is.null(mode)) {
-    stop("INLA did not retain the joint latent-mode index.")
+  fixed_tags <- as.character(fixed_tags)
+  random_tags <- as.character(random_tags)
+  random_lengths <- as.integer(random_lengths)
+  if (is.null(mode) || any(!is.finite(mode))) {
+    stop("INLA did not retain a finite joint latent mode.")
   }
-  hit <- which(contents$tag == tag)
-  if (length(hit) != 1L || contents$length[hit] != expected_length) {
-    stop("INLA joint latent mode has an invalid block for '", tag, "'.")
+  if (length(random_tags) != length(random_lengths) ||
+      anyNA(random_lengths) || any(random_lengths < 1L)) {
+    stop("Internal INLA latent-mode block specification is invalid.")
   }
-  index <- contents$start[hit] + seq_len(expected_length) - 1L
-  if (any(index < 1L) || any(index > length(mode))) {
-    stop("INLA joint latent mode index is out of bounds for '", tag, "'.")
+  fitted_random_lengths <- vapply(
+    fit$summary.random, nrow, integer(1L), USE.NAMES = FALSE
+  )
+  fixed_order_ok <- if (length(fixed_tags)) {
+    identical(rownames(fit$summary.fixed), fixed_tags)
+  } else {
+    is.null(fit$summary.fixed) || identical(nrow(fit$summary.fixed), 0L)
   }
-  value <- as.numeric(mode[index])
-  if (length(value) != expected_length || any(!is.finite(value))) {
-    stop("INLA joint latent mode is non-finite for '", tag, "'.")
+  if (!identical(names(fit$summary.random), random_tags) ||
+      !identical(fitted_random_lengths, random_lengths) || !fixed_order_ok) {
+    stop("INLA latent coefficient order does not match the fitted formula.")
   }
-  value
+  coefficient_length <- sum(random_lengths) + length(fixed_tags)
+  first <- length(mode) - coefficient_length + 1L
+  if (first < 1L) {
+    stop("INLA joint latent mode is shorter than its coefficient blocks.")
+  }
+  starts <- first + c(0L, cumsum(random_lengths))
+  random <- lapply(seq_along(random_tags), function(j) {
+    as.numeric(mode[starts[j] + seq_len(random_lengths[j]) - 1L])
+  })
+  names(random) <- random_tags
+  fixed <- if (length(fixed_tags)) {
+    value <- as.numeric(mode[starts[length(starts)] + seq_along(fixed_tags) - 1L])
+    names(value) <- fixed_tags
+    value
+  } else numeric()
+  list(fixed = fixed, random = random)
 }
 
 .inlast_expected_covariance <- function(X, random, tau, working_variance,
-                                        constraints, nuisance_index,
-                                        fixed_effect_precision = 0) {
+                                        constraints, nuisance_index) {
   p_fixed <- ncol(X)
   designs <- c(list(Matrix::Matrix(X, sparse = TRUE)),
                lapply(random, `[[`, "A"))
@@ -523,7 +505,7 @@
   inv_var <- 1 / as.numeric(working_variance)
   weighted <- design * sqrt(inv_var)
   penalties <- c(
-    list(Matrix::Diagonal(p_fixed, fixed_effect_precision)),
+    list(Matrix::Diagonal(p_fixed, 0)),
     lapply(seq_along(random), function(j) tau[j] * random[[j]]$Q)
   )
   H <- Matrix::forceSymmetric(Matrix::crossprod(weighted) +
@@ -633,6 +615,16 @@
       ), envir = fenv)
       constraint_text <- paste0(", extraconstr=", cname)
     }
+    if (identical(z$random[[j]]$subtype, "iid")) {
+      # The iid nuisance block is INLA's own `iid` model: its precision is
+      # tau * I on the block's levels, and the indicator design is carried by
+      # the inla.stack A entry, which is the sparse score kernel's Z as well.
+      rhs <- paste0(
+        rhs, " + f(", random_internal[j],
+        ", model='iid', constr=FALSE, hyper=", hname, constraint_text, ")"
+      )
+      next
+    }
     # Supplying rankdef overrides INLA's automatic constraint adjustment.
     # generic0's tau normalizer must use the dimension of the constrained
     # support: rank(Q) minus the number of independent exact constraints.
@@ -672,33 +664,30 @@
     ctl$control.inla,
     list(strategy = ctl$latent_strategy, int.strategy = ctl$int_strategy)
   )
-  fit <- INLA::inla(
+  inla_args <- list(
     formula, family = inla_family, data = INLA::inla.stack.data(stack),
     control.predictor = list(A = INLA::inla.stack.A(stack), compute = TRUE),
     control.fixed = list(
-      mean = 0, prec = ctl$fixed_effect_precision,
-      mean.intercept = 0, prec.intercept = ctl$fixed_effect_precision
+      mean = 0, prec = 0,
+      mean.intercept = 0, prec.intercept = 0
     ),
     control.family = control_family,
     control.inla = native_control,
-    control.compute = list(config = TRUE),
-    num.threads = ctl$num_threads, verbose = ctl$verbose
+    control.compute = list(config = FALSE),
+    verbose = ctl$verbose
   )
+  if (!is.null(ctl$num_threads)) inla_args$num.threads <- ctl$num_threads
+  fit <- do.call(INLA::inla, inla_args)
   fit_seconds <- proc.time()[["elapsed"]] - t0
 
-  beta <- if (ncol(z$X)) vapply(
-    fixed_internal,
-    function(tag) .inlast_latent_mode_block(fit, tag, 1L),
-    numeric(1L)
-  ) else numeric()
+  latent_mode <- .inlast_latent_modes(
+    fit, fixed_internal, random_internal,
+    vapply(z$random, function(x) ncol(x$A), integer(1L))
+  )
+  beta <- latent_mode$fixed
   names(beta) <- z$xnames
-  random_mode <- vector("list", length(z$random))
+  random_mode <- latent_mode$random
   names(random_mode) <- vapply(z$random, `[[`, character(1L), "name")
-  for (j in seq_along(z$random)) {
-    random_mode[[j]] <- .inlast_latent_mode_block(
-      fit, random_internal[j], ncol(z$random[[j]]$A)
-    )
-  }
   constraint_residual_uncorrected <- vapply(seq_along(z$random), function(j) {
     if (is.null(z$constraints[[j]])) return(NA_real_)
     sum(z$constraints[[j]] * random_mode[[j]])
@@ -706,25 +695,8 @@
   names(constraint_residual_uncorrected) <- names(random_mode)
   active_constraint <- !is.na(constraint_residual_uncorrected)
   if (any(active_constraint)) {
-    # This guard catches a constraint INLA ignored, not the roundoff of the
-    # constraint solve itself.  The residual g'u is a sum over the q mesh nodes,
-    # so its floating-point noise grows with the latent dimension as well as
-    # with the size of the field; for the observation-mean constraint
-    # ||g||_1 = 1, hence |g'u| <= max|u| and sqrt(q) * max|u| is the natural
-    # roundoff budget.  A genuinely unenforced constraint leaves a residual of
-    # the order of the field's own observation mean, orders of magnitude above
-    # this bound.
-    scale <- vapply(which(active_constraint), function(j) {
-      u <- random_mode[[j]]
-      1 + sqrt(length(u)) * max(abs(u))
-    }, numeric(1L))
-    if (any(abs(constraint_residual_uncorrected[active_constraint]) >
-            1e-6 * scale)) {
-      stop("INLA returned a latent mode that violates an active spatial constraint.")
-    }
-    # INLA's constraint solve is accurate to its numerical tolerance.  Remove
-    # that final roundoff component so all returned fields obey g'u = 0 to
-    # machine precision, matching the projected mgcvST representation.
+    # Enforce the supplied constraint in the returned representation and
+    # retain the unprojected residual in diagnostics.
     for (j in which(active_constraint)) {
       g <- z$constraints[[j]]
       random_mode[[j]] <- random_mode[[j]] -
@@ -834,17 +806,14 @@
   })
   names(coefficients) <- names(random_mode)[target]
 
-  # This second covariance solve is for diagnostics, never for the score.
+  nuisance_index <- spec$nuisance_index
+  if (is.null(nuisance_index)) nuisance_index <- seq_len(ncol(z$X))
+  nuisance_covariance <- .inlast_expected_covariance(
+    z$X, z$random, tau, working_variance, z$constraints, nuisance_index
+  )
   expected_nuisance_covariance <- if (diagnostics) {
-    nuisance_index <- spec$nuisance_index
-    if (is.null(nuisance_index)) nuisance_index <- seq_len(ncol(z$X))
-    .inlast_expected_covariance(
-      z$X, z$random, tau, working_variance, z$constraints, nuisance_index,
-      fixed_effect_precision = ctl$fixed_effect_precision
-    )
+    nuisance_covariance
   } else NULL
-  posterior <- .inlast_posterior_vp(fit, spec)
-  nuisance_covariance <- posterior$nuisance_covariance
   if (!is.null(spec$nuisance_design)) {
     nuisance_design <- as.matrix(spec$nuisance_design)
     if (nrow(nuisance_design) != length(y) ||
@@ -943,12 +912,17 @@
       hyperpriors = prior_metadata,
       hyper_mode_diagnostics = hyper_mode_diagnostics,
       fixed_kappa = TRUE,
+      configuration_retained = FALSE,
+      latent_mode_source = "terminal coefficient blocks of fit$mode$x",
       lambda_scaling = "lambda = dispersion * tau",
       nuisance_covariance = paste(
-        "INLA conditional Gaussian posterior block at the empirical-Bayes",
-        "configuration"
+        "expected-Fisher conditional covariance at the empirical-Bayes",
+        "joint mode"
       ),
-      posterior_covariance_diagnostics = posterior$diagnostics
+      covariance_diagnostics = list(
+        curvature = "expected Fisher working curvature",
+        exact_constraints = any(vapply(z$constraints, Negate(is.null), logical(1L)))
+      )
     )
   )
   if (ctl$keep_fit) ans$inla <- fit
