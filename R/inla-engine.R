@@ -662,7 +662,11 @@
   t0 <- proc.time()[["elapsed"]]
   native_control <- .inlast_merge_control(
     ctl$control.inla,
-    list(strategy = ctl$latent_strategy, int.strategy = ctl$int_strategy)
+    list(
+      strategy = ctl$latent_strategy,
+      int.strategy = ctl$int_strategy,
+      control.vb = list(enable = FALSE)
+    )
   )
   inla_args <- list(
     formula, family = inla_family, data = INLA::inla.stack.data(stack),
@@ -913,6 +917,7 @@
       hyper_mode_diagnostics = hyper_mode_diagnostics,
       fixed_kappa = TRUE,
       configuration_retained = FALSE,
+      variational_bayes_correction = FALSE,
       latent_mode_source = "terminal coefficient blocks of fit$mode$x",
       lambda_scaling = "lambda = dispersion * tau",
       nuisance_covariance = paste(

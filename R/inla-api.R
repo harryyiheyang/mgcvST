@@ -554,7 +554,8 @@ inlaST.set <- function(
 #' estimates; these are not mgcv REML estimates. `mgcv::nb(theta = value)`
 #' fixes NB size, and a conflicting `control$nb_size` is rejected. The
 #' working model uses conditional latent estimates and expected Fisher
-#' variances with INLA `config = FALSE`. The small coefficient covariance
+#' variances with INLA `config = FALSE` and variational-Bayes correction
+#' disabled. The small coefficient covariance
 #' is reconstructed by sparse precision solves without an observation-level inverse.
 #' Cross-feature iid effects are treated as independent in pairwise calibration.
 #' Sparse downstream scores rebuild the nuisance covariance from

@@ -95,7 +95,7 @@ The `control` argument is a named list. Unknown control names are rejected.
 | `precision_prior` | `list(prior="flat", param=numeric(), initial=0)` | Improper flat objective on log latent precision. |
 | `gaussian_precision_prior` | `list(prior="flat", param=numeric(), initial=0)` | Flat objective on log inverse Gaussian residual variance. |
 | `nb_size_prior` | `list(prior="flat", param=numeric(), initial=0)` | Improper flat objective on log NB size. |
-| `control.inla` | `list()` | Validated numerical INLA tuning such as `tolerance`; Gaussian/EB strategy remains mandatory. |
+| `control.inla` | `list()` | Validated numerical INLA tuning such as `tolerance`; Gaussian/EB strategy remains mandatory and variational-Bayes correction is disabled. |
 | `verbose` | `FALSE` | INLA engine output. |
 
 Fixed effects are always passed to INLA with explicit zero precision.

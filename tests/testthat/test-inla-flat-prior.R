@@ -53,6 +53,7 @@ test_that("flat log-precision prior supports custom starts and retains mean zero
   expect_false(engine$estimation$hyperpriors$latent_precision$proper)
   expect_identical(engine$estimation$hyperpriors$observation$type, "fixed")
   expect_true(engine$estimation$hyper_mode_diagnostics$finite)
+  expect_false(engine$estimation$variational_bayes_correction)
   expect_identical(
     engine$estimation$hyper_mode_diagnostics$optimizer_status, 0L
   )

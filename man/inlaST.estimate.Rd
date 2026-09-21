@@ -94,7 +94,8 @@ Hyperparameter priors remain part of INLA's empirical-Bayes
 estimates; these are not mgcv REML estimates. \code{mgcv::nb(theta = value)}
 fixes NB size, and a conflicting \code{control$nb_size} is rejected. The
 working model uses conditional latent estimates and expected Fisher
-variances with INLA \code{config = FALSE}. The small coefficient covariance
+variances with INLA \code{config = FALSE} and variational-Bayes correction
+disabled. The small coefficient covariance
 is reconstructed by sparse precision solves without an observation-level inverse.
 Cross-feature iid effects are treated as independent in pairwise calibration.
 Sparse downstream scores rebuild the nuisance covariance from

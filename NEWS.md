@@ -1,3 +1,9 @@
+# mgcvST 0.0.1.9013
+
+* INLA's variational-Bayes mean and variance correction is always disabled.
+  The estimator uses the joint latent mode and expected-Fisher covariance, so
+  the posterior-marginal correction is outside the fitted score-test contract.
+
 # mgcvST 0.0.1.9012
 
 * Native INLA models accept any number of categorical random-intercept and
