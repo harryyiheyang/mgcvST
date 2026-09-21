@@ -1,10 +1,12 @@
+#define EIGEN_DONT_PARALLELIZE
 #include <RcppArmadillo.h>
+#include <RcppEigen.h>
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
-// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
 // [[Rcpp::export]]
 arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
                                        const Rcpp::IntegerMatrix& pairs,
@@ -58,18 +60,22 @@ arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
   for (int k = 0; k < pairs.nrow(); ++k) {
     int i = pairs(k, 0) - 1;
     int j = pairs(k, 1) - 1;
-    arma::mat left(matrixPointers[i], q, q, false, true);
-    arma::mat right(matrixPointers[j], q, q, false, true);
-    arma::mat product = left * right;
-    out(k, 0) = arma::trace(product);
+    // Keep BLAS calls out of the outer OpenMP region. The conda pthread
+    // OpenBLAS build cannot safely create its own workers here.
+    Eigen::Map<const Eigen::MatrixXd> left(matrixPointers[i], q, q);
+    Eigen::Map<const Eigen::MatrixXd> right(matrixPointers[j], q, q);
+    Eigen::MatrixXd product = left * right;
+    out(k, 0) = product.trace();
 
     if (maxPower >= 2) {
-      out(k, 1) = arma::accu(product % product.t());
+      out(k, 1) = (product.array() * product.transpose().array()).sum();
       if (maxPower >= 3) {
-        arma::mat product2 = product * product;
-        out(k, 2) = arma::accu(product2 % product.t());
+        Eigen::MatrixXd product2 = product * product;
+        out(k, 2) =
+          (product2.array() * product.transpose().array()).sum();
         if (maxPower >= 4) {
-          out(k, 3) = arma::accu(product2 % product2.t());
+          out(k, 3) =
+            (product2.array() * product2.transpose().array()).sum();
         }
       }
     }
