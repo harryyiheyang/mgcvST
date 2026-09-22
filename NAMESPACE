@@ -41,9 +41,9 @@ export(spde_model)
 export(spde_precision)
 export(spde_project)
 importFrom(Rcpp,evalCpp)
-importFrom(utils,object.size)
 importFrom(mgcv,
   Predict.matrix,
   smooth.construct
 )
+importFrom(utils,object.size)
 useDynLib(mgcvST, .registration = TRUE)

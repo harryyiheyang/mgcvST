@@ -29,7 +29,7 @@ test_that("diagnostics FALSE does not invoke summary.gam", {
   }
 })
 
-test_that("model batches reuse one exact formal training lpmatrix", {
+test_that("model batches reuse the prepared GAM design without lpmatrix", {
   f <- st_fixture(nuisance = TRUE)
   original <- mgcvST:::.gam_training_lpmatrix
   old_options <- options(mgcvST.test_lpmatrix = original,
@@ -47,11 +47,11 @@ test_that("model batches reuse one exact formal training lpmatrix", {
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
     diagnostics = FALSE
   )
-  expect_identical(getOption("mgcvST.test_lpmatrix_count"), 1L)
+  expect_identical(getOption("mgcvST.test_lpmatrix_count"), 0L)
   expect_true(all(is.finite(fit$working_error)))
 })
 
-test_that("unknown prediction methods disable exact-lpmatrix reuse", {
+test_that("prepared GAM designs do not depend on later prediction methods", {
   f <- st_fixture(nuisance = TRUE)
   original_lpmatrix <- mgcvST:::.gam_training_lpmatrix
   original_predictor <- mgcvST:::Predict.matrix.spde.smooth
@@ -76,21 +76,20 @@ test_that("unknown prediction methods disable exact-lpmatrix reuse", {
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
     diagnostics = FALSE
   )
-  expect_identical(getOption("mgcvST.test_lpmatrix_count"), nrow(f$Y))
+  expect_identical(getOption("mgcvST.test_lpmatrix_count"), 0L)
   expect_true(all(is.finite(fit$working_error)))
-  expect_true(all(vapply(fit$nuisance_covariance, is.null, logical(1L))))
+  expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   expect_s3_class(mgcvST:::.mgcvst_model_operator(fit, 1L)$operator,
-                  "rkhs_score_operator")
+                  "mgcvst_vp_score_operator")
 })
 
-test_that("custom worker initialization disables shared prediction geometry", {
+test_that("custom worker initialization retains shared prediction geometry", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
-    worker_init = function() invisible(NULL),
-    diagnostics = FALSE
+    worker_init = function() invisible(NULL), diagnostics = FALSE
   )
-  expect_true(all(vapply(fit$nuisance_covariance, is.null, logical(1L))))
+  expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   expect_true(all(is.finite(fit$working_error)))
 })
 
@@ -156,9 +155,11 @@ test_that("conditional nuisance state is compact, shared and CppMatrix-backed", 
 
 test_that("ordinary overall low-rank smooths share the same Vp machinery", {
   f <- st_fixture()
+  data <- f$data
+  data$w <- sin(seq_len(nrow(data)) / 5)
   model <- model.set(
-    response ~ offset(offset0) + z + s(x, k = 6) + s(y, k = 6),
-    f$data, f$basis, family = mgcv::nb()
+    response ~ offset(offset0) + s(z, k = 6) + s(w, k = 6),
+    data, f$basis, family = mgcv::nb()
   )
   fit <- mgcvST.estimate(
     f$Y, model, diagnostics = FALSE,

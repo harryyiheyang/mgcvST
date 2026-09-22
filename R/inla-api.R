@@ -148,7 +148,7 @@
   }
 
   # With non-target smooths rejected above, the nuisance columns are exactly the
-  # parametric columns, so this is `geometry$X` in lpmatrix column order.
+  # parametric columns, so this is `geometry$X` in the mgcv setup column order.
   fixed_X <- as.matrix(geometry$nuisance_design)
   fixed_names <- colnames(fixed_X)
   if (!ncol(fixed_X)) fixed_names <- character()
@@ -336,12 +336,6 @@ inlaST.set <- function(
       formula = formula, data = data, basis = constrained_basis,
       family = family, setting = requested_setting, coordinates = coordinates, ...
     )
-    frozen <- .mgcvst_freeze_geometry(base$G)
-    base$L <- frozen$L
-    base$geometry <- frozen$geometry
-    base$shared_design <- TRUE
-    base$timing <- list(setup_seconds = frozen$elapsed,
-                        elapsed = frozen$elapsed)
   }
   if (!is.null(base$G$w) && any(base$G$w != 1)) {
     stop("inlaST.set() currently requires unit observation weights.")
@@ -630,6 +624,9 @@ inlaST.estimate <- function(
   if (any(prescreen$poisson)) .inlast_poisson_spec(model$inla_spec)
   family_used <- rep(model$inla_spec$family, nrow(Y))
   family_used[prescreen$poisson] <- "poisson"
+  null_spec <- .inlast_null_spec(model$inla_spec)
+  null_control <- .inlast_null_control(control, model$inla_spec)
+  if (any(prescreen$poisson)) .inlast_poisson_spec(null_spec)
   groups <- split(seq_len(nrow(Y)), ceiling(seq_len(nrow(Y)) / chunk_size))
   workers <- max(1L, min(length(groups), BiocParallel::bpworkers(BPPARAM)))
   # Feature chunks are independent latent Gaussian models. The spec is plain
@@ -645,8 +642,70 @@ inlaST.estimate <- function(
          extra_offset = extra_offset,
          poisson = if (any(prescreen$poisson)) prescreen$poisson[index] else NULL)
   })
-  rm(Y)
-  checked$Y <- NULL
+  null_t0 <- proc.time()[["elapsed"]]
+  null_chunks <- BiocParallel::bplapply(
+    payloads, .inlast_chunk_task(), spec = null_spec,
+    base_offset = model$offset,
+    control = null_control, diagnostics = FALSE, libpaths = .libPaths(),
+    BPPARAM = BPPARAM
+  )
+  null_fit_elapsed <- proc.time()[["elapsed"]] - null_t0
+  null_fits <- unlist(null_chunks, recursive = FALSE)
+  n <- ncol(Y)
+  p <- nrow(Y)
+  n_sp <- model$inla_spec$geometry_sp_length
+  null_E <- null_V <- matrix(NA_real_, n, p, dimnames = list(NULL, feature_id))
+  null_dispersion <- stats::setNames(rep(NA_real_, p), feature_id)
+  null_smoothing_parameters <- matrix(NA_real_, p, n_sp,
+    dimnames = list(feature_id, model$inla_spec$sp_names))
+  null_converged <- rep(FALSE, p)
+  null_fit_seconds <- rep(NA_real_, p)
+  null_error_class <- null_error_message <- null_error_call <- rep(NA_character_, p)
+  for (j in seq_len(p)) {
+    z <- null_fits[[j]]
+    if (inherits(z, "condition")) {
+      null_error_class[j] <- class(z)[1L]
+      null_error_message[j] <- conditionMessage(z)
+      null_error_call[j] <- paste(deparse(conditionCall(z)), collapse = " ")
+      next
+    }
+    null_E[, j] <- z$working_error
+    null_V[, j] <- z$working_variance
+    null_dispersion[j] <- z$dispersion
+    if (length(z$smoothing_parameters)) {
+      null_smoothing_parameters[j, seq_along(z$smoothing_parameters)] <-
+        z$smoothing_parameters
+    }
+    null_converged[j] <- isTRUE(z$converged)
+    null_fit_seconds[j] <- z$fit_seconds
+  }
+  null_state <- list(
+    working_error = null_E,
+    working_variance = null_V,
+    nuisance_precision = NULL
+  )
+  marginal <- NULL
+  marginal_elapsed <- 0
+  valid_null <- which(null_converged)
+  if (length(valid_null)) {
+    nuisance_precision <- .inlast_null_nuisance_precision(
+      null_spec, null_smoothing_parameters, null_dispersion, valid_null
+    )
+    if (!is.null(nuisance_precision)) {
+      null_state$nuisance_precision <- matrix(
+        NA_real_, nrow(nuisance_precision), p,
+        dimnames = list(NULL, feature_id)
+      )
+      null_state$nuisance_precision[, valid_null] <- nuisance_precision
+    }
+    marginal_t0 <- proc.time()[["elapsed"]]
+    marginal <- .inlast_null_marginal(
+      feature_id, score_sparse, model$geometry$nuisance_design, null_state,
+      valid_null, chunk_size = min(16L, chunk_size), threads = threads
+    )
+    marginal_elapsed <- proc.time()[["elapsed"]] - marginal_t0
+  }
+  fit_t0 <- proc.time()[["elapsed"]]
   chunks <- BiocParallel::bplapply(
     payloads, .inlast_chunk_task(), spec = model$inla_spec,
     base_offset = model$offset,
@@ -654,13 +713,14 @@ inlaST.estimate <- function(
     BPPARAM = BPPARAM
   )
   rm(payloads)
-  fit_elapsed <- proc.time()[["elapsed"]] - t0
+  rm(Y)
+  checked$Y <- NULL
+  fit_elapsed <- proc.time()[["elapsed"]] - fit_t0
   fits <- unlist(chunks, recursive = FALSE)
 
   E <- V <- matrix(NA_real_, n, p, dimnames = list(NULL, feature_id))
   dispersion <- stats::setNames(rep(NA_real_, p), feature_id)
   family_parameters <- stats::setNames(vector("list", p), feature_id)
-  n_sp <- model$inla_spec$geometry_sp_length
   smoothing_parameters <- matrix(
     NA_real_, p, n_sp,
     dimnames = list(feature_id, model$inla_spec$sp_names)
@@ -675,6 +735,11 @@ inlaST.estimate <- function(
     criterion_name = "INLA log marginal likelihood", fit_seconds = NA_real_,
     outer_convergence = NA_character_, error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
+    null_converged = null_converged, null_fit_seconds = null_fit_seconds,
+    null_error_class = null_error_class, null_error_message = null_error_message,
+    null_error_call = null_error_call,
+    score_error_class = NA_character_, score_error_message = NA_character_,
+    score_error_call = NA_character_,
     prescreen_phi = prescreen$phi, family_used = family_used,
     stringsAsFactors = FALSE
   )
@@ -754,9 +819,10 @@ inlaST.estimate <- function(
     model_setting = model$setting,
     model = model,
     diagnostics = diagnostics_table,
-    timing = list(elapsed = elapsed, fit_elapsed = fit_elapsed,
-                  marginal_elapsed = 0,
-                  compaction_elapsed = max(0, elapsed - fit_elapsed),
+    timing = list(elapsed = elapsed, null_fit_elapsed = null_fit_elapsed,
+                  fit_elapsed = fit_elapsed, marginal_elapsed = marginal_elapsed,
+                  compaction_elapsed = max(0, elapsed - null_fit_elapsed -
+                    fit_elapsed - marginal_elapsed),
                   workers = workers, chunks = length(groups),
                   chunk_size = chunk_size, backend = class(BPPARAM)[1L]),
     smooth_coefficients = coefficient,
@@ -775,19 +841,24 @@ inlaST.estimate <- function(
   ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
   chunks <- NULL
   fits <- NULL
-  ans$marginal_data <- list(version = 2L, definition = "sparse_INLA_marginal_TAPS_Liu")
-  valid <- which(diagnostics_table$converged)
-  if (length(valid)) {
-    marginal_t0 <- proc.time()[["elapsed"]]
-    marginal <- .inlast_marginal(ans, valid, chunk_size = min(16L, chunk_size), threads = threads)
+  ans$marginal_data <- list(version = 2L, definition = "sparse_INLA_null_marginal_TAPS_Liu")
+  if (retain_marginal) ans$marginal_data$null_state <- null_state
+  if (!is.null(marginal)) {
     ans$marginal_data$result <- marginal
+    valid <- match(marginal$feature_id, feature_id)
     ans$diagnostics$marginal_p_value[valid] <- marginal$p_value
     ans$diagnostics$marginal_requested_method[valid] <- "liu"
     ans$diagnostics$marginal_method[valid] <- "liu"
     ans$diagnostics$marginal_fallback[valid] <- FALSE
-    ans$diagnostics$error_message[valid] <- marginal$error_message
-    ans$timing$marginal_elapsed <- proc.time()[["elapsed"]] - marginal_t0
+    failed_score <- !is.na(marginal$error_message) & nzchar(marginal$error_message)
+    if (any(failed_score)) {
+      failed <- valid[failed_score]
+      ans$diagnostics$score_error_class[failed] <- "sparse_score"
+      ans$diagnostics$score_error_message[failed] <- marginal$error_message[failed_score]
+    }
   }
-  if (!retain_marginal) ans$marginal_data <- NULL
+  if (!retain_marginal) {
+    ans$marginal_data <- NULL
+  }
   ans
 }

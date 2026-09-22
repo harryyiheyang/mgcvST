@@ -91,7 +91,7 @@ penalty is full rank after the observation intercept is projected out.
 Each GP design and penalty are transformed together and whitened to an iid
 block. Every iid block retains its estimated precision penalty in the small
 nuisance \code{Vp} block alongside the unpenalized fixed effects. Numeric
-random-effect groups, \code{by=} nuisance terms, rank-deficient GP penalties and
+random-effect groups, \verb{by=} nuisance terms, rank-deficient GP penalties and
 other smooth bases are outside the native INLA model.
 
 Parametric covariates are supported: numeric columns, factors and

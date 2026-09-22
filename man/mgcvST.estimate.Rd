@@ -53,8 +53,8 @@ A custom function is used only when explicitly supplied.}
 Use \code{list(method = "liu")} for direct Liu, or the default Davies with
 Liu fallback within mgcvST. No additional marginal call is needed.}
 
-\item{method}{Fitting method passed to \code{mgcv::gam()}. \code{"REML"} is the
-default.}
+\item{method}{Retained for API compatibility. Null and full fits use
+\code{mgcv::bam(method = "fREML", discrete = TRUE)}.}
 
 \item{retain_smooth}{Logical; retain the feature-by-coefficient smooth
 coefficient matrix and one shared reduced fit basis and unscaled penalty.
@@ -68,23 +68,23 @@ family, each feature first gets an offset-and-covariate-only Poisson GLM,
 and a feature whose Pearson dispersion
 \code{phi = sum((y - mu)^2 / mu) / (n - p)} is at most the threshold is fitted
 with \code{stats::quasipoisson(link = "log")} instead. The Poisson and
-quasipoisson point estimates agree, while the routed mgcv fit estimates its
-scale and smoothing parameters from the full spatial model. The screening phi
-is retained in diagnostics and is not passed as a fixed \code{fit$sig2}. In
-the INLA path, routed features use plain Poisson. Set the
+quasipoisson point estimates agree. The null score fit and the full
+spatial fit both estimate their own scale and smoothing parameters. The
+screening phi is retained in diagnostics and is not passed as a fixed
+\code{fit$sig2}. In the INLA path, routed features use plain Poisson. Set the
 threshold to \code{0} to disable the screen (\code{NULL} restores the default);
 other families ignore it. The entry is removed before \code{control} reaches
-\code{mgcv::gam()}. Per-feature \code{prescreen_phi} and \code{family_used} are reported
+\code{mgcv::bam()}. Per-feature \code{prescreen_phi} and \code{family_used} are reported
 in the diagnostics, and \code{family_used} reads \code{"quasipoisson"} for a routed
 gene.}
 
-\item{...}{Additional arguments passed to \code{mgcv::gam(G = G, ...)}.}
+\item{...}{Additional arguments passed to \code{mgcv::bam()}.}
 
 \item{diagnostics}{Logical; compute \code{summary.gam()}/Wood diagnostics.
 FALSE (default) leaves Wood fields NA without calling summary.
 Basic convergence and fitting diagnostics are still retained.}
 
-\item{retain_marginal}{Logical; retain minimal frozen-fit inputs for a later
+\item{retain_marginal}{Logical; retain minimal null-fit inputs for a later
 \code{mgcvST.marginal()} recalibration call. FALSE by default. Marginal testing
 during estimation is always performed; full gam objects are never retained.}
 
@@ -109,10 +109,12 @@ not store a redundant \code{field_scale}; score methods derive it as
 \code{dispersion / lambda}.
 }
 \description{
-Fits each row of \code{Y} with a reusable \code{mgcv::gam(fit = FALSE)} setup and
-retains the fixed numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. Marginal
-screening is run immediately after each feature is fitted, using its cached
-training lpmatrix. Wood diagnostics are optional (\code{diagnostics = TRUE}).
+Fits each row of \code{Y} from a reusable \code{mgcv::gam(fit = FALSE)} setup and
+retains the fixed numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. Each
+feature first fits the null model with the spatial score smooth removed;
+marginal screening uses that null PIRLS state, the prepared \code{G$X}, and the
+target penalty before the full spatial fit. Wood diagnostics are optional
+(\code{diagnostics = TRUE}).
 The marginal test is the package-local \code{taps_score_test()}, using the TAPS
 arithmetic included in mgcvST. No external mgcv.taps installation or sourced
 score function is required. Full \code{gam} objects are never

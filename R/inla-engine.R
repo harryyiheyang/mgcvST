@@ -357,8 +357,8 @@
       any(!nzchar(xnames)) || anyDuplicated(xnames)) {
     stop("spec$fixed$names must uniquely name every fixed-effect column.")
   }
-  if (!is.list(spec$random) || !length(spec$random)) {
-    stop("spec$random must contain at least one latent block.")
+  if (!is.list(spec$random)) {
+    stop("spec$random must be a list of latent blocks.")
   }
   rnames <- vapply(spec$random, function(z) {
     if (is.null(z$name)) "" else as.character(z$name)[1L]
@@ -439,6 +439,26 @@
   )
 }
 
+.inlast_null_spec <- function(spec) {
+  target <- which(vapply(spec$random, function(z) isTRUE(z$target), logical(1L)))
+  random <- spec$random[-target]
+  spec$random <- random
+  spec$nuisance_index <- seq_len(ncol(spec$fixed$X) + sum(vapply(
+    random, function(z) ncol(z$A), integer(1L)
+  )))
+  spec$nuisance_map <- NULL
+  spec
+}
+
+.inlast_null_control <- function(control, spec) {
+  fixed_precision <- control$fixed_precision
+  if (!is.null(fixed_precision) && length(fixed_precision) > 1L) {
+    target <- which(vapply(spec$random, function(z) isTRUE(z$target), logical(1L)))
+    control$fixed_precision <- fixed_precision[-target]
+  }
+  control
+}
+
 .inlast_hyper_mode <- function(fit, pattern) {
   # fit$mode$theta is the joint EB hyperparameter mode on INLA's internal
   # (log) scale.  summary.hyperpar contains transformed marginal modes, which
@@ -466,15 +486,16 @@
       anyNA(random_lengths) || any(random_lengths < 1L)) {
     stop("Internal INLA latent-mode block specification is invalid.")
   }
-  fitted_random_lengths <- vapply(
+  fitted_random_lengths <- if (length(random_tags)) vapply(
     fit$summary.random, nrow, integer(1L), USE.NAMES = FALSE
-  )
+  ) else integer()
   fixed_order_ok <- if (length(fixed_tags)) {
     identical(rownames(fit$summary.fixed), fixed_tags)
   } else {
     is.null(fit$summary.fixed) || identical(nrow(fit$summary.fixed), 0L)
   }
-  if (!identical(names(fit$summary.random), random_tags) ||
+  fitted_random_tags <- if (length(random_tags)) names(fit$summary.random) else character()
+  if (!identical(fitted_random_tags, random_tags) ||
       !identical(fitted_random_lengths, random_lengths) || !fixed_order_ok) {
     stop("INLA latent coefficient order does not match the fitted formula.")
   }

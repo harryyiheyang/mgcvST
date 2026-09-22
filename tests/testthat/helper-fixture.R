@@ -10,11 +10,13 @@ st_fixture <- function(n = 90L, family = mgcv::nb(), pc = FALSE, nuisance = FALS
   data$response2 <- rpois(n, exp(.8 + data$x))
   data$response3 <- rpois(n, exp(.7 + data$y))
   s <- mgcv::s
-  f <- if (nuisance) response ~ offset(offset0) + s(z, k = 5) else response ~ offset(offset0)
+  f <- if (nuisance) response ~ offset(offset0) + s(z, k = 5) else response ~ offset(offset0) + z
   model <- model.set(f, data, basis, family = family)
-  f2 <- if (pc) response ~ offset(offset0) + s(x, y, bs = "spdePC", xt = basis) else
-    response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis)
-  G <- mgcv::gam(f2, data = data, family = family, fit = FALSE)
+  f2 <- if (pc) response ~ offset(offset0) + z + s(x, y, bs = "spdePC", xt = basis) else
+    response ~ offset(offset0) + z + s(x, y, bs = "spde", xt = basis)
+  G <- mgcv::bam(f2, data = data, family = family, method = "fREML",
+                 discrete = TRUE, nthreads = 1L, fit = FALSE)
+  G$smooth[[1L]]$score.component <- "global"
   Y <- t(as.matrix(data[, c("response", "response2", "response3")]))
   list(data = data, basis = basis, model = model, G = G, Y = Y)
 }

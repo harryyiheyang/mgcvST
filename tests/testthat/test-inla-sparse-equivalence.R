@@ -204,11 +204,16 @@ test_that("C++ sparse marginal moments equal the projected TAPS spectrum", {
     working_error = E, working_variance = D,
     geometry = list(nuisance_design = X), feature_id = paste0("g", seq_len(p))
   )
-  z1 <- mgcvST:::.inlast_sparse_batch(
-    fit, seq_len(p), threads = 1L, null_target = TRUE
+  null_state <- list(
+    working_error = E, working_variance = D, nuisance_precision = NULL
   )
-  z2 <- mgcvST:::.inlast_sparse_batch(
-    fit, seq_len(p), threads = 2L, null_target = TRUE
+  z1 <- mgcvST:::.inlast_sparse_null_batch(
+    fit$score_sparse, fit$geometry$nuisance_design, null_state,
+    seq_len(p), threads = 1L
+  )
+  z2 <- mgcvST:::.inlast_sparse_null_batch(
+    fit$score_sparse, fit$geometry$nuisance_design, null_state,
+    seq_len(p), threads = 2L
   )
   ug <- g / sqrt(sum(g^2))
   Q2 <- Q0 %*% Q0

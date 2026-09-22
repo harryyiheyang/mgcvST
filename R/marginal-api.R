@@ -1,3 +1,85 @@
+# Remove the tested spatial block while preserving the nuisance GAM setup.
+.mgcvst_null_score_setup <- function(G, target_index, null_spec = NULL) {
+  target <- G$smooth[[target_index]]
+  target_columns <- seq.int(target$first.para, target$last.para)
+  keep_columns <- setdiff(seq_len(ncol(G$X)), target_columns)
+  X <- attr(G, "training_X")
+  if (is.null(X)) X <- as.matrix(G$X)
+  X0 <- as.matrix(X[, keep_columns, drop = FALSE])
+  if (is.null(null_spec)) {
+    data <- as.data.frame(X0)
+    if (ncol(data)) names(data) <- paste0(".mgcvST_null_X", seq_len(ncol(data)))
+    data$.mgcvST_null_response <- numeric(nrow(X0))
+    rhs <- paste(names(data)[-ncol(data)], collapse = " + ")
+    formula <- stats::as.formula(paste(
+      ".mgcvST_null_response ~ 0", if (nzchar(rhs)) paste("+", rhs) else "+ 1"
+    ))
+    null_spec <- list(formula = formula, data = data, offset = G$offset,
+                      response = ".mgcvST_null_response")
+  }
+  colnames(X) <- G$term.names
+  list(
+    spec = null_spec, X = X, X0 = if (is.null(null_spec$X0)) X0 else null_spec$X0,
+    smooth = G$smooth, target_S = G$S[[target$first.sp]],
+    term.names = G$term.names, target_index = target_index,
+    target_columns = target_columns,
+    keep_columns = keep_columns
+  )
+}
+
+# Evaluate the spatial score from a pure null GAM and the prepared target block.
+.mgcvst_null_score_spectrum <- function(null_fit, setup) {
+  working <- .mgcvst_marginal_working(null_fit)
+  X0 <- as.matrix(setup$X0)
+  B <- setup$X[, setup$target_columns, drop = FALSE]
+  S <- as.matrix(setup$target_S)
+  theta <- CppMatrix::matrixGeneralizedInverse(S / norm(S, "f"))
+  F <- CppMatrix::matrixMultiply(
+    B, .mgcvst_marginal_matrixsqrt(theta)$w
+  )
+  V0 <- working$V_phi
+  W0 <- X0 / V0
+  W0_Vp <- CppMatrix::matrixMultiply(W0, null_fit$Vp)
+  P0_apply <- function(v) {
+    v_matrix <- is.matrix(v)
+    v <- if (v_matrix) v else matrix(v, ncol = 1L)
+    Dv <- v / V0
+    adjustment <- CppMatrix::matrixMultiply(
+      W0_Vp,
+      CppMatrix::matrixMultiply(X0, Dv, transA = TRUE)
+    )
+    out <- Dv - adjustment
+    if (v_matrix) out else as.vector(out)
+  }
+  offset <- if (is.null(null_fit$offset)) numeric(nrow(X0)) else null_fit$offset
+  error <- working$pseudo_response - offset
+  a <- CppMatrix::matrixMultiply(F, P0_apply(error), transA = TRUE)
+  M <- CppMatrix::matrixMultiply(F, P0_apply(F), transA = TRUE)
+  lambda <- eigen(M, symmetric = TRUE, only.values = TRUE)$values
+  list(
+    statistic = sum(a^2), lambda = lambda,
+    smooth.term = setup$smooth[[setup$target_index]]$label
+  )
+}
+
+.mgcvst_null_score_test <- function(null_fit, setup, method = "davies",
+                                    max_eps = 1e-8, max_iter = 1e5) {
+  method <- match.arg(method, c("davies", "liu"))
+  z <- .mgcvst_null_score_spectrum(null_fit, setup)
+  if (method == "davies") {
+    result <- .mgcvst_marginal_davies(z, "liu", max_eps, max_iter)
+    p <- result$p_value
+    method <- result$method_used
+  } else {
+    p <- .mgcvst_marginal_liu(z$statistic, .mgcvst_marginal_moments(z$lambda))
+  }
+  out <- data.frame(smooth.term = z$smooth.term, smooth.pvalue = p, method = method)
+  attr(out, "marginal_spectrum") <- list(
+    statistic = z$statistic, lambda = z$lambda, smooth.term = z$smooth.term
+  )
+  out
+}
+
 # Extract only frozen-fit data, not a GAM/refit recipe or pair-score state.
 .mgcvst_marginal_geometry <- function(fit, X = NULL, test_component = 1L) {
   if (is.null(X)) X <- fit$.taps_score_X
@@ -53,8 +135,8 @@
     state[chunk$index] <- chunk$marginal_state
   }
   names(state) <- feature_id
-  list(version = 1L, geometry = geometry, geometry_index = geometry_index,
-       state = state, definition = "frozen_fit_conditional_marginal_TAPS")
+  list(version = 2L, state = state,
+       definition = "null_fit_direct_score_cache")
 }
 
 # Port of the standard/extended-family branches of extract_pseudo_response()
@@ -164,6 +246,16 @@
   lapply(seq_along(payload$index), function(k) {
     tryCatch({
       state <- payload$state[[k]]
+      if (identical(payload$version, 2L)) {
+        if (inherits(state, "condition")) stop(state)
+        if (is.null(state)) stop("No retained marginal state for this feature.")
+        z <- state$marginal_cache
+        if (calibration == "davies") {
+          z$calibration <- .mgcvst_marginal_davies(z, fallback, max_eps, max_iter)
+          z$lambda <- NULL
+        }
+        return(z)
+      }
       if (inherits(state, "condition")) stop(state)
       if (is.null(state)) stop("No retained marginal state for this feature.")
       current_geometry <- geometry[[payload$geometry_index[k]]]
@@ -192,7 +284,7 @@
 
 #' Marginal TAPS evaluation of already estimated features
 #'
-#' Evaluates frozen-fit conditional marginal TAPS, ported from mgcv.taps,
+#' Evaluates null-fit conditional marginal TAPS, ported from mgcv.taps,
 #' without refitting. This is not the pairwise covariance test. Estimate with
 #' `retain_marginal = TRUE` to retain the needed response, coefficients and
 #' family state. Pairwise working quantities alone are not sufficient.
@@ -261,7 +353,8 @@ mgcvST.marginal <- function(fitmgcvST, features = NULL,
   chunks <- split(seq_along(index), ceiling(seq_along(index) / chunk_size))
   payload <- lapply(chunks, function(rows) {
     i <- index[rows]
-    list(index = i, state = data$state[i], geometry_index = data$geometry_index[i])
+    list(index = i, state = data$state[i], geometry_index = data$geometry_index[i],
+         version = data$version)
   })
   evaluated <- BiocParallel::bplapply(payload, .mgcvst_marginal_chunk,
     geometry = data$geometry, calibration = calibration, fallback = fallback,

@@ -29,11 +29,11 @@
 #' @section Which family a routed gene actually gets:
 #' The routing decision is shared, the routing target is not. In the **mgcv**
 #' path a routed gene is fitted with `stats::quasipoisson(link = "log")`, which
-#' `mgcv::gam()` supports: the Poisson and quasipoisson point estimates are the
-#' same. The routed mgcv fit estimates its quasipoisson scale and smoothing
-#' parameters from the full spatial model. The screening `phi` is retained in
-#' diagnostics, whereas the fitted scale enters the working variance and the
-#' marginal score test. In the **INLA** path a routed gene keeps plain Poisson,
+#' `mgcv::bam()` supports: the Poisson and quasipoisson point estimates are the
+#' same. The routed mgcv null score fit and full spatial fit each estimate their
+#' quasipoisson scale and smoothing parameters. The screening `phi` is retained
+#' in diagnostics, whereas the null-fit scale enters the marginal score test
+#' and the full-fit scale enters the working variance. In the **INLA** path a routed gene keeps plain Poisson,
 #' because INLA has no quasi-likelihood families.
 #'
 #' The Poisson and quasipoisson GLM point estimates agree, so the Poisson fit

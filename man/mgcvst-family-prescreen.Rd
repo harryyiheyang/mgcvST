@@ -36,12 +36,12 @@ exactly as before.
 
 The routing decision is shared, the routing target is not. In the \strong{mgcv}
 path a routed gene is fitted with \code{stats::quasipoisson(link = "log")}, which
-\code{mgcv::gam()} supports: the Poisson and quasipoisson point estimates agree.
-The routed mgcv fit estimates its quasipoisson scale and smoothing parameters
-from the full spatial model. The screening \code{phi} is retained in
-diagnostics, whereas the fitted scale enters the working variance and marginal
-score test. In the \strong{INLA} path a routed gene keeps plain Poisson, because
-INLA has no quasi-likelihood families.
+\code{mgcv::bam()} supports: the Poisson and quasipoisson point estimates are the
+same. The routed mgcv null score fit and full spatial fit each estimate their
+quasipoisson scale and smoothing parameters. The screening \code{phi} is retained
+in diagnostics, whereas the null-fit scale enters the marginal score test
+and the full-fit scale enters the working variance. In the \strong{INLA} path a routed gene keeps plain Poisson,
+because INLA has no quasi-likelihood families.
 
 The Poisson and quasipoisson GLM point estimates agree, so the Poisson fit
 supplies the routing statistic. The screen selects a family; it does not

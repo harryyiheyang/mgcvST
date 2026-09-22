@@ -80,24 +80,25 @@
                                   gam_args, retain_smooth, diagnostics = TRUE,
                                   geometry_cache = NULL, offset = NULL,
                                   poisson = FALSE, routed_family_raw = NULL) {
-  G <- G0
-  response_index <- attr(G$terms, "response")
+  full_spec <- attr(G0, "full_spec")
+  response_index <- attr(G0$terms, "response")
   if (length(response_index) != 1L || response_index < 1L ||
-      is.null(G$mf) || response_index > ncol(G$mf)) {
+       is.null(G0$mf) || response_index > ncol(G0$mf)) {
     stop("The reusable model does not contain a response bridge.")
   }
-  G$y <- as.numeric(response)
-  G$mf[[response_index]] <- as.numeric(response)
+  full_data <- full_spec$data
+  full_data[[full_spec$response]] <- as.numeric(response)
   # Poisson prescreen routing (R/family-prescreen.R); FALSE keeps the model
   # family. TRUE selects the quasipoisson routing family in the mgcv path.
-  G$family <- unserialize(if (isTRUE(poisson)) routed_family_raw else family_raw)
-  if (!is.null(offset)) {
-    G$offset <- (if (is.null(G0$offset)) numeric(length(response)) else G0$offset) + offset
-  }
+  family <- mgcv::fix.family.ls(
+    unserialize(if (isTRUE(poisson)) routed_family_raw else family_raw)
+  )
   t0 <- proc.time()[["elapsed"]]
   fit <- do.call(
-    mgcv::gam,
-    c(list(G = G, method = method, control = control), gam_args)
+    mgcv::bam,
+    c(list(formula = full_spec$formula, data = full_data, family = family,
+           offset = offset, method = "fREML", discrete = TRUE, nthreads = 1L,
+           control = control), gam_args)
   )
   fit_seconds <- proc.time()[["elapsed"]] - t0
   W <- rkhs_extract_working_model(fit)
@@ -162,12 +163,42 @@
     NULL
   }
   shared_geometry <- NULL
+  target_index <- which(vapply(
+    G0$smooth, function(s) identical(s$score.component, "global"), logical(1L)
+  ))
+  null_setup <- .mgcvst_null_score_setup(G0, target_index, attr(G0, "null_spec"))
+  response_index <- attr(G0$terms, "response")
   for (j in seq_along(payload$index)) {
+    response <- as.numeric(payload$Y[j, ])
+    feature_offset <- if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset
+    null_data <- null_setup$spec$data
+    null_data[[null_setup$spec$response]] <- response
+    null_fit <- NULL
+    marginal_result <- tryCatch(
+      {
+        null_fit <- do.call(
+          mgcv::bam,
+          c(list(formula = null_setup$spec$formula, data = null_data,
+                 family = unserialize(if (isTRUE(payload$poisson[j])) routed_family_raw else family_raw),
+                 offset = feature_offset,
+                 method = "fREML", discrete = TRUE, nthreads = 1L, control = control), gam_args)
+        )
+        .mgcvst_marginal_score(
+          null_fit, marginal_test, marginal_args,
+          test_component = null_setup$target_index, setup = null_setup
+        )
+      },
+      error = function(e) e
+    )
+    marginal_state <- NULL
+    if (retain_marginal && !inherits(marginal_result, "condition")) {
+      marginal_state <- list(marginal_cache = marginal_result$cache)
+    }
     fit <- tryCatch(
       .mgcvst_model_fit_one(
         payload$Y[j, ], G0, family_raw, method, control, gam_args,
         retain_smooth, diagnostics = diagnostics, geometry_cache = geometry_cache,
-        offset = if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset,
+        offset = feature_offset,
         poisson = isTRUE(payload$poisson[j]),
         routed_family_raw = routed_family_raw
       ),
@@ -179,27 +210,6 @@
         index = payload$index[j], feature_id = payload$feature_id[j]
       )
     } else {
-      target_index <- unname(fit$geometry$target[["global"]])
-      if (retain_marginal) {
-        captured <- tryCatch(
-          .mgcvst_capture_marginal(fit$gam, marginal_geometry,
-                                  test_component = target_index),
-          error = function(e) e
-        )
-        if (inherits(captured, "condition")) {
-          fit$marginal_state <- captured
-        } else {
-          if (is.null(marginal_geometry)) marginal_geometry <- captured$geometry
-          fit$marginal_state <- captured$state
-        }
-      }
-      marginal_result <- tryCatch(
-        .mgcvst_marginal_score(
-          fit$gam, marginal_test, marginal_args,
-          test_component = target_index
-        ),
-        error = function(e) e
-      )
       fit$marginal_p_value <- if (inherits(marginal_result, "condition")) {
         NA_real_
       } else {
@@ -211,11 +221,7 @@
         NA_character_ else marginal_result$method
       fit$marginal_fallback <- if (inherits(marginal_result, "condition"))
         NA else marginal_result$fallback
-      if (retain_marginal && !inherits(marginal_result, "condition") &&
-          !is.null(fit$marginal_state) &&
-          !inherits(fit$marginal_state, "condition")) {
-        fit$marginal_state$marginal_cache <- marginal_result$cache
-      }
+      if (retain_marginal) fit$marginal_state <- marginal_state
       fit$marginal_error <- if (inherits(marginal_result, "condition")) {
         .mgcvst_condition(marginal_result)
       } else {
@@ -276,7 +282,7 @@
   }
   if (!is.list(control)) stop("control must be returned by mgcv::gam.control().")
   # Poisson prescreen (R/family-prescreen.R). The knob lives in control and is
-  # removed before control reaches mgcv::gam(), which rejects unknown entries.
+  # removed before control reaches mgcv::bam(), which rejects unknown entries.
   screen_threshold <- .mgcvst_prescreen_threshold(
     control[["poisson_screen_phi", exact = TRUE]]
   )
@@ -287,9 +293,6 @@
   if (frozen) {
     forbidden <- union(forbidden, intersect(names(gam_args),
       c("formula", "data", "weights", "subset", "na.action", "knots", "paraPen", "H")))
-    if (length(source_files) || !is.null(worker_init)) {
-      stop("mgcvST.set() fixes the shared design; source_files and worker_init are unsupported for this path.")
-    }
   }
   if (length(forbidden)) {
     stop("Do not supply these arguments through ...: ", paste(forbidden, collapse = ", "))
@@ -325,7 +328,11 @@
   # Establish one formal prediction geometry before distributing the remaining
   # fits. A failed first feature is retained; the next feature may seed the cache.
   fit_args <- list(
-    G0 = model$G, family_raw = family_raw, method = method,
+    G0 = structure(model$G,
+      null_spec = list(formula = model$null_formula, data = model$null_data,
+        response = model$null_response, X0 = model$null_X),
+      full_spec = list(formula = model$full_formula, data = model$full_data,
+        response = model$null_response)), family_raw = family_raw, method = method,
     control = control, gam_args = gam_args, source_files = source_files,
     worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,

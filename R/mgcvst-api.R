@@ -231,25 +231,38 @@
 
 # Run the requested corrected marginal score calibration.
 .mgcvst_marginal_score <- function(fit, marginal_test, marginal_args,
-                                   test_component = 1L) {
+                                   test_component = 1L, setup = NULL) {
   cacheable <- is.null(marginal_test) && is.null(marginal_args$lpmatrix)
-  if (is.null(marginal_test)) marginal_test <- taps_score_test
-  if (!is.function(marginal_test)) {
-    stop("marginal_test must be NULL or a function.")
+  if (is.null(marginal_test) && !is.null(setup)) {
+    score <- do.call(
+      .mgcvst_null_score_test,
+      utils::modifyList(
+        list(null_fit = fit, setup = setup),
+        marginal_args
+      )
+    )
+  } else {
+    if (is.null(marginal_test)) marginal_test <- taps_score_test
+    if (!is.function(marginal_test)) {
+      stop("marginal_test must be NULL or a function.")
+    }
+    args <- utils::modifyList(
+      list(
+        fit = fit, test.component = test_component, n_threads = 1L
+      ),
+      marginal_args
+    )
+    score <- do.call(marginal_test, args)
   }
-  args <- utils::modifyList(
-    list(
-      fit = fit, test.component = test_component, n_threads = 1L
-    ),
-    marginal_args
-  )
-  score <- do.call(marginal_test, args)
   p_value <- as.numeric(score$smooth.pvalue)
   if (length(p_value) != 1L || !is.finite(p_value) ||
       p_value < 0 || p_value > 1) {
     stop("The corrected marginal spatial score returned an invalid p-value.")
   }
   requested <- marginal_args$method
+  if (is.null(requested) && is.null(marginal_test) && !is.null(setup)) {
+    requested <- "davies"
+  }
   if (is.null(requested)) requested <- formals(marginal_test)[["method"]]
   if (!is.character(requested) || length(requested) != 1L) requested <- NA_character_
   used <- score$method
@@ -268,6 +281,8 @@
     ".mgcvst_spde_index", ".mgcvst_row_id", ".mgcvst_compact_fit",
     ".mgcvst_condition", ".mgcvst_fit_chunk",
     ".mgcvst_capture_marginal", ".mgcvst_marginal_geometry",
+    ".mgcvst_null_score_setup", ".mgcvst_null_score_spectrum",
+    ".mgcvst_null_score_test",
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     "taps_score_test", ".mgcvst_marginal_spectrum", ".mgcvst_marginal_working",
     ".mgcvst_marginal_matrixsqrt", ".mgcvst_marginal_moments",
@@ -356,6 +371,17 @@
   marginal_requested_method <- marginal_method <- rep(NA_character_, k)
   marginal_fallback <- rep(NA, k)
   design_cache <- new.env(parent = emptyenv())
+  L0 <- attr(G0, "training_X")
+  if (!is.null(L0)) {
+    pseudo <- G0
+    pseudo$model <- G0$mf
+    pseudo$coefficients <- stats::setNames(numeric(ncol(L0)), G0$term.names)
+    pseudo$linear.predictors <- numeric(nrow(L0))
+    class(pseudo) <- c("gam", "glm", "lm")
+    design_cache$frozen <- TRUE
+    design_cache$L <- L0
+    design_cache$geometry <- .mgcvst_model_geometry(pseudo, L0)
+  }
   marginal_state <- if (retain_marginal) vector("list", k) else NULL
   coefficient_count <- length(seq.int(
     G0$smooth[[1L]]$first.para, G0$smooth[[1L]]$last.para
@@ -379,22 +405,60 @@
   if (is.null(prescreen_phi)) prescreen_phi <- rep(NA_real_, k)
   family_used <- rep(NA_character_, k)
 
-  G1 <- G0
+  target_index <- which(vapply(
+    G0$smooth, function(s) identical(s$score.component, "global"), logical(1L)
+  ))
+  null_setup <- .mgcvst_null_score_setup(G0, target_index, attr(G0, "null_spec"))
   for (j in seq_len(k)) {
     response <- as.numeric(Y[j, ])
-    G1$y <- response
-    G1$mf[[response_index]] <- response
-    G1$family <- unserialize(
-      if (isTRUE(poisson_route[j])) routed_family_raw else family_raw
+    family_serialized <- if (isTRUE(poisson_route[j])) routed_family_raw else family_raw
+    family_used[j] <- .working_family_id(unserialize(family_serialized)$family)
+
+    null_data <- null_setup$spec$data
+    null_data[[null_setup$spec$response]] <- response
+    null_fit <- NULL
+    t0 <- proc.time()[["elapsed"]]
+    marginal_result <- tryCatch(
+      {
+        null_fit <- do.call(mgcv::bam, c(list(
+          formula = null_setup$spec$formula, data = null_data,
+          family = unserialize(family_serialized), offset = null_setup$spec$offset,
+          method = "fREML", discrete = TRUE, nthreads = 1L,
+          control = control), gam_args))
+        .mgcvst_marginal_score(
+          null_fit, marginal_test = marginal_test,
+          marginal_args = marginal_args,
+          test_component = null_setup$target_index, setup = null_setup
+        )
+      },
+      error = function(e) e
     )
-    family_used[j] <- .working_family_id(G1$family$family)
+    marginal_seconds[j] <- proc.time()[["elapsed"]] - t0
+    if (inherits(marginal_result, "condition")) {
+      err <- .mgcvst_condition(marginal_result)
+      error_class[j] <- err$class
+      error_message[j] <- err$message
+      error_call[j] <- err$call
+    } else {
+      marginal_p_value[j] <- marginal_result$p_value
+      marginal_requested_method[j] <- marginal_result$requested_method
+      marginal_method[j] <- marginal_result$method
+      marginal_fallback[j] <- marginal_result$fallback
+    }
+    if (retain_marginal && !inherits(marginal_result, "condition")) {
+      marginal_state[[j]] <- list(marginal_cache = marginal_result$cache)
+    }
 
     t0 <- proc.time()[["elapsed"]]
+    full_data <- attr(G0, "full_spec")$data
+    full_data[[attr(G0, "full_spec")$response]] <- response
     fit_result <- tryCatch(
       list(
         value = do.call(
-          mgcv::gam,
-          c(list(G = G1, method = method, control = control), gam_args)
+          mgcv::bam,
+           c(list(formula = attr(G0, "full_spec")$formula, data = full_data,
+                  family = unserialize(family_serialized), method = "fREML",
+                  discrete = TRUE, nthreads = 1L, control = control), gam_args)
         ),
         error = NULL
       ),
@@ -473,42 +537,6 @@
     E[, j] <- compact$working_error
     V[, j] <- compact$working_variance
 
-    if (retain_marginal) {
-      captured <- tryCatch(
-        .mgcvst_capture_marginal(fit, marginal_geometry), error = function(e) e
-      )
-      if (inherits(captured, "condition")) {
-        marginal_state[[j]] <- captured
-      } else {
-        if (is.null(marginal_geometry)) marginal_geometry <- captured$geometry
-        marginal_state[[j]] <- captured$state
-      }
-    }
-
-    t0 <- proc.time()[["elapsed"]]
-    marginal_result <- tryCatch(
-      .mgcvst_marginal_score(
-        fit, marginal_test = marginal_test,
-        marginal_args = marginal_args
-      ),
-      error = function(e) e
-    )
-    marginal_seconds[j] <- proc.time()[["elapsed"]] - t0
-    if (inherits(marginal_result, "condition")) {
-      err <- .mgcvst_condition(marginal_result)
-      error_class[j] <- err$class
-      error_message[j] <- err$message
-      error_call[j] <- err$call
-    } else {
-      marginal_p_value[j] <- marginal_result$p_value
-      marginal_requested_method[j] <- marginal_result$requested_method
-      marginal_method[j] <- marginal_result$method
-      marginal_fallback[j] <- marginal_result$fallback
-      if (retain_marginal && !is.null(marginal_state[[j]]) &&
-          !inherits(marginal_state[[j]], "condition")) {
-        marginal_state[[j]]$marginal_cache <- marginal_result$cache
-      }
-    }
   }
 
   diagnostics <- data.frame(
@@ -563,10 +591,12 @@
 
 #' Estimate compact covariance working summaries
 #'
-#' Fits each row of `Y` with a reusable `mgcv::gam(fit = FALSE)` setup and
-#' retains the fixed numerical summaries needed by [mgcvST.test()]. Marginal
-#' screening is run immediately after each feature is fitted, using its cached
-#' training lpmatrix. Wood diagnostics are optional (`diagnostics = TRUE`).
+#' Fits each row of `Y` from a reusable `mgcv::gam(fit = FALSE)` setup and
+#' retains the fixed numerical summaries needed by [mgcvST.test()]. Each
+#' feature first fits the null model with the spatial score smooth removed;
+#' marginal screening uses that null PIRLS state, the prepared `G$X`, and the
+#' target penalty before the full spatial fit. Wood diagnostics are optional
+#' (`diagnostics = TRUE`).
 #' The marginal test is the package-local `taps_score_test()`, using the TAPS
 #' arithmetic included in mgcvST. No external mgcv.taps installation or sourced
 #' score function is required. Full `gam` objects are never
@@ -618,7 +648,7 @@
 #' @param diagnostics Logical; compute `summary.gam()`/Wood diagnostics.
 #'   FALSE (default) leaves Wood fields NA without calling summary.
 #'   Basic convergence and fitting diagnostics are still retained.
-#' @param retain_marginal Logical; retain minimal frozen-fit inputs for a later
+#' @param retain_marginal Logical; retain minimal null-fit inputs for a later
 #'   `mgcvST.marginal()` recalibration call. FALSE by default. Marginal testing
 #'   during estimation is always performed; full gam objects are never retained.
 #' @param marginal_args Named list of additional marginal-score arguments.
@@ -629,8 +659,8 @@
 #'   coefficient matrix and one shared reduced fit basis and unscaled penalty.
 #'   This opt-in representation supports prediction and other downstream uses
 #'   without retaining full `gam` objects.
-#' @param method Fitting method passed to `mgcv::gam()`. `"REML"` is the
-#'   default.
+#' @param method Retained for API compatibility. Null and full fits use
+#'   `mgcv::bam(method = "fREML", discrete = TRUE)`.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
 #'   always forced to one. It may additionally carry `poisson_screen_phi`
 #'   (default `1.1`), the Poisson prescreen threshold: with a negative-binomial
@@ -638,16 +668,16 @@
 #'   and a feature whose Pearson dispersion
 #'   `phi = sum((y - mu)^2 / mu) / (n - p)` is at most the threshold is fitted
 #'   with `stats::quasipoisson(link = "log")` instead. The Poisson and
-#'   quasipoisson point estimates agree, while the routed mgcv fit estimates
-#'   its scale and smoothing parameters from the full spatial model. The
+#'   quasipoisson point estimates agree. The null score fit and the full
+#'   spatial fit both estimate their own scale and smoothing parameters. The
 #'   screening phi is retained in diagnostics and is not passed as a fixed
 #'   `fit$sig2`. In the INLA path, routed features use plain Poisson. Set the
 #'   threshold to `0` to disable the screen (`NULL` restores the default);
 #'   other families ignore it. The entry is removed before `control` reaches
-#'   `mgcv::gam()`. Per-feature `prescreen_phi` and `family_used` are reported
+#'   `mgcv::bam()`. Per-feature `prescreen_phi` and `family_used` are reported
 #'   in the diagnostics, and `family_used` reads `"quasipoisson"` for a routed
 #'   gene.
-#' @param ... Additional arguments passed to `mgcv::gam(G = G, ...)`.
+#' @param ... Additional arguments passed to `mgcv::bam()`.
 #' @return A compact object of class `mgcvST_fit` containing marginal score
 #'   p-values, Wood audit values, feature IDs, working errors and variances,
 #'   separate per-feature `dispersion` and `lambda`, shared score geometry,
@@ -710,6 +740,21 @@ mgcvST.estimate <- function(
   if (!is.list(G) || is.null(G$y) || is.null(G$family) || is.null(G$smooth)) {
     stop("G must be a reusable setup returned by mgcv::gam(..., fit = FALSE).")
   }
+  G <- .mgcvst_mark_global(G)
+  spec <- .mgcvst_external_spec(G)
+  G <- mgcv::gam(spec$formula, data = spec$data, family = G$family,
+                 fit = FALSE, na.action = stats::na.fail)
+  G <- .mgcvst_mark_global(G)
+  target_index <- which(vapply(G$smooth,
+    function(s) identical(s$score.component, "global"), logical(1L)))
+  null_formula <- .mgcvst_null_formula(spec$formula, target_index)
+  null_G <- mgcv::gam(null_formula, data = spec$data, family = G$family,
+                      fit = FALSE, na.action = stats::na.fail)
+  attr(G, "training_X") <- as.matrix(G$X)
+  attr(G, "null_spec") <- list(formula = null_formula, data = spec$data,
+    response = names(G$mf)[attr(G$terms, "response")], X0 = as.matrix(null_G$X))
+  attr(G, "full_spec") <- list(formula = spec$formula, data = spec$data,
+    response = names(G$mf)[attr(G$terms, "response")])
   if (ncol(Y) != length(G$y)) {
     stop("ncol(Y) must equal the number of observations in G.")
   }
@@ -767,7 +812,7 @@ mgcvST.estimate <- function(
     stop("chunk_size must be one positive integer.")
   }
   # Poisson prescreen (R/family-prescreen.R). The knob lives in control and is
-  # removed before control reaches mgcv::gam(), which rejects unknown entries.
+  # removed before control reaches mgcv::bam(), which rejects unknown entries.
   screen_threshold <- .mgcvst_prescreen_threshold(
     control[["poisson_screen_phi", exact = TRUE]]
   )
@@ -789,6 +834,7 @@ mgcvST.estimate <- function(
     poisson = prescreen$poisson[i],
     prescreen_phi = prescreen$phi[i]
   ))
+  attr(G, "training_X") <- as.matrix(G$X)
   family_raw <- serialize(G$family, NULL)
   # A prescreen-routed gene is fitted in the mgcv path with quasipoisson.
   # mgcv estimates the routed scale from the full spatial model. The INLA path

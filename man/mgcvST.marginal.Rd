@@ -42,7 +42,7 @@ requested/actual method, fallback and numerical failure information. No
 filtering or multiple-testing correction is applied implicitly.
 }
 \description{
-Evaluates frozen-fit conditional marginal TAPS, ported from mgcv.taps,
+Evaluates null-fit conditional marginal TAPS, ported from mgcv.taps,
 without refitting. This is not the pairwise covariance test. Estimate with
 \code{retain_marginal = TRUE} to retain the needed response, coefficients and
 family state. Pairwise working quantities alone are not sufficient.

@@ -99,10 +99,33 @@ model.set <- function(
     formula0, data = data, family = family, fit = FALSE,
     na.action = stats::na.fail, ...
   )
+  target_index <- which(vapply(
+    G$smooth, function(s) identical(s$score.component, "global"), logical(1L)
+  ))
+  null_formula <- .mgcvst_null_formula(formula0, target_index)
+  null_G <- mgcv::gam(
+    null_formula, data = data, family = family, fit = FALSE,
+    na.action = stats::na.fail, ...
+  )
+  attr(G, "training_X") <- as.matrix(G$X)
+  L <- as.matrix(G$X)
+  pseudo <- G
+  pseudo$model <- G$mf
+  pseudo$coefficients <- stats::setNames(numeric(ncol(G$X)), G$term.names)
+  pseudo$linear.predictors <- numeric(nrow(L))
+  class(pseudo) <- c("gam", "glm", "lm")
+  geometry <- .mgcvst_model_geometry(pseudo, L)
   components <- "global"
   structure(
     list(
       G = G,
+      L = L, geometry = geometry, shared_design = TRUE,
+      full_formula = formula0,
+      full_data = data,
+      null_formula = null_formula,
+      null_data = data,
+      null_X = as.matrix(null_G$X),
+      null_response = bridge,
       setting = "global",
       components = components,
       formula = formula,

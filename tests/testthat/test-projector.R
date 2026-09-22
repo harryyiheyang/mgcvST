@@ -81,7 +81,8 @@ test_that("predict.gam works on new locations and prediction blocks", {
   for (pc in c(FALSE,TRUE)) {
     f <- st_fixture(pc=pc)
     fit <- mgcv::gam(G=f$G,method="REML")
-    new <- data.frame(x=c(.132,.254,.815),y=c(.271,.724,.158),offset0=c(.1,0,-.1))
+    new <- data.frame(x=c(.132,.254,.815),y=c(.271,.724,.158),
+                      z=c(-.2,.1,.3),offset0=c(.1,0,-.1))
     L <- predict(fit,newdata=new,type="lpmatrix",block.size=1L)
     B <- mgcvST:::.spde_basis_at(f$basis,as.matrix(new[,c("x","y")]),pc)
     cols <- fit$smooth[[1]]$first.para:fit$smooth[[1]]$last.para

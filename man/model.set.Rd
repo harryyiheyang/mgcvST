@@ -42,7 +42,7 @@ factors, interactions, offsets, and additional mgcv smoothers on the
 right-hand side are retained.
 }
 \details{
-\code{basis} is one object returned by \code{\link[=spde_basis]{spde_basis()}}: the model carries exactly
-one spatial score process. Other user smoothers contribute nuisance
+\code{basis} is one object returned by \code{\link[=spde_basis]{spde_basis()}}, and the model carries one
+global spatial score process. Other user smoothers contribute nuisance
 covariance to the marginal working model but are not score directions.
 }

@@ -8,7 +8,7 @@ mgcvST.set(formula = NULL, data = NULL, family = mgcv::nb(), G = NULL, ...)
 }
 \arguments{
 \item{formula}{Complete two-sided mgcv formula. The response is a label and
-need not exist in \code{data}.}
+need not exist in \code{data}; mgcv expands factors, interactions and contrasts.}
 
 \item{data}{One shared data frame with one row per observation.}
 
@@ -20,23 +20,11 @@ Supply either \code{formula} and \code{data}, or \code{G}.}
 \item{...}{Setup arguments passed to \code{mgcv::gam(..., fit = FALSE)}.}
 }
 \value{
-An \code{mgcvST_model} with shared \code{G}, \code{L}, geometry, and \code{timing} in
-seconds (\code{setup_seconds}, \code{lpmatrix_seconds}, \code{elapsed}). Each SPDE smooth
-also contains a \code{timing} environment recording \code{basis_seconds},
-\code{prediction_seconds}, and corresponding call counts. Prediction calls
-update this environment; these counters are local to the R process.
+An \code{mgcvST_model} containing the shared full and null GAM setups,
+their training designs, the target spatial geometry and setup timing.
 }
 \description{
-Supply a complete mgcv formula, including the SPDE term, covariates,
-nuisance smoothers and any shared \code{offset()}. Parsing is delegated to mgcv.
-Alternatively supply an externally constructed \code{mgcv::gam(..., fit = FALSE)}
-setup as \code{G}. No gene is fitted here. The formal prediction matrix is
-computed once and saved as \code{L}; estimate and test reuse this design.
-}
-\details{
-Coordinates, mesh, factor coding, covariates, smooths and observation order
-are shared across genes. Gene-specific covariates are unsupported; additional
-gene-specific offsets can be supplied to \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}. To change the
-design, construct a new setting. Prepared SPDE bases are supplied through
-\code{s(x, y, bs = "spde", xt = basis)} or \code{bs = "spdePC"}.
+Supplies a complete mgcv formula or an external mgcv setup. Shared full and
+null GAM setups are prepared with a zero response; each feature is later
+fitted independently with BAM.
 }

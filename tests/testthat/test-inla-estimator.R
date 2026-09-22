@@ -319,6 +319,208 @@ test_that("inlaST compact fits run the existing covariance score path", {
   )
 })
 
+test_that("inlaST scores the null fit before the full fit", {
+  skip_if_not_installed("INLA")
+  skip_if_not_installed("geometry")
+  f <- .inlast_fixture(n = 24L, seed = 1821L)
+  model <- inlaST.set(response ~ z + offset(offset0), f$data, f$basis,
+                      family = mgcv::nb(theta = 4))
+  Y <- rbind(g1 = rep(1, nrow(f$data)), g2 = rep(2, nrow(f$data)))
+  calls <- new.env(parent = emptyenv())
+  calls$event <- character()
+  calls$family <- list()
+  fake_fit <- function(spec, y, phase) {
+    random_names <- vapply(spec$random, `[[`, character(1L), "name")
+    list(
+      working_error = rep(if (identical(phase, "null")) y[1L] else 20, length(y)),
+      working_variance = rep(if (identical(phase, "null")) y[1L] + 2 else 30, length(y)),
+      dispersion = 1, family_parameters = 4, smoothing_parameters = rep(1, 1L),
+      nuisance_covariance = diag(ncol(spec$nuisance_design)),
+      expected_nuisance_covariance = NULL, converged = TRUE,
+      log_marginal_likelihood = 0, fit_seconds = 0,
+      constraint_residual = stats::setNames(rep(0, length(random_names)), random_names),
+      observation_spatial_mean = stats::setNames(rep(0, length(random_names)), random_names),
+      coefficients = list(global = numeric()), estimation = NULL
+    )
+  }
+  task <- function() {
+    function(payload, spec, base_offset, control, diagnostics, libpaths) {
+      phase <- if (length(spec$random)) "full" else "null"
+      calls$event <- c(calls$event, phase)
+      calls$family[[length(calls$family) + 1L]] <- if (is.null(payload$poisson)) {
+        rep(spec$family, nrow(payload$Y))
+      } else ifelse(payload$poisson, "poisson", spec$family)
+      lapply(seq_len(nrow(payload$Y)), function(j) {
+        fake_fit(spec, payload$Y[j, ], phase)
+      })
+    }
+  }
+  marginal <- function(feature_id, score_sparse, nuisance_design, null_state,
+                       features, ...) {
+    calls$event <- c(calls$event, "score")
+    calls$constraint <- score_sparse$constraint
+    calls$W <- null_state$working_variance[, features, drop = FALSE]
+    calls$statistic <- colSums(1 / calls$W)
+    data.frame(
+      feature_id = feature_id[features], statistic = calls$statistic,
+      p_value = c(.2, .3)[seq_along(features)], method_requested = "liu",
+      method_used = "liu", fallback_used = FALSE, fallback_reason = NA_character_,
+      davies_ifault = NA_integer_, error_message = NA_character_
+    )
+  }
+  route <- function(Y, X, offset, threshold, active) {
+    list(phi = c(1, 2), poisson = c(TRUE, FALSE))
+  }
+  fit <- testthat::with_mocked_bindings(
+    inlaST.estimate(Y, model, BPPARAM = BiocParallel::SerialParam(),
+                    retain_marginal = TRUE),
+    .inlast_chunk_task = task, .inlast_null_marginal = marginal,
+    .mgcvst_prescreen_route = route, .package = "mgcvST"
+  )
+
+  expect_identical(calls$event, c("null", "score", "full"))
+  expect_identical(calls$family[[1L]], c("poisson", "negative_binomial"))
+  expect_identical(calls$family[[2L]], c("poisson", "negative_binomial"))
+  expect_identical(calls$constraint, model$inla_spec$random[[1L]]$constraint)
+  expect_identical(calls$constraint, fit$score_sparse$constraint)
+  expect_true(all(fit$diagnostics$null_converged))
+  expect_true(all(fit$diagnostics$converged))
+  expect_null(fit$null_score)
+  expect_identical(names(fit$marginal_data$null_state),
+                   c("working_error", "working_variance", "nuisance_precision"))
+  expect_equal(unname(calls$W), matrix(c(rep(3, nrow(f$data)),
+    rep(4, nrow(f$data))), nrow(f$data), 2L), tolerance = 1e-12)
+  expect_false(identical(calls$W[, 1L], calls$W[, 2L]))
+  expect_false(identical(calls$statistic[1L], calls$statistic[2L]))
+  expect_false(identical(calls$W, fit$working_variance))
+  replay <- mgcvST.marginal(fit, calibration = "liu",
+                             BPPARAM = BiocParallel::SerialParam())
+  expect_equal(replay$p_value, fit$diagnostics$marginal_p_value, tolerance = 1e-12)
+  fit$marginal_data$result <- NULL
+  recomputed <- testthat::with_mocked_bindings(
+    mgcvST.marginal(fit, calibration = "liu", BPPARAM = BiocParallel::SerialParam()),
+    .inlast_null_marginal = marginal, .package = "mgcvST"
+  )
+  expect_equal(recomputed$p_value, replay$p_value, tolerance = 1e-12)
+})
+
+test_that("INLA null specifications reindex fixed and iid nuisance coefficients", {
+  A <- Matrix::Matrix(c(1, 0, 0, 1), 2, 2, sparse = TRUE)
+  spec <- list(
+    fixed = list(X = matrix(1, 2, 1), names = "(Intercept)"),
+    random = list(
+      list(name = "global", A = A, Q = Matrix::Diagonal(2), target = TRUE,
+           kind = "spde", sp_index = 1L),
+      list(name = "batch", A = A, Q = Matrix::Diagonal(2), target = FALSE,
+           kind = "nuisance", subtype = "iid", sp_index = 2L)
+    ), nuisance_index = c(1L, 4L, 5L)
+  )
+  null <- mgcvST:::.inlast_null_spec(spec)
+  expect_length(null$random, 1L)
+  expect_identical(null$random[[1L]]$name, "batch")
+  expect_identical(null$random[[1L]]$sp_index, 2L)
+  expect_identical(null$nuisance_index, 1:3)
+  expect_identical(
+    mgcvST:::.inlast_null_control(list(fixed_precision = c(2, 3)), spec)$fixed_precision,
+    3
+  )
+  expect_identical(
+    mgcvST:::.inlast_null_control(list(fixed_precision = 2), spec)$fixed_precision,
+    2
+  )
+  fixed_only <- spec
+  fixed_only$random <- spec$random[1L]
+  fixed_only <- mgcvST:::.inlast_null_spec(fixed_only)
+  fixed_only$family <- "gaussian"
+  expect_length(mgcvST:::.inlast_validate_spec(fixed_only, c(1, 2), c(0, 0))$random, 0L)
+})
+
+test_that("the direct null score receives precomputed iid nuisance precision", {
+  A <- Matrix::Matrix(c(1, 0, 0, 1), 2, 2, sparse = TRUE)
+  spec <- list(
+    fixed = list(X = matrix(1, 2, 1), names = "(Intercept)"),
+    random = list(list(name = "batch", A = A, Q = Matrix::Diagonal(2),
+      target = FALSE, kind = "nuisance", subtype = "iid", sp_index = 2L))
+  )
+  precision <- mgcvST:::.inlast_null_nuisance_precision(
+    spec, cbind(NA_real_, c(6, 12)), c(2, 3), 1:2
+  )
+  expect_equal(precision, rbind(c(0, 0), c(3, 4), c(3, 4)), tolerance = 1e-12)
+  seen <- new.env(parent = emptyenv())
+  state <- list(
+    working_error = matrix(0, 2, 2), working_variance = matrix(1, 2, 2),
+    nuisance_precision = precision
+  )
+  direct <- function(score_sparse, nuisance_design, null_state, features,
+                     threads = 1L) {
+    seen$precision <- null_state$nuisance_precision[, features, drop = FALSE]
+    lapply(features, function(j) list(error = "score fixture"))
+  }
+  testthat::with_mocked_bindings(
+    mgcvST:::.inlast_null_marginal(
+      c("g1", "g2"), list(), matrix(0, 2, 3), state, 1:2
+    ),
+    .inlast_sparse_null_batch = direct, .package = "mgcvST"
+  )
+  expect_identical(seen$precision, precision)
+})
+
+test_that("a null-fit error is reported separately and does not skip the full fit", {
+  skip_if_not_installed("INLA")
+  skip_if_not_installed("geometry")
+  f <- .inlast_fixture(n = 20L, seed = 1822L)
+  model <- inlaST.set(response ~ z + offset(offset0), f$data, f$basis,
+                      family = poisson())
+  Y <- rbind(g1 = rep(1, nrow(f$data)), g2 = rep(2, nrow(f$data)))
+  calls <- new.env(parent = emptyenv())
+  calls$event <- character()
+  fake_fit <- function(spec, y) {
+    random_names <- vapply(spec$random, `[[`, character(1L), "name")
+    list(
+      working_error = rep(1, length(y)), working_variance = rep(2, length(y)),
+      dispersion = 1, family_parameters = numeric(), smoothing_parameters = 1,
+      nuisance_covariance = diag(ncol(spec$nuisance_design)),
+      expected_nuisance_covariance = NULL, converged = TRUE,
+      log_marginal_likelihood = 0, fit_seconds = 0,
+      constraint_residual = stats::setNames(rep(0, length(random_names)), random_names),
+      observation_spatial_mean = stats::setNames(rep(0, length(random_names)), random_names),
+      coefficients = list(global = numeric()), estimation = NULL
+    )
+  }
+  task <- function() {
+    function(payload, spec, base_offset, control, diagnostics, libpaths) {
+      phase <- if (length(spec$random)) "full" else "null"
+      calls$event <- c(calls$event, phase)
+      lapply(seq_len(nrow(payload$Y)), function(j) {
+        if (identical(phase, "null") && identical(j, 1L)) return(simpleError("null failed"))
+        fake_fit(spec, payload$Y[j, ])
+      })
+    }
+  }
+  marginal <- function(feature_id, score_sparse, nuisance_design, null_state,
+                       features, ...) {
+    calls$event <- c(calls$event, "score")
+    expect_identical(features, 2L)
+    data.frame(
+      feature_id = feature_id[features], statistic = 1, p_value = .5,
+      method_requested = "liu", method_used = "liu", fallback_used = FALSE,
+      fallback_reason = NA_character_, davies_ifault = NA_integer_,
+      error_message = NA_character_
+    )
+  }
+  fit <- testthat::with_mocked_bindings(
+    inlaST.estimate(Y, model, BPPARAM = BiocParallel::SerialParam()),
+    .inlast_chunk_task = task, .inlast_null_marginal = marginal, .package = "mgcvST"
+  )
+
+  expect_identical(calls$event, c("null", "score", "full"))
+  expect_false(fit$diagnostics$null_converged[1L])
+  expect_match(fit$diagnostics$null_error_message[1L], "null failed")
+  expect_true(all(fit$diagnostics$converged))
+  expect_true(is.na(fit$diagnostics$marginal_p_value[1L]))
+  expect_equal(fit$diagnostics$marginal_p_value[2L], .5, tolerance = 1e-12)
+})
+
 test_that("constrained SPDE tau mode uses the m-minus-one normalizer", {
   skip_on_cran()
   f <- .inlast_fixture(n = 80L, seed = 910L)

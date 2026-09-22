@@ -30,8 +30,11 @@
   expect_identical(actual$components, expected$components)
   expect_identical(actual$inla_spec$family, expected$inla_spec$family)
   expect_equal(actual$offset, expected$offset, tolerance = tolerance)
-  expect_equal(unname(actual$L), unname(expected$L), tolerance = tolerance)
-  expect_equal(actual$geometry$X, expected$geometry$X, tolerance = tolerance)
+  expect_identical(dim(actual$L), dim(expected$L))
+  expect_equal(as.numeric(actual$L), as.numeric(expected$L), tolerance = tolerance)
+  expect_identical(dim(actual$geometry$X), dim(expected$geometry$X))
+  expect_equal(as.numeric(actual$geometry$X), as.numeric(expected$geometry$X),
+               tolerance = tolerance)
   expect_identical(names(actual$inla_spec$random),
                    names(expected$inla_spec$random))
   for (j in seq_along(actual$inla_spec$random)) {

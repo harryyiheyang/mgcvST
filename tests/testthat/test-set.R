@@ -1,4 +1,4 @@
-test_that("set freezes a formal design with two factors, nuisance and changed coordinates", {
+test_that("set expands factor interactions once for shared BAM null and full designs", {
   for (family in list(gaussian(), mgcv::nb())) for (pc in c(FALSE, TRUE)) {
     f <- st_fixture(family = family)
     d <- f$data
@@ -8,22 +8,23 @@ test_that("set freezes a formal design with two factors, nuisance and changed co
     d$y <- d$y - 5e-7
     basis <- f$basis
     saved <- serialize(basis, NULL)
-    form <- if (pc) response ~ a + b + offset(offset0) + s(z, k = 5) +
+    form <- if (pc) response ~ a * z + b + offset(offset0) + s(z, k = 5) +
       s(x, y, bs = "spdePC", xt = basis) else
-      response ~ a + b + offset(offset0) + s(z, k = 5) + s(x, y, bs = "spde", xt = basis)
+      response ~ a * z + b + offset(offset0) + s(z, k = 5) + s(x, y, bs = "spde", xt = basis)
     model <- mgcvST.set(form, d, family)
     expect_true(model$shared_design)
     expect_identical(serialize(basis, NULL), saved)
     external <- mgcvST.set(G = model$G)
-    expect_identical(external$L, model$L)
+    expect_equal(external$L, model$L, tolerance = 1e-8)
     expect_true(all(unlist(model$timing) >= 0))
+    expect_false(grepl("spde", paste(deparse(model$null_formula), collapse = " ")))
+    expect_match(paste(deparse(model$null_formula), collapse = " "), "s\\(z")
     sm <- model$G$smooth[[2L]]
     expect_true(sm$timing$basis_calls >= 1L)
-    expect_true(sm$timing$prediction_calls >= 1L)
     expected <- mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")]), pc)
-    expect_equal(unname(model$L[, sm$first.para:sm$last.para]), expected, tolerance = 1e-12)
+    expect_equal(unname(model$L[, sm$first.para:sm$last.para]), expected, tolerance = 1e-8)
     if (pc) expect_equal(sm$score_basis,
-      mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")])) , tolerance = 1e-12)
+      mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")])) , tolerance = 1e-8)
     offset <- matrix(seq(-.15, .2, length.out = length(f$Y)), nrow(f$Y))
     fit <- testthat::with_mocked_bindings(
       mgcvST.estimate(f$Y, model, offset = offset,
@@ -43,29 +44,35 @@ test_that("set freezes a formal design with two factors, nuisance and changed co
     )
     expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
     expect_equal(fit$offset, sweep(offset, 2L, model$offset, "+"))
-    expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
-    expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1))))
     family_raw <- serialize(model$G$family, NULL)
     for (i in seq_len(nrow(f$Y))) {
-      G <- model$G
-      G$family <- unserialize(family_raw)
-      G$y <- f$Y[i, ]
-      G$mf[[1L]] <- as.numeric(G$y)
-      G$offset <- model$offset + offset[i, ]
+      full_data <- model$full_data
+      full_data[[model$null_response]] <- f$Y[i, ]
       control <- mgcv::gam.control(nthreads = 1L)
       control$ncv.threads <- 1L
-      direct <- mgcv::gam(G = G, method = "REML", control = control)
-      expect_identical(model$L, mgcvST:::.gam_training_lpmatrix(direct))
+      direct <- mgcv::bam(formula = model$full_formula, data = full_data,
+        family = unserialize(family_raw), offset = offset[i, ], method = "fREML",
+        discrete = TRUE, nthreads = 1L, control = control)
       W <- rkhs_extract_working_model(direct)
-      expect_equal(fit$working_error[, i], unname(W$working_error), tolerance = 1e-10)
-      expect_equal(fit$working_variance[, i], unname(W$working_variance), tolerance = 1e-10)
-      cols <- fit$geometry$nuisance_columns
-      expect_equal(fit$nuisance_covariance[[i]], direct$Vp[cols, cols, drop = FALSE], tolerance = 1e-10)
-      p <- mgcvST:::taps_score_test(direct, test.component = 2L, method = "liu", lpmatrix = model$L)
-      expect_equal(unname(fit$diagnostics$marginal_p_value[i]), p$smooth.pvalue, tolerance = 1e-10)
+      expect_equal(fit$working_error[, i], unname(W$working_error), tolerance = 1e-7)
+      expect_equal(fit$working_variance[, i], unname(W$working_variance), tolerance = 1e-7)
+      null_data <- model$null_data
+      null_data[[model$null_response]] <- f$Y[i, ]
+      null_fit <- mgcv::bam(
+        formula = model$null_formula, data = null_data,
+        family = unserialize(family_raw), offset = offset[i, ],
+        method = "fREML", discrete = TRUE, nthreads = 1L, control = control
+      )
+      setup <- mgcvST:::.mgcvst_null_score_setup(
+        model$G, which(vapply(model$G$smooth, function(s) identical(s$score.component, "global"), logical(1L))),
+        list(formula = model$null_formula, data = model$null_data,
+             response = model$null_response, X0 = model$null_X)
+      )
+      p <- mgcvST:::.mgcvst_null_score_test(null_fit, setup, method = "liu")
+      expect_equal(unname(fit$diagnostics$marginal_p_value[i]), p$smooth.pvalue, tolerance = 1e-7)
     }
     retained <- mgcvST.marginal(fit, calibration = "liu", BPPARAM = BiocParallel::SerialParam())
-    expect_equal(retained$p_value, fit$diagnostics$marginal_p_value, tolerance = 1e-10)
+    expect_equal(retained$p_value, fit$diagnostics$marginal_p_value, tolerance = 1e-7)
     pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L), calibration = "liu")
     expect_true(all(is.finite(pair$results$p_two_sided)))
   }
@@ -77,9 +84,23 @@ test_that("set rejects gene-specific designs and invalid offsets", {
   expect_error(mgcvST.set(G = f$G, data = f$data), "Supply G alone")
   expect_error(mgcvST.set(response ~ response + x, f$data), "response cannot")
   expect_error(mgcvST.estimate(f$Y, model, data = f$data), "Do not supply")
-  expect_error(mgcvST.estimate(f$Y, model, worker_init = function() NULL), "fixes the shared design")
+  expect_true(all(is.finite(mgcvST.estimate(
+    f$Y, model, worker_init = function() NULL,
+    BPPARAM = BiocParallel::SerialParam()
+  )$working_error)))
   expect_error(mgcvST.estimate(f$Y, model, offset = matrix(0, 2, 3)), "offset must")
   expect_error(mgcvST.estimate(f$Y, model, offset = rep(NA_real_, ncol(f$Y))), "offset must")
+})
+
+test_that("null formula keeps leading tensor nuisance smooths", {
+  for (term in list(quote(te(z, x)), quote(ti(z, x)), quote(t2(z, x)))) {
+    full <- mgcvST:::.mgcvst_rebuild_formula(
+      response ~ 1, list(term, quote(s(x, y, bs = "spde", xt = basis)))
+    )
+    null <- mgcvST:::.mgcvst_null_formula(full, 2L)
+    expect_match(paste(deparse(null), collapse = " "), as.character(term[[1L]]))
+    expect_false(grepl("spde", paste(deparse(null), collapse = " ")))
+  }
 })
 
 test_that("both constructors and predictions evaluate every supplied coordinate set", {

@@ -1,3 +1,28 @@
+.inlast_null_marginal <- function(feature_id, score_sparse, nuisance_design,
+                                  null_state, features, chunk_size = 16L,
+                                  threads = 1L) {
+  ans <- data.frame(feature_id = feature_id[features], statistic = NA_real_, p_value = NA_real_,
+    method_requested = "liu", method_used = "liu", fallback_used = FALSE,
+    fallback_reason = NA_character_, davies_ifault = NA_integer_,
+    error_message = NA_character_, stringsAsFactors = FALSE)
+  for (rows in split(seq_along(features), ceiling(seq_along(features) / chunk_size))) {
+    z <- .inlast_sparse_null_batch(
+      score_sparse, nuisance_design, null_state, features[rows], threads
+    )
+    for (j in seq_along(rows)) {
+      k <- rows[j]
+      if (!is.null(z[[j]]$error) && nzchar(z[[j]]$error)) {
+        ans$error_message[k] <- z[[j]]$error
+        next
+      }
+      ans$statistic[k] <- z[[j]]$statistic
+      ans$p_value[k] <- .mgcvst_marginal_liu(z[[j]]$statistic, z[[j]]$moments)
+      if (!is.finite(ans$p_value[k])) ans$error_message[k] <- "Invalid marginal Liu p-value."
+    }
+  }
+  ans
+}
+
 .inlast_marginal <- function(fit, features = NULL, calibration = "liu",
                              BPPARAM = BiocParallel::SerialParam(),
                              chunk_size = 16L, threads = 1L) {
@@ -29,23 +54,8 @@
     rownames(out) <- NULL
     return(out)
   }
-  fit <- .inlast_sparse_prepare(fit)
-  ans <- data.frame(feature_id = ids[i], statistic = NA_real_, p_value = NA_real_,
-    method_requested = "liu", method_used = "liu", fallback_used = FALSE,
-    fallback_reason = NA_character_, davies_ifault = NA_integer_,
-    error_message = NA_character_, stringsAsFactors = FALSE)
-  for (rows in split(seq_along(i), ceiling(seq_along(i) / chunk_size))) {
-    z <- .inlast_sparse_batch(fit, i[rows], threads, null_target = TRUE)
-    for (j in seq_along(rows)) {
-      k <- rows[j]
-      if (!is.null(z[[j]]$error) && nzchar(z[[j]]$error)) {
-        ans$error_message[k] <- z[[j]]$error
-        next
-      }
-      ans$statistic[k] <- z[[j]]$statistic
-      ans$p_value[k] <- .mgcvst_marginal_liu(z[[j]]$statistic, z[[j]]$moments)
-      if (!is.finite(ans$p_value[k])) ans$error_message[k] <- "Invalid marginal Liu p-value."
-    }
-  }
-  ans
+  .inlast_null_marginal(
+    ids, fit$score_sparse, fit$geometry$nuisance_design,
+    fit$marginal_data$null_state, i, chunk_size, threads
+  )
 }
