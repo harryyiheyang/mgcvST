@@ -314,9 +314,6 @@
   if (nrow(X) != nrow(mf) || any(!is.finite(X))) {
     stop("The parametric design must be finite with one row per observation.")
   }
-  if (ncol(X) && qr(X)$rank < ncol(X)) {
-    stop("The parametric design must have full column rank.")
-  }
   if (any(!is.finite(offset)) || any(!is.finite(y))) {
     stop("The response and offset must be finite.")
   }
