@@ -24,32 +24,45 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
   fit <- .inla_openmp_fit()
   calls <- new.env(parent = emptyenv())
   calls$features <- list()
+  calls$materialized <- integer()
   units <- function(fit, features, threads = 1L) {
     calls$features[[length(calls$features) + 1L]] <- features
     lapply(features, function(i) list(
       feature = i, a = c(i, i + 0.5), error = NULL
     ))
   }
-  materialize <- function(fit, units, threads = 1L) {
+  materialize <- function(fit, units, basis, threads = 1L) {
     lapply(units, function(z) list(
       a = z$a,
       M = diag(c(0.6 + z$feature / 10, 1.1 + z$feature / 20)),
-      error = NULL
+      error = NULL, padding = raw(1024L)
     ))
+  }
+  reduced <- function(fit, units, basis, threads = 1L) {
+    calls$materialized <- c(calls$materialized, vapply(units, `[[`, numeric(1L), "feature"))
+    materialize(fit, units, basis, threads)
+  }
+  basis <- function(fit, coverage = 0.995, full_rank = FALSE) {
+    list(coordinate = diag(2L), basis = diag(2L), rank = 2L,
+      coverage = coverage, kept = 1, tail = 0)
   }
   testthat::local_mocked_bindings(
     .inlast_sparse_prepare = function(fit) fit,
     .inlast_sparse_units = units,
-    .inlast_sparse_materialize = materialize,
+    .inlast_sparse_materialize_reduced = reduced,
+    .inlast_sparse_observation_basis = basis,
     .package = "mgcvST")
-  pairs <- rbind(c(1L, 2L), c(3L, 4L), c(1L, 4L))
-  z <- mgcvST:::.mgcvst_inla_test_pairs(
+  pairs <- rbind(c(1L, 2L), c(1L, 3L), c(1L, 2L))
+  out <- mgcvST:::.mgcvst_inla_test_pairs(
     fit, pairs, seq_len(nrow(pairs)), threads = 2L,
     chunk_size = 1L, verbose = FALSE
-  )$result
+  )
+  z <- out$result
 
-  expect_identical(sort(unlist(calls$features)), seq_len(4L))
+  expect_identical(sort(unlist(calls$features)), seq_len(3L))
   expect_true(all(table(unlist(calls$features)) == 1L))
+  expect_equal(sort(calls$materialized), as.numeric(seq_len(3L)))
+  expect_equal(attr(z, "inla_pairwise")$cache_hits, 3L)
   expect_equal(mgcvST:::.mgcvst_inla_pair_chunk_size(fit), 128L)
   for (k in seq_len(nrow(pairs))) {
     i <- pairs[k, 1L]
@@ -65,6 +78,45 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
     expect_equal(z$information[k], expected$information, tolerance = 1e-12)
     expect_equal(z$p_two_sided[k], expected$p_two_sided, tolerance = 1e-12)
   }
+
+  grouped <- mgcvST:::.mgcvst_inla_test_pairs(
+    fit, pairs, seq_len(nrow(pairs)), threads = 2L,
+    chunk_size = 2L, verbose = FALSE
+  )$result
+  expect_identical(grouped$pair_index, z$pair_index)
+  expect_equal(grouped$signed_score, z$signed_score, tolerance = 1e-12)
+  expect_equal(grouped$information, z$information, tolerance = 1e-12)
+  expect_equal(grouped$p_two_sided, z$p_two_sided, tolerance = 1e-12)
+
+  full <- mgcvST:::.mgcvst_inla_test_pairs(
+    fit, pairs, seq_len(nrow(pairs)), threads = 2L,
+    chunk_size = 1L, verbose = FALSE, full_rank = TRUE
+  )$result
+  expect_equal(full$signed_score, z$signed_score, tolerance = 1e-12)
+  expect_equal(full$information, z$information, tolerance = 1e-12)
+  expect_equal(full$p_two_sided, z$p_two_sided, tolerance = 1e-12)
+
+  calls$basis <- 0L
+  counted_basis <- function(fit, coverage = 0.995, full_rank = FALSE) {
+    calls$basis <- calls$basis + 1L
+    basis(fit, coverage, full_rank)
+  }
+  testthat::local_mocked_bindings(
+    .inlast_sparse_observation_basis = counted_basis,
+    .package = "mgcvST")
+  public <- mgcvST.test(
+    fit, pairs = pairs[1:2, , drop = FALSE], calibration = "liu",
+    BPPARAM = BiocParallel::SerialParam()
+  )
+  expect_identical(calls$basis, 1L)
+  expect_identical(public$timing$inla_projection$r, 2L)
+  expect_identical(public$timing$inla_projection$unit_cache, "none")
+
+  evicted <- mgcvST:::.mgcvst_inla_test_pairs(
+    fit, pairs, seq_len(nrow(pairs)), threads = 1L,
+    chunk_size = 1L, verbose = FALSE, cache_bytes = 5000
+  )$result
+  expect_gt(attr(evicted, "inla_pairwise")$cache_evictions, 0L)
 
   expect_error(
     mgcvST.test(fit, pairs = pairs, calibration = "davies"),

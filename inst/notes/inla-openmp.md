@@ -1,5 +1,10 @@
 # INLA sparse OpenMP arithmetic
 
+> Historical implementation note. This describes the pre-0.0.1.9014 exact
+> full-q downstream route. Current INLA Liu pair testing uses the constrained
+> observation-kernel score approximation described in
+> `inla-pairwise-projection.md`; its full sparse fit remains unchanged.
+
 The INLA single-global fixed-kappa SPDE downstream path uses the same expected-curvature score statistics and exact Liu moments, implemented with sparse Eigen solves and OpenMP. The test congruence (square root of residual precision, kernel, square root of residual precision) is preserved algebraically; it is not a removable projection. No stochastic trace estimator or new calibration is introduced. The mgcv estimators and numerical kernels are unchanged.
 
 INLA rejects Davies and non-Serial BiocParallel parameters. `threads` controls downstream OpenMP; fitting uses INLA's own `control$num_threads`. The current sparse capability remains one constrained SPDE target with fixed-effect nuisance terms. Unsupported INLA downstream geometries raise an explicit error rather than falling through to an unintended dense or process-parallel implementation.

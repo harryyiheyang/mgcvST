@@ -55,16 +55,37 @@ test_that("single-global sparse score preserves expected-curvature Gram and trac
     expect_equal(score_only$a, singleton$a, tolerance = 1e-10)
     expect_null(score_only$M)
   }
+  units <- mgcvST:::.inlast_sparse_units(
+    fit, seq_len(nrow(f$Y)), threads = 1L
+  )
+  basis <- mgcvST:::.inlast_sparse_observation_basis(
+    fit, coverage = 0.995, full_rank = TRUE
+  )
+  reduced <- mgcvST:::.inlast_sparse_materialize_reduced(
+    fit, units, basis, threads = 1L
+  )
+  expect_equal(lapply(reduced, `[[`, "a"), lapply(states, function(z) {
+    as.numeric(crossprod(basis$coordinate, z$a))
+  }), tolerance = 2e-10)
+  expect_equal(lapply(reduced, `[[`, "M"), lapply(states, function(z) {
+    crossprod(basis$coordinate, z$M %*% basis$coordinate)
+  }), tolerance = 2e-9)
   pairs <- t(combn(rownames(f$Y), 2L))
   sparse_test <- mgcvST.test(
     fit, pairs = pairs, calibration = "liu",
     BPPARAM = BiocParallel::SerialParam()
   )
   local <- matrix(match(pairs, rownames(f$Y)), ncol = 2L)
-  M <- lapply(states, `[[`, "M")
+  pair_basis <- mgcvST:::.inlast_sparse_observation_basis(fit)
+  A <- lapply(states, function(z) {
+    as.numeric(crossprod(pair_basis$coordinate, z$a))
+  })
+  M <- lapply(states, function(z) {
+    crossprod(pair_basis$coordinate, z$M %*% pair_basis$coordinate)
+  })
   moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(M, local, 4L, 1L)
   for (j in seq_len(nrow(local))) {
-    score <- sum(states[[local[j, 1L]]]$a * states[[local[j, 2L]]]$a)
+    score <- sum(A[[local[j, 1L]]] * A[[local[j, 2L]]])
     liu <- mgcvST:::.liu_squared_score_moments(
       abs(score), moments[j, 1L], moments[j, 2L],
       moments[j, 3L], moments[j, 4L]

@@ -183,6 +183,75 @@ bool mgcvst_inla_sparse_prepared_valid_cpp(SEXP prepared) {
   return TYPEOF(prepared) == EXTPTRSXP && R_ExternalPtrAddr(prepared) != NULL;
 }
 
+// Constrained observation-kernel directions.  The nonzero spectrum of
+// A Q_g^{-1} A' is that of Z' B' A' A B Z, where B' Q B = I and Z spans the
+// complement of the native constraint in B coordinates.
+// [[Rcpp::export]]
+Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(
+    const Eigen::MappedSparseMatrix<double>& A_map,
+    const Eigen::Map<Eigen::VectorXd> constraint,
+    double coverage = 0.995,
+    bool full_rank = false,
+    SEXP prepared = R_NilValue) {
+  const SpMat A = A_map;
+  const int m = A.cols();
+  if (m < 2) Rcpp::stop("The constrained SPDE block must contain at least two coefficients.");
+  if (constraint.size() != m) Rcpp::stop("constraint must align with A.");
+  if (!std::isfinite(coverage) || coverage <= 0 || coverage > 1) {
+    Rcpp::stop("coverage must be in (0, 1].");
+  }
+  if (!mgcvst_inla_sparse_prepared_valid_cpp(prepared)) {
+    Rcpp::stop("prepared must be a valid sparse INLA cache.");
+  }
+  Rcpp::XPtr<SparsePrepared> pointer(prepared);
+  const SparsePrepared* cache = pointer.get();
+  if (cache->Q.rows() != m || cache->constraint.size() != m ||
+      !cache->constraint.isApprox(constraint, 0.0)) {
+    Rcpp::stop("prepared is not aligned with A and constraint.");
+  }
+
+  const Vec& u = cache->coordinate_constraint;
+  Vec h = u;
+  h[0] += u[0] >= 0 ? 1.0 : -1.0;
+  h.normalize();
+  Mat reflector = Mat::Identity(m, m) - 2.0 * h * h.transpose();
+  Mat Z = reflector.rightCols(m - 1);
+  Mat BZ = apply_B(cache->qfactor, Z);
+  SpMat AtA = A.transpose() * A;
+  AtA.makeCompressed();
+  Mat gram = BZ.transpose() * AtA * BZ;
+  Eigen::SelfAdjointEigenSolver<Mat> eig(gram);
+  if (eig.info() != Eigen::Success) {
+    Rcpp::stop("The constrained observation-kernel eigendecomposition failed.");
+  }
+  const Vec values = eig.eigenvalues().reverse();
+  const Mat vectors = eig.eigenvectors().rowwise().reverse();
+  const double total = values.sum();
+  int r = m - 1;
+  if (!full_rank && coverage < 1) {
+    double cumulative = 0;
+    for (int j = 0; j < m - 1; ++j) {
+      cumulative += values[j];
+      if (cumulative / total >= coverage) {
+        r = j + 1;
+        break;
+      }
+    }
+  }
+  const Mat R = Z * vectors.leftCols(r);
+  const Mat C = BZ * vectors.leftCols(r);
+  const double kept = values.head(r).sum() / total;
+  return Rcpp::List::create(
+    Rcpp::Named("coordinate") = R,
+    Rcpp::Named("basis") = C,
+    Rcpp::Named("values") = values,
+    Rcpp::Named("rank") = r,
+    Rcpp::Named("coverage") = coverage,
+    Rcpp::Named("kept") = kept,
+    Rcpp::Named("tail") = 1.0 - kept
+  );
+}
+
 // Exact expected-curvature score states for a single constrained SPDE block.
 // Q remains sparse. The redundant whitened coordinate system has dimension m;
 // its rank and WGCNA normalization are m - 1 after removing the constraint.
@@ -578,5 +647,123 @@ Rcpp::List mgcvst_inla_sparse_materialize_cpp(
   out.attr("failed") = failed;
   out.attr("coordinate_width") = m;
   out.attr("normalization") = m - 1;
+  return out;
+}
+
+// Materialize reduced curvature directly from sparse feature units.  basis is
+// physical C = B R; coordinate is the matching whitened R.
+// [[Rcpp::export]]
+Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
+    const Rcpp::List& units,
+    const Eigen::MappedSparseMatrix<double>& Q_map,
+    const Eigen::Map<Eigen::VectorXd> constraint,
+    const Eigen::Map<Eigen::MatrixXd> coordinate,
+    const Eigen::Map<Eigen::MatrixXd> basis,
+    int threads = 1,
+    SEXP prepared = R_NilValue) {
+  const SpMat Q = Q_map;
+  const int m = Q.rows();
+  const int r = coordinate.cols();
+  if (Q.cols() != m || constraint.size() != m || coordinate.rows() != m ||
+      basis.rows() != m || basis.cols() != r) {
+    Rcpp::stop("Q, constraint, coordinate, and basis must align.");
+  }
+  if (threads < 1) Rcpp::stop("threads must be positive.");
+#ifndef _OPENMP
+  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
+#endif
+  if (!mgcvst_inla_sparse_prepared_valid_cpp(prepared)) {
+    Rcpp::stop("prepared must be a valid sparse INLA cache.");
+  }
+  Rcpp::XPtr<SparsePrepared> pointer(prepared);
+  const SparsePrepared* cache = pointer.get();
+  if (!cache->valid || cache->Q.rows() != m ||
+      !cache->constraint.isApprox(constraint, 0.0)) {
+    Rcpp::stop("prepared is not aligned with Q and constraint.");
+  }
+
+  const int features = units.size();
+  std::vector<ReconstructionUnit> parsed;
+  parsed.reserve(features);
+  for (int f = 0; f < features; ++f) {
+    const Rcpp::List unit = units[f];
+    ReconstructionUnit value;
+    value.a = Rcpp::as<Vec>(unit["a"]);
+    value.K = Rcpp::as<SpMat>(unit["K"]);
+    value.U = Rcpp::as<Mat>(unit["U"]);
+    value.Vp = Rcpp::as<Mat>(unit["expected_vp"]);
+    value.H_L = Rcpp::as<SpMat>(unit["H_L"]);
+    value.H_D = Rcpp::as<Vec>(unit["H_D"]);
+    value.H_perm = Rcpp::as<Eigen::VectorXi>(unit["H_perm"]);
+    value.hinv_g = Rcpp::as<Vec>(unit["hinv_g"]);
+    value.hden = Rcpp::as<double>(unit["hden"]);
+    value.tau = Rcpp::as<double>(unit["tau"]);
+    value.constraint_norm = Rcpp::as<double>(unit["constraint_diagnostic"]);
+    if (value.K.rows() != m || value.K.cols() != m ||
+        value.H_L.rows() != m || value.H_L.cols() != m ||
+        value.H_D.size() != m || value.H_perm.size() != m ||
+        value.hinv_g.size() != m || value.a.size() != m ||
+        !std::isfinite(value.tau) || value.tau <= 0 ||
+        !std::isfinite(value.hden) || value.hden <= 0) {
+      Rcpp::stop("A serialized sparse INLA unit is malformed.");
+    }
+    parsed.push_back(std::move(value));
+  }
+  std::vector<FeatureResult> result(features);
+  int failed = 0;
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads) schedule(static) reduction(+:failed)
+#endif
+  for (int f = 0; f < features; ++f) {
+    try {
+      const ReconstructionUnit& unit = parsed[f];
+      const SpMat H_U = unit.H_L.transpose();
+      Mat M = Mat::Zero(r, r);
+      for (int first = 0; first < r; first += 32) {
+        const int width = std::min(32, r - first);
+        Mat V = basis.middleCols(first, width) / std::sqrt(unit.tau);
+        Mat Y = unit.K * V;
+        Mat SY = stored_constrained_solve(
+          unit.H_L, H_U, unit.H_D, unit.H_perm, constraint, Y,
+          unit.hinv_g, unit.hden
+        );
+        Y.noalias() -= unit.K * SY;
+        if (unit.U.cols()) {
+          Y.noalias() -= unit.U * (unit.Vp * (unit.U.transpose() * V));
+        }
+        M.middleCols(first, width) = basis.transpose() * Y /
+          std::sqrt(unit.tau);
+      }
+      result[f].a = coordinate.transpose() * unit.a;
+      result[f].M = 0.5 * (M + M.transpose());
+      result[f].statistic = result[f].a.squaredNorm();
+      result[f].Vp = unit.Vp;
+      result[f].constraint_norm = unit.constraint_norm;
+    } catch (const std::exception& error) {
+      result[f].error = error.what();
+      failed += 1;
+    }
+  }
+
+  Rcpp::List out(features);
+  for (int f = 0; f < features; ++f) {
+    if (!result[f].error.empty()) {
+      out[f] = Rcpp::List::create(Rcpp::Named("error") = result[f].error);
+    } else {
+      out[f] = Rcpp::List::create(
+        Rcpp::Named("a") = result[f].a,
+        Rcpp::Named("M") = result[f].M,
+        Rcpp::Named("statistic") = result[f].statistic,
+        Rcpp::Named("moments") = R_NilValue,
+        Rcpp::Named("expected_vp") = result[f].Vp,
+        Rcpp::Named("width") = r,
+        Rcpp::Named("normalization") = r,
+        Rcpp::Named("constraint_diagnostic") = result[f].constraint_norm
+      );
+    }
+  }
+  out.attr("failed") = failed;
+  out.attr("coordinate_width") = r;
+  out.attr("normalization") = r;
   return out;
 }

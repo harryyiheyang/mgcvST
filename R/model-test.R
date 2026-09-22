@@ -193,8 +193,20 @@
   } else {
     0L
   }
+  inla_projection <- NULL
+  inla_basis_elapsed <- 0
+  inla_test_started <- NULL
+  if (inla_fit && length(tested_rows)) {
+    inla_test_started <- proc.time()[["elapsed"]]
+    fitmgcvST <- .inlast_sparse_prepare(fitmgcvST)
+    t_basis <- proc.time()[["elapsed"]]
+    inla_projection <- .inlast_sparse_observation_basis(fitmgcvST)
+    inla_basis_elapsed <- proc.time()[["elapsed"]] - t_basis
+  }
   if (is.null(chunk_size)) {
-    chunk_size <- if (inla_fit) .mgcvst_inla_pair_chunk_size(fitmgcvST) else if (workers > 0L)
+    chunk_size <- if (inla_fit) .mgcvst_inla_pair_chunk_size(
+      fitmgcvST, basis = inla_projection
+    ) else if (workers > 0L)
       ceiling(length(tested_rows) / workers) else 1L
   }
   chunk_size <- as.integer(chunk_size)
@@ -202,17 +214,26 @@
     stop("chunk_size must be one positive integer.")
   }
   chunks <- list()
+  chunk_count <- 0L
   elapsed <- summary_elapsed <- 0
   native_preparation <- FALSE
   if (length(tested_rows)) {
-    chunks <- split(tested_rows, ceiling(seq_along(tested_rows) / chunk_size))
+    chunks <- if (inla_fit) {
+      NULL
+    } else split(tested_rows, ceiling(seq_along(tested_rows) / chunk_size))
+    if (inla_fit) chunk_count <- ceiling(length(tested_rows) /
+      min(chunk_size, 128L))
     if (inla_fit) {
       t0 <- proc.time()[["elapsed"]]
       evaluated <- .mgcvst_inla_test_pairs(
         fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
-        threads, chunk_size, verbose
+        threads, chunk_size, verbose, basis = inla_projection
       )
       elapsed <- proc.time()[["elapsed"]] - t0
+      inla_projection <- attr(evaluated$result, "inla_pairwise")
+      inla_projection$basis_elapsed <- inla_basis_elapsed
+      inla_projection$test_wall_elapsed <- proc.time()[["elapsed"]] -
+        inla_test_started
       evaluated <- split(evaluated$result, seq_len(nrow(evaluated$result)))
     } else {
     chunks <- .mgcvst_dense_pair_groups(tested_rows, index, chunk_size)
@@ -292,6 +313,17 @@
   } else {
     NA_real_
   }
+  timing <- list(
+    elapsed = elapsed, summary_elapsed = summary_elapsed,
+    pair_elapsed = elapsed - summary_elapsed,
+    workers = if (inla_fit) threads else workers,
+    chunks = if (inla_fit) chunk_count else length(chunks),
+    backend = if (inla_fit) "C++ OpenMP" else class(BPPARAM)[1L],
+    preparation_backend = if (inla_fit || native_preparation)
+      "C++ OpenMP" else class(BPPARAM)[1L],
+    preparation_threads = if (inla_fit || native_preparation) threads else workers
+  )
+  if (inla_fit) timing$inla_projection <- inla_projection
   structure(
     list(
       results = result,
@@ -314,16 +346,7 @@
         "union_force_retained_highlights"
       ),
       test_definition = test_definition,
-      timing = list(
-        elapsed = elapsed, summary_elapsed = summary_elapsed,
-        pair_elapsed = elapsed - summary_elapsed,
-        workers = if (inla_fit) threads else workers,
-        chunks = length(chunks),
-        backend = if (inla_fit) "C++ OpenMP" else class(BPPARAM)[1L],
-        preparation_backend = if (inla_fit || native_preparation)
-          "C++ OpenMP" else class(BPPARAM)[1L],
-        preparation_threads = if (inla_fit || native_preparation) threads else workers
-      ),
+      timing = timing,
       calibration = calibration,
       call = match.call()
     ),

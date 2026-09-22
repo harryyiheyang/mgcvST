@@ -61,6 +61,50 @@ test_that("raw constrained marginal traces equal the projected TAPS reference", 
   )
 })
 
+test_that("sparse observation basis matches an independent QR reference", {
+  set.seed(2026092201)
+  n <- 19L
+  q <- 8L
+  A0 <- matrix(rnorm(n * q), n, q)
+  A0[abs(A0) < 0.55] <- 0
+  A <- Matrix::Matrix(A0, sparse = TRUE)
+  z <- matrix(rnorm(q * q), q, q)
+  Q0 <- crossprod(z) + diag(q)
+  Q <- Matrix::Matrix(Q0, sparse = TRUE)
+  g <- as.numeric(colMeans(A0))
+  fit <- list(score_sparse = list(A = A, Q = Q, constraint = g))
+  fit <- mgcvST:::.inlast_sparse_prepare(fit)
+  got <- mgcvST:::.inlast_sparse_observation_basis(fit, coverage = 0.995)
+
+  Q2 <- qr.Q(qr(matrix(g, ncol = 1L)), complete = TRUE)[, -1L, drop = FALSE]
+  qp <- crossprod(Q2, Q0 %*% Q2)
+  ep <- eigen(qp, symmetric = TRUE)
+  Bp <- Q2 %*% (ep$vectors %*% (1 / sqrt(ep$values) * t(ep$vectors)))
+  ref <- crossprod(Bp, crossprod(A0) %*% Bp)
+  er <- eigen(ref, symmetric = TRUE)
+  val <- er$values
+  vec <- er$vectors
+  keep <- cumsum(val) / sum(val)
+  r <- which(keep >= 0.995)[1L]
+  cref <- Bp %*% vec[, seq_len(r), drop = FALSE]
+
+  expect_equal(got$rank, r)
+  expect_equal(got$values, val, tolerance = 2e-10)
+  expect_equal(tcrossprod(got$basis), tcrossprod(cref), tolerance = 2e-10)
+  expect_equal(got$tail, 1 - keep[r], tolerance = 2e-10)
+  expect_equal(crossprod(got$basis, Q0 %*% got$basis), diag(r),
+    tolerance = 2e-10)
+
+  all <- mgcvST:::.inlast_sparse_observation_basis(
+    fit, coverage = 0.995, full_rank = TRUE
+  )
+  expect_equal(all$rank, q - 1L)
+  expect_equal(crossprod(g, all$basis), matrix(0, 1L, q - 1L),
+    tolerance = 2e-12)
+  expect_equal(tcrossprod(all$basis), Q2 %*% solve(qp, t(Q2)),
+    tolerance = 2e-10)
+})
+
 test_that("C++ sparse INLA states equal dense projected score references", {
   set.seed(2026091302)
   n <- 18L
@@ -180,6 +224,53 @@ test_that("C++ sparse INLA states equal dense projected score references", {
   state <- mgcvST:::.inlast_sparse_materialize(prepared, restored, threads = 2L)
   expect_equal(lapply(state, `[[`, "M"), lapply(one, `[[`, "M"), tolerance = 2e-10)
   expect_equal(lapply(state, `[[`, "a"), lapply(one, `[[`, "a"), tolerance = 2e-12)
+  basis <- mgcvST:::.inlast_sparse_observation_basis(
+    prepared, coverage = 0.995, full_rank = TRUE
+  )
+  reduced <- mgcvST:::.inlast_sparse_materialize_reduced(
+    prepared, restored, basis, threads = 2L
+  )
+  expect_equal(lapply(reduced, `[[`, "a"), lapply(one, function(z) {
+    as.numeric(crossprod(basis$coordinate, z$a))
+  }), tolerance = 2e-12)
+  expect_equal(lapply(reduced, `[[`, "M"), lapply(one, function(z) {
+    crossprod(basis$coordinate, z$M %*% basis$coordinate)
+  }), tolerance = 2e-10)
+  M_full <- lapply(one, `[[`, "M")
+  M_reduced <- lapply(reduced, `[[`, "M")
+  moments_full <- mgcvST:::mgcvst_pair_trace_powers_cpp(
+    M_full, pairs, 4L, 1L
+  )
+  moments_reduced <- mgcvST:::mgcvst_pair_trace_powers_cpp(
+    M_reduced, pairs, 4L, 1L
+  )
+  for (j in seq_len(nrow(pairs))) {
+    i1 <- pairs[j, 1L]
+    i2 <- pairs[j, 2L]
+    U_full <- sum(one[[i1]]$a * one[[i2]]$a)
+    U_reduced <- sum(reduced[[i1]]$a * reduced[[i2]]$a)
+    expect_equal(U_reduced, U_full, tolerance = 2e-10)
+    expect_equal(moments_reduced[j, ], moments_full[j, ], tolerance = 5e-8)
+    expect_equal(
+      mgcvST:::.liu_squared_score_moments(U_reduced, moments_reduced[j, 1L],
+        moments_reduced[j, 2L], moments_reduced[j, 3L], moments_reduced[j, 4L])$p_value,
+      mgcvST:::.liu_squared_score_moments(U_full, moments_full[j, 1L],
+        moments_full[j, 2L], moments_full[j, 3L], moments_full[j, 4L])$p_value,
+      tolerance = 2e-8
+    )
+  }
+  truncated <- mgcvST:::.inlast_sparse_observation_basis(
+    prepared, coverage = 0.995
+  )
+  reduced_truncated <- mgcvST:::.inlast_sparse_materialize_reduced(
+    prepared, restored, truncated, threads = 2L
+  )
+  expect_equal(lapply(reduced_truncated, `[[`, "a"), lapply(one, function(z) {
+    as.numeric(crossprod(truncated$coordinate, z$a))
+  }), tolerance = 2e-12)
+  expect_equal(lapply(reduced_truncated, `[[`, "M"), lapply(one, function(z) {
+    crossprod(truncated$coordinate, z$M %*% truncated$coordinate)
+  }), tolerance = 2e-10)
 })
 
 test_that("C++ sparse marginal moments equal the projected TAPS spectrum", {

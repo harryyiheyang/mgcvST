@@ -99,6 +99,30 @@
   fit
 }
 
+.inlast_sparse_observation_basis <- function(fit, coverage = 0.995,
+                                              full_rank = FALSE) {
+  fit <- .inlast_sparse_prepare(fit)
+  geometry <- fit$score_sparse
+  cache <- geometry$cache
+  valid <- identical(cache$observation_basis_A, geometry$A) &&
+    identical(cache$observation_basis_Q, geometry$Q) &&
+    identical(cache$observation_basis_constraint, geometry$constraint) &&
+    identical(cache$observation_basis_coverage, coverage) &&
+    identical(cache$observation_basis_full_rank, full_rank)
+  if (!valid) {
+    cache$observation_basis <- mgcvst_inla_sparse_observation_basis_cpp(
+      cache$general_A, as.numeric(geometry$constraint), coverage, full_rank,
+      cache$prepared
+    )
+    cache$observation_basis_A <- geometry$A
+    cache$observation_basis_Q <- geometry$Q
+    cache$observation_basis_constraint <- geometry$constraint
+    cache$observation_basis_coverage <- coverage
+    cache$observation_basis_full_rank <- full_rank
+  }
+  cache$observation_basis
+}
+
 .inlast_sparse_nuisance_precision <- function(fit, features) {
   spec <- fit$model$inla_spec
   if (is.null(spec)) spec <- fit$inla_spec
@@ -205,5 +229,15 @@
   mgcvst_inla_sparse_materialize_cpp(
     units, geometry$cache$general_Q, as.numeric(geometry$constraint),
     as.integer(threads), geometry$cache$prepared, 32L
+  )
+}
+
+.inlast_sparse_materialize_reduced <- function(fit, units, basis,
+                                                threads = 1L) {
+  fit <- .inlast_sparse_prepare(fit)
+  geometry <- fit$score_sparse
+  mgcvst_inla_sparse_materialize_reduced_cpp(
+    units, geometry$cache$general_Q, as.numeric(geometry$constraint),
+    basis$coordinate, basis$basis, as.integer(threads), geometry$cache$prepared
   )
 }

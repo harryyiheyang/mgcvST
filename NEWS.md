@@ -1,3 +1,16 @@
+# mgcvST 0.0.1.9014
+
+* Sparse INLA Liu pair tests now use a score-only constrained observation-kernel
+  basis retaining at least 0.995 of the eigenvalue sum. The full sparse INLA
+  fit and its nuisance construction are unchanged.
+* A native MAGIC 3D check (97,830 observations, q = 1,962, three pairs) kept
+  r = 1,407 directions (coverage 0.9950176). Direct reduced scores agreed
+  with the corresponding projected full scores; relative to full-q Liu, the
+  three log10-p differences were -0.0582, 0.0382, and -0.1614. The first
+  three-pair call took 10.92 s including a 6.72 s basis setup; the reduced
+  four-trace kernel took 1.43 s versus 3.86 s for full q. These timings do not
+  establish an end-to-end speedup.
+
 # mgcvST 0.0.1.9013
 
 * INLA's variational-Bayes mean and variance correction is always disabled.

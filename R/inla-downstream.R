@@ -4,13 +4,19 @@
 #' the score engine registered on the `inlaST_fit` object, including its sparse
 #' score state when available.  No model is refitted and no score algorithm is
 #' duplicated here.
+#' For sparse INLA fits, Liu uses a constrained observation-kernel basis that
+#' retains at least 0.995 of its eigenvalue sum. This is a pairwise-test
+#' approximation; the fitted sparse field is unchanged. Basis and pair-stage
+#' timings are stored in `timing$inla_projection`.
 #'
 #' @param fitinlaST An object returned by [inlaST.estimate()].
 #' @inheritParams mgcvST.test
 #' @param calibration Only `"liu"` is supported for INLA.
 #' @param BPPARAM Compatibility argument; only `SerialParam()` is accepted.
 #' @param threads Positive number of OpenMP threads for sparse INLA feature
-#'   preparation and Liu pair calculations. `NULL` uses one thread.
+#'   preparation and reduced materialization. `NULL` uses one thread.
+#' @param chunk_size Positive number of tested pairs used for result grouping.
+#'   Sparse INLA evaluates bounded internal pair microblocks.
 #' @return The `mgcvST_test` object returned by [mgcvST.test()].
 #' @export
 inlaST.test <- function(

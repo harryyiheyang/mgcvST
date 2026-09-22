@@ -13,6 +13,10 @@ mgcvst_inla_sparse_prepared_valid_cpp <- function(prepared) {
     .Call(`_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp`, prepared)
 }
 
+mgcvst_inla_sparse_observation_basis_cpp <- function(A, constraint, coverage = 0.995, full_rank = FALSE, prepared = NULL) {
+    .Call(`_mgcvST_mgcvst_inla_sparse_observation_basis_cpp`, A, constraint, coverage, full_rank, prepared)
+}
+
 mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, score_only = FALSE, null_target = FALSE, block_size = 32L, prepared = NULL, unit_only = FALSE, nuisance_precision = NULL) {
     .Call(`_mgcvST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, score_only, null_target, block_size, prepared, unit_only, nuisance_precision)
 }
@@ -23,6 +27,10 @@ mgcvst_inla_sparse_units_cpp <- function(A, Q, constraint, X, E, D, tau, threads
 
 mgcvst_inla_sparse_materialize_cpp <- function(units, Q_map, constraint, threads = 1L, prepared = NULL, block_size = 32L) {
     .Call(`_mgcvST_mgcvst_inla_sparse_materialize_cpp`, units, Q_map, constraint, threads, prepared, block_size)
+}
+
+mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint, coordinate, basis, threads = 1L, prepared = NULL) {
+    .Call(`_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp`, units, Q_map, constraint, coordinate, basis, threads, prepared)
 }
 
 mgcvst_marginal_liu_moments_cpp <- function(powers, threads = 1L) {

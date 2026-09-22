@@ -12,12 +12,11 @@
   invisible(NULL)
 }
 
-.mgcvst_inla_pair_chunk_size <- function(fit, memory_bytes = 512 * 1024^2) {
-  q <- ncol(fit$score_sparse$Q)
-  if (length(q) != 1L || !is.finite(q) || q < 1L) {
-    stop("The sparse INLA score geometry has an invalid dimension.")
-  }
-  as.integer(max(1L, min(128L, floor(memory_bytes / (2 * 8 * q^2)))))
+.mgcvst_inla_pair_chunk_size <- function(fit, memory_bytes = 512 * 1024^2,
+                                         basis = NULL) {
+  if (is.null(basis)) basis <- .inlast_sparse_observation_basis(fit)
+  r <- basis$rank
+  as.integer(max(1L, min(128L, floor(memory_bytes / (2 * 8 * r^2)))))
 }
 
 .mgcvst_inla_serial_backend <- function(BPPARAM) {
@@ -30,82 +29,106 @@
 }
 
 .mgcvst_inla_test_pairs <- function(fit, index, pair_index, threads,
-                                    chunk_size, verbose) {
+                                    chunk_size, verbose, coverage = 0.995,
+                                    full_rank = FALSE, basis = NULL,
+                                    cache_bytes = 512 * 1024^2) {
   fit <- .inlast_sparse_prepare(fit)
-  used <- sort(unique(as.vector(index)))
-  feature_batch_size <- 32L
-  feature_blocks <- split(
-    seq_along(used), ceiling(seq_along(used) / feature_batch_size)
+  if (is.null(basis)) basis <- .inlast_sparse_observation_basis(
+    fit, coverage = coverage, full_rank = full_rank
   )
-  units <- vector("list", length(used))
-  unit_bytes <- 0
-  memory_limit <- 512 * 1024^2
-  unit_dir <- NULL
-  for (rows in feature_blocks) {
-    batch <- .inlast_sparse_units(
-      fit, features = used[rows], threads = threads
-    )
-    if (length(batch) != length(rows)) {
-      stop("The sparse INLA unit batch returned an incompatible feature count.")
-    }
-    batch_bytes <- sum(vapply(batch, function(x) as.numeric(object.size(x)),
-                              numeric(1L)))
-    if (is.null(unit_dir) && unit_bytes + batch_bytes <= memory_limit) {
-      units[rows] <- batch
-      unit_bytes <- unit_bytes + batch_bytes
-    } else {
-      if (is.null(unit_dir)) {
-        unit_dir <- tempfile("mgcvst-inla-units-")
-        dir.create(unit_dir)
-        unit_dir <- normalizePath(unit_dir, winslash = "/", mustWork = TRUE)
-        temp_root <- normalizePath(tempdir(), winslash = "/", mustWork = TRUE)
-        if (!startsWith(unit_dir, paste0(temp_root, "/"))) {
-          stop("The INLA temporary unit cache is outside the R temporary directory.")
-        }
-        on.exit(unlink(unit_dir, recursive = TRUE, force = TRUE), add = TRUE)
-        resident <- which(!vapply(units, is.null, logical(1L)))
-        for (j in resident) {
-          saveRDS(units[[j]], file.path(unit_dir, paste0(j, ".rds")),
-                  compress = FALSE)
-          units[j] <- list(NULL)
-        }
-      }
-      for (j in seq_along(rows)) {
-        saveRDS(batch[[j]], file.path(unit_dir, paste0(rows[j], ".rds")),
-                compress = FALSE)
-      }
-    }
-  }
-  load_units <- if (is.null(unit_dir)) {
-    function(position) units[position]
-  } else {
-    function(position) lapply(position, function(j) {
-      readRDS(file.path(unit_dir, paste0(j, ".rds")))
-    })
-  }
-  starts <- seq.int(1L, nrow(index), by = chunk_size)
+  state_estimate <- 8 * basis$rank^2
+  starts <- seq.int(1L, nrow(index), by = min(chunk_size, 128L))
   result <- vector("list", length(starts))
   elapsed <- 0
+  cache_limit <- cache_bytes
+  cache <- new.env(parent = emptyenv())
+  cache$state <- list()
+  cache$bytes <- 0
+  cache$last <- numeric()
+  cache$clock <- 0
+  cache$hits <- 0L
+  cache$misses <- 0L
+  cache$evictions <- 0L
+  cache$unit_builds <- 0L
+  cache$materializations <- 0L
+  cache$transient_unit_bytes <- 0
+  cache$unit_build_elapsed <- 0
+  cache$reduced_materialize_elapsed <- 0
   for (b in seq_along(starts)) {
-    rows <- starts[b]:min(nrow(index), starts[b] + chunk_size - 1L)
-    block_index <- index[rows, , drop = FALSE]
+    rows <- starts[b]:min(nrow(index), starts[b] + min(chunk_size, 128L) - 1L)
+    block_result <- vector("list", length(rows))
+    for (pair_pos in seq_along(rows)) {
+    pair_row <- rows[pair_pos]
+    block_index <- index[pair_row, , drop = FALSE]
     block_used <- sort(unique(as.vector(block_index)))
-    block_position <- match(block_used, used)
-    block_units <- load_units(block_position)
-    unit_failed <- vapply(block_units, function(z) {
-      !is.null(z$error) && length(z$error) == 1L && !is.na(z$error) && nzchar(z$error)
-    }, logical(1L))
-    block_states <- vector("list", length(block_units))
-    good_units <- which(!unit_failed)
-    if (length(good_units)) {
-      block_states[good_units] <- .inlast_sparse_materialize(
-        fit, block_units[good_units], threads = threads
-      )
+    block_states <- vector("list", length(block_used))
+    missing <- integer()
+    for (feature_pos in seq_along(block_used)) {
+      key <- as.character(block_used[feature_pos])
+      if (!is.null(cache$state[[key]])) {
+        cache$clock <- cache$clock + 1
+        cache$last[key] <- cache$clock
+        cache$hits <- cache$hits + 1L
+        block_states[[feature_pos]] <- cache$state[[key]]
+      } else {
+        cache$misses <- cache$misses + 1L
+        missing <- c(missing, feature_pos)
+      }
     }
-    if (any(unit_failed)) {
-      block_states[unit_failed] <- lapply(block_units[unit_failed], function(z) {
-        list(error = z$error)
-      })
+    if (length(missing)) {
+      for (position in missing) {
+        active <- as.character(block_used)
+        while (cache$bytes + state_estimate > cache_limit) {
+          drop <- setdiff(names(cache$last), active)
+          if (!length(drop)) break
+          drop <- drop[which.min(cache$last[drop])]
+          cache$bytes <- cache$bytes - as.numeric(object.size(cache$state[[drop]]))
+          cache$state[[drop]] <- NULL
+          cache$last <- cache$last[names(cache$last) != drop]
+          cache$evictions <- cache$evictions + 1L
+        }
+        t_unit <- proc.time()[["elapsed"]]
+        unit <- .inlast_sparse_units(
+          fit, block_used[position], threads = threads
+        )[[1L]]
+        cache$unit_build_elapsed <- cache$unit_build_elapsed +
+          proc.time()[["elapsed"]] - t_unit
+        cache$unit_builds <- cache$unit_builds + 1L
+        cache$transient_unit_bytes <- max(
+          cache$transient_unit_bytes, as.numeric(object.size(unit))
+        )
+        if (!is.null(unit$error) && nzchar(unit$error)) {
+          block_states[[position]] <- list(error = unit$error)
+          rm(unit)
+          next
+        }
+        t_materialize <- proc.time()[["elapsed"]]
+        state <- .inlast_sparse_materialize_reduced(
+          fit, list(unit), basis, threads = threads
+        )[[1L]]
+        cache$reduced_materialize_elapsed <- cache$reduced_materialize_elapsed +
+          proc.time()[["elapsed"]] - t_materialize
+        rm(unit)
+        cache$materializations <- cache$materializations + 1L
+        key <- as.character(block_used[position])
+        state_bytes <- as.numeric(object.size(state))
+        while (cache$bytes + state_bytes > cache_limit) {
+          drop <- setdiff(names(cache$last), active)
+          if (!length(drop)) break
+          drop <- drop[which.min(cache$last[drop])]
+          cache$bytes <- cache$bytes - as.numeric(object.size(cache$state[[drop]]))
+          cache$state[[drop]] <- NULL
+          cache$last <- cache$last[names(cache$last) != drop]
+          cache$evictions <- cache$evictions + 1L
+        }
+        if (state_bytes <= cache_limit && cache$bytes + state_bytes <= cache_limit) {
+          cache$state[[key]] <- state
+          cache$bytes <- cache$bytes + state_bytes
+          cache$clock <- cache$clock + 1
+          cache$last[key] <- cache$clock
+        }
+        block_states[[position]] <- state
+      }
     }
     failed <- vapply(block_states, function(z) {
       !is.null(z$error) && length(z$error) == 1L && !is.na(z$error) && nzchar(z$error)
@@ -121,11 +144,13 @@
       elapsed = 0
     )
     z <- .mgcvst_liu_pairs(
-      block_index, pair_index[rows], fit$feature_id, summaries,
-      threads, length(rows), FALSE
+      block_index, pair_index[pair_row], fit$feature_id, summaries,
+      threads, 1L, FALSE
     )
-    result[[b]] <- z$result
+    block_result[[pair_pos]] <- z$result
     elapsed <- elapsed + z$elapsed
+    }
+    result[[b]] <- do.call(rbind, block_result)
     if (verbose && (b %% 10L == 0L || b == length(starts))) {
       message("Evaluated sparse INLA Liu block ", b, " of ", length(starts), ".")
     }
@@ -145,6 +170,21 @@
     out$signed_score[valid] <= 0,
     out$p_two_sided[valid] / 2,
     1 - out$p_two_sided[valid] / 2
+  )
+  attr(out, "inla_pairwise") <- list(
+    q = ncol(fit$score_sparse$Q), r = basis$rank,
+    target_coverage = basis$coverage, kept_coverage = basis$kept,
+    tail = basis$tail,
+    basis = "constrained_observation_kernel_A_Qg_inverse_At",
+    cache_limit_bytes = cache_limit, cache_bytes = cache$bytes,
+    cache_hits = cache$hits, cache_misses = cache$misses,
+    cache_evictions = cache$evictions, unit_builds = cache$unit_builds,
+    materializations = cache$materializations,
+    transient_unit_bytes = cache$transient_unit_bytes,
+    unit_build_elapsed = cache$unit_build_elapsed,
+    reduced_materialize_elapsed = cache$reduced_materialize_elapsed,
+    liu_elapsed = elapsed, unit_cache = "none",
+    pair_schedule = "one_pair_microblocks_no_pair_level_OpenMP_batch"
   )
   list(result = out, elapsed = elapsed)
 }

@@ -42,11 +42,11 @@ They may overlap \code{pairs}; non-overlapping highlights are appended.}
 
 \item{calibration}{Only \code{"liu"} is supported for INLA.}
 
-\item{chunk_size}{Positive number of tested pairs per task or C++ block.
-Liu calibration defaults to 10,000 pairs per interruptible block.}
+\item{chunk_size}{Positive number of tested pairs used for result grouping.
+Sparse INLA evaluates bounded internal pair microblocks.}
 
 \item{threads}{Positive number of OpenMP threads for sparse INLA feature
-preparation and Liu pair calculations. \code{NULL} uses one thread.}
+preparation and reduced materialization. \code{NULL} uses one thread.}
 
 \item{verbose}{Logical; report Liu summary and block progress.}
 }
@@ -58,4 +58,8 @@ This is the INLA-named entry point for \code{\link[=mgcvST.test]{mgcvST.test()}}
 the score engine registered on the \code{inlaST_fit} object, including its sparse
 score state when available.  No model is refitted and no score algorithm is
 duplicated here.
+For sparse INLA fits, Liu uses a constrained observation-kernel basis that
+retains at least 0.995 of its eigenvalue sum. This is a pairwise-test
+approximation; the fitted sparse field is unchanged. Basis and pair-stage
+timings are stored in \code{timing$inla_projection}.
 }
