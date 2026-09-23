@@ -369,6 +369,32 @@
 #' [model.set()] use the model score path.
 #'
 #' @inheritParams .mgcvst_test_spde
+#' @param pairwise_method `"liu"` keeps the existing pair test. For sparse INLA
+#'   fits, `"conditional"` uses both conditional-normal directions, combines
+#'   their p-values by the equal-weight Cauchy rule, and applies BY across the
+#'   tested pair family. With `pairs = NULL`, it tests every available gene pair.
+#' @param checkpoint_dir Optional directory for resumable per-gene conditional
+#'   variance rows. A temporary directory is used when `NULL`.
+#' @param resume Reuse matching completed conditional variance rows.
+#' @details Let `S_ij = a_i' a_j` and `v_(i|j) = a_j' M_i a_j`.
+#'   Under independent Gaussian null scores, `S_ij | a_j` is normal with
+#'   variance `v_(i|j)`, so each directional two-sided normal p-value is exactly
+#'   uniform. The directions are combined using
+#'   `T = (tan((0.5-p_(i|j))*pi) + tan((0.5-p_(j|i))*pi))/2` and the standard
+#'   Cauchy upper tail. Because `T` cannot exceed its larger component,
+#'   `p_ij >= min(p_(i|j), p_(j|i))` and the null rejection probability is at
+#'   most `2*alpha` under any dependence.
+#'
+#'   For `X = 1/p_(i|j)` and `Y = 1/p_(j|i)`, both directional tails satisfy
+#'   `Pr(X > x) = Pr(Y > x) = 1/x`; in the far tail, `1/p_ij` approaches
+#'   `(X+Y)/2`. If both directions become extreme together, their normal
+#'   z-scores obey `z_2 = R*z_1`, where `R = sqrt(v_(i|j)/v_(j|i))`.
+#'   Under a continuous, nondegenerate distribution of `R`, unequal extremes
+#'   occur together only when `abs(R-1)` is of order `1/log(1/alpha)`.
+#'   Thus the combined tail approaches the nominal tail as `alpha` tends to
+#'   zero under this condition.
+#'   Conditional output includes log-scale p-values so tails below the
+#'   floating-point range remain available for BY calculations and reporting.
 #' @export
 mgcvST.test <- function(
     fitmgcvST, q.value = 0.05, FDR = TRUE, method = "BH",
@@ -376,7 +402,35 @@ mgcvST.test <- function(
     pairs = NULL, highlight = NULL,
     calibration = c("liu", "davies"),
     chunk_size = NULL,
-    threads = NULL, verbose = FALSE) {
+    threads = NULL, verbose = FALSE,
+    pairwise_method = c("liu", "conditional"),
+    checkpoint_dir = NULL, resume = TRUE) {
+  pairwise_method <- match.arg(pairwise_method)
+  if (pairwise_method == "conditional") {
+    if (missing(method)) method <- "BY"
+    if (!identical(method, "BY")) {
+      stop("pairwise_method = 'conditional' requires method = 'BY'.")
+    }
+    if (!isTRUE(FDR)) {
+      stop("pairwise_method = 'conditional' requires FDR = TRUE.")
+    }
+    if (!is.null(highlight)) {
+      stop("highlight is unavailable for conditional pairwise results.")
+    }
+    if (!identical(calibration, c("liu", "davies")) &&
+        !identical(calibration, "liu")) {
+      stop("Conditional pairs do not use a non-Liu calibration argument.")
+    }
+    if (length(list(...))) stop("Unused arguments in ... for conditional pairs.")
+    .mgcvst_inla_serial_backend(BPPARAM)
+    return(.mgcvst_conditional_test(
+      fitmgcvST, pairs, q.value, threads, chunk_size,
+      checkpoint_dir, resume, match.call()
+    ))
+  }
+  if (!is.null(checkpoint_dir) || !isTRUE(resume)) {
+    stop("checkpoint_dir and resume require pairwise_method = 'conditional'.")
+  }
   engine <- .mgcvst_test_engine(fitmgcvST)
   engine(
     fitmgcvST = fitmgcvST, q.value = q.value, FDR = FDR, method = method,

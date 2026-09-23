@@ -12,6 +12,44 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// mgcvst_conditional_variance_rows_cpp
+Rcpp::NumericMatrix mgcvst_conditional_variance_rows_cpp(const Rcpp::NumericMatrix& A, const Rcpp::List& matrices, int threads, int block_size);
+RcppExport SEXP _mgcvST_mgcvst_conditional_variance_rows_cpp(SEXP ASEXP, SEXP matricesSEXP, SEXP threadsSEXP, SEXP block_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type A(ASEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type matrices(matricesSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    Rcpp::traits::input_parameter< int >::type block_size(block_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_conditional_variance_rows_cpp(A, matrices, threads, block_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_conditional_all_pairs_cpp
+Rcpp::IntegerMatrix mgcvst_conditional_all_pairs_cpp(int n);
+RcppExport SEXP _mgcvST_mgcvst_conditional_all_pairs_cpp(SEXP nSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type n(nSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_conditional_all_pairs_cpp(n));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_conditional_pairs_cpp
+Rcpp::List mgcvst_conditional_pairs_cpp(const Rcpp::NumericMatrix& S, const Rcpp::NumericMatrix& V, const Rcpp::IntegerMatrix& pairs);
+RcppExport SEXP _mgcvST_mgcvst_conditional_pairs_cpp(SEXP SSEXP, SEXP VSEXP, SEXP pairsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type S(SSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type V(VSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerMatrix& >::type pairs(pairsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_conditional_pairs_cpp(S, V, pairs));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_dense_score_batch_cpp
 Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0, const arma::mat& variance, const arma::mat& error, const arma::vec& scale, const arma::mat& X, const Rcpp::List& nuisance, int threads);
 RcppExport SEXP _mgcvST_mgcvst_dense_score_batch_cpp(SEXP T0SEXP, SEXP varianceSEXP, SEXP errorSEXP, SEXP scaleSEXP, SEXP XSEXP, SEXP nuisanceSEXP, SEXP threadsSEXP) {
@@ -172,6 +210,9 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_mgcvST_mgcvst_conditional_variance_rows_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_variance_rows_cpp, 4},
+    {"_mgcvST_mgcvst_conditional_all_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_all_pairs_cpp, 1},
+    {"_mgcvST_mgcvst_conditional_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_pairs_cpp, 3},
     {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 7},
     {"_mgcvST_mgcvst_inla_sparse_prepare_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepare_cpp, 2},
     {"_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp, 1},

@@ -16,7 +16,10 @@ mgcvST.test(
   calibration = c("liu", "davies"),
   chunk_size = NULL,
   threads = NULL,
-  verbose = FALSE
+  verbose = FALSE,
+  pairwise_method = c("liu", "conditional"),
+  checkpoint_dir = NULL,
+  resume = TRUE
 )
 }
 \arguments{
@@ -50,9 +53,40 @@ and the Liu pair kernel. \code{NULL} uses \code{bpworkers(BPPARAM)}. Model pair 
 and Davies calibration use \code{BPPARAM} after preparation has completed.}
 
 \item{verbose}{Logical; report Liu summary and block progress.}
+
+\item{pairwise_method}{\code{"liu"} keeps the existing pair test. For sparse INLA
+fits, \code{"conditional"} uses both conditional-normal directions, combines
+their p-values by the equal-weight Cauchy rule, and applies BY across the
+tested pair family. With \code{pairs = NULL}, it tests every available gene pair.}
+
+\item{checkpoint_dir}{Optional directory for resumable per-gene conditional
+variance rows. A temporary directory is used when \code{NULL}.}
+
+\item{resume}{Reuse matching completed conditional variance rows.}
 }
 \description{
 Dispatches a compact fit to its registered score engine. Standard one-SPDE
 fits use the SPDE score path. One-component fits constructed from
 \code{\link[=model.set]{model.set()}} use the model score path.
+}
+\details{
+Let \verb{S_ij = a_i' a_j} and \verb{v_(i|j) = a_j' M_i a_j}.
+Under independent Gaussian null scores, \code{S_ij | a_j} is normal with
+variance \code{v_(i|j)}, so each directional two-sided normal p-value is exactly
+uniform. The directions are combined using
+\code{T = (tan((0.5-p_(i|j))*pi) + tan((0.5-p_(j|i))*pi))/2} and the standard
+Cauchy upper tail. Because \code{T} cannot exceed its larger component,
+\code{p_ij >= min(p_(i|j), p_(j|i))} and the null rejection probability is at
+most \code{2*alpha} under any dependence.
+
+For \code{X = 1/p_(i|j)} and \code{Y = 1/p_(j|i)}, both directional tails satisfy
+\code{Pr(X > x) = Pr(Y > x) = 1/x}; in the far tail, \code{1/p_ij} approaches
+\code{(X+Y)/2}. If both directions become extreme together, their normal
+z-scores obey \code{z_2 = R*z_1}, where \code{R = sqrt(v_(i|j)/v_(j|i))}.
+Under a continuous, nondegenerate distribution of \code{R}, unequal extremes
+occur together only when \code{abs(R-1)} is of order \code{1/log(1/alpha)}.
+Thus the combined tail approaches the nominal tail as \code{alpha} tends to
+zero under this condition.
+Conditional output includes log-scale p-values so tails below the
+floating-point range remain available for BY calculations and reporting.
 }

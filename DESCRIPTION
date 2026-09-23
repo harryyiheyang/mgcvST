@@ -21,12 +21,14 @@ Imports:
     BiocParallel,
     CompQuadForm,
     CppMatrix (>= 0.1.0),
+    digest,
     geometry,
     graphics,
     Matrix,
     methods,
     mgcv,
     Rcpp,
+    RhpcBLASctl,
     stats
 LinkingTo:
     Rcpp,

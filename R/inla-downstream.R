@@ -11,12 +11,12 @@
 #'
 #' @param fitinlaST An object returned by [inlaST.estimate()].
 #' @inheritParams mgcvST.test
-#' @param calibration Only `"liu"` is supported for INLA.
+#' @param calibration Only `"liu"` is supported for the existing INLA pair path.
+#' @param chunk_size For conditional pairs, the number of genes materialized
+#'   together (1 to 64). The Liu path groups tested pairs.
 #' @param BPPARAM Compatibility argument; only `SerialParam()` is accepted.
 #' @param threads Positive number of OpenMP threads for sparse INLA feature
 #'   preparation and reduced materialization. `NULL` uses one thread.
-#' @param chunk_size Positive number of tested pairs used for result grouping.
-#'   Sparse INLA evaluates bounded internal pair microblocks.
 #' @return The `mgcvST_test` object returned by [mgcvST.test()].
 #' @export
 inlaST.test <- function(
@@ -24,12 +24,18 @@ inlaST.test <- function(
     BPPARAM = BiocParallel::SerialParam(), ...,
     pairs = NULL, highlight = NULL,
     calibration = "liu",
-    chunk_size = NULL, threads = NULL, verbose = FALSE) {
+    chunk_size = NULL, threads = NULL, verbose = FALSE,
+    pairwise_method = c("liu", "conditional"),
+    checkpoint_dir = NULL, resume = TRUE) {
+  pairwise_method <- match.arg(pairwise_method)
+  if (pairwise_method == "conditional" && missing(method)) method <- "BY"
   mgcvST.test(
     fitmgcvST = fitinlaST, q.value = q.value, FDR = FDR, method = method,
     BPPARAM = BPPARAM, ..., pairs = pairs, highlight = highlight,
     calibration = calibration, chunk_size = chunk_size,
-    threads = threads, verbose = verbose
+    threads = threads, verbose = verbose,
+    pairwise_method = pairwise_method,
+    checkpoint_dir = checkpoint_dir, resume = resume
   )
 }
 

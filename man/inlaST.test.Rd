@@ -16,7 +16,10 @@ inlaST.test(
   calibration = "liu",
   chunk_size = NULL,
   threads = NULL,
-  verbose = FALSE
+  verbose = FALSE,
+  pairwise_method = c("liu", "conditional"),
+  checkpoint_dir = NULL,
+  resume = TRUE
 )
 }
 \arguments{
@@ -40,15 +43,25 @@ one-based indices.}
 \item{highlight}{Optional two-column pairs that must be tested and retained.
 They may overlap \code{pairs}; non-overlapping highlights are appended.}
 
-\item{calibration}{Only \code{"liu"} is supported for INLA.}
+\item{calibration}{Only \code{"liu"} is supported for the existing INLA pair path.}
 
-\item{chunk_size}{Positive number of tested pairs used for result grouping.
-Sparse INLA evaluates bounded internal pair microblocks.}
+\item{chunk_size}{For conditional pairs, the number of genes materialized
+together (1 to 64). The Liu path groups tested pairs.}
 
 \item{threads}{Positive number of OpenMP threads for sparse INLA feature
 preparation and reduced materialization. \code{NULL} uses one thread.}
 
 \item{verbose}{Logical; report Liu summary and block progress.}
+
+\item{pairwise_method}{\code{"liu"} keeps the existing pair test. For sparse INLA
+fits, \code{"conditional"} uses both conditional-normal directions, combines
+their p-values by the equal-weight Cauchy rule, and applies BY across the
+tested pair family. With \code{pairs = NULL}, it tests every available gene pair.}
+
+\item{checkpoint_dir}{Optional directory for resumable per-gene conditional
+variance rows. A temporary directory is used when \code{NULL}.}
+
+\item{resume}{Reuse matching completed conditional variance rows.}
 }
 \value{
 The \code{mgcvST_test} object returned by \code{\link[=mgcvST.test]{mgcvST.test()}}.
