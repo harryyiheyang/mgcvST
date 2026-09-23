@@ -84,7 +84,11 @@
     pairs = NULL, highlight = NULL,
     calibration = c("liu", "davies"),
     chunk_size = NULL,
-    threads = NULL, verbose = FALSE) {
+    threads = NULL, verbose = FALSE, cache_bytes = NULL,
+    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
+    n_ref = 100L, ref_method = c("random", "score", "hyper"),
+    ref_seed = 1L, ref_tol = 1e-6,
+    diagnostic_pairs = 0L) {
   if (!inherits(fitmgcvST, "mgcvST_model_fit")) {
     stop("The model score engine requires a fit from mgcvST.estimate(Y, model).")
   }
@@ -135,7 +139,11 @@
   if (length(threads) != 1L || is.na(threads) || threads < 1L) {
     stop("threads must be one positive integer.")
   }
-  if (!inla_fit) .mgcvst_thread_limit()
+  .mgcvst_thread_limit()
+  if (calibration != "liu" && (!is.null(cache_bytes) ||
+      !is.null(checkpoint_dir) || !isTRUE(resume))) {
+    stop("cache_bytes, checkpoint_dir and resume currently require calibration = 'liu'.")
+  }
 
   index <- .mgcvst_pair_index(pairs, fitmgcvST$feature_id)
   highlight_index <- matrix(integer(), nrow = 0L, ncol = 2L)
@@ -204,9 +212,9 @@
     inla_basis_elapsed <- proc.time()[["elapsed"]] - t_basis
   }
   if (is.null(chunk_size)) {
-    chunk_size <- if (inla_fit) .mgcvst_inla_pair_chunk_size(
+    chunk_size <- if (approximate) 10000L else if (inla_fit) .mgcvst_inla_pair_chunk_size(
       fitmgcvST, basis = inla_projection
-    ) else if (workers > 0L)
+    ) else if (calibration == "liu") 10000L else if (workers > 0L)
       ceiling(length(tested_rows) / workers) else 1L
   }
   chunk_size <- as.integer(chunk_size)
@@ -217,6 +225,7 @@
   chunk_count <- 0L
   elapsed <- summary_elapsed <- 0
   native_preparation <- FALSE
+  pipeline <- NULL
   if (length(tested_rows)) {
     chunks <- if (inla_fit) {
       NULL
@@ -227,14 +236,49 @@
       t0 <- proc.time()[["elapsed"]]
       evaluated <- .mgcvst_inla_test_pairs(
         fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
-        threads, chunk_size, verbose, basis = inla_projection
+        threads, chunk_size, verbose, basis = inla_projection,
+        cache_bytes = cache_bytes, checkpoint_dir = checkpoint_dir,
+        resume = resume, approximate = approximate, n_ref = n_ref,
+        ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
+        diagnostic_pairs = diagnostic_pairs
       )
       elapsed <- proc.time()[["elapsed"]] - t0
       inla_projection <- attr(evaluated$result, "inla_pairwise")
       inla_projection$basis_elapsed <- inla_basis_elapsed
       inla_projection$test_wall_elapsed <- proc.time()[["elapsed"]] -
         inla_test_started
-      evaluated <- split(evaluated$result, seq_len(nrow(evaluated$result)))
+      chunk_count <- inla_projection$chunks
+      summary_elapsed <- inla_projection$preparation_elapsed
+      target <- evaluated$result$pair_index
+      columns <- intersect(names(evaluated$result), names(result))
+      result[target, columns] <- evaluated$result[, columns, drop = FALSE]
+      result$statistic[target] <- result$signed_score[target]^2
+      evaluated <- list()
+    } else if (calibration == "liu") {
+      evaluate <- if (approximate) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
+      args <- list(
+        fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
+        threads, chunk_size, verbose, cache_bytes = cache_bytes,
+        checkpoint_dir = checkpoint_dir, resume = resume
+      )
+      if (approximate) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
+        ref_seed = ref_seed, ref_tol = ref_tol,
+        diagnostic_pairs = diagnostic_pairs))
+      evaluated <- do.call(evaluate, args)
+      pipeline <- evaluated$metadata
+      native_preparation <- pipeline$preparation_backend %in%
+        c("sparse", "model_native", "legacy_native")
+      summary_elapsed <- pipeline$preparation_elapsed
+      elapsed <- summary_elapsed + evaluated$elapsed
+      chunk_count <- pipeline$chunks
+      target <- evaluated$result$pair_index
+      result$signed_score[target] <- evaluated$result$score
+      result$statistic[target] <- evaluated$result$score^2
+      result$information[target] <- evaluated$result$information
+      result$effective_rank[target] <- evaluated$result$effective_rank
+      result$p_two_sided[target] <- evaluated$result$p_value
+      result$error_message[target] <- evaluated$result$error_message
+      evaluated <- list()
     } else {
     chunks <- .mgcvst_dense_pair_groups(tested_rows, index, chunk_size)
     used <- sort(unique(as.vector(index[tested_rows, , drop = FALSE])))
@@ -291,6 +335,10 @@
 
   valid <- is.finite(result$p_two_sided) &
     result$p_two_sided >= 0 & result$p_two_sided <= 1
+  result$p_positive[valid] <- ifelse(result$signed_score[valid] >= 0,
+    result$p_two_sided[valid] / 2, 1 - result$p_two_sided[valid] / 2)
+  result$p_negative[valid] <- ifelse(result$signed_score[valid] <= 0,
+    result$p_two_sided[valid] / 2, 1 - result$p_two_sided[valid] / 2)
   if (FDR) {
     result$p_adjusted[valid] <- stats::p.adjust(result$p_two_sided[valid], method)
     result$p_positive_adjusted[valid] <- stats::p.adjust(
@@ -316,14 +364,15 @@
   timing <- list(
     elapsed = elapsed, summary_elapsed = summary_elapsed,
     pair_elapsed = elapsed - summary_elapsed,
-    workers = if (inla_fit) threads else workers,
-    chunks = if (inla_fit) chunk_count else length(chunks),
-    backend = if (inla_fit) "C++ OpenMP" else class(BPPARAM)[1L],
+    workers = if (calibration == "liu") threads else workers,
+    chunks = if (calibration == "liu") chunk_count else length(chunks),
+    backend = if (calibration == "liu") "C++ OpenMP" else class(BPPARAM)[1L],
     preparation_backend = if (inla_fit || native_preparation)
       "C++ OpenMP" else class(BPPARAM)[1L],
     preparation_threads = if (inla_fit || native_preparation) threads else workers
   )
   if (inla_fit) timing$inla_projection <- inla_projection
+  if (!is.null(pipeline)) timing$pair_pipeline <- pipeline
   structure(
     list(
       results = result,
@@ -373,9 +422,35 @@
 #'   fits, `"conditional"` uses both conditional-normal directions, combines
 #'   their p-values by the equal-weight Cauchy rule, and applies BY across the
 #'   tested pair family. With `pairs = NULL`, it tests every available gene pair.
-#' @param checkpoint_dir Optional directory for resumable per-gene conditional
-#'   variance rows. A temporary directory is used when `NULL`.
-#' @param resume Reuse matching completed conditional variance rows.
+#' @param conditional_precision Precision used for conditional variance
+#'   multiplication: `"double"` or `"float32"`. Scores, p-values, and BY
+#'   adjustment remain in double precision.
+#' @param cache_bytes Optional byte ceiling for resident Liu score states.
+#'   The default adapts to available system and job memory, with space reserved
+#'   for native working buffers. This is a cache budget, not a process limit.
+#' @param checkpoint_dir Optional checkpoint directory. Conditional testing
+#'   saves per-gene variance rows; Liu testing saves reusable score states and
+#'   pair batches. With `NULL`, temporary storage is removed on exit.
+#' @param resume Reuse compatible completed checkpoint entries.
+#' @param approximate Use real-gene landmark CUR trace reconstruction with
+#'   Liu calibration. Landmark-to-feature traces use float32 matrix products
+#'   with double accumulation and storage; landmark block `W` uses double.
+#'   Approximate p-values remain approximate throughout the test and are used
+#'   for multiple-testing adjustment. The default `FALSE` computes exact traces
+#'   in the existing common coordinates.
+#' @param n_ref Maximum number of real genes used as landmarks in approximate
+#'   mode.
+#' @param ref_method Landmark selection: uniform random sampling, k-means on
+#'   unnormalized score vectors (`"score"`), or k-means on standardized fitted
+#'   covariance variance scales (`"hyper"`).
+#' @param ref_seed Non-negative integer seed for reference selection; the
+#'   caller's random-number state is restored.
+#' @param ref_tol Relative eigenvalue cutoff for each normalized reference trace
+#'   matrix `W`. Both positive and negative retained eigenvalues are inverted.
+#' @param diagnostic_pairs Number of pairs with two non-landmark endpoints
+#'   sampled for optional exact approximation diagnostics. Defaults to `0`,
+#'   so no exact diagnostics run. Positive values add diagnostics without
+#'   changing any returned pair p-value or adjusted p-value.
 #' @details Let `S_ij = a_i' a_j` and `v_(i|j) = a_j' M_i a_j`.
 #'   Under independent Gaussian null scores, `S_ij | a_j` is normal with
 #'   variance `v_(i|j)`, so each directional two-sided normal p-value is exactly
@@ -402,10 +477,18 @@ mgcvST.test <- function(
     pairs = NULL, highlight = NULL,
     calibration = c("liu", "davies"),
     chunk_size = NULL,
-    threads = NULL, verbose = FALSE,
+    threads = NULL, verbose = FALSE, cache_bytes = NULL,
+    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
+    n_ref = 100L, ref_method = c("random", "score", "hyper"),
+    ref_seed = 1L, ref_tol = 1e-6,
+    diagnostic_pairs = 0L,
     pairwise_method = c("liu", "conditional"),
-    checkpoint_dir = NULL, resume = TRUE) {
+    conditional_precision = c("double", "float32")) {
   pairwise_method <- match.arg(pairwise_method)
+  conditional_precision <- match.arg(conditional_precision)
+  if (!is.logical(approximate) || length(approximate) != 1L || is.na(approximate)) {
+    stop("approximate must be TRUE or FALSE.")
+  }
   if (pairwise_method == "conditional") {
     if (missing(method)) method <- "BY"
     if (!identical(method, "BY")) {
@@ -421,21 +504,33 @@ mgcvST.test <- function(
         !identical(calibration, "liu")) {
       stop("Conditional pairs do not use a non-Liu calibration argument.")
     }
+    if (approximate || !is.null(cache_bytes)) {
+      stop("approximate and cache_bytes require pairwise_method = 'liu'.")
+    }
     if (length(list(...))) stop("Unused arguments in ... for conditional pairs.")
     .mgcvst_inla_serial_backend(BPPARAM)
     return(.mgcvst_conditional_test(
       fitmgcvST, pairs, q.value, threads, chunk_size,
-      checkpoint_dir, resume, match.call()
+      checkpoint_dir, resume, conditional_precision, match.call()
     ))
   }
-  if (!is.null(checkpoint_dir) || !isTRUE(resume)) {
-    stop("checkpoint_dir and resume require pairwise_method = 'conditional'.")
+  if (!identical(conditional_precision, "double")) {
+    stop("conditional_precision requires pairwise_method = 'conditional'.")
   }
+  calibration <- match.arg(calibration)
+  if (approximate && calibration != "liu") {
+    stop("approximate = TRUE requires calibration = 'liu'.")
+  }
+  if (approximate) ref_method <- match.arg(ref_method)
   engine <- .mgcvst_test_engine(fitmgcvST)
-  engine(
+  args <- list(
     fitmgcvST = fitmgcvST, q.value = q.value, FDR = FDR, method = method,
     BPPARAM = BPPARAM, ..., pairs = pairs, highlight = highlight,
     calibration = calibration, chunk_size = chunk_size,
-    threads = threads, verbose = verbose
+    threads = threads, verbose = verbose, cache_bytes = cache_bytes,
+    checkpoint_dir = checkpoint_dir, resume = resume, approximate = approximate,
+    n_ref = n_ref, ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
+    diagnostic_pairs = diagnostic_pairs
   )
+  do.call(engine, args)
 }

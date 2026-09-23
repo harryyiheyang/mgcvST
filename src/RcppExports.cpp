@@ -13,8 +13,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // mgcvst_conditional_variance_rows_cpp
-Rcpp::NumericMatrix mgcvst_conditional_variance_rows_cpp(const Rcpp::NumericMatrix& A, const Rcpp::List& matrices, int threads, int block_size);
-RcppExport SEXP _mgcvST_mgcvst_conditional_variance_rows_cpp(SEXP ASEXP, SEXP matricesSEXP, SEXP threadsSEXP, SEXP block_sizeSEXP) {
+Rcpp::NumericMatrix mgcvst_conditional_variance_rows_cpp(const Rcpp::NumericMatrix& A, const Rcpp::List& matrices, int threads, int block_size, bool float32);
+RcppExport SEXP _mgcvST_mgcvst_conditional_variance_rows_cpp(SEXP ASEXP, SEXP matricesSEXP, SEXP threadsSEXP, SEXP block_sizeSEXP, SEXP float32SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -22,7 +22,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Rcpp::List& >::type matrices(matricesSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
     Rcpp::traits::input_parameter< int >::type block_size(block_sizeSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_conditional_variance_rows_cpp(A, matrices, threads, block_size));
+    Rcpp::traits::input_parameter< bool >::type float32(float32SEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_conditional_variance_rows_cpp(A, matrices, threads, block_size, float32));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -182,6 +183,66 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_state_write_cpp
+void mgcvst_state_write_cpp(const std::string& path, const std::string& signature, const std::string& feature_id, const Rcpp::NumericVector& a, const Rcpp::NumericMatrix& M, SEXP width, const std::string& error);
+RcppExport SEXP _mgcvST_mgcvst_state_write_cpp(SEXP pathSEXP, SEXP signatureSEXP, SEXP feature_idSEXP, SEXP aSEXP, SEXP MSEXP, SEXP widthSEXP, SEXP errorSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const std::string& >::type path(pathSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type signature(signatureSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type feature_id(feature_idSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type a(aSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type M(MSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type width(widthSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type error(errorSEXP);
+    mgcvst_state_write_cpp(path, signature, feature_id, a, M, width, error);
+    return R_NilValue;
+END_RCPP
+}
+// mgcvst_state_read_cpp
+Rcpp::List mgcvst_state_read_cpp(const std::string& path, const std::string& signature, const std::string& feature_id);
+RcppExport SEXP _mgcvST_mgcvst_state_read_cpp(SEXP pathSEXP, SEXP signatureSEXP, SEXP feature_idSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const std::string& >::type path(pathSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type signature(signatureSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type feature_id(feature_idSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_state_read_cpp(path, signature, feature_id));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_landmark_stream_cpp
+Rcpp::List mgcvst_landmark_stream_cpp(const Rcpp::CharacterVector& paths, const Rcpp::CharacterVector& feature_ids, const std::string& state_signature, const Rcpp::List& references, const Rcpp::CharacterVector& output_paths, const std::string& summary_signature, int threads);
+RcppExport SEXP _mgcvST_mgcvst_landmark_stream_cpp(SEXP pathsSEXP, SEXP feature_idsSEXP, SEXP state_signatureSEXP, SEXP referencesSEXP, SEXP output_pathsSEXP, SEXP summary_signatureSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::CharacterVector& >::type paths(pathsSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::CharacterVector& >::type feature_ids(feature_idsSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type state_signature(state_signatureSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type references(referencesSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::CharacterVector& >::type output_paths(output_pathsSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type summary_signature(summary_signatureSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_landmark_stream_cpp(paths, feature_ids, state_signature, references, output_paths, summary_signature, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_trace_read_cpp
+Rcpp::List mgcvst_trace_read_cpp(const std::string& path, const std::string& signature, const std::string& feature_id, int n_ref);
+RcppExport SEXP _mgcvST_mgcvst_trace_read_cpp(SEXP pathSEXP, SEXP signatureSEXP, SEXP feature_idSEXP, SEXP n_refSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const std::string& >::type path(pathSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type signature(signatureSEXP);
+    Rcpp::traits::input_parameter< const std::string& >::type feature_id(feature_idSEXP);
+    Rcpp::traits::input_parameter< int >::type n_ref(n_refSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_trace_read_cpp(path, signature, feature_id, n_ref));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_marginal_liu_moments_cpp
 Rcpp::NumericMatrix mgcvst_marginal_liu_moments_cpp(Rcpp::List powers, int threads);
 RcppExport SEXP _mgcvST_mgcvst_marginal_liu_moments_cpp(SEXP powersSEXP, SEXP threadsSEXP) {
@@ -191,6 +252,16 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< Rcpp::List >::type powers(powersSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
     rcpp_result_gen = Rcpp::wrap(mgcvst_marginal_liu_moments_cpp(powers, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_memory_status_cpp
+Rcpp::NumericVector mgcvst_memory_status_cpp();
+RcppExport SEXP _mgcvST_mgcvst_memory_status_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(mgcvst_memory_status_cpp());
     return rcpp_result_gen;
 END_RCPP
 }
@@ -208,9 +279,39 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_pair_lowrank_cpp
+Rcpp::NumericMatrix mgcvst_pair_lowrank_cpp(const Rcpp::NumericMatrix& A, const Rcpp::List& left, const Rcpp::List& right, const Rcpp::NumericMatrix& scale, const Rcpp::IntegerMatrix& pairs, int threads);
+RcppExport SEXP _mgcvST_mgcvst_pair_lowrank_cpp(SEXP ASEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP scaleSEXP, SEXP pairsSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type A(ASEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type left(leftSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type right(rightSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type scale(scaleSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerMatrix& >::type pairs(pairsSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_lowrank_cpp(A, left, right, scale, pairs, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_landmark_trace_cpp
+Rcpp::NumericMatrix mgcvst_landmark_trace_cpp(const Rcpp::List& matrixList, const Rcpp::List& referenceList, int threads, bool float32);
+RcppExport SEXP _mgcvST_mgcvst_landmark_trace_cpp(SEXP matrixListSEXP, SEXP referenceListSEXP, SEXP threadsSEXP, SEXP float32SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type matrixList(matrixListSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type referenceList(referenceListSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    Rcpp::traits::input_parameter< bool >::type float32(float32SEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_landmark_trace_cpp(matrixList, referenceList, threads, float32));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_mgcvST_mgcvst_conditional_variance_rows_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_variance_rows_cpp, 4},
+    {"_mgcvST_mgcvst_conditional_variance_rows_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_variance_rows_cpp, 5},
     {"_mgcvST_mgcvst_conditional_all_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_all_pairs_cpp, 1},
     {"_mgcvST_mgcvst_conditional_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_pairs_cpp, 3},
     {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 7},
@@ -221,8 +322,15 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_inla_sparse_units_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_units_cpp, 10},
     {"_mgcvST_mgcvst_inla_sparse_materialize_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_cpp, 6},
     {"_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp, 7},
+    {"_mgcvST_mgcvst_state_write_cpp", (DL_FUNC) &_mgcvST_mgcvst_state_write_cpp, 7},
+    {"_mgcvST_mgcvst_state_read_cpp", (DL_FUNC) &_mgcvST_mgcvst_state_read_cpp, 3},
+    {"_mgcvST_mgcvst_landmark_stream_cpp", (DL_FUNC) &_mgcvST_mgcvst_landmark_stream_cpp, 7},
+    {"_mgcvST_mgcvst_trace_read_cpp", (DL_FUNC) &_mgcvST_mgcvst_trace_read_cpp, 4},
     {"_mgcvST_mgcvst_marginal_liu_moments_cpp", (DL_FUNC) &_mgcvST_mgcvst_marginal_liu_moments_cpp, 2},
+    {"_mgcvST_mgcvst_memory_status_cpp", (DL_FUNC) &_mgcvST_mgcvst_memory_status_cpp, 0},
     {"_mgcvST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_trace_powers_cpp, 4},
+    {"_mgcvST_mgcvst_pair_lowrank_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_lowrank_cpp, 6},
+    {"_mgcvST_mgcvst_landmark_trace_cpp", (DL_FUNC) &_mgcvST_mgcvst_landmark_trace_cpp, 4},
     {NULL, NULL, 0}
 };
 

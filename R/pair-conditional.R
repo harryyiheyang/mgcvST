@@ -1,7 +1,7 @@
 # Conditional Cauchy pair testing for the sparse INLA score backend.
 .mgcvst_conditional_test <- function(fit, pairs, q.value, threads,
                                     chunk_size, checkpoint_dir, resume,
-                                    call) {
+                                    conditional_precision, call) {
   if (!inherits(fit, "mgcvST_model_fit") ||
       !identical(fit$estimator, "INLA") ||
       !identical(fit$score_backend, "sparse")) {
@@ -27,6 +27,12 @@
   if (!is.logical(resume) || length(resume) != 1L || is.na(resume)) {
     stop("resume must be TRUE or FALSE.")
   }
+  if (!is.character(conditional_precision) ||
+      length(conditional_precision) != 1L ||
+      !conditional_precision %in% c("double", "float32")) {
+    stop("conditional_precision must be 'double' or 'float32'.")
+  }
+  float32 <- identical(conditional_precision, "float32")
 
   .mgcvst_thread_limit()
   RhpcBLASctl::blas_set_num_threads(1L)
@@ -48,44 +54,100 @@
   ids <- fit$feature_id[used]
   if (anyDuplicated(ids)) stop("Conditional feature IDs must be unique.")
   fit <- .inlast_sparse_prepare(fit)
+  t_basis <- proc.time()[["elapsed"]]
   basis <- .inlast_sparse_observation_basis(fit, coverage = 0.995)
+  basis_elapsed <- proc.time()[["elapsed"]] - t_basis
   q <- basis$rank
   G <- length(used)
   A <- matrix(NA_real_, q, G, dimnames = list(NULL, ids))
+  existing_manifest <- !is.null(checkpoint_dir) && dir.exists(checkpoint_dir) &&
+    file.exists(file.path(checkpoint_dir, "manifest.rds"))
+  checkpoint_manifest <- if (existing_manifest) {
+    readRDS(file.path(checkpoint_dir, "manifest.rds"))
+  } else NULL
+  if (existing_manifest && is.null(checkpoint_manifest$version) && float32) {
+    stop("Legacy conditional checkpoints require conditional_precision = 'double'.")
+  }
+  unit_dir <- NULL
+  if (!existing_manifest) {
+    unit_dir <- tempfile("mgcvst-conditional-units-", tmpdir = tempdir())
+    if (!dir.create(unit_dir)) stop("Could not create conditional unit storage.")
+    on.exit(unlink(unit_dir, recursive = TRUE), add = TRUE)
+  }
+  t_score <- proc.time()[["elapsed"]]
   starts <- seq.int(1L, G, by = 32L)
   for (first in starts) {
     rows <- first:min(G, first + 31L)
-    states <- .inlast_sparse_batch(fit, used[rows], threads,
-                                   score_only = TRUE)
-    if (length(states) != length(rows)) {
-      stop("Sparse INLA score preparation returned the wrong gene count.")
-    }
-    for (k in seq_along(rows)) {
-      state <- states[[k]]
-      if (!is.null(state$error)) {
-        stop("Conditional score preparation failed for ", ids[rows[k]],
-             ": ", state$error)
+    if (existing_manifest) {
+      states <- .inlast_sparse_batch(fit, used[rows], threads,
+                                     score_only = TRUE)
+      if (length(states) != length(rows)) {
+        stop("Sparse INLA score preparation returned the wrong gene count.")
       }
-      A[, rows[k]] <- as.numeric(crossprod(basis$coordinate, state$a))
+      for (k in seq_along(rows)) {
+        state <- states[[k]]
+        if (!is.null(state$error)) {
+          stop("Conditional score preparation failed for ", ids[rows[k]],
+               ": ", state$error)
+        }
+        A[, rows[k]] <- as.numeric(crossprod(basis$coordinate, state$a))
+      }
+    } else {
+      units <- .inlast_sparse_units(fit, used[rows], threads = threads)
+      if (length(units) != length(rows)) {
+        stop("Sparse INLA score preparation returned the wrong gene count.")
+      }
+      for (k in seq_along(rows)) {
+        unit <- units[[k]]
+        if (!is.null(unit$error)) {
+          stop("Conditional score preparation failed for ", ids[rows[k]],
+               ": ", unit$error)
+        }
+        A[, rows[k]] <- as.numeric(crossprod(basis$coordinate, unit$a))
+        saveRDS(list(unit), file.path(unit_dir, sprintf("unit-%05d.rds", rows[k])),
+                compress = FALSE)
+      }
+      rm(units)
     }
   }
+  score_elapsed <- proc.time()[["elapsed"]] - t_score
   if (any(!is.finite(A))) stop("Conditional score coordinates are non-finite.")
   S <- crossprod(A)
 
-  geometry_hash <- digest::digest(list(
+  legacy_checkpoint <- existing_manifest && is.null(checkpoint_manifest$version)
+  geometry_parts <- list(
     fit$score_sparse$A, fit$score_sparse$Q,
-    fit$score_sparse$constraint, fit$geometry$nuisance_design,
-    basis$coordinate, basis$basis
-  ), algo = "sha256")
+    fit$score_sparse$constraint, fit$geometry$nuisance_design
+  )
+  if (legacy_checkpoint) geometry_parts <- c(geometry_parts,
+    list(basis$coordinate, basis$basis))
+  geometry_hash <- digest::digest(geometry_parts, algo = "sha256")
   working_hash <- vapply(used, function(j) {
     digest::digest(fit$working_variance[, j], algo = "sha256")
   }, character(1L))
-  signature <- digest::digest(list(
-    version = 1L, ids = ids, A = A, geometry_hash = geometry_hash,
-    working_hash = working_hash,
-    smoothing = fit$smoothing_parameters[used, , drop = FALSE],
-    dispersion = fit$dispersion[used]
-  ), algo = "sha256")
+  if (legacy_checkpoint) {
+    signature_data <- list(
+      version = 1L, ids = ids, A = A,
+      geometry_hash = geometry_hash,
+      working_hash = working_hash,
+      smoothing = fit$smoothing_parameters[used, , drop = FALSE],
+      dispersion = fit$dispersion[used]
+    )
+  } else {
+    error_hash <- vapply(used, function(j) {
+      digest::digest(fit$working_error[, j], algo = "sha256")
+    }, character(1L))
+    signature_data <- list(
+      version = 2L, ids = ids, geometry_hash = geometry_hash,
+      working_hash = working_hash, error_hash = error_hash,
+      smoothing = fit$smoothing_parameters[used, , drop = FALSE],
+      dispersion = fit$dispersion[used], score_rank = q,
+      sp_index = fit$score_sparse$sp_index,
+      nuisance_precision = .inlast_sparse_nuisance_precision(fit, used),
+      coverage = 0.995, conditional_precision = conditional_precision
+    )
+  }
+  signature <- digest::digest(signature_data, algo = "sha256")
 
   temporary <- is.null(checkpoint_dir)
   if (temporary) checkpoint_dir <- tempfile("mgcvst-conditional-", tmpdir = tempdir())
@@ -108,15 +170,15 @@
   manifest_path <- file.path(checkpoint_dir, "manifest.rds")
   if (file.exists(manifest_path)) {
     if (!resume) stop("A conditional checkpoint already exists; use a new directory.")
-    manifest <- readRDS(manifest_path)
-    if (!identical(manifest$signature, signature) ||
-        !identical(manifest$feature_id, ids)) {
+    if (!identical(checkpoint_manifest$signature, signature) ||
+        !identical(checkpoint_manifest$feature_id, ids)) {
       stop("The conditional checkpoint belongs to a different fit or gene set.")
     }
   } else {
     existing <- list.files(checkpoint_dir, all.files = TRUE, no.. = TRUE)
     if (length(existing)) stop("The conditional checkpoint directory is not empty.")
-    saveRDS(list(signature = signature, feature_id = ids, rank = q),
+    saveRDS(list(version = 2L, signature = signature, feature_id = ids,
+                 rank = q),
             paste0(manifest_path, ".pending"))
     if (!file.rename(paste0(manifest_path, ".pending"), manifest_path)) {
       stop("Could not finalize the conditional checkpoint manifest.")
@@ -131,9 +193,19 @@
       identical(readLines(done[k], warn = FALSE), signature)
   }, logical(1L))
   missing <- which(!complete)
+  materialize_elapsed <- 0
+  variance_elapsed <- 0
   if (length(missing)) for (first in seq.int(1L, length(missing), by = chunk_size)) {
     rows <- missing[first:min(length(missing), first + chunk_size - 1L)]
-    units <- .inlast_sparse_units(fit, used[rows], threads = threads)
+    if (existing_manifest) {
+      t_units <- proc.time()[["elapsed"]]
+      units <- .inlast_sparse_units(fit, used[rows], threads = threads)
+      score_elapsed <- score_elapsed + proc.time()[["elapsed"]] - t_units
+    } else {
+      units <- lapply(rows, function(row) {
+        readRDS(file.path(unit_dir, sprintf("unit-%05d.rds", row)))[[1L]]
+      })
+    }
     if (length(units) != length(rows)) {
       stop("Sparse INLA unit preparation returned the wrong gene count.")
     }
@@ -141,8 +213,11 @@
       stop("Conditional covariance preparation failed for ", ids[rows[k]],
            ": ", units[[k]]$error)
     }
+    t_materialize <- proc.time()[["elapsed"]]
     states <- .inlast_sparse_materialize_reduced(fit, units, basis,
                                                  threads = threads)
+    materialize_elapsed <- materialize_elapsed +
+      proc.time()[["elapsed"]] - t_materialize
     if (length(states) != length(rows)) {
       stop("Sparse INLA materialization returned the wrong gene count.")
     }
@@ -150,9 +225,12 @@
       stop("Conditional covariance materialization failed for ", ids[rows[k]],
            ": ", states[[k]]$error)
     }
+    t_variance <- proc.time()[["elapsed"]]
     Vb <- mgcvst_conditional_variance_rows_cpp(
-      A, lapply(states, `[[`, "M"), threads = threads, block_size = 512L
+      A, lapply(states, `[[`, "M"), threads = threads, block_size = 512L,
+      float32 = float32
     )
+    variance_elapsed <- variance_elapsed + proc.time()[["elapsed"]] - t_variance
     if (any(!is.finite(Vb)) || any(Vb <= 0)) {
       stop("A conditional variance is non-finite or non-positive.")
     }
@@ -173,6 +251,9 @@
       if (file.exists(done[row])) unlink(done[row])
       if (!file.rename(done_pending, done[row])) {
         stop("Could not finalize conditional done marker ", row, ".")
+      }
+      if (!existing_manifest) {
+        unlink(file.path(unit_dir, sprintf("unit-%05d.rds", row)))
       }
     }
     rm(units, states, Vb)
@@ -220,6 +301,11 @@
     calibration = "conditional_cauchy",
     timing = list(threads = threads, score_rank = q,
                   score_genes = G, variance_rows_reused = sum(complete),
+                  conditional_precision = conditional_precision,
+                  basis_elapsed = basis_elapsed,
+                  score_unit_elapsed = score_elapsed,
+                  reduced_materialize_elapsed = materialize_elapsed,
+                  variance_elapsed = variance_elapsed,
                   checkpoint_dir = if (temporary) NULL else checkpoint_dir),
     call = call
   ), class = "mgcvST_test")

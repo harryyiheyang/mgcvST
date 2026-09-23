@@ -343,7 +343,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
 #endif
   {
 #ifdef _OPENMP
-#pragma omp for schedule(static)
+#pragma omp for schedule(dynamic, 1)
 #endif
     for (int f = 0; f < features; ++f) {
       try {
@@ -590,7 +590,7 @@ Rcpp::List mgcvst_inla_sparse_materialize_cpp(
   std::vector<FeatureResult> result(features);
   int failed = 0;
 #ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(static) reduction(+:failed)
+#pragma omp parallel for num_threads(threads) schedule(dynamic, 1) reduction(+:failed)
 #endif
   for (int f = 0; f < features; ++f) {
     try {
@@ -712,7 +712,7 @@ Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
   std::vector<FeatureResult> result(features);
   int failed = 0;
 #ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(static) reduction(+:failed)
+#pragma omp parallel for num_threads(threads) schedule(dynamic, 1) reduction(+:failed)
 #endif
   for (int f = 0; f < features; ++f) {
     try {

@@ -1,5 +1,7 @@
 // Conditional pairwise variances and stable Cauchy calibration.
+#define EIGEN_DONT_PARALLELIZE
 #include <Rcpp.h>
+#include <RcppEigen.h>
 #include <R_ext/BLAS.h>
 #include <R_ext/RS.h>
 #include <cmath>
@@ -71,7 +73,7 @@ double cauchy_log_p(double z1, double z2) {
 // [[Rcpp::export]]
 Rcpp::NumericMatrix mgcvst_conditional_variance_rows_cpp(
     const Rcpp::NumericMatrix& A, const Rcpp::List& matrices,
-    int threads = 1, int block_size = 512) {
+    int threads = 1, int block_size = 512, bool float32 = false) {
   const int q = A.nrow();
   const int G = A.ncol();
   const int n = matrices.size();
@@ -94,23 +96,55 @@ Rcpp::NumericMatrix mgcvst_conditional_variance_rows_cpp(
   const double beta = 0.0;
   const double* a = A.begin();
   double* v = V.begin();
+  std::vector<float> a_float;
+  if (float32) {
+    const size_t a_size = static_cast<size_t>(q) * G;
+    a_float.resize(a_size);
+    for (size_t k = 0; k < a_size; ++k) a_float[k] = static_cast<float>(a[k]);
+  }
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
 #endif
   for (int i = 0; i < n; ++i) {
-    std::vector<double> buffer(static_cast<size_t>(q) *
-                               static_cast<size_t>(std::min(block_size, G)));
-    for (int first = 0; first < G; first += block_size) {
-      const int width = std::min(block_size, G - first);
-      F77_CALL(dsymm)("L", "U", &q, &width, &alpha, matrix_ptr[i], &q,
-                      a + static_cast<size_t>(first) * q, &q, &beta,
-                      buffer.data(), &q FCONE FCONE);
-      for (int col = 0; col < width; ++col) {
-        const double* score = a + static_cast<size_t>(first + col) * q;
-        const double* product = buffer.data() + static_cast<size_t>(col) * q;
-        double value = 0.0;
-        for (int row = 0; row < q; ++row) value += score[row] * product[row];
-        v[i + static_cast<size_t>(first + col) * n] = value;
+    const int capacity = std::min(block_size, G);
+    if (float32) {
+      Eigen::MatrixXf matrix_float(q, q);
+      const double* matrix = matrix_ptr[i];
+      for (size_t k = 0; k < static_cast<size_t>(q) * q; ++k) {
+        matrix_float.data()[k] = static_cast<float>(matrix[k]);
+      }
+      Eigen::Map<const Eigen::MatrixXf> score_matrix(a_float.data(), q, G);
+      Eigen::MatrixXf buffer(q, capacity);
+      for (int first = 0; first < G; first += block_size) {
+        const int width = std::min(block_size, G - first);
+        buffer.leftCols(width).noalias() =
+          matrix_float.selfadjointView<Eigen::Upper>() *
+          score_matrix.middleCols(first, width);
+        for (int col = 0; col < width; ++col) {
+          const float* score = score_matrix.col(first + col).data();
+          const float* product = buffer.col(col).data();
+          double value = 0.0;
+          for (int row = 0; row < q; ++row) {
+            value += static_cast<double>(score[row]) *
+                     static_cast<double>(product[row]);
+          }
+          v[i + static_cast<size_t>(first + col) * n] = value;
+        }
+      }
+    } else {
+      std::vector<double> buffer(static_cast<size_t>(q) * capacity);
+      for (int first = 0; first < G; first += block_size) {
+        const int width = std::min(block_size, G - first);
+        F77_CALL(dsymm)("L", "U", &q, &width, &alpha, matrix_ptr[i], &q,
+                        a + static_cast<size_t>(first) * q, &q, &beta,
+                        buffer.data(), &q FCONE FCONE);
+        for (int col = 0; col < width; ++col) {
+          const double* score = a + static_cast<size_t>(first + col) * q;
+          const double* product = buffer.data() + static_cast<size_t>(col) * q;
+          double value = 0.0;
+          for (int row = 0; row < q; ++row) value += score[row] * product[row];
+          v[i + static_cast<size_t>(first + col) * n] = value;
+        }
       }
     }
   }

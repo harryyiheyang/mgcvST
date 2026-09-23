@@ -17,9 +17,17 @@ inlaST.test(
   chunk_size = NULL,
   threads = NULL,
   verbose = FALSE,
-  pairwise_method = c("liu", "conditional"),
+  cache_bytes = NULL,
   checkpoint_dir = NULL,
-  resume = TRUE
+  resume = TRUE,
+  approximate = FALSE,
+  n_ref = 100L,
+  ref_method = c("random", "score", "hyper"),
+  ref_seed = 1L,
+  ref_tol = 1e-06,
+  diagnostic_pairs = 0L,
+  pairwise_method = c("liu", "conditional"),
+  conditional_precision = c("double", "float32")
 )
 }
 \arguments{
@@ -46,22 +54,57 @@ They may overlap \code{pairs}; non-overlapping highlights are appended.}
 \item{calibration}{Only \code{"liu"} is supported for the existing INLA pair path.}
 
 \item{chunk_size}{For conditional pairs, the number of genes materialized
-together (1 to 64). The Liu path groups tested pairs.}
+together (1 to 64). For Liu pairs, the maximum number of tested pairs per
+native batch; the adaptive memory budget may reduce distinct features.}
 
 \item{threads}{Positive number of OpenMP threads for sparse INLA feature
-preparation and reduced materialization. \code{NULL} uses one thread.}
+preparation, reduced materialization and pair batches. \code{NULL} uses one thread.}
 
 \item{verbose}{Logical; report Liu summary and block progress.}
+
+\item{cache_bytes}{Optional byte ceiling for resident Liu score states.
+The default adapts to available system and job memory, with space reserved
+for native working buffers. This is a cache budget, not a process limit.}
+
+\item{checkpoint_dir}{Optional checkpoint directory. Conditional testing
+saves per-gene variance rows; Liu testing saves reusable score states and
+pair batches. With \code{NULL}, temporary storage is removed on exit.}
+
+\item{resume}{Reuse compatible completed checkpoint entries.}
+
+\item{approximate}{Use real-gene landmark CUR trace reconstruction with
+Liu calibration. Landmark-to-feature traces use float32 matrix products
+with double accumulation and storage; landmark block \code{W} uses double.
+Approximate p-values remain approximate throughout the test and are used
+for multiple-testing adjustment. The default \code{FALSE} computes exact traces
+in the existing common coordinates.}
+
+\item{n_ref}{Maximum number of real genes used as landmarks in approximate
+mode.}
+
+\item{ref_method}{Landmark selection: uniform random sampling, k-means on
+unnormalized score vectors (\code{"score"}), or k-means on standardized fitted
+covariance variance scales (\code{"hyper"}).}
+
+\item{ref_seed}{Non-negative integer seed for reference selection; the
+caller's random-number state is restored.}
+
+\item{ref_tol}{Relative eigenvalue cutoff for each normalized reference trace
+matrix \code{W}. Both positive and negative retained eigenvalues are inverted.}
+
+\item{diagnostic_pairs}{Number of pairs with two non-landmark endpoints
+sampled for optional exact approximation diagnostics. Defaults to \code{0},
+so no exact diagnostics run. Positive values add diagnostics without
+changing any returned pair p-value or adjusted p-value.}
 
 \item{pairwise_method}{\code{"liu"} keeps the existing pair test. For sparse INLA
 fits, \code{"conditional"} uses both conditional-normal directions, combines
 their p-values by the equal-weight Cauchy rule, and applies BY across the
 tested pair family. With \code{pairs = NULL}, it tests every available gene pair.}
 
-\item{checkpoint_dir}{Optional directory for resumable per-gene conditional
-variance rows. A temporary directory is used when \code{NULL}.}
-
-\item{resume}{Reuse matching completed conditional variance rows.}
+\item{conditional_precision}{Precision used for conditional variance
+multiplication: \code{"double"} or \code{"float32"}. Scores, p-values, and BY
+adjustment remain in double precision.}
 }
 \value{
 The \code{mgcvST_test} object returned by \code{\link[=mgcvST.test]{mgcvST.test()}}.

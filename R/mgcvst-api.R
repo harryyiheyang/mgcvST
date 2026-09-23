@@ -8,6 +8,7 @@
     VECLIB_MAXIMUM_THREADS = "1",
     RCPP_PARALLEL_NUM_THREADS = "1"
   )
+  RhpcBLASctl::blas_set_num_threads(1L)
   if (requireNamespace("data.table", quietly = TRUE)) {
     data.table::setDTthreads(1L)
   }
@@ -1308,7 +1309,11 @@ print.mgcvST_fit <- function(x, ...) {
     pairs = NULL, highlight = NULL,
     calibration = c("liu", "davies"),
     chunk_size = NULL,
-    threads = NULL, verbose = FALSE) {
+    threads = NULL, verbose = FALSE, cache_bytes = NULL,
+    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
+    n_ref = 100L, ref_method = c("random", "score", "hyper"),
+    ref_seed = 1L, ref_tol = 1e-6,
+    diagnostic_pairs = 0L) {
   if (!inherits(fitmgcvST, "mgcvST_fit")) {
     stop("fitmgcvST must be returned by mgcvST.estimate().")
   }
@@ -1338,6 +1343,10 @@ print.mgcvST_fit <- function(x, ...) {
     stop("Unused arguments in ...: ", paste(names(unused), collapse = ", "))
   }
   calibration <- match.arg(calibration)
+  if (calibration != "liu" && (!is.null(cache_bytes) ||
+      !is.null(checkpoint_dir) || !isTRUE(resume))) {
+    stop("cache_bytes, checkpoint_dir and resume currently require calibration = 'liu'.")
+  }
   if (calibration == "davies" &&
       !requireNamespace("CompQuadForm", quietly = TRUE)) {
     stop("calibration = 'davies' requires the optional CompQuadForm package.")
@@ -1434,15 +1443,22 @@ print.mgcvST_fit <- function(x, ...) {
 
   elapsed <- summary_elapsed <- 0
   chunks <- list()
+  pipeline <- NULL
   if (length(tested_rows)) {
     if (calibration == "liu") {
-      used <- sort(unique(as.vector(index[tested_rows, , drop = FALSE])))
-      summaries <- .mgcvst_liu_summaries(fitmgcvST, used, verbose, threads)
-      summary_elapsed <- summaries$elapsed
-      evaluated <- .mgcvst_liu_pairs(
+      evaluate <- if (approximate) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
+      args <- list(
+        fitmgcvST,
         index[tested_rows, , drop = FALSE], tested_rows,
-        fitmgcvST$feature_id, summaries, threads, chunk_size, verbose
+        threads, chunk_size, verbose, cache_bytes = cache_bytes,
+        checkpoint_dir = checkpoint_dir, resume = resume
       )
+      if (approximate) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
+        ref_seed = ref_seed, ref_tol = ref_tol,
+        diagnostic_pairs = diagnostic_pairs))
+      evaluated <- do.call(evaluate, args)
+      pipeline <- evaluated$metadata
+      summary_elapsed <- pipeline$preparation_elapsed
       elapsed <- summary_elapsed + evaluated$elapsed
       evaluated <- evaluated$result
       target <- evaluated$pair_index
@@ -1452,7 +1468,7 @@ print.mgcvST_fit <- function(x, ...) {
       result$effective_rank[target] <- evaluated$effective_rank
       result$p_two_sided[target] <- evaluated$p_value
       result$error_message[target] <- evaluated$error_message
-      chunks <- seq_len(ceiling(length(tested_rows) / chunk_size))
+      chunks <- seq_len(pipeline$chunks)
     } else {
       used <- sort(unique(as.vector(index[tested_rows, , drop = FALSE])))
       T0 <- .mgcvst_legacy_shared_score_factor(fitmgcvST$geometry)
@@ -1577,6 +1593,7 @@ print.mgcvST_fit <- function(x, ...) {
         pair_elapsed = elapsed - summary_elapsed,
         workers = workers,
         chunks = length(chunks),
+        pair_pipeline = pipeline,
         backend = if (calibration == "liu") {
           "mgcvSTOpenMP"
         } else {

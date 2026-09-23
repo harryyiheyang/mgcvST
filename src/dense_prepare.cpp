@@ -178,7 +178,7 @@ Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0,
   const int nthreads = std::max(1, std::min(threads,
                                              static_cast<int>(variance.n_cols)));
 #ifdef _OPENMP
-#pragma omp parallel for num_threads(nthreads) schedule(static)
+#pragma omp parallel for num_threads(nthreads) schedule(dynamic, 1)
 #endif
   for (int jj = 0; jj < static_cast<int>(variance.n_cols); ++jj) {
     try {

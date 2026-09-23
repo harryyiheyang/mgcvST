@@ -13,10 +13,14 @@
 #' @inheritParams mgcvST.test
 #' @param calibration Only `"liu"` is supported for the existing INLA pair path.
 #' @param chunk_size For conditional pairs, the number of genes materialized
-#'   together (1 to 64). The Liu path groups tested pairs.
+#'   together (1 to 64). For Liu pairs, the maximum number of tested pairs per
+#'   native batch; the adaptive memory budget may reduce distinct features.
+#' @param conditional_precision Precision used for conditional variance
+#'   multiplication: `"double"` or `"float32"`. Scores, p-values, and BY
+#'   adjustment remain in double precision.
 #' @param BPPARAM Compatibility argument; only `SerialParam()` is accepted.
 #' @param threads Positive number of OpenMP threads for sparse INLA feature
-#'   preparation and reduced materialization. `NULL` uses one thread.
+#'   preparation, reduced materialization and pair batches. `NULL` uses one thread.
 #' @return The `mgcvST_test` object returned by [mgcvST.test()].
 #' @export
 inlaST.test <- function(
@@ -24,18 +28,26 @@ inlaST.test <- function(
     BPPARAM = BiocParallel::SerialParam(), ...,
     pairs = NULL, highlight = NULL,
     calibration = "liu",
-    chunk_size = NULL, threads = NULL, verbose = FALSE,
+    chunk_size = NULL, threads = NULL, verbose = FALSE, cache_bytes = NULL,
+    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
+    n_ref = 100L, ref_method = c("random", "score", "hyper"),
+    ref_seed = 1L, ref_tol = 1e-6,
+    diagnostic_pairs = 0L,
     pairwise_method = c("liu", "conditional"),
-    checkpoint_dir = NULL, resume = TRUE) {
+    conditional_precision = c("double", "float32")) {
   pairwise_method <- match.arg(pairwise_method)
+  conditional_precision <- match.arg(conditional_precision)
   if (pairwise_method == "conditional" && missing(method)) method <- "BY"
   mgcvST.test(
     fitmgcvST = fitinlaST, q.value = q.value, FDR = FDR, method = method,
     BPPARAM = BPPARAM, ..., pairs = pairs, highlight = highlight,
     calibration = calibration, chunk_size = chunk_size,
-    threads = threads, verbose = verbose,
+    threads = threads, verbose = verbose, cache_bytes = cache_bytes,
+    checkpoint_dir = checkpoint_dir, resume = resume, approximate = approximate,
+    n_ref = n_ref, ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
+    diagnostic_pairs = diagnostic_pairs,
     pairwise_method = pairwise_method,
-    checkpoint_dir = checkpoint_dir, resume = resume
+    conditional_precision = conditional_precision
   )
 }
 

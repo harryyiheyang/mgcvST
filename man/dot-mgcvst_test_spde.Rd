@@ -16,7 +16,16 @@
   calibration = c("liu", "davies"),
   chunk_size = NULL,
   threads = NULL,
-  verbose = FALSE
+  verbose = FALSE,
+  cache_bytes = NULL,
+  checkpoint_dir = NULL,
+  resume = TRUE,
+  approximate = FALSE,
+  n_ref = 100L,
+  ref_method = c("random", "score", "hyper"),
+  ref_seed = 1L,
+  ref_tol = 1e-06,
+  diagnostic_pairs = 0L
 )
 }
 \arguments{

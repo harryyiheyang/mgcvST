@@ -110,13 +110,14 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
   )
   expect_identical(calls$basis, 1L)
   expect_identical(public$timing$inla_projection$r, 2L)
-  expect_identical(public$timing$inla_projection$unit_cache, "none")
+  expect_identical(public$timing$inla_projection$unit_cache, "score_state_shards")
 
   evicted <- mgcvST:::.mgcvst_inla_test_pairs(
     fit, pairs, seq_len(nrow(pairs)), threads = 1L,
-    chunk_size = 1L, verbose = FALSE, cache_bytes = 5000
+    chunk_size = 1L, verbose = FALSE, cache_bytes = 1
   )$result
-  expect_gt(attr(evicted, "inla_pairwise")$cache_evictions, 0L)
+  expect_equal(attr(evicted, "inla_pairwise")$cache_misses, 6L)
+  expect_equal(attr(evicted, "inla_pairwise")$builds, 3L)
 
   expect_error(
     mgcvST.test(fit, pairs = pairs, calibration = "davies"),

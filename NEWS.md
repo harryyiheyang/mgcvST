@@ -1,3 +1,37 @@
+# mgcvST 0.0.1.9015
+
+* Liu pair tests prepare each required gene once and evaluate native pair
+  batches. Adaptive caches use available system, cgroup and Slurm memory;
+  `cache_bytes` sets an explicit resident-state ceiling. Gene blocks reduce
+  repeated shard reads. `checkpoint_dir` preserves gene states and completed
+  exact pair batches for resumption.
+* Feature preparation uses dynamic OpenMP scheduling with single-thread BLAS.
+  The shared INLA 0.995 observation-kernel projection is unchanged.
+* Persistent checkpoint fingerprints use bounded in-memory blocks instead of
+  writing the complete fit to a temporary file. Runs without persistent
+  checkpoints skip the content fingerprint.
+* Opt-in `approximate = TRUE` now uses real-gene trace-CUR landmarks selected
+  uniformly, by score k-means, or by covariance-scale k-means. The common
+  observation-kernel projection remains unchanged; matrix-B learning is not
+  part of this path. In score selection, sparse feature units and score vectors
+  are sharded before landmark choice and reused to materialize each double
+  curvature matrix once. R materializes missing M matrices in adaptive batches
+  and writes packed double state shards. One native call then submits all
+  missing gene trace tasks to a dynamic C++ worker queue; the two CUR GEMM
+  stages use float32 arithmetic, with C, W, and trace sums retained/computed in
+  double. Summary RDS files hold references, while native binary files hold
+  non-reference summaries. Exact double M shards remain available for tail and
+  diagnostic rechecks, so this is not summary-only streaming. C++17 is required.
+  Reference-only diagonal scaling and a signed, truncated W inverse reconstruct
+  the trace powers without requiring non-reference self traces.
+  Approximate p-values below `tail_recheck` are recomputed exactly before the
+  outer multiple-testing adjustment; set `tail_recheck = 0` to disable this.
+  Up to `diagnostic_pairs` pairs with two non-landmark endpoints are sampled
+  for diagnostics (`10,000` by default; `0` disables diagnostics). The threshold
+  recheck is an operational rule, not a strict BY error guarantee.
+* See `inst/notes/pair-pipeline.md` for scope and validation. Held-out exact
+  comparisons are development checks, not mandatory production work.
+
 # mgcvST 0.0.1.9014
 
 * Sparse INLA Liu pair tests now use a score-only constrained observation-kernel
