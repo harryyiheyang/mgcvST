@@ -310,7 +310,6 @@
     ".mgcvst_model_operator_legacy", ".mgcvst_model_operator_vp",
     ".mgcvst_model_vsolve", ".mgcvst_model_apply_P",
     ".mgcvst_model_sparse_constrained_solver",
-    ".mgcvst_model_sparse_score_state",
     ".mgcvst_model_score_state", ".mgcvst_model_pair_single",
     ".mgcvst_pack_symmetric", ".mgcvst_unpack_symmetric",
     ".mgcvst_pack_score_state", ".mgcvst_unpack_score_state",

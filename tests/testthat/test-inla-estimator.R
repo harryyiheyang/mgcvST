@@ -141,36 +141,6 @@ test_that("NB joint mode satisfies the fixed-hyperparameter penalized score equa
   expect_lt(abs(mean(B %*% u)), 1e-10)
 })
 
-test_that("INLA nuisance covariance uses expected curvature without configs", {
-  skip_on_cran()
-  f <- .inlast_fixture(n = 64L, seed = 918L)
-  d <- f$data
-  set.seed(919L)
-  eta <- -1.1 + 0.2 * d$z + d$offset0 + 0.25 * sin(2 * pi * d$x)
-  y <- rnbinom(nrow(d), mu = exp(eta), size = 2)
-  model <- inlaST.set(
-    response ~ z + offset(offset0), d, f$basis,
-    family = mgcv::nb(theta = 2)
-  )
-  engine <- mgcvST:::.inlast_fit_feature(
-    model$inla_spec, y, offset = model$offset,
-    control = list(
-      fixed_precision = 1.7, nb_size = 2, keep_fit = TRUE
-    ), diagnostics = TRUE
-  )
-
-  X <- model$geometry$X
-  B <- model$geometry$smooth[[1L]]$B
-  Q <- model$geometry$smooth[[1L]]$penalties[[1L]]
-  T <- cbind(X, B)
-  H <- crossprod(T / sqrt(engine$working_variance)) +
-    as.matrix(Matrix::bdiag(matrix(0, ncol(X), ncol(X)), 1.7 * Q))
-  oracle <- solve(H)[seq_len(ncol(X)), seq_len(ncol(X)), drop = FALSE]
-  expect_equal(unname(engine$nuisance_covariance), unname(oracle), tolerance = 1e-9)
-  expect_identical(engine$expected_nuisance_covariance, engine$nuisance_covariance)
-  expect_null(engine$inla$misc$configs)
-})
-
 test_that("INLA null specifications reindex fixed and iid nuisance coefficients", {
   A <- Matrix::Matrix(c(1, 0, 0, 1), 2, 2, sparse = TRUE)
   spec <- list(

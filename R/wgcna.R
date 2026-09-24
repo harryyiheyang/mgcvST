@@ -137,10 +137,6 @@
         fit$working_error[, i]
       )
       widths <- stats::setNames(ncol(F), "global")
-    } else if (identical(fit$score_backend, "sparse")) {
-      state <- .mgcvst_model_sparse_score_state(fit, i, score_only = TRUE)
-      a <- state$a
-      widths <- state$width
     } else {
       z <- .mgcvst_model_operator(fit, i)
       target <- z$target
