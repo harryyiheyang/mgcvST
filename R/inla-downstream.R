@@ -11,8 +11,9 @@
 #' @param pairwise_method `"score_liu"` tests the squared cross-gene score with Liu
 #'   moment matching. `"conditional_cauchy"` evaluates the two
 #'   conditional-normal directions and combines their p-values by the
-#'   equal-weight Cauchy rule; see Details. With `pairs = NULL`, the
-#'   conditional method tests every available gene pair.
+#'   equal-weight Cauchy rule; see Details. With `pairs = NULL`, both the
+#'   conditional method and `score_liu` with `liu_approximation = "exact"`
+#'   test every available gene pair.
 #' @param liu_approximation Trace evaluation for `pairwise_method = "score_liu"`.
 #'   `"exact"` computes the four Liu trace moments in the reduced
 #'   observation-kernel coordinates. `"pca_learning"` projects every score
@@ -88,7 +89,13 @@
 #'   is applied to the log p-values, so tails below the floating-point range
 #'   keep their ordering and decisions. `highlight` is unavailable for this
 #'   method.
-#' @return An `mgcvST_test` object.
+#' @return With `pairwise_method = "score_liu"` and `liu_approximation =
+#'   "exact"` (the default), a compact list with integer `i`, `j` and double
+#'   `score`, `mlog10p` pairs (materialized in `$result` for an explicit
+#'   `pairs` block, or as Parquet `$shards` with `pairs = NULL` or a
+#'   checkpointed explicit block), plus `$feature_id`, `$failed` (genes whose
+#'   fp16 state could not be built) and `$bh` (BH results); see
+#'   `.mgcvst_inla_fp16_run()`. Otherwise, an `mgcvST_test` object.
 #' @export
 inlaST.test <- function(
     fitinlaST,
@@ -104,19 +111,18 @@ inlaST.test <- function(
   pairwise_method <- match.arg(pairwise_method)
   liu_approximation <- match.arg(liu_approximation)
   conditional_precision <- match.arg(conditional_precision)
-  if (pairwise_method == "score_liu" && liu_approximation == "exact" &&
-      is.null(pairs)) {
+  if (pairwise_method == "score_liu" && liu_approximation == "exact") {
     if (!is.null(highlight)) {
-      stop("highlight is unavailable when pairs = NULL streams every gene pair; ",
-           "use inlaST.fp16Liu() directly and filter its Parquet shards.")
+      stop("highlight is unavailable for the compact fp16 score_liu result; ",
+           "filter its i/j columns (or Parquet shards) directly.")
     }
     if (!identical(calibration, "liu")) {
-      stop("Streaming score_liu pairs use calibration = 'liu' only.")
+      stop("The exact fp16 score_liu path uses calibration = 'liu' only.")
     }
-    if (length(list(...))) stop("Unused arguments in ... for streaming score_liu pairs.")
+    if (length(list(...))) stop("Unused arguments in ... for score_liu pairs.")
     .mgcvst_inla_serial_backend(BPPARAM)
-    return(inlaST.fp16Liu(
-      fitinlaST, checkpoint_dir = checkpoint_dir, resume = resume,
+    return(.mgcvst_inla_fp16_run(
+      fitinlaST, pairs = pairs, checkpoint_dir = checkpoint_dir, resume = resume,
       threads = if (is.null(threads)) 1L else threads,
       chunk_size = if (is.null(chunk_size)) 4000000L else chunk_size,
       verbose = verbose, q.value = q.value, FDR = FDR, method = method
@@ -142,16 +148,9 @@ inlaST.test <- function(
   if (!identical(conditional_precision, "double")) {
     stop("conditional_precision requires pairwise_method = 'conditional_cauchy'.")
   }
+  # Only liu_approximation = "pca_learning" reaches this point; "exact" is
+  # handled above for both pairs = NULL and an explicit pair block.
   engine <- .mgcvst_test_engine(fitinlaST)
-  if (liu_approximation == "exact") {
-    return(engine(
-      fitmgcvST = fitinlaST, q.value = q.value, FDR = FDR, method = method,
-      BPPARAM = BPPARAM, ..., pairs = pairs, highlight = highlight,
-      calibration = calibration, chunk_size = chunk_size,
-      threads = threads, verbose = verbose,
-      checkpoint_dir = checkpoint_dir, resume = resume
-    ))
-  }
   if (!.mgcvst_inla_downstream(fitinlaST)) {
     stop("liu_approximation = 'pca_learning' requires a sparse INLA fit.")
   }

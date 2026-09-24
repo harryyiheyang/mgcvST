@@ -33,8 +33,9 @@ inlaST.test(
 \item{pairwise_method}{\code{"score_liu"} tests the squared cross-gene score with Liu
 moment matching. \code{"conditional_cauchy"} evaluates the two
 conditional-normal directions and combines their p-values by the
-equal-weight Cauchy rule; see Details. With \code{pairs = NULL}, the
-conditional method tests every available gene pair.}
+equal-weight Cauchy rule; see Details. With \code{pairs = NULL}, both the
+conditional method and \code{score_liu} with \code{liu_approximation = "exact"}
+test every available gene pair.}
 
 \item{liu_approximation}{Trace evaluation for \code{pairwise_method = "score_liu"}.
 \code{"exact"} computes the four Liu trace moments in the reduced
@@ -91,7 +92,12 @@ preparation, reduced materialization and pair batches. \code{NULL} uses one thre
 are rejected.}
 }
 \value{
-An \code{mgcvST_test} object.
+With \code{pairwise_method = "score_liu"} and \code{liu_approximation = "exact"} (the default), a compact list with integer \code{i}, \code{j} and double
+\code{score}, \code{mlog10p} pairs (materialized in \verb{$result} for an explicit
+\code{pairs} block, or as Parquet \verb{$shards} with \code{pairs = NULL} or a
+checkpointed explicit block), plus \verb{$feature_id}, \verb{$failed} (genes whose
+fp16 state could not be built) and \verb{$bh} (BH results); see
+\code{.mgcvst_inla_fp16_run()}. Otherwise, an \code{mgcvST_test} object.
 }
 \description{
 Pairwise covariance test for fits returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}. The

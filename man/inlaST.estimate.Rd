@@ -14,7 +14,6 @@ inlaST.estimate(
   control = list(),
   retain_smooth = FALSE,
   diagnostics = FALSE,
-  retain_marginal = FALSE,
   threads = 1L
 )
 }
@@ -74,11 +73,8 @@ The per-feature
 
 \item{retain_smooth}{Retain estimated score-component coefficients.}
 
-\item{diagnostics}{Retain an additional reference to the expected-Fisher
-nuisance covariance in \code{expected_nuisance_covariance}. This covariance
-is always reconstructed for \code{nuisance_covariance}; no extra solve is needed.}
-
-\item{retain_marginal}{Retain the frozen state needed by \code{\link[=mgcvST.marginal]{mgcvST.marginal()}}.}
+\item{diagnostics}{Retain the per-feature INLA optimizer/hyperparameter
+diagnostics in \code{inla_diagnostics}.}
 
 \item{threads}{OpenMP threads for sparse downstream marginal construction.}
 }

@@ -1,8 +1,10 @@
 # Exact score_liu for the sparse INLA backend, backed by the fp16 pair kernel
 # (src/inla_fp16.cpp). Per-gene reduced curvature is built once in double and
 # packed to fp16; pairs are scored by fp32 GEMM with double traces and Liu
-# tail. With pairs = NULL, gene pairs are generated and scored in left-gene
-# blocks and never materialized as one pair matrix or character data frame.
+# tail. Both an explicit (normalized, bounds-checked) pair block and the full
+# gene-pair universe (pairs = NULL, generated and scored in left-gene blocks,
+# never materialized as one pair matrix or character data frame) share the
+# same compact result columns: integer i, j; double score, mlog10p.
 
 # Signature covering everything that determines the fp16 gene states of `used`.
 .mgcvst_inla_fp16_signature <- function(fit, used, basis) {
@@ -120,74 +122,73 @@
   )
 }
 
-# Error text for pairs touching a gene whose fp16 state failed to build.
-.mgcvst_inla_fp16_pair_error <- function(feature_id1, feature_id2, failed) {
-  m1 <- match(feature_id1, failed$feature_id)
-  m2 <- match(feature_id2, failed$feature_id)
-  msg1 <- ifelse(!is.na(m1), paste0(feature_id1, ": ", failed$error[m1]), NA_character_)
-  msg2 <- ifelse(!is.na(m2), paste0(feature_id2, ": ", failed$error[m2]), NA_character_)
-  ifelse(!is.na(msg1) & !is.na(msg2), paste(msg1, msg2, sep = " | "),
-        ifelse(!is.na(msg1), msg1, msg2))
+# Normalize an explicit `pairs` argument (feature IDs or 1-based indices) into
+# a deduplicated, bounds-checked block of global feature-index pairs with
+# i < j.
+.mgcvst_inla_fp16_normalize_pairs <- function(fit, pairs) {
+  index <- .mgcvst_pair_index(pairs, fit$feature_id)
+  lo <- pmin(index[, 1L], index[, 2L])
+  hi <- pmax(index[, 1L], index[, 2L])
+  unique(cbind(i = lo, j = hi))
 }
 
-# Exact fp16 Liu pairs for an explicit `index` (two-column feature indices),
-# in the .mgcvst_pair_pipeline() result contract: information and
-# effective_rank are not computed on this path.
-.mgcvst_inla_fp16_pairs_explicit <- function(fit, state, index, pair_index, threads) {
-  local <- matrix(match(index, state$used), ncol = 2L)
-  lo <- pmin(local[, 1L], local[, 2L])
-  hi <- pmax(local[, 1L], local[, 2L])
-  ord <- order(lo)
+# Exact fp16 Liu score/mlog10p for a deduplicated explicit block of global
+# feature-index pairs (`pairs_u`, columns i < j), scored against the fp16
+# gene states of `state`; failed genes carry through as NA mlog10p, exactly
+# as in the streaming path.
+.mgcvst_inla_fp16_pairs_result <- function(state, pairs_u, threads) {
+  local <- cbind(match(pairs_u[, "i"], state$used), match(pairs_u[, "j"], state$used))
+  ord <- order(local[, 1L])
   out <- mgcvst_fp16_pairs_cpp(state$cache, state$used, 1L, state$n,
-                               left = lo[ord], right = hi[ord], threads = threads)
-  n <- nrow(index)
-  score <- numeric(n)
-  mlog10p <- numeric(n)
+                               left = local[ord, 1L], right = local[ord, 2L],
+                               threads = threads)
+  score <- numeric(nrow(pairs_u))
+  mlog10p <- numeric(nrow(pairs_u))
   score[ord] <- out$score
   mlog10p[ord] <- out$mlog10p
-  error_message <- rep(NA_character_, n)
-  bad <- is.na(mlog10p)
-  if (any(bad)) {
-    msg <- .mgcvst_inla_fp16_pair_error(
-      fit$feature_id[index[bad, 1L]], fit$feature_id[index[bad, 2L]], state$failed
-    )
-    error_message[bad] <- ifelse(!is.na(msg), msg,
-      "The fp16 Liu pair calibration is unavailable for this pair.")
-  }
-  data.frame(
-    pair_index = pair_index, score = score, information = NA_real_,
-    effective_rank = NA_real_, p_value = 10^(-mlog10p),
-    error_message = error_message, stringsAsFactors = FALSE
-  )
+  data.frame(i = pairs_u[, "i"], j = pairs_u[, "j"], score = score,
+             mlog10p = mlog10p)
 }
 
-# Entry point used by .mgcvst_inla_test_pairs() for liu_approximation = "exact"
-# with an explicit pair list; gene states are built once and released here.
-.mgcvst_inla_fp16_test_explicit <- function(fit, index, pair_index, threads,
-                                            verbose, basis, checkpoint_dir, resume) {
-  used <- sort(unique(as.vector(index)))
-  t0 <- proc.time()[["elapsed"]]
-  state <- .mgcvst_inla_fp16_states(fit, used, basis, threads, checkpoint_dir,
-                                    resume, verbose)
-  on.exit(state$release(), add = TRUE)
-  preparation_elapsed <- proc.time()[["elapsed"]] - t0
-  t1 <- proc.time()[["elapsed"]]
-  result <- .mgcvst_inla_fp16_pairs_explicit(fit, state, index, pair_index, threads)
-  elapsed <- proc.time()[["elapsed"]] - t1
-  list(
-    result = result, elapsed = elapsed,
-    metadata = list(
-      path = if (state$temporary) NULL else state$root,
-      builds = state$built, resume_count = state$resumed,
-      resumed_pairs = 0L, pair_path = NULL,
-      preparation_backend = "fp16_sparse_openmp",
-      pair_schedule = "fp16_explicit_pairs",
-      chunks = 1L, cache_hits = NA_integer_, cache_misses = NA_integer_,
-      cache_evictions = NA_integer_, cache_bytes = state$bytes,
-      resident_bytes = state$bytes, preparation_elapsed = preparation_elapsed,
-      signature = NULL, storage = "fp16"
-    )
-  )
+# Read or write the one parquet shard caching an explicit pair block, in the
+# same shard format as .mgcvst_inla_fp16_stream(); only used when a
+# checkpoint_dir is supplied for explicit pairs (there is no parquet or
+# streaming requirement otherwise).
+.mgcvst_inla_fp16_explicit_shard <- function(state, pairs_u, threads, resume, verbose) {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Checkpointing explicit score_liu pairs requires the arrow package.")
+  }
+  pairs_dir <- file.path(state$root, "pairs")
+  if (!dir.exists(pairs_dir) && !dir.create(pairs_dir, recursive = TRUE)) {
+    stop("Could not create the fp16 pair checkpoint directory.")
+  }
+  manifest_path <- file.path(pairs_dir, "manifest.rds")
+  manifest <- list(version = 1L, explicit = TRUE,
+                   signature = digest::digest(pairs_u, algo = "sha256"))
+  shard <- file.path(pairs_dir, "pairs-explicit.parquet")
+  if (file.exists(manifest_path)) {
+    if (!identical(readRDS(manifest_path), manifest)) {
+      stop("The fp16 pair checkpoint in ", pairs_dir, " was written for a ",
+           "different explicit pair block; use a new checkpoint_dir.")
+    }
+    if (resume && file.exists(shard)) {
+      if (verbose) message("Reusing the checkpointed explicit pair shard.")
+      return(list(result = as.data.frame(arrow::read_parquet(shard)), shard = shard))
+    }
+  } else {
+    tmp <- tempfile("pairs-manifest-", tmpdir = pairs_dir, fileext = ".tmp")
+    saveRDS(manifest, tmp, compress = FALSE)
+    if (!file.rename(tmp, manifest_path)) {
+      stop("Could not commit the fp16 pair checkpoint manifest.")
+    }
+  }
+  result <- .mgcvst_inla_fp16_pairs_result(state, pairs_u, threads)
+  tmp <- tempfile("pairs-", tmpdir = pairs_dir, fileext = ".parquet.tmp")
+  arrow::write_parquet(result, tmp)
+  if (!file.rename(tmp, shard)) {
+    stop("Could not commit the fp16 pair shard ", basename(shard), ".")
+  }
+  list(result = result, shard = shard)
 }
 
 # Deterministic left-gene block boundaries so that resumed runs regenerate the
@@ -223,10 +224,41 @@
   out
 }
 
-# BH (or another stats::p.adjust method) over every tested pair, read back
-# from the pair shards; only numeric columns are ever materialized. Skipped
-# when the mlog10p/i/j columns would not comfortably fit in available memory.
-.mgcvst_inla_fp16_bh <- function(shard_paths, total_pairs, q.value, FDR, method) {
+# BH (or another stats::p.adjust method) adjustment of mlog10p already held in
+# memory; shared by the explicit (in-memory) and streamed (shard-backed) BH
+# helpers below.
+.mgcvst_inla_fp16_bh_adjust <- function(mlog10p, q.value, method) {
+  valid <- is.finite(mlog10p)
+  adjusted <- rep(NA_real_, length(mlog10p))
+  discovered <- rep(FALSE, length(mlog10p))
+  if (any(valid)) {
+    adjusted[valid] <- if (identical(method, "BH")) {
+      .mgcvst_bh_mlog10p(mlog10p[valid])
+    } else {
+      -log10(stats::p.adjust(10^(-mlog10p[valid]), method))
+    }
+    discovered[valid] <- adjusted[valid] >= -log10(q.value)
+  }
+  list(adjusted_mlog10p = adjusted, discovered = discovered)
+}
+
+# BH results for an explicit pair block already materialized in memory.
+.mgcvst_inla_fp16_bh_from_vectors <- function(i, j, mlog10p, total_pairs,
+                                              q.value, FDR, method) {
+  if (!FDR || !total_pairs) {
+    return(list(computed = FALSE,
+               reason = if (!FDR) "FDR = FALSE" else "no tested pairs"))
+  }
+  adj <- .mgcvst_inla_fp16_bh_adjust(mlog10p, q.value, method)
+  list(computed = TRUE, i = i, j = j, mlog10p = mlog10p,
+       adjusted_mlog10p = adj$adjusted_mlog10p, discovered = adj$discovered)
+}
+
+# BH results over every tested pair, read back from the pair shards; only
+# numeric columns are ever materialized. Skipped when the mlog10p/i/j columns
+# would not comfortably fit in available memory.
+.mgcvst_inla_fp16_bh_from_shards <- function(shard_paths, total_pairs, q.value,
+                                             FDR, method) {
   if (!FDR || !total_pairs) {
     return(list(computed = FALSE,
                reason = if (!FDR) "FDR = FALSE" else "no tested pairs"))
@@ -249,19 +281,9 @@
     mlog10p[rows] <- z$mlog10p
     at <- at + k
   }
-  valid <- is.finite(mlog10p)
-  adjusted <- rep(NA_real_, total_pairs)
-  discovered <- rep(FALSE, total_pairs)
-  if (any(valid)) {
-    adjusted[valid] <- if (identical(method, "BH")) {
-      .mgcvst_bh_mlog10p(mlog10p[valid])
-    } else {
-      -log10(stats::p.adjust(10^(-mlog10p[valid]), method))
-    }
-    discovered[valid] <- adjusted[valid] >= -log10(q.value)
-  }
+  adj <- .mgcvst_inla_fp16_bh_adjust(mlog10p, q.value, method)
   list(computed = TRUE, i = i, j = j, mlog10p = mlog10p,
-       adjusted_mlog10p = adjusted, discovered = discovered)
+       adjusted_mlog10p = adj$adjusted_mlog10p, discovered = adj$discovered)
 }
 
 # Streaming exact fp16 Liu pairs over every pair of `state$used`: each
@@ -322,40 +344,27 @@
        blocks = length(blocks), pairs_dir = pairs_dir)
 }
 
-#' Streaming exact fp16 score_liu pairs for a sparse INLA fit
-#'
-#' Every gene pair among the available genes of `fit` is tested with the exact
-#' Liu calibration, using the fp16 pair kernel of [inlaST.test()]. Unlike
-#' [inlaST.test()] with an explicit `pairs` argument, gene pairs are generated
-#' and scored in left-gene blocks and are never assembled as one pair matrix
-#' or per-pair character table; each block is written as one Parquet shard
-#' (integer `i`, `j`; double `score`, `mlog10p = -log10(p)`).
-#'
-#' @param fit An object returned by [inlaST.estimate()].
-#' @param checkpoint_dir Directory for fp16 gene-state and pair shards.
-#'   `NULL` uses a temporary directory removed on exit.
-#' @param resume Reuse compatible completed gene-state and pair shards.
-#' @param threads OpenMP threads for building gene states and scoring pairs.
-#' @param chunk_size Approximate number of pairs per Parquet shard; block
-#'   boundaries are a deterministic function of `chunk_size` and the number of
-#'   available genes, so resumed runs regenerate the same shard schedule.
-#' @param verbose Report progress.
-#' @param q.value,FDR,method BH adjustment (or another
-#'   `stats::p.adjust.methods` entry) of `mlog10p` over every tested pair,
-#'   read back from the pair shards; skipped when that would not comfortably
-#'   fit in available memory (see `$bh$reason`).
-#' @return A list: `shards` (Parquet shard paths, `i`/`j`/`score`/`mlog10p`),
-#'   `feature_id` (the fit's full feature-identifier lookup vector; shard `i`
-#'   and `j` are indices into it directly), `failed` (a `feature_id`/`error`
-#'   table of genes whose fp16 state could not be built; pairs touching them
-#'   have `mlog10p = NA` and the run continues), `bh` (BH results, or
-#'   `$computed = FALSE` and `$reason`), `n_genes`, `total_pairs`, and timing.
-#' @export
-inlaST.fp16Liu <- function(fit, checkpoint_dir = NULL, resume = TRUE,
-                           threads = 1L, chunk_size = 4000000L, verbose = FALSE,
-                           q.value = 0.05, FDR = TRUE, method = "BH") {
+# Exact fp16 score_liu pairs for a sparse INLA fit, in the compact result
+# format shared by `pairs = NULL` (every gene pair, streamed to Parquet
+# shards) and an explicit pair block (materialized in memory, and also
+# checkpointed to one Parquet shard when `checkpoint_dir` is supplied). Called
+# by inlaST.test() and by mgcvST.test()'s dispatch on INLA fits; internal.
+#
+# Returns a list: `result` (a data frame with integer `i`, `j` and double
+# `score`, `mlog10p`; only set for an explicit pair block), `shards` (Parquet
+# shard paths with the same four columns; only set when pairs were streamed
+# or an explicit block was checkpointed), `feature_id` (the fit's full
+# feature-identifier lookup vector; `i`/`j` are indices into it directly),
+# `failed` (a `feature_id`/`error` table of genes whose fp16 state could not
+# be built; pairs touching them have `mlog10p = NA` and the run continues),
+# `bh` (BH results, or `$computed = FALSE` and `$reason`), `n_genes`,
+# `total_pairs`, `checkpoint_dir`, and timing.
+.mgcvst_inla_fp16_run <- function(fit, pairs = NULL, checkpoint_dir = NULL,
+                                  resume = TRUE, threads = 1L,
+                                  chunk_size = 4000000L, verbose = FALSE,
+                                  q.value = 0.05, FDR = TRUE, method = "BH") {
   if (!inherits(fit, "mgcvST_model_fit") || !identical(fit$estimator, "INLA")) {
-    stop("inlaST.fp16Liu() requires a fit from inlaST.estimate().")
+    stop("The exact fp16 score_liu path requires a fit from inlaST.estimate().")
   }
   .mgcvst_inla_require_sparse(fit)
   if (!is.numeric(threads) || length(threads) != 1L || !is.finite(threads) ||
@@ -390,8 +399,15 @@ inlaST.fp16Liu <- function(fit, checkpoint_dir = NULL, resume = TRUE,
 
   fit <- .inlast_sparse_prepare(fit)
   basis <- .inlast_sparse_observation_basis(fit, coverage = 0.995)
-  used <- which(.mgcvst_feature_available(fit))
-  if (length(used) < 2L) stop("At least two available INLA genes are required.")
+  explicit <- !is.null(pairs)
+  pairs_u <- NULL
+  if (explicit) {
+    pairs_u <- .mgcvst_inla_fp16_normalize_pairs(fit, pairs)
+    used <- sort(unique(c(pairs_u[, "i"], pairs_u[, "j"])))
+  } else {
+    used <- which(.mgcvst_feature_available(fit))
+    if (length(used) < 2L) stop("At least two available INLA genes are required.")
+  }
 
   t0 <- proc.time()[["elapsed"]]
   state <- .mgcvst_inla_fp16_states(fit, used, basis, threads, checkpoint_dir,
@@ -400,14 +416,36 @@ inlaST.fp16Liu <- function(fit, checkpoint_dir = NULL, resume = TRUE,
   state_elapsed <- proc.time()[["elapsed"]] - t0
 
   t1 <- proc.time()[["elapsed"]]
-  stream <- .mgcvst_inla_fp16_stream(state, threads, chunk_size, verbose)
-  pair_elapsed <- proc.time()[["elapsed"]] - t1
-
-  bh <- .mgcvst_inla_fp16_bh(stream$shard_paths, stream$total_pairs, q.value, FDR, method)
+  result <- NULL
+  shards <- NULL
+  pair_blocks <- pair_blocks_built <- pair_blocks_resumed <- resumed_pairs <- NULL
+  if (explicit) {
+    if (is.null(checkpoint_dir)) {
+      result <- .mgcvst_inla_fp16_pairs_result(state, pairs_u, threads)
+    } else {
+      shard <- .mgcvst_inla_fp16_explicit_shard(state, pairs_u, threads, resume, verbose)
+      result <- shard$result
+      shards <- shard$shard
+    }
+    total_pairs <- nrow(result)
+    pair_elapsed <- proc.time()[["elapsed"]] - t1
+    bh <- .mgcvst_inla_fp16_bh_from_vectors(result$i, result$j, result$mlog10p,
+                                            total_pairs, q.value, FDR, method)
+  } else {
+    stream <- .mgcvst_inla_fp16_stream(state, threads, chunk_size, verbose)
+    shards <- stream$shard_paths
+    total_pairs <- stream$total_pairs
+    pair_elapsed <- proc.time()[["elapsed"]] - t1
+    bh <- .mgcvst_inla_fp16_bh_from_shards(shards, total_pairs, q.value, FDR, method)
+    pair_blocks <- stream$blocks
+    pair_blocks_built <- stream$built_blocks
+    pair_blocks_resumed <- stream$blocks - stream$built_blocks
+    resumed_pairs <- stream$resumed_pairs
+  }
 
   list(
-    shards = stream$shard_paths, feature_id = fit$feature_id,
-    n_genes = length(used), total_pairs = stream$total_pairs,
+    result = result, shards = shards, feature_id = fit$feature_id,
+    n_genes = length(used), total_pairs = total_pairs,
     failed = state$failed, bh = bh,
     threshold = list(q_value = q.value, FDR = FDR,
                      adjustment_method = if (FDR) method else "none"),
@@ -416,9 +454,8 @@ inlaST.fp16Liu <- function(fit, checkpoint_dir = NULL, resume = TRUE,
       gene_states_elapsed = state_elapsed, pair_elapsed = pair_elapsed,
       elapsed = proc.time()[["elapsed"]] - t0, threads = threads,
       gene_states_built = state$built, gene_states_resumed = state$resumed,
-      pair_blocks = stream$blocks, pair_blocks_built = stream$built_blocks,
-      pair_blocks_resumed = stream$blocks - stream$built_blocks,
-      resumed_pairs = stream$resumed_pairs
+      pair_blocks = pair_blocks, pair_blocks_built = pair_blocks_built,
+      pair_blocks_resumed = pair_blocks_resumed, resumed_pairs = resumed_pairs
     ),
     call = match.call()
   )

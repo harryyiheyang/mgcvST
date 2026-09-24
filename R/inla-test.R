@@ -30,28 +30,24 @@
   invisible(NULL)
 }
 
+## Only liu_approximation = "pca_learning" reaches this function; the exact
+## fp16 path is served directly by .mgcvst_inla_fp16_run() and never builds
+## this legacy pair result shape.
 .mgcvst_inla_test_pairs <- function(fit, index, pair_index, threads,
                                     chunk_size, verbose, coverage = 0.995,
                                     full_rank = FALSE, basis = NULL,
                                     cache_bytes = NULL, checkpoint_dir = NULL,
-                                    resume = TRUE, liu_approximation = "exact",
+                                    resume = TRUE, liu_approximation = "pca_learning",
                                     rank = 10L, n_per_cell = 3L, seed = 1L) {
   fit <- .inlast_sparse_prepare(fit)
   if (is.null(basis)) basis <- .inlast_sparse_observation_basis(
     fit, coverage = coverage, full_rank = full_rank
   )
-  evaluated <- if (liu_approximation == "pca_learning") {
-    .mgcvst_pair_pcalearning(
-      fit, index, pair_index, threads, chunk_size, verbose, basis = basis,
-      rank = rank, n_per_cell = n_per_cell, seed = seed,
-      checkpoint_dir = checkpoint_dir, resume = resume
-    )
-  } else {
-    .mgcvst_inla_fp16_test_explicit(
-      fit, index, pair_index, threads, verbose, basis = basis,
-      checkpoint_dir = checkpoint_dir, resume = resume
-    )
-  }
+  evaluated <- .mgcvst_pair_pcalearning(
+    fit, index, pair_index, threads, chunk_size, verbose, basis = basis,
+    rank = rank, n_per_cell = n_per_cell, seed = seed,
+    checkpoint_dir = checkpoint_dir, resume = resume
+  )
   out <- evaluated$result
   names(out)[names(out) == "score"] <- "signed_score"
   names(out)[names(out) == "p_value"] <- "p_two_sided"

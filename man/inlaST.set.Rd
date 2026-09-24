@@ -99,3 +99,4 @@ their interactions all enter the nuisance design as fixed effects. A second
 spatial (\code{bs = "spde"}) term is rejected, and the total nuisance design is
 capped at 1000 columns.
 }
+
