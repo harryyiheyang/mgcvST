@@ -19,6 +19,7 @@ LazyData: true
 Roxygen: list(markdown = TRUE)
 Depends: R (>= 4.2.0)
 Imports:
+    arrow,
     BiocParallel,
     CompQuadForm,
     CppMatrix (>= 0.1.0),

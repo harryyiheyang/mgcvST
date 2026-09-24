@@ -47,9 +47,9 @@
       checkpoint_dir = checkpoint_dir, resume = resume
     )
   } else {
-    .mgcvst_pair_pipeline(
-      fit, index, pair_index, threads, chunk_size, verbose, basis = basis,
-      cache_bytes = cache_bytes, checkpoint_dir = checkpoint_dir, resume = resume
+    .mgcvst_inla_fp16_test_explicit(
+      fit, index, pair_index, threads, verbose, basis = basis,
+      checkpoint_dir = checkpoint_dir, resume = resume
     )
   }
   out <- evaluated$result

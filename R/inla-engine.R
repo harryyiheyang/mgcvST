@@ -517,53 +517,6 @@
   list(fixed = fixed, random = random)
 }
 
-.inlast_expected_covariance <- function(X, random, tau, working_variance,
-                                        constraints, nuisance_index) {
-  p_fixed <- ncol(X)
-  designs <- c(list(Matrix::Matrix(X, sparse = TRUE)),
-               lapply(random, `[[`, "A"))
-  design <- do.call(cbind, designs)
-  inv_var <- 1 / as.numeric(working_variance)
-  weighted <- design * sqrt(inv_var)
-  penalties <- c(
-    list(Matrix::Diagonal(p_fixed, 0)),
-    lapply(seq_along(random), function(j) tau[j] * random[[j]]$Q)
-  )
-  H <- Matrix::forceSymmetric(Matrix::crossprod(weighted) +
-                              Matrix::bdiag(penalties))
-  starts <- p_fixed + c(0L, cumsum(vapply(random, function(z) ncol(z$A),
-                                          integer(1L))))
-  active <- which(vapply(constraints, Negate(is.null), logical(1L)))
-  C <- Matrix::Matrix(0, nrow = length(active), ncol = ncol(design), sparse = TRUE)
-  if (length(active)) {
-    for (k in seq_along(active)) {
-      j <- active[k]
-      cols <- starts[j] + seq_len(ncol(random[[j]]$A))
-      C[k, cols] <- constraints[[j]]
-    }
-  }
-  nuisance_index <- as.integer(nuisance_index)
-  if (!length(nuisance_index)) return(matrix(numeric(), 0L, 0L))
-  if (anyNA(nuisance_index) || any(nuisance_index < 1L) ||
-      any(nuisance_index > ncol(design)) || anyDuplicated(nuisance_index)) {
-    stop("spec$nuisance_index is invalid for the combined coefficient vector.")
-  }
-  rhs <- Matrix::sparseMatrix(
-    i = nuisance_index, j = seq_along(nuisance_index), x = 1,
-    dims = c(ncol(design), length(nuisance_index))
-  )
-  if (length(active)) rhs <- cbind(rhs, Matrix::t(C))
-  solved <- Matrix::solve(H, rhs)
-  Vn <- solved[, seq_along(nuisance_index), drop = FALSE]
-  if (length(active)) {
-    HC <- solved[, length(nuisance_index) + seq_len(nrow(C)), drop = FALSE]
-    middle <- as.matrix(C %*% HC)
-    Vn <- Vn - HC %*% solve(middle, as.matrix(C %*% Vn))
-  }
-  V <- as.matrix(Vn[nuisance_index, , drop = FALSE])
-  (V + t(V)) / 2
-}
-
 # Fit one response using fixed-kappa generic0 SPDE blocks.  A generic0 precision
 # is tau * Q.  Consequently the mgcv smoothing parameter on the package's
 # working scale is lambda = phi * tau (phi is one for negative binomial).
@@ -831,21 +784,6 @@
   })
   names(coefficients) <- names(random_mode)[target]
 
-  nuisance_index <- spec$nuisance_index
-  if (is.null(nuisance_index)) nuisance_index <- seq_len(ncol(z$X))
-  nuisance_covariance <- .inlast_expected_covariance(
-    z$X, z$random, tau, working_variance, z$constraints, nuisance_index
-  )
-  expected_nuisance_covariance <- if (diagnostics) {
-    nuisance_covariance
-  } else NULL
-  if (!is.null(spec$nuisance_design)) {
-    nuisance_design <- as.matrix(spec$nuisance_design)
-    if (nrow(nuisance_design) != length(y) ||
-        ncol(nuisance_design) != nrow(nuisance_covariance)) {
-      stop("spec$nuisance_design is incompatible with spec$nuisance_index.")
-    }
-  }
   constraint_residual <- vapply(seq_along(z$random), function(j) {
     if (is.null(z$constraints[[j]])) return(NA_real_)
     sum(z$constraints[[j]] * random_mode[[j]])
@@ -912,8 +850,6 @@
     lambda = lambda,
     smoothing_parameters = smoothing_parameters,
     coefficients = coefficients,
-    nuisance_covariance = nuisance_covariance,
-    expected_nuisance_covariance = expected_nuisance_covariance,
     fixed_mode = beta,
     fixed_mean = beta,
     random_mode = random_mode,

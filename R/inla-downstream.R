@@ -104,6 +104,24 @@ inlaST.test <- function(
   pairwise_method <- match.arg(pairwise_method)
   liu_approximation <- match.arg(liu_approximation)
   conditional_precision <- match.arg(conditional_precision)
+  if (pairwise_method == "score_liu" && liu_approximation == "exact" &&
+      is.null(pairs)) {
+    if (!is.null(highlight)) {
+      stop("highlight is unavailable when pairs = NULL streams every gene pair; ",
+           "use inlaST.fp16Liu() directly and filter its Parquet shards.")
+    }
+    if (!identical(calibration, "liu")) {
+      stop("Streaming score_liu pairs use calibration = 'liu' only.")
+    }
+    if (length(list(...))) stop("Unused arguments in ... for streaming score_liu pairs.")
+    .mgcvst_inla_serial_backend(BPPARAM)
+    return(inlaST.fp16Liu(
+      fitinlaST, checkpoint_dir = checkpoint_dir, resume = resume,
+      threads = if (is.null(threads)) 1L else threads,
+      chunk_size = if (is.null(chunk_size)) 4000000L else chunk_size,
+      verbose = verbose, q.value = q.value, FDR = FDR, method = method
+    ))
+  }
   if (pairwise_method == "conditional_cauchy") {
     if (liu_approximation != "exact") {
       stop("liu_approximation requires pairwise_method = 'score_liu'.")

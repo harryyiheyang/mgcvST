@@ -64,40 +64,8 @@
 }
 
 # Build one bounded feature batch with the existing full-precision score kernels.
-.mgcvst_pair_build_batch <- function(fit, ids, threads, basis, mode, native = NULL,
-                                     T0 = NULL, field_scale = NULL,
-                                     sparse_units = NULL) {
-  if (identical(mode, "sparse")) {
-    if (is.null(sparse_units)) {
-      units <- .inlast_sparse_units(fit, ids, threads = threads)
-    } else {
-      expected_ids <- unname(fit$feature_id[ids])
-      if (!is.list(sparse_units) || length(sparse_units) != length(ids) ||
-          is.null(names(sparse_units)) ||
-          !identical(names(sparse_units), expected_ids)) {
-        stop("sparse_units must be named in the same order as fit$feature_id[ids].")
-      }
-      units <- sparse_units
-    }
-    good <- which(vapply(units, function(z) is.null(z$error), logical(1L)))
-    out <- lapply(units, function(z) if (is.null(z$error)) NULL else
-      list(error = z$error))
-    if (length(good)) {
-      materialized <- .inlast_sparse_materialize_reduced(
-        fit, units[good], basis, threads = threads
-      )
-      for (k in seq_along(good)) {
-        z <- materialized[[k]]
-        out[[good[k]]] <- if (is.null(z$error)) {
-          list(a = z$a, M = z$M, width = z$width)
-        } else list(error = z$error)
-      }
-    }
-    return(out)
-  }
-  if (!is.null(sparse_units)) {
-    stop("sparse_units can only be supplied when mode = 'sparse'.")
-  }
+.mgcvst_pair_build_batch <- function(fit, ids, threads, mode, native = NULL,
+                                     T0 = NULL, field_scale = NULL) {
   if (identical(mode, "model_native")) {
     phi <- fit$dispersion[ids]
     sp <- fit$smoothing_parameters[ids, , drop = FALSE]
@@ -136,7 +104,7 @@
 
 # Evaluate existing Liu calibration from resumable feature-first score states.
 .mgcvst_pair_pipeline <- function(fit, index, pair_index, threads, chunk_size,
-                                  verbose, basis = NULL, cache_bytes = NULL,
+                                  verbose, cache_bytes = NULL,
                                   checkpoint_dir = NULL, resume = TRUE,
                                   state_store = NULL) {
   if (!is.matrix(index) || ncol(index) != 2L || !nrow(index) ||
@@ -164,14 +132,12 @@
       cache_bytes < 0)) {
     stop("cache_bytes must be NULL or a non-negative byte count.")
   }
+  if (identical(fit$score_backend, "sparse")) {
+    stop("The sparse INLA exact score_liu path no longer uses ",
+         ".mgcvst_pair_pipeline(); it is served by the fp16 pipeline.")
+  }
   used <- sort(unique(as.vector(index)))
-  sparse <- identical(fit$score_backend, "sparse")
-  if (sparse) {
-    fit <- .inlast_sparse_prepare(fit)
-    if (is.null(basis)) basis <- .inlast_sparse_observation_basis(fit)
-    width <- basis$rank
-    mode <- "sparse"
-  } else if (identical(fit$test_engine, "spde")) {
+  if (identical(fit$test_engine, "spde")) {
     width <- ncol(fit$geometry$B)
     mode <- "legacy_native"
   } else {
@@ -183,7 +149,7 @@
   if (is.null(state_store)) {
     signature <- if (is.null(checkpoint_dir)) {
       list(version = 2L, temporary = tempfile("mgcvst-pair-run-"))
-    } else .mgcvst_pair_signature(fit, basis)
+    } else .mgcvst_pair_signature(fit)
     store <- .mgcvst_store_open(checkpoint_dir, signature, fit$feature_id,
                                 storage = "double", resume = resume)
     if (isTRUE(store$temporary)) on.exit(.mgcvst_store_cleanup(store), add = TRUE)
@@ -229,15 +195,12 @@
       native <- .mgcvst_model_dense_preparation(fit, missing)
       if (!is.null(native)) mode <- "model_native"
     }
-    q <- if (sparse) ncol(fit$score_sparse$Q) else width
-    p <- if (sparse) ncol(fit$geometry$nuisance_design) else if (!is.null(native))
-      ncol(native$X) else if (mode == "legacy_native") ncol(fit$geometry$X) else
-        ncol(fit$geometry$nuisance_design)
+    q <- width
+    p <- if (!is.null(native)) ncol(native$X) else if (mode == "legacy_native")
+      ncol(fit$geometry$X) else ncol(fit$geometry$nuisance_design)
     if (is.null(p)) p <- 0L
-    n <- if (sparse) nrow(fit$score_sparse$A) else nrow(fit$working_variance)
-    feature_work <- if (sparse) {
-      8 * (8 * q^2 + 4 * q * p + 4 * p^2 + 4 * n + 4 * width^2)
-    } else 8 * (8 * n * q + 4 * n * p + 8 * q^2 + 4 * q * p + 4 * p^2)
+    n <- nrow(fit$working_variance)
+    feature_work <- 8 * (8 * n * q + 4 * n * p + 8 * q^2 + 4 * q * p + 4 * p^2)
     first <- 1L
     while (first <= length(missing)) {
       probe <- .mgcvst_memory_probe()
@@ -251,7 +214,7 @@
       batch_size <- as.integer(max(1L, min(32L, floor(headroom / feature_work))))
       ids <- missing[first:min(length(missing), first + batch_size - 1L)]
       states <- .mgcvst_pair_build_batch(
-        fit, ids, threads, basis, mode, native, T0, field_scale
+        fit, ids, threads, mode, native, T0, field_scale
       )
       if (length(states) != length(ids)) {
         stop("The score-state backend returned the wrong feature count.")
