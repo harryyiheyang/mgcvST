@@ -24,14 +24,14 @@ ids <- ids[seq_len(G)]
 pairs <- t(utils::combn(ids, 2L))
 t1 <- proc.time()[["elapsed"]]
 result <- inlaST.test(
-  fit, pairs = pairs, pairwise_method = "conditional",
-  conditional_precision = "float32", threads = 40L,
+  fit, pairs = pairs, pairwise_method = "conditional_cauchy",
+  conditional_precision = "float32", method = "BY", threads = 40L,
   checkpoint_dir = checkpoint_dir, resume = FALSE
 )
 t2 <- proc.time()[["elapsed"]]
 m <- G * (G - 1) / 2
 if (nrow(result$results) != m ||
-    !all(c("feature1", "feature2", "S", "p", "p_BY", "BY_reject") %in%
+    !all(c("feature1", "feature2", "signed_score", "p_two_sided", "log_p_two_sided") %in%
          names(result$results))) {
   stop("Conditional result has an unexpected shape or column set.")
 }

@@ -80,17 +80,14 @@ test_that("PCAlearning training sampling reallocates sparse cells and restores R
   expect_identical(small$train, seq_len(50L))
 })
 
-test_that("approximate = 'none' keeps the exact INLA Liu path", {
+test_that("liu_approximation = 'exact' keeps the exact INLA Liu path", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
   exact <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L)
   none <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                      approximate = "none")
-  legacy <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                        approximate = FALSE)
+                      liu_approximation = "exact")
   expect_identical(none$results, exact$results)
-  expect_identical(legacy$results, exact$results)
   expect_null(exact$pca_learning)
 
   prepared <- mgcvST:::.inlast_sparse_prepare(fit)
@@ -118,7 +115,7 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
   withr::local_seed(5L)
   before <- .Random.seed
   pca <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                     approximate = "PCAlearning", rank = G)
+                     liu_approximation = "pca_learning", rank = G)
   expect_identical(.Random.seed, before)
   z <- pca$pca_learning
   expect_identical(z$training$feature_id, fit$feature_id)
@@ -153,7 +150,7 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
   # A pair list (reversed order, subset) uses the (i, j) kernel with equal results.
   sub <- c(5L, 1L, 20L, 13L)
   listed <- inlaST.test(fit, pairs = pairs[sub, 2:1], method = "BY", threads = 2L,
-                        approximate = "PCAlearning", rank = G)
+                        liu_approximation = "pca_learning", rank = G)
   expect_identical(listed$timing$inla_projection$pair_schedule, "pcalearning_pair_list")
   expect_equal(listed$results$log_p_two_sided, pca$results$log_p_two_sided[sub],
                tolerance = 1e-12)
@@ -161,7 +158,7 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
                tolerance = 1e-12)
 
   low <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                     approximate = "PCAlearning", rank = 3L)
+                     liu_approximation = "pca_learning", rank = 3L)
   expect_true(all(low$pca_learning$genes$e2_relative > -1e-12))
   expect_equal(low$pca_learning$genes$e2,
                low$pca_learning$genes$fro2 - unname(rowSums(low$pca_learning$coefficients^2)))
@@ -236,4 +233,90 @@ test_that("PCAlearning pair kernel reproduces the approx-liu-p rank-10 traces", 
                    p.adjust(exact$p_value, "BY") <= 0.05)
   e2 <- (fx$fro2 - rowSums(fx$C^2)) / fx$fro2
   expect_true(all(e2 > 0 & e2 <= 0.0267))
+})
+
+test_that("PCAlearning checkpoints resume to the uninterrupted result", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  G <- length(fit$feature_id)
+  local_mocked_bindings(
+    .mgcvst_pca_training = function(scales, universe, n_per_cell, seed) {
+      list(train = universe[c(1L, 3L, 5L, 7L)], cell = rep(1L, nrow(scales)))
+    },
+    .package = "mgcvST"
+  )
+  basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
+  run <- function(index, dir, rank = 3L, resume = TRUE, n_per_cell = 3L) {
+    mgcvST:::.mgcvst_pair_pcalearning(
+      fit, index, seq_len(nrow(index)), 2L, 1000L, FALSE, basis, rank = rank,
+      n_per_cell = n_per_cell, seed = 1L, checkpoint_dir = dir, resume = resume
+    )
+  }
+  index <- t(combn(G, 2L))
+  reference <- run(index, NULL)
+  expect_null(reference$metadata$pca_learning$checkpoint$path)
+
+  dir <- tempfile("mgcvst-pca-checkpoint-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  # Interrupted run: only genes 1-6 are requested, so genes 2, 4, 6 are projected.
+  part <- run(t(combn(6L, 2L)), dir)
+  expect_identical(part$metadata$pca_learning$checkpoint$projected_genes, 3L)
+  expect_setequal(list.files(dir), c("manifest.rds", "pca-basis.rds",
+                                      "pca-projection-000001.rds"))
+  same <- function(x) {
+    expect_identical(x$result, reference$result)
+    expect_identical(x$metadata$pca_learning$coefficients,
+                     reference$metadata$pca_learning$coefficients)
+    expect_identical(x$metadata$pca_learning$genes, reference$metadata$pca_learning$genes)
+  }
+  resumed <- run(index, dir)
+  z <- resumed$metadata$pca_learning$checkpoint
+  expect_true(z$basis_resumed)
+  expect_identical(c(z$resumed_genes, z$projected_genes), c(3L, 1L))
+  same(resumed)
+
+  # A lost block is recomputed into a new block.
+  unlink(file.path(dir, "pca-projection-000001.rds"))
+  again <- run(index, dir)
+  expect_identical(again$metadata$pca_learning$checkpoint$projected_genes, 3L)
+  expect_true(file.exists(file.path(dir, "pca-projection-000003.rds")))
+  same(again)
+  complete <- run(index, dir)
+  expect_identical(complete$metadata$pca_learning$checkpoint$projected_genes, 0L)
+  same(complete)
+
+  expect_error(run(index, dir, rank = 2L), "different fit, score basis, rank")
+  expect_error(run(index, dir, resume = FALSE), "already exists")
+
+  public <- tempfile("mgcvst-pca-public-")
+  on.exit(unlink(public, recursive = TRUE), add = TRUE)
+  test <- function() inlaST.test(fit, pairs = t(combn(fit$feature_id, 2L)),
+                                 threads = 2L, liu_approximation = "pca_learning",
+                                 rank = 3L, checkpoint_dir = public, resume = TRUE)
+  first <- test()
+  expect_true(file.exists(file.path(public, "pca-basis.rds")))
+  expect_identical(test()$results, first$results)
+})
+
+test_that("PCAlearning checks rank, n_per_cell and trace-table memory", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  G <- length(fit$feature_id)
+  basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
+  run <- function(rank, n_per_cell = 3L) {
+    index <- t(combn(G, 2L))
+    mgcvST:::.mgcvst_pair_pcalearning(
+      fit, index, seq_len(nrow(index)), 2L, 1000L, FALSE, basis, rank = rank,
+      n_per_cell = n_per_cell, seed = 1L
+    )
+  }
+  expect_error(run(G + 1L), sprintf("achievable PCAlearning rank %d (%d training", G, G), fixed = TRUE)
+  expect_error(run(0L), "rank must be one positive integer")
+  expect_error(run(2.5), "rank must be one positive integer")
+  expect_error(run(3L, n_per_cell = 0L), "n_per_cell must be one positive integer")
+  # q = 1404, r = 10: level-4 stage, about 5.1 GiB (5.4 GB peak measured).
+  expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1404, 10) / 1024^3, 5.09, tolerance = 1e-2)
+  local_mocked_bindings(.mgcvst_memory_probe = function(...) list(available = 1e3),
+                        .package = "mgcvST")
+  expect_error(run(3L), "trace tables for rank = 3 .* use a smaller rank")
 })

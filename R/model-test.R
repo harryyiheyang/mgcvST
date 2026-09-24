@@ -85,11 +85,8 @@
     calibration = c("liu", "davies"),
     chunk_size = NULL,
     threads = NULL, verbose = FALSE, cache_bytes = NULL,
-    checkpoint_dir = NULL, resume = TRUE, approximate = "none",
-    rank = 10L, n_per_cell = 3L, seed = 1L,
-    n_ref = 100L, ref_method = c("random", "score", "hyper"),
-    ref_seed = 1L, ref_tol = 1e-6,
-    diagnostic_pairs = 0L) {
+    checkpoint_dir = NULL, resume = TRUE, liu_approximation = "exact",
+    rank = 10L, n_per_cell = 3L, seed = 1L) {
   if (!inherits(fitmgcvST, "mgcvST_model_fit")) {
     stop("The model score engine requires a fit from mgcvST.estimate(Y, model).")
   }
@@ -124,6 +121,9 @@
   inla_fit <- .mgcvst_inla_downstream(fitmgcvST)
   if (inla_fit && calibration != "liu") {
     stop("INLA downstream tests support calibration = 'liu' only.")
+  }
+  if (liu_approximation != "exact" && !inla_fit) {
+    stop("liu_approximation = 'pca_learning' requires a sparse INLA fit.")
   }
   if (inla_fit) {
     .mgcvst_inla_serial_backend(BPPARAM)
@@ -213,8 +213,8 @@
     inla_basis_elapsed <- proc.time()[["elapsed"]] - t_basis
   }
   if (is.null(chunk_size)) {
-    chunk_size <- if (approximate == "PCAlearning") 1000000L else
-      if (approximate == "landmark") 10000L else if (inla_fit) .mgcvst_inla_pair_chunk_size(
+    chunk_size <- if (liu_approximation == "pca_learning") 1000000L else
+      if (inla_fit) .mgcvst_inla_pair_chunk_size(
       fitmgcvST, basis = inla_projection
     ) else if (calibration == "liu") 10000L else if (workers > 0L)
       ceiling(length(tested_rows) / workers) else 1L
@@ -240,10 +240,8 @@
         fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
         threads, chunk_size, verbose, basis = inla_projection,
         cache_bytes = cache_bytes, checkpoint_dir = checkpoint_dir,
-        resume = resume, approximate = approximate, rank = rank,
-        n_per_cell = n_per_cell, seed = seed, n_ref = n_ref,
-        ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
-        diagnostic_pairs = diagnostic_pairs
+        resume = resume, liu_approximation = liu_approximation, rank = rank,
+        n_per_cell = n_per_cell, seed = seed
       )
       elapsed <- proc.time()[["elapsed"]] - t0
       inla_projection <- attr(evaluated$result, "inla_pairwise")
@@ -263,17 +261,11 @@
       result$statistic[target] <- result$signed_score[target]^2
       evaluated <- list()
     } else if (calibration == "liu") {
-      landmark <- approximate == "landmark"
-      evaluate <- if (landmark) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
-      args <- list(
+      evaluated <- .mgcvst_pair_pipeline(
         fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
         threads, chunk_size, verbose, cache_bytes = cache_bytes,
         checkpoint_dir = checkpoint_dir, resume = resume
       )
-      if (landmark) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
-        ref_seed = ref_seed, ref_tol = ref_tol,
-        diagnostic_pairs = diagnostic_pairs))
-      evaluated <- do.call(evaluate, args)
       pipeline <- evaluated$metadata
       native_preparation <- pipeline$preparation_backend %in%
         c("sparse", "model_native", "legacy_native")
@@ -445,65 +437,16 @@
 #'
 #' Dispatches a compact fit to its registered score engine. Standard one-SPDE
 #' fits use the SPDE score path. One-component fits constructed from
-#' [model.set()] use the model score path.
+#' [model.set()] use the model score path. Pair p-values use exact Liu trace
+#' moments (or Davies calibration when requested). Sparse INLA fits are
+#' tested with the same exact Liu path; the INLA-specific pair methods are
+#' available through [inlaST.test()].
 #'
 #' @inheritParams .mgcvst_test_spde
-#' @param pairwise_method `"liu"` keeps the existing pair test. For sparse INLA
-#'   fits, `"conditional"` uses both conditional-normal directions, combines
-#'   their p-values by the equal-weight Cauchy rule, and applies BY across the
-#'   tested pair family. With `pairs = NULL`, it tests every available gene pair.
-#' @param conditional_precision Precision used for conditional variance
-#'   multiplication: `"double"` or `"float32"`. Scores, p-values, and BY
-#'   adjustment remain in double precision.
-#' @param cache_bytes Optional byte ceiling for resident Liu score states.
-#'   The default adapts to available system and job memory, with space reserved
-#'   for native working buffers. This is a cache budget, not a process limit.
-#' @param checkpoint_dir Optional checkpoint directory. Conditional testing
-#'   saves per-gene variance rows; Liu testing saves reusable score states and
-#'   pair batches. With `NULL`, temporary storage is removed on exit.
+#' @param checkpoint_dir Optional checkpoint directory for Liu calibration.
+#'   Reusable score states and completed pair batches are saved there. With
+#'   `NULL`, temporary storage is used and removed on exit.
 #' @param resume Reuse compatible completed checkpoint entries.
-#' @param approximate Use real-gene landmark CUR trace reconstruction with
-#'   Liu calibration. Landmark-to-feature traces use float32 matrix products
-#'   with double accumulation and storage; landmark block `W` uses double.
-#'   Approximate p-values remain approximate throughout the test and are used
-#'   for multiple-testing adjustment. The default `FALSE` computes exact traces
-#'   in the existing common coordinates. The strings `"none"`, `"landmark"`
-#'   and, for sparse INLA fits, `"PCAlearning"` are also accepted; see
-#'   [inlaST.test()].
-#' @param rank,n_per_cell,seed PCAlearning basis rank, training genes per
-#'   stratification cell and sampling seed; see [inlaST.test()].
-#' @param n_ref Maximum number of real genes used as landmarks in approximate
-#'   mode.
-#' @param ref_method Landmark selection: uniform random sampling, k-means on
-#'   unnormalized score vectors (`"score"`), or k-means on standardized fitted
-#'   covariance variance scales (`"hyper"`).
-#' @param ref_seed Non-negative integer seed for reference selection; the
-#'   caller's random-number state is restored.
-#' @param ref_tol Relative eigenvalue cutoff for each normalized reference trace
-#'   matrix `W`. Both positive and negative retained eigenvalues are inverted.
-#' @param diagnostic_pairs Number of pairs with two non-landmark endpoints
-#'   sampled for optional exact approximation diagnostics. Defaults to `0`,
-#'   so no exact diagnostics run. Positive values add diagnostics without
-#'   changing any returned pair p-value or adjusted p-value.
-#' @details Let `S_ij = a_i' a_j` and `v_(i|j) = a_j' M_i a_j`.
-#'   Under independent Gaussian null scores, `S_ij | a_j` is normal with
-#'   variance `v_(i|j)`, so each directional two-sided normal p-value is exactly
-#'   uniform. The directions are combined using
-#'   `T = (tan((0.5-p_(i|j))*pi) + tan((0.5-p_(j|i))*pi))/2` and the standard
-#'   Cauchy upper tail. Because `T` cannot exceed its larger component,
-#'   `p_ij >= min(p_(i|j), p_(j|i))` and the null rejection probability is at
-#'   most `2*alpha` under any dependence.
-#'
-#'   For `X = 1/p_(i|j)` and `Y = 1/p_(j|i)`, both directional tails satisfy
-#'   `Pr(X > x) = Pr(Y > x) = 1/x`; in the far tail, `1/p_ij` approaches
-#'   `(X+Y)/2`. If both directions become extreme together, their normal
-#'   z-scores obey `z_2 = R*z_1`, where `R = sqrt(v_(i|j)/v_(j|i))`.
-#'   Under a continuous, nondegenerate distribution of `R`, unequal extremes
-#'   occur together only when `abs(R-1)` is of order `1/log(1/alpha)`.
-#'   Thus the combined tail approaches the nominal tail as `alpha` tends to
-#'   zero under this condition.
-#'   Conditional output includes log-scale p-values so tails below the
-#'   floating-point range remain available for BY calculations and reporting.
 #' @export
 mgcvST.test <- function(
     fitmgcvST, q.value = 0.05, FDR = TRUE, method = "BH",
@@ -511,68 +454,15 @@ mgcvST.test <- function(
     pairs = NULL, highlight = NULL,
     calibration = c("liu", "davies"),
     chunk_size = NULL,
-    threads = NULL, verbose = FALSE, cache_bytes = NULL,
-    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
-    rank = 10L, n_per_cell = 3L, seed = 1L,
-    n_ref = 100L, ref_method = c("random", "score", "hyper"),
-    ref_seed = 1L, ref_tol = 1e-6,
-    diagnostic_pairs = 0L,
-    pairwise_method = c("liu", "conditional"),
-    conditional_precision = c("double", "float32")) {
-  pairwise_method <- match.arg(pairwise_method)
-  conditional_precision <- match.arg(conditional_precision)
-  if (is.logical(approximate) && length(approximate) == 1L && !is.na(approximate)) {
-    approximate <- if (approximate) "landmark" else "none"
-  }
-  if (!is.character(approximate) || length(approximate) != 1L ||
-      !(approximate %in% c("none", "landmark", "PCAlearning"))) {
-    stop("approximate must be TRUE, FALSE, 'none', 'landmark' or 'PCAlearning'.")
-  }
-  if (pairwise_method == "conditional") {
-    if (missing(method)) method <- "BY"
-    if (!identical(method, "BY")) {
-      stop("pairwise_method = 'conditional' requires method = 'BY'.")
-    }
-    if (!isTRUE(FDR)) {
-      stop("pairwise_method = 'conditional' requires FDR = TRUE.")
-    }
-    if (!is.null(highlight)) {
-      stop("highlight is unavailable for conditional pairwise results.")
-    }
-    if (!identical(calibration, c("liu", "davies")) &&
-        !identical(calibration, "liu")) {
-      stop("Conditional pairs do not use a non-Liu calibration argument.")
-    }
-    if (approximate != "none" || !is.null(cache_bytes)) {
-      stop("approximate and cache_bytes require pairwise_method = 'liu'.")
-    }
-    if (length(list(...))) stop("Unused arguments in ... for conditional pairs.")
-    .mgcvst_inla_serial_backend(BPPARAM)
-    return(.mgcvst_conditional_test(
-      fitmgcvST, pairs, q.value, threads, chunk_size,
-      checkpoint_dir, resume, conditional_precision, match.call()
-    ))
-  }
-  if (!identical(conditional_precision, "double")) {
-    stop("conditional_precision requires pairwise_method = 'conditional'.")
-  }
+    threads = NULL, verbose = FALSE,
+    checkpoint_dir = NULL, resume = TRUE) {
   calibration <- match.arg(calibration)
-  if (approximate != "none" && calibration != "liu") {
-    stop("approximate requires calibration = 'liu'.")
-  }
-  if (approximate == "landmark") ref_method <- match.arg(ref_method)
   engine <- .mgcvst_test_engine(fitmgcvST)
-  args <- list(
+  engine(
     fitmgcvST = fitmgcvST, q.value = q.value, FDR = FDR, method = method,
     BPPARAM = BPPARAM, ..., pairs = pairs, highlight = highlight,
     calibration = calibration, chunk_size = chunk_size,
-    threads = threads, verbose = verbose, cache_bytes = cache_bytes,
-    checkpoint_dir = checkpoint_dir, resume = resume, approximate = approximate,
-    n_ref = n_ref, ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
-    diagnostic_pairs = diagnostic_pairs
+    threads = threads, verbose = verbose,
+    checkpoint_dir = checkpoint_dir, resume = resume
   )
-  if (approximate == "PCAlearning") {
-    args <- c(args, list(rank = rank, n_per_cell = n_per_cell, seed = seed))
-  }
-  do.call(engine, args)
 }

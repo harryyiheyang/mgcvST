@@ -1299,6 +1299,11 @@ print.mgcvST_fit <- function(x, ...) {
 #'   and the Liu pair kernel. `NULL` uses `bpworkers(BPPARAM)`. Model pair tasks
 #'   and Davies calibration use `BPPARAM` after preparation has completed.
 #' @param verbose Logical; report Liu summary and block progress.
+#' @param cache_bytes Internal byte ceiling for resident Liu score states.
+#'   `NULL` adapts to available system and job memory.
+#' @param checkpoint_dir Optional Liu checkpoint directory; `NULL` uses
+#'   temporary storage removed on exit.
+#' @param resume Reuse compatible completed checkpoint entries.
 #' @return A compact `mgcvST_test` object containing pair results, adjusted
 #'   p-values, discovery/highlight/retention flags, threshold metadata, and
 #'   timing metadata.
@@ -1310,10 +1315,7 @@ print.mgcvST_fit <- function(x, ...) {
     calibration = c("liu", "davies"),
     chunk_size = NULL,
     threads = NULL, verbose = FALSE, cache_bytes = NULL,
-    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
-    n_ref = 100L, ref_method = c("random", "score", "hyper"),
-    ref_seed = 1L, ref_tol = 1e-6,
-    diagnostic_pairs = 0L) {
+    checkpoint_dir = NULL, resume = TRUE) {
   if (!inherits(fitmgcvST, "mgcvST_fit")) {
     stop("fitmgcvST must be returned by mgcvST.estimate().")
   }
@@ -1446,18 +1448,12 @@ print.mgcvST_fit <- function(x, ...) {
   pipeline <- NULL
   if (length(tested_rows)) {
     if (calibration == "liu") {
-      landmark <- isTRUE(approximate) || identical(approximate, "landmark")
-      evaluate <- if (landmark) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
-      args <- list(
+      evaluated <- .mgcvst_pair_pipeline(
         fitmgcvST,
         index[tested_rows, , drop = FALSE], tested_rows,
         threads, chunk_size, verbose, cache_bytes = cache_bytes,
         checkpoint_dir = checkpoint_dir, resume = resume
       )
-      if (landmark) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
-        ref_seed = ref_seed, ref_tol = ref_tol,
-        diagnostic_pairs = diagnostic_pairs))
-      evaluated <- do.call(evaluate, args)
       pipeline <- evaluated$metadata
       summary_elapsed <- pipeline$preparation_elapsed
       elapsed <- summary_elapsed + evaluated$elapsed

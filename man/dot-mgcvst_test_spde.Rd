@@ -19,13 +19,7 @@
   verbose = FALSE,
   cache_bytes = NULL,
   checkpoint_dir = NULL,
-  resume = TRUE,
-  approximate = FALSE,
-  n_ref = 100L,
-  ref_method = c("random", "score", "hyper"),
-  ref_seed = 1L,
-  ref_tol = 1e-06,
-  diagnostic_pairs = 0L
+  resume = TRUE
 )
 }
 \arguments{
@@ -59,6 +53,14 @@ and the Liu pair kernel. \code{NULL} uses \code{bpworkers(BPPARAM)}. Model pair 
 and Davies calibration use \code{BPPARAM} after preparation has completed.}
 
 \item{verbose}{Logical; report Liu summary and block progress.}
+
+\item{cache_bytes}{Internal byte ceiling for resident Liu score states.
+\code{NULL} adapts to available system and job memory.}
+
+\item{checkpoint_dir}{Optional Liu checkpoint directory; \code{NULL} uses
+temporary storage removed on exit.}
+
+\item{resume}{Reuse compatible completed checkpoint entries.}
 }
 \value{
 A compact \code{mgcvST_test} object containing pair results, adjusted

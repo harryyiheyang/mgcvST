@@ -3,12 +3,42 @@
 ## Settings
 
 - Branch `pca-learning-liu` from `32ead29`.
-- Entry point: `inlaST.test(fit, approximate = "PCAlearning", rank = 10, n_per_cell = 3, seed = 1)`.
+- Entry point: `inlaST.test(fit, liu_approximation = "pca_learning", rank = 10, n_per_cell = 3,
+  seed = 1, checkpoint_dir = NULL, resume = TRUE)`; internal `.mgcvst_pair_pcalearning`.
+  Timings below were measured with the earlier argument name `approximate = "PCAlearning"`.
 - Package compile flags unchanged (no AVX2/FMA).
 - Machine: i7-14700K (20 cores, 28 logical processors), 66 GB RAM, Windows 11, R 4.6.1.
 - Threads: kernel verification and audit timings in this worktree used 28 threads; the
   1,762-gene run and the 550-gene reproduction run used 20 threads; experiment
   (`experiments/approx-liu-p`) timings used 20 threads; R-level Liu and BY are single-threaded.
+
+## Checkpoint and resume
+
+With `checkpoint_dir`, the directory carries a score-store manifest (`.mgcvst_store_open`) whose
+signature is the fit/score-basis hash (`.mgcvst_pair_signature`) plus rank, n_per_cell, seed and q.
+`pca-basis.rds` holds the training selection, scales, and the learned basis (B, Gram eigenvalues,
+rotation, training a_j, c_j, ||H_j||_F^2); `pca-projection-NNNNNN.rds` holds projected non-training
+genes (a_j, c_j, ||H_j||_F^2, error) in blocks of 256. Each file is written to a temporary file and
+renamed, with a sha256 checksum. `resume = TRUE` reuses the basis and every completed block and
+projects only missing genes; a different signature stops. `resume = FALSE` with an existing manifest
+stops, as in the exact pipeline. `checkpoint_dir = NULL` persists nothing. Trace tables, pair
+contraction, Liu and BY are recomputed on every call.
+
+## Input checks
+
+`rank` and `n_per_cell` are positive integers. `rank` is at most the number of Gram eigenvalues above
+1e-10 of the largest among successfully materialized training genes; otherwise the call stops and
+reports the achievable rank. The trace-table peak, max over the level-3 stage
+4 q^2 (r + r^2 + d2 r) and the level-4 stage 4 q^2 (r + d2 r + d2) + 128 q d2^2 + 8 d2^4 + 8 (d2 r)^2
+bytes (d2 = r (r + 1) / 2; 5.1 GiB at q = 1404, r = 10), is compared with `.mgcvst_memory_probe()`
+available memory before any gene is materialized.
+
+## Removed kernels
+
+The landmark path and its native code (`src/landmark_stream.cpp`, `src/score_state_io.h`,
+`mgcvst_landmark_trace_cpp` with the mixed-precision float32 trace kernel, `mgcvst_pair_lowrank_cpp`,
+and the native score-state IO used only by the landmark queue) were removed. Experiments that used
+them remain reproducible from commit `32ead29`.
 
 ## Per-step cost, experiment versus package
 
@@ -26,7 +56,7 @@ Training set S (300 genes), r = 10, q = 1404, eval set T (11,175 pairs).
 Audit scripts and log (session scratchpad, not in the package): `testA/t1_liu.R`, `t1b_nc.R`,
 `t1c_nc.R`, `t2_real.R`, `t2_real.log`, `t2a_tables_syn.R`, `t3_stream.R`, `t4_pairs_by.R`.
 
-Exact path (`approximate = "none"`): p-values change only in the noncentral far tail, where the
+Exact path (`liu_approximation = "exact"`): p-values change only in the noncentral far tail, where the
 C++ log-space Liu is more accurate than R `pchisq(ncp)` (reviewer: old R relative error 3.5e-3 at
 p 1e-14 to 1e-50 for ncp < 80; 0 or off by 3.3 in log p for ncp >= 80). Central-branch agreement
 with R: 2.4e-15 relative (p >= 1e-5) to 1.7e-13 (p to 1e-280). All 16,125 exact T and bench100

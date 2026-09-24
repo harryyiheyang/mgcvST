@@ -1,12 +1,7 @@
 # Store one score state per feature so completed states survive interrupted tests.
 .mgcvst_store_open <- function(path = NULL, signature, feature_ids,
-                               storage = c("double", "float32"), resume = TRUE,
-                               encoding = c("rds", "native")) {
+                               storage = c("double", "float32"), resume = TRUE) {
   storage <- match.arg(storage)
-  encoding <- match.arg(encoding)
-  if (encoding == "native" && storage != "double") {
-    stop("Native score-state encoding requires storage = 'double'.")
-  }
   if (!is.list(signature)) stop("signature must be a list of stable fit identifiers.")
   if (!is.character(feature_ids) || !length(feature_ids) ||
       anyNA(feature_ids) || any(!nzchar(feature_ids)) ||
@@ -36,13 +31,8 @@
   }
 
   manifest_path <- file.path(path, "manifest.rds")
-  requested <- if (encoding == "rds") {
-    list(format = 1L, signature = signature,
-         feature_ids = feature_ids, storage = storage)
-  } else {
-    list(format = 2L, encoding = "native", signature = signature,
-         feature_ids = feature_ids, storage = storage)
-  }
+  requested <- list(format = 1L, signature = signature,
+                    feature_ids = feature_ids, storage = storage)
   if (file.exists(manifest_path)) {
     if (!resume) stop("The score-state store already exists; use resume = TRUE.")
     existing <- tryCatch(readRDS(manifest_path), error = function(e) {
@@ -65,8 +55,7 @@
   }
   if (temporary) committed <- TRUE
   structure(list(path = path, feature_ids = feature_ids, storage = storage,
-                 signature = signature, temporary = temporary,
-                 encoding = encoding),
+                 signature = signature, temporary = temporary),
             class = "mgcvst_score_store")
 }
 
@@ -92,8 +81,7 @@
 
 .mgcvst_store_file <- function(store, feature) {
   index <- .mgcvst_store_index(store, feature)
-  extension <- if (identical(store$encoding, "native")) ".bin" else ".rds"
-  file.path(store$path, paste0(sprintf("feature-%010d", index), extension))
+  file.path(store$path, sprintf("feature-%010d.rds", index))
 }
 
 .mgcvst_store_has <- function(store, feature) {
@@ -105,27 +93,6 @@
   index <- .mgcvst_store_index(store, feature)
   if (!file.exists(path)) {
     stop("The requested score-state shard has not been written: ", store$feature_ids[index], ".")
-  }
-  if (identical(store$encoding, "native")) {
-    state <- tryCatch(mgcvst_state_read_cpp(
-      path, digest::digest(store$signature, algo = "sha256"),
-      store$feature_ids[index]
-    ), error = function(e) {
-      stop("The native score-state shard is unreadable: ", basename(path),
-           ": ", conditionMessage(e))
-    })
-    if (!is.list(state)) {
-      stop("The native score-state shard returned an invalid record: ", basename(path), ".")
-    }
-    if (!is.null(state$error) && length(state$error) == 1L &&
-        !is.na(state$error) && nzchar(state$error)) {
-      return(list(error = state$error))
-    }
-    if (!is.numeric(state$a) || !is.matrix(state$M) ||
-        length(state$a) != nrow(state$M) || nrow(state$M) != ncol(state$M)) {
-      stop("The native score-state shard has invalid numeric data: ", basename(path), ".")
-    }
-    return(list(a = as.numeric(state$a), M = state$M, width = state$width))
   }
   unit <- tryCatch(readRDS(path), error = function(e) {
     stop("The score-state shard is unreadable: ", basename(path), ": ",
@@ -177,38 +144,6 @@
     stop("The score-state shard already exists: ", basename(path), ".")
   }
   if (!is.list(state)) stop("state must be a score-state list.")
-  if (identical(store$encoding, "native")) {
-    if (!is.null(state$error)) {
-      if (!is.character(state$error) || length(state$error) != 1L ||
-          is.na(state$error) || !nzchar(state$error)) {
-        stop("state$error must be one non-empty error message.")
-      }
-      a <- numeric()
-      M <- matrix(numeric(), 0L, 0L)
-      width <- integer()
-      error <- state$error
-    } else {
-      a <- as.numeric(state$a)
-      M <- as.matrix(state$M)
-      if (!is.numeric(state$a) || !is.numeric(state$M) || !is.matrix(M) ||
-          nrow(M) < 1L || nrow(M) != ncol(M) || length(a) != nrow(M)) {
-        stop("state must contain a finite score vector and aligned symmetric matrix.")
-      }
-      width_names <- names(state$width)
-      width <- as.integer(state$width)
-      if (!is.null(width_names)) names(width) <- width_names
-      error <- ""
-    }
-    mgcvst_state_write_cpp(
-      path, digest::digest(store$signature, algo = "sha256"),
-      store$feature_ids[.mgcvst_store_index(store, feature)],
-      a, M, width, error
-    )
-    if (!file.exists(path)) {
-      stop("The native score-state writer did not create the shard: ", basename(path), ".")
-    }
-    return(invisible(path))
-  }
   if (!is.null(state$error)) {
     if (!is.character(state$error) || length(state$error) != 1L ||
         is.na(state$error) || !nzchar(state$error)) {

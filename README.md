@@ -186,7 +186,10 @@ need not satisfy `P %*% 1 = 0` numerically. This does not make the
 conditioned kernel equivalent to either the raw kernel or a separately
 formed `C %*% G_raw %*% C`.
 
-For large pair universes, `inlaST.test(..., approximate = "PCAlearning")`
+`inlaST.test()` selects the pair method with `pairwise_method` (`"liu"`
+or `"conditional_cauchy"`) and, for Liu pairs, the trace evaluation with
+`liu_approximation`. For large pair universes,
+`inlaST.test(..., liu_approximation = "pca_learning")`
 replaces the exact Liu trace moments by a low-rank approximation.
 Training genes are drawn by stratified sampling on the fitted spatial
 and observation variance scales, and their score covariances `H_j`,

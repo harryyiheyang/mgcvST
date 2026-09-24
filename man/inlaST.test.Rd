@@ -6,35 +6,60 @@
 \usage{
 inlaST.test(
   fitinlaST,
+  pairwise_method = c("liu", "conditional_cauchy"),
+  liu_approximation = c("exact", "pca_learning"),
+  rank = 10L,
+  n_per_cell = 3L,
+  seed = 1L,
+  checkpoint_dir = NULL,
+  resume = TRUE,
+  conditional_precision = c("double", "float32"),
   q.value = 0.05,
   FDR = TRUE,
   method = "BH",
-  BPPARAM = BiocParallel::SerialParam(),
-  ...,
   pairs = NULL,
   highlight = NULL,
   calibration = "liu",
   chunk_size = NULL,
   threads = NULL,
   verbose = FALSE,
-  cache_bytes = NULL,
-  checkpoint_dir = NULL,
-  resume = TRUE,
-  approximate = c("none", "PCAlearning", "landmark"),
-  rank = 10L,
-  n_per_cell = 3L,
-  seed = 1L,
-  n_ref = 100L,
-  ref_method = c("random", "score", "hyper"),
-  ref_seed = 1L,
-  ref_tol = 1e-06,
-  diagnostic_pairs = 0L,
-  pairwise_method = c("liu", "conditional"),
-  conditional_precision = c("double", "float32")
+  BPPARAM = BiocParallel::SerialParam(),
+  ...
 )
 }
 \arguments{
 \item{fitinlaST}{An object returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}.}
+
+\item{pairwise_method}{\code{"liu"} tests the squared cross-gene score with Liu
+moment matching. \code{"conditional_cauchy"} evaluates the two
+conditional-normal directions and combines their p-values by the
+equal-weight Cauchy rule; see Details. With \code{pairs = NULL}, the
+conditional method tests every available gene pair.}
+
+\item{liu_approximation}{Trace evaluation for \code{pairwise_method = "liu"}.
+\code{"exact"} computes the four Liu trace moments in the reduced
+observation-kernel coordinates. \code{"pca_learning"} projects every score
+covariance \code{H_j} onto a rank-\code{rank} orthonormal basis learned from
+stratified training genes; see Details.}
+
+\item{rank}{Number of basis matrices retained by
+\code{liu_approximation = "pca_learning"}.}
+
+\item{n_per_cell}{Training genes drawn per stratification cell by
+\code{liu_approximation = "pca_learning"}.}
+
+\item{seed}{Integer seed for PCAlearning training-gene sampling; the caller's
+random-number state is restored.}
+
+\item{checkpoint_dir}{Optional checkpoint directory. The conditional method
+saves per-gene variance rows; the Liu methods save reusable score states
+and pair batches. With \code{NULL}, temporary storage is removed on exit.}
+
+\item{resume}{Reuse compatible completed checkpoint entries.}
+
+\item{conditional_precision}{Precision used for conditional variance
+multiplication: \code{"double"} or \code{"float32"}. Scores and p-values remain in
+double precision.}
 
 \item{q.value}{Pair-covariance discovery threshold in \verb{(0, 1]}.}
 
@@ -43,18 +68,13 @@ inlaST.test(
 
 \item{method}{Method passed to \code{stats::p.adjust()} when \code{FDR = TRUE}.}
 
-\item{BPPARAM}{Compatibility argument; only \code{SerialParam()} is accepted.}
-
-\item{...}{Reserved for future score options; currently unused arguments
-are rejected.}
-
 \item{pairs}{Required two-column tested-pair universe using feature IDs or
 one-based indices.}
 
 \item{highlight}{Optional two-column pairs that must be tested and retained.
 They may overlap \code{pairs}; non-overlapping highlights are appended.}
 
-\item{calibration}{Only \code{"liu"} is supported for the existing INLA pair path.}
+\item{calibration}{Only \code{"liu"} is supported for INLA fits.}
 
 \item{chunk_size}{For conditional pairs, the number of genes materialized
 together (1 to 64). For Liu pairs, the maximum number of tested pairs per
@@ -65,76 +85,24 @@ preparation, reduced materialization and pair batches. \code{NULL} uses one thre
 
 \item{verbose}{Logical; report Liu summary and block progress.}
 
-\item{cache_bytes}{Optional byte ceiling for resident Liu score states.
-The default adapts to available system and job memory, with space reserved
-for native working buffers. This is a cache budget, not a process limit.}
+\item{BPPARAM}{Compatibility argument; only \code{SerialParam()} is accepted.}
 
-\item{checkpoint_dir}{Optional checkpoint directory. Conditional testing
-saves per-gene variance rows; Liu testing saves reusable score states and
-pair batches. With \code{NULL}, temporary storage is removed on exit.}
-
-\item{resume}{Reuse compatible completed checkpoint entries.}
-
-\item{approximate}{Pair trace evaluation for Liu calibration. \code{"none"}
-computes exact traces in the reduced observation-kernel coordinates.
-\code{"PCAlearning"} projects every score covariance \code{H_j} onto a rank-\code{rank}
-orthonormal basis learned from stratified training genes and obtains the
-four Liu trace moments by contraction of precomputed trace tables; see
-Details. \code{"landmark"} uses real-gene landmark CUR trace reconstruction
-(arguments \code{n_ref}, \code{ref_method}, \code{ref_seed}, \code{ref_tol},
-\code{diagnostic_pairs}). Logical values are accepted for compatibility:
-\code{FALSE} is \code{"none"} and \code{TRUE} is \code{"landmark"}.}
-
-\item{rank}{Number of basis matrices retained by \code{approximate = "PCAlearning"}.}
-
-\item{n_per_cell}{Training genes drawn per stratification cell by
-\code{approximate = "PCAlearning"}.}
-
-\item{seed}{Integer seed for PCAlearning training-gene sampling; the caller's
-random-number state is restored.}
-
-\item{n_ref}{Maximum number of real genes used as landmarks in approximate
-mode.}
-
-\item{ref_method}{Landmark selection: uniform random sampling, k-means on
-unnormalized score vectors (\code{"score"}), or k-means on standardized fitted
-covariance variance scales (\code{"hyper"}).}
-
-\item{ref_seed}{Non-negative integer seed for reference selection; the
-caller's random-number state is restored.}
-
-\item{ref_tol}{Relative eigenvalue cutoff for each normalized reference trace
-matrix \code{W}. Both positive and negative retained eigenvalues are inverted.}
-
-\item{diagnostic_pairs}{Number of pairs with two non-landmark endpoints
-sampled for optional exact approximation diagnostics. Defaults to \code{0},
-so no exact diagnostics run. Positive values add diagnostics without
-changing any returned pair p-value or adjusted p-value.}
-
-\item{pairwise_method}{\code{"liu"} keeps the existing pair test. For sparse INLA
-fits, \code{"conditional"} uses both conditional-normal directions, combines
-their p-values by the equal-weight Cauchy rule, and applies BY across the
-tested pair family. With \code{pairs = NULL}, it tests every available gene pair.}
-
-\item{conditional_precision}{Precision used for conditional variance
-multiplication: \code{"double"} or \code{"float32"}. Scores, p-values, and BY
-adjustment remain in double precision.}
+\item{...}{Reserved for future score options; currently unused arguments
+are rejected.}
 }
 \value{
-The \code{mgcvST_test} object returned by \code{\link[=mgcvST.test]{mgcvST.test()}}.
+An \code{mgcvST_test} object.
 }
 \description{
-This is the INLA-named entry point for \code{\link[=mgcvST.test]{mgcvST.test()}}.  It delegates to
-the score engine registered on the \code{inlaST_fit} object, including its sparse
-score state when available.  No model is refitted and no score algorithm is
-duplicated here.
-For sparse INLA fits, Liu uses a constrained observation-kernel basis that
-retains at least 0.995 of its eigenvalue sum. This is a pairwise-test
-approximation; the fitted sparse field is unchanged. Basis and pair-stage
-timings are stored in \code{timing$inla_projection}.
+Pairwise covariance test for fits returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}. The
+sparse INLA score state stored on the fit is reused; no model is refitted.
+For sparse INLA fits, both pair methods use a constrained observation-kernel
+basis that retains at least 0.995 of its eigenvalue sum. This is a
+pairwise-test approximation; the fitted sparse field is unchanged. Basis and
+pair-stage timings of the Liu methods are stored in \code{timing$inla_projection}.
 }
 \details{
-With \code{approximate = "PCAlearning"}, each gene receives the
+With \code{liu_approximation = "pca_learning"}, each gene receives the
 variance scales \code{sigma_g2 = dispersion / lambda} and
 \code{sigma_e2 = 1 + mean(mu) / theta} for negative-binomial genes (1 for
 Poisson genes), with \code{mu} recovered from the working variance. Genes are
@@ -156,4 +124,31 @@ so decisions remain defined when p-values underflow; \code{information} and
 rotation defining \code{B}, the coefficients \code{c_j}, the per-gene table with
 \verb{e2_relative = e_j^2 / ||H_j||_F^2}, and the stage timings, including the
 trace-table precomputation.
+
+With \code{pairwise_method = "conditional_cauchy"}, let \verb{S_ij = a_i' a_j} and
+\verb{v_(i|j) = a_j' M_i a_j}. Under independent Gaussian null scores,
+\code{S_ij | a_j} is normal with variance \code{v_(i|j)}, so each directional
+two-sided normal p-value is exactly uniform. The directions are combined
+using \code{T = (tan((0.5-p_(i|j))*pi) + tan((0.5-p_(j|i))*pi))/2} and the
+standard Cauchy upper tail. Because \code{T} cannot exceed its larger component,
+\code{p_ij >= min(p_(i|j), p_(j|i))} and the null rejection probability is at
+most \code{2*alpha} under any dependence.
+
+For \code{X = 1/p_(i|j)} and \code{Y = 1/p_(j|i)}, both directional tails satisfy
+\code{Pr(X > x) = Pr(Y > x) = 1/x}; in the far tail, \code{1/p_ij} approaches
+\code{(X+Y)/2}. If both directions become extreme together, their normal
+z-scores obey \code{z_2 = R*z_1}, where \code{R = sqrt(v_(i|j)/v_(j|i))}.
+Under a continuous, nondegenerate distribution of \code{R}, unequal extremes
+occur together only when \code{abs(R-1)} is of order \code{1/log(1/alpha)}.
+Thus the combined tail approaches the nominal tail as \code{alpha} tends to
+zero under this condition.
+
+The conditional results contain \code{signed_score}, \code{statistic}
+(\code{signed_score^2}), the combined \code{p_two_sided}, the directional
+\code{p_1_given_2} (variance \code{v_(1|2)}) and \code{p_2_given_1}, and their natural-log
+versions. Multiple testing follows \code{FDR}, \code{method} and \code{q.value} as for
+Liu pairs (\code{p_adjusted}, \code{log_p_adjusted}, \code{discovered}); \code{method = "BY"}
+is applied to the log p-values, so tails below the floating-point range
+keep their ordering and decisions. \code{highlight} is unavailable for this
+method.
 }

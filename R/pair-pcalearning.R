@@ -133,7 +133,8 @@
 # V = [tau_j vech_w(H_j)] from the Gram eigen decomposition,
 # B = V R with R = U_r diag(1 / sqrt(lambda_r)). Training genes are
 # materialized once; their coefficients follow from V'B = G R, so that
-# c_j = (G R)_j / tau_j.
+# c_j = (G R)_j / tau_j. The achievable rank is the number of materialized
+# training genes with Gram eigenvalue above 1e-10 of the largest.
 .mgcvst_pca_basis <- function(fit, train, tau, basis, rank, threads) {
   t0 <- proc.time()[["elapsed"]]
   z <- .mgcvst_pca_materialize(fit, train, basis, threads, pack = TRUE)
@@ -142,6 +143,12 @@
   gram <- mgcvst_pca_gram_cpp(z$packed[ok], tau[ok], threads)
   t2 <- proc.time()[["elapsed"]]
   eg <- eigen(gram, symmetric = TRUE)
+  positive <- if (sum(ok)) sum(eg$values > 1e-10 * eg$values[1L]) else 0L
+  if (rank > positive) {
+    stop("rank = ", rank, " exceeds the achievable PCAlearning rank ", positive,
+         " (", sum(ok), " training genes materialized, ", positive,
+         " Gram eigenvalues above 1e-10 of the largest).")
+  }
   rotation <- sweep(eg$vectors[, seq_len(rank), drop = FALSE], 2L,
                     sqrt(eg$values[seq_len(rank)]), "/")
   t3 <- proc.time()[["elapsed"]]
@@ -154,33 +161,150 @@
                    basis = t4 - t3))
 }
 
+# Peak bytes of mgcvst_pca_tables_cpp: the larger of the level-3 stage
+# (float B, Y = B_a B_b, N) and the level-4 stage (float B, N, Y sums,
+# W panel, double Grams G3 and G4); d2 = r (r + 1) / 2.
+.mgcvst_pca_table_bytes <- function(q, r) {
+  d2 <- r * (r + 1) / 2
+  level3 <- 4 * q^2 * (r + r^2 + d2 * r)
+  level4 <- 4 * q^2 * (r + d2 * r + d2) + 4 * 32 * q * d2^2 +
+    8 * d2^4 + 8 * (d2 * r)^2
+  max(level3, level4)
+}
+
+# Atomic RDS commit in a checkpoint directory.
+.mgcvst_pca_save <- function(object, path, file) {
+  target <- file.path(path, file)
+  tmp <- tempfile("pca-", tmpdir = path, fileext = ".tmp")
+  on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
+  saveRDS(object, tmp, compress = FALSE)
+  if (file.exists(target) || !file.rename(tmp, target)) {
+    stop("Could not commit the PCAlearning checkpoint file ", file, ".")
+  }
+  invisible(NULL)
+}
+
+# Completed projection blocks: feature_index, A, C, fro2, error per gene.
+.mgcvst_pca_blocks_read <- function(path) {
+  files <- sort(list.files(path, "^pca-projection-[0-9]{6}\\.rds$"))
+  lapply(files, function(file) {
+    z <- readRDS(file.path(path, file))
+    body <- z[c("feature_index", "A", "C", "fro2", "error")]
+    if (!identical(z$checksum, digest::digest(body, algo = "sha256"))) {
+      stop("The PCAlearning checkpoint block is damaged: ", file, ".")
+    }
+    body
+  })
+}
+
 # Approximate Liu log p-values for all requested pairs from the PCAlearning
 # basis. An all-pairs universe streams gene blocks; other pair lists are
 # evaluated by (i, j).
 .mgcvst_pair_pcalearning <- function(fit, index, pair_index, threads,
                                      chunk_size, verbose, basis, rank = 10L,
-                                     n_per_cell = 3L, seed = 1L) {
+                                     n_per_cell = 3L, seed = 1L,
+                                     checkpoint_dir = NULL, resume = TRUE) {
   started <- proc.time()[["elapsed"]]
+  for (x in list(list("rank", rank), list("n_per_cell", n_per_cell))) {
+    v <- x[[2L]]
+    if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v < 1 ||
+        v != floor(v)) stop(x[[1L]], " must be one positive integer.")
+  }
+  rank <- as.integer(rank)
+  n_per_cell <- as.integer(n_per_cell)
   threads <- as.integer(threads)
+  table_bytes <- .mgcvst_pca_table_bytes(basis$rank, rank)
+  available <- .mgcvst_memory_probe()$available
+  if (is.finite(available) && table_bytes > available) {
+    stop(sprintf(paste0("PCAlearning trace tables for rank = %d and q = %d need ",
+                        "about %.1f GB, above the %.1f GB of available memory; ",
+                        "use a smaller rank."),
+                 rank, basis$rank, table_bytes / 1024^3, available / 1024^3))
+  }
   fit <- .inlast_sparse_prepare(fit)
-  universe <- which(.mgcvst_feature_available(fit))
-  scales <- .mgcvst_pca_scales(fit)
-  sampled <- .mgcvst_pca_training(scales, universe, n_per_cell, seed)
-  t_sample <- proc.time()[["elapsed"]] - started
-  if (verbose) message("Sampled ", length(sampled$train),
-                       " PCAlearning training genes.")
 
-  learned <- .mgcvst_pca_basis(fit, sampled$train, scales$tau[sampled$train],
-                               basis, as.integer(rank), threads)
-  if (verbose) message("Learned the rank-", rank, " PCAlearning basis.")
+  path <- NULL
+  if (!is.null(checkpoint_dir)) {
+    signature <- list(version = 1L, method = "pca_learning",
+                      fit = .mgcvst_pair_signature(fit, basis), rank = rank,
+                      n_per_cell = n_per_cell, seed = as.integer(seed),
+                      q = basis$rank)
+    manifest <- file.path(checkpoint_dir, "manifest.rds")
+    if (resume && file.exists(manifest) &&
+        !identical(readRDS(manifest)$signature, signature)) {
+      stop("The checkpoint in ", checkpoint_dir, " was written for a different ",
+           "fit, score basis, rank, n_per_cell, or seed; use a new checkpoint_dir.")
+    }
+    path <- .mgcvst_store_open(checkpoint_dir, signature, fit$feature_id,
+                               storage = "double", resume = resume)$path
+  }
 
-  # Training genes reuse their first materialization; the others are projected.
+  basis_file <- if (is.null(path)) NULL else file.path(path, "pca-basis.rds")
+  basis_resumed <- !is.null(basis_file) && file.exists(basis_file)
+  if (basis_resumed) {
+    saved <- readRDS(basis_file)
+    if (!identical(saved$checksum, digest::digest(saved[c("sampled", "learned")],
+                                                  algo = "sha256"))) {
+      stop("The PCAlearning checkpoint basis is damaged: ", basis_file, ".")
+    }
+    sampled <- saved$sampled
+    learned <- saved$learned
+    t_sample <- 0
+    if (verbose) message("Resumed the rank-", rank, " PCAlearning basis.")
+  } else {
+    universe <- which(.mgcvst_feature_available(fit))
+    scales <- .mgcvst_pca_scales(fit)
+    sampled <- .mgcvst_pca_training(scales, universe, n_per_cell, seed)
+    sampled$scales <- scales
+    t_sample <- proc.time()[["elapsed"]] - started
+    if (verbose) message("Sampled ", length(sampled$train),
+                         " PCAlearning training genes.")
+    learned <- .mgcvst_pca_basis(fit, sampled$train,
+                                 scales$tau[sampled$train], basis, rank, threads)
+    if (verbose) message("Learned the rank-", rank, " PCAlearning basis.")
+    if (!is.null(path)) {
+      body <- list(sampled = sampled, learned = learned)
+      body$checksum <- digest::digest(body, algo = "sha256")
+      .mgcvst_pca_save(body, path, "pca-basis.rds")
+    }
+  }
+  scales <- sampled$scales
+
+  # Training genes reuse their first materialization; the others are projected
+  # in checkpoint blocks of 256 genes.
   used <- sort(unique(as.vector(index)))
   t0 <- proc.time()[["elapsed"]]
   rest <- setdiff(used, learned$train)
-  proj <- .mgcvst_pca_materialize(fit, rest, basis, threads, B = learned$B)
+  blocks <- if (is.null(path)) list() else .mgcvst_pca_blocks_read(path)
+  done <- unlist(lapply(blocks, `[[`, "feature_index"))
+  resumed_genes <- sum(rest %in% done)
+  missing <- setdiff(rest, done)
+  next_block <- if (is.null(path)) 0L else max(0L, as.integer(substr(
+    list.files(path, "^pca-projection-[0-9]{6}\\.rds$"), 16L, 21L)))
+  for (first in if (length(missing)) seq.int(1L, length(missing), by = 256L) else integer()) {
+    ids <- missing[first:min(length(missing), first + 255L)]
+    z <- .mgcvst_pca_materialize(fit, ids, basis, threads, B = learned$B)
+    block <- list(feature_index = ids, A = z$A, C = z$C, fro2 = z$fro2,
+                  error = z$error)
+    if (!is.null(path)) {
+      next_block <- next_block + 1L
+      .mgcvst_pca_save(c(block, list(checksum = digest::digest(block, algo = "sha256"))),
+                       path, sprintf("pca-projection-%06d.rds", next_block))
+    }
+    blocks[[length(blocks) + 1L]] <- block
+    if (verbose) message("Projected ", min(length(missing), first + 255L), " of ",
+                         length(missing), " PCAlearning genes.")
+  }
+  proj <- list(
+    ids = unlist(lapply(blocks, `[[`, "feature_index")),
+    A = do.call(cbind, c(list(matrix(0, basis$rank, 0L)), lapply(blocks, `[[`, "A"))),
+    C = do.call(rbind, c(list(matrix(0, 0L, rank)), lapply(blocks, `[[`, "C"))),
+    fro2 = unlist(lapply(blocks, `[[`, "fro2")),
+    error = unlist(lapply(blocks, `[[`, "error"))
+  )
+  rm(blocks)
   kt <- match(used, learned$train)
-  kr <- match(used, rest)
+  kr <- match(used, proj$ids)
   tr <- !is.na(kt)
   A <- matrix(NA_real_, basis$rank, length(used))
   C <- matrix(NA_real_, length(used), ncol(learned$B))
@@ -284,13 +408,16 @@
   list(
     result = result, elapsed = pair_elapsed,
     metadata = list(
-      approximate = "PCAlearning", preparation_backend = "sparse",
+      liu_approximation = "pca_learning", preparation_backend = "sparse",
       pair_schedule = if (all_pairs) "pcalearning_gene_blocks" else
         "pcalearning_pair_list",
       chunks = chunks, preparation_elapsed = preparation_elapsed,
       pca_learning = list(
-        rank = as.integer(rank), n_per_cell = as.integer(n_per_cell),
+        rank = rank, n_per_cell = n_per_cell,
         seed = as.integer(seed), q = basis$rank, training = training,
+        checkpoint = list(path = path, basis_resumed = basis_resumed,
+                          resumed_genes = resumed_genes,
+                          projected_genes = length(missing)),
         gram_values = learned$values, rotation = learned$rotation,
         coefficients = C, genes = genes,
         table_timing = tables$timing, table_memory = tables$memory,

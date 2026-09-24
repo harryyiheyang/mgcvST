@@ -11,17 +11,24 @@
 }
 
 # Conditional Cauchy pair testing for the sparse INLA score backend.
-.mgcvst_conditional_test <- function(fit, pairs, q.value, threads,
+.mgcvst_conditional_test <- function(fit, pairs, q.value, FDR, method, threads,
                                     chunk_size, checkpoint_dir, resume,
                                     conditional_precision, call) {
   if (!inherits(fit, "mgcvST_model_fit") ||
       !identical(fit$estimator, "INLA") ||
       !identical(fit$score_backend, "sparse")) {
-    stop("pairwise_method = 'conditional' requires a sparse INLA fit.")
+    stop("pairwise_method = 'conditional_cauchy' requires a sparse INLA fit.")
   }
   if (!is.numeric(q.value) || length(q.value) != 1L ||
       !is.finite(q.value) || q.value <= 0 || q.value > 1) {
     stop("q.value must be one finite value in (0, 1].")
+  }
+  if (!is.logical(FDR) || length(FDR) != 1L || is.na(FDR)) {
+    stop("FDR must be TRUE or FALSE.")
+  }
+  if (!is.character(method) || length(method) != 1L || is.na(method) ||
+      !(method %in% stats::p.adjust.methods)) {
+    stop("method must be one of stats::p.adjust.methods.")
   }
   if (is.null(threads)) threads <- 1L
   if (!is.numeric(threads) || length(threads) != 1L ||
@@ -283,20 +290,34 @@
   pairs_out <- mgcvst_conditional_pairs_cpp(S, V, index)
   lp <- pairs_out$log_p
   if (anyNA(lp) || any(lp > 0)) stop("Cauchy calibration returned invalid log p-values.")
-  lby <- .mgcvst_log_by(lp)
+  s <- pairs_out$score
+  lp12 <- log(2) + stats::pnorm(abs(s) / sqrt(V[index]), lower.tail = FALSE,
+                                log.p = TRUE)
+  lp21 <- log(2) + stats::pnorm(abs(s) / sqrt(V[index[, 2:1, drop = FALSE]]),
+                                lower.tail = FALSE, log.p = TRUE)
   results <- data.frame(
     feature1 = ids[index[, 1L]], feature2 = ids[index[, 2L]],
-    S = pairs_out$score, p = exp(lp), log_p = lp,
-    p_BY = exp(lby), log_p_BY = lby,
-    BY_reject = lby <= log(q.value),
+    signed_score = s, statistic = s^2,
+    p_two_sided = exp(lp), log_p_two_sided = lp,
+    p_1_given_2 = exp(lp12), log_p_1_given_2 = lp12,
+    p_2_given_1 = exp(lp21), log_p_2_given_1 = lp21,
     stringsAsFactors = FALSE
   )
-  discoveries <- sum(results$BY_reject)
+  m <- nrow(results)
+  # Multiple testing is optional; BY stays on the log scale so that tails
+  # below the double range keep their ordering and decisions.
+  la <- if (!FDR) lp else if (method == "BY") .mgcvst_log_by(lp) else
+    log(stats::p.adjust(exp(lp), method))
+  results$p_adjusted <- exp(la)
+  results$log_p_adjusted <- la
+  results$discovered <- la <= log(q.value)
+  discoveries <- sum(results$discovered)
   structure(list(
     results = results,
-    threshold = list(q_value = q.value, FDR = TRUE,
-                     adjustment_method = "BY",
-                     raw_p_threshold = if (discoveries) max(results$p[results$BY_reject]) else NA_real_),
+    threshold = list(q_value = q.value, FDR = FDR,
+                     adjustment_method = if (FDR) method else "none",
+                     raw_p_threshold = if (discoveries)
+                       max(results$p_two_sided[results$discovered]) else NA_real_),
     discoveries = list(pairs_requested = m, pairs_tested = m,
                        pairs_with_p_value = m, pairs_discovered = discoveries,
                        pairs_discovered_positive = NA_integer_,

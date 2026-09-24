@@ -27,7 +27,7 @@ fit <- inlaST.estimate(
   control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09)
 )
 result <- mgcvST::inlaST.test(
-  fit, pairwise_method = "conditional", threads = 2L,
+  fit, pairwise_method = "conditional_cauchy", method = "BY", threads = 2L,
   checkpoint_dir = file.path(tempdir(), "mgcvst-conditional-example")
 )
 print(result$results)

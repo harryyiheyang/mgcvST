@@ -34,32 +34,23 @@
                                     chunk_size, verbose, coverage = 0.995,
                                     full_rank = FALSE, basis = NULL,
                                     cache_bytes = NULL, checkpoint_dir = NULL,
-                                    resume = TRUE, approximate = "none",
-                                    rank = 10L, n_per_cell = 3L, seed = 1L,
-                                    n_ref = 100L,
-                                    ref_method = c("random", "score", "hyper"),
-                                    ref_seed = 1L, ref_tol = 1e-6,
-                                    diagnostic_pairs = 0L) {
+                                    resume = TRUE, liu_approximation = "exact",
+                                    rank = 10L, n_per_cell = 3L, seed = 1L) {
   fit <- .inlast_sparse_prepare(fit)
   if (is.null(basis)) basis <- .inlast_sparse_observation_basis(
     fit, coverage = coverage, full_rank = full_rank
   )
-  if (approximate == "PCAlearning") {
-    evaluated <- .mgcvst_pair_pcalearning(
+  evaluated <- if (liu_approximation == "pca_learning") {
+    .mgcvst_pair_pcalearning(
       fit, index, pair_index, threads, chunk_size, verbose, basis = basis,
-      rank = rank, n_per_cell = n_per_cell, seed = seed
+      rank = rank, n_per_cell = n_per_cell, seed = seed,
+      checkpoint_dir = checkpoint_dir, resume = resume
     )
   } else {
-    landmark <- approximate == "landmark"
-    evaluate <- if (landmark) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
-    args <- list(
+    .mgcvst_pair_pipeline(
       fit, index, pair_index, threads, chunk_size, verbose, basis = basis,
       cache_bytes = cache_bytes, checkpoint_dir = checkpoint_dir, resume = resume
     )
-    if (landmark) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
-      ref_seed = ref_seed, ref_tol = ref_tol,
-      diagnostic_pairs = diagnostic_pairs))
-    evaluated <- do.call(evaluate, args)
   }
   out <- evaluated$result
   names(out)[names(out) == "score"] <- "signed_score"

@@ -49,22 +49,6 @@ mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coo
     .Call(`_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared)
 }
 
-mgcvst_state_write_cpp <- function(path, signature, feature_id, a, M, width, error = "") {
-    invisible(.Call(`_mgcvST_mgcvst_state_write_cpp`, path, signature, feature_id, a, M, width, error))
-}
-
-mgcvst_state_read_cpp <- function(path, signature, feature_id) {
-    .Call(`_mgcvST_mgcvst_state_read_cpp`, path, signature, feature_id)
-}
-
-mgcvst_landmark_stream_cpp <- function(paths, feature_ids, state_signature, references, output_paths, summary_signature, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_landmark_stream_cpp`, paths, feature_ids, state_signature, references, output_paths, summary_signature, threads)
-}
-
-mgcvst_trace_read_cpp <- function(path, signature, feature_id, n_ref) {
-    .Call(`_mgcvST_mgcvst_trace_read_cpp`, path, signature, feature_id, n_ref)
-}
-
 mgcvst_marginal_liu_moments_cpp <- function(powers, threads = 1L) {
     .Call(`_mgcvST_mgcvst_marginal_liu_moments_cpp`, powers, threads)
 }
@@ -103,13 +87,5 @@ mgcvst_pca_pairs_block_cpp <- function(A, C, tables, first, last, threads = 1L, 
 
 mgcvst_pair_trace_powers_cpp <- function(matrixList, pairs, maxPower = 4L, threads = 1L) {
     .Call(`_mgcvST_mgcvst_pair_trace_powers_cpp`, matrixList, pairs, maxPower, threads)
-}
-
-mgcvst_pair_lowrank_cpp <- function(A, left, right, scale, pairs, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_pair_lowrank_cpp`, A, left, right, scale, pairs, threads)
-}
-
-mgcvst_landmark_trace_cpp <- function(matrixList, referenceList, threads = 1L, float32 = TRUE) {
-    .Call(`_mgcvST_mgcvst_landmark_trace_cpp`, matrixList, referenceList, threads, float32)
 }
 

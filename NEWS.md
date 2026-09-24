@@ -1,44 +1,42 @@
 # mgcvST 0.0.1.9015
 
-* `inlaST.test()` gains `approximate = "PCAlearning"` for sparse INLA fits.
-  Score covariances are projected onto a rank-`rank` basis learned from
-  stratified training genes (`n_per_cell`, `seed`), and the four Liu trace
-  moments are obtained by contraction with trace tables computed once. Liu
-  log p-values are returned in `log_p_two_sided`, `log_p_positive` and
-  `log_p_negative`, and BY adjustment is applied on the log scale. The result
-  element `pca_learning` stores the training genes, basis rotation,
-  coefficients, per-gene residuals and stage timings. `approximate` now takes
-  `"none"`, `"PCAlearning"` or `"landmark"`; logical values keep their
-  meaning (`FALSE` is `"none"`, `TRUE` is `"landmark"`).
+* The public test entry points are split. `mgcvST.test()` keeps the mgcv
+  interface (exact Liu or Davies calibration, `checkpoint_dir`, `resume`) and
+  no longer takes `approximate`, `rank`, `n_per_cell`, `seed`,
+  `pairwise_method`, `conditional_precision` or `cache_bytes`.
+  `inlaST.test()` calls the internal score engines directly and takes
+  `pairwise_method = c("liu", "conditional_cauchy")`,
+  `liu_approximation = c("exact", "pca_learning")`, `rank`, `n_per_cell`,
+  `seed`, `checkpoint_dir`, `resume` and `conditional_precision`. The former
+  argument names are not kept as aliases.
+* `inlaST.test(liu_approximation = "pca_learning")` projects score
+  covariances onto a rank-`rank` basis learned from stratified training genes
+  (`n_per_cell`, `seed`), and the four Liu trace moments are obtained by
+  contraction with trace tables computed once. Liu log p-values are returned
+  in `log_p_two_sided`, `log_p_positive` and `log_p_negative`, and BY
+  adjustment is applied on the log scale. The result element `pca_learning`
+  stores the training genes, basis rotation, coefficients, per-gene residuals
+  and stage timings.
+* `inlaST.test(pairwise_method = "conditional_cauchy")` returns the raw
+  conditional Cauchy results: `signed_score`, `statistic`, `p_two_sided`, the
+  directional `p_1_given_2` and `p_2_given_1`, and their log versions.
+  Multiple testing follows `FDR`, `method` and `q.value` as for Liu pairs
+  (`p_adjusted`, `log_p_adjusted`, `discovered`); BY is no longer forced, and
+  the `S`, `p`, `p_BY` and `BY_reject` columns are replaced.
+* The real-gene landmark trace-CUR approximation (`approximate = TRUE` or
+  `"landmark"`, `n_ref`, `ref_method`, `ref_seed`, `ref_tol`,
+  `diagnostic_pairs`) and its native score-state streaming were removed.
+* `cache_bytes` is an internal argument of the score engines; the default
+  `NULL` probes available memory.
 * Liu pair tests prepare each required gene once and evaluate native pair
-  batches. Adaptive caches use available system, cgroup and Slurm memory;
-  `cache_bytes` sets an explicit resident-state ceiling. Gene blocks reduce
-  repeated shard reads. `checkpoint_dir` preserves gene states and completed
+  batches. Adaptive caches use available system, cgroup and Slurm memory.
+  Gene blocks reduce repeated shard reads. `checkpoint_dir` preserves gene states and completed
   exact pair batches for resumption.
 * Feature preparation uses dynamic OpenMP scheduling with single-thread BLAS.
   The shared INLA 0.995 observation-kernel projection is unchanged.
 * Persistent checkpoint fingerprints use bounded in-memory blocks instead of
   writing the complete fit to a temporary file. Runs without persistent
   checkpoints skip the content fingerprint.
-* Opt-in `approximate = TRUE` now uses real-gene trace-CUR landmarks selected
-  uniformly, by score k-means, or by covariance-scale k-means. The common
-  observation-kernel projection remains unchanged; matrix-B learning is not
-  part of this path. In score selection, sparse feature units and score vectors
-  are sharded before landmark choice and reused to materialize each double
-  curvature matrix once. R materializes missing M matrices in adaptive batches
-  and writes packed double state shards. One native call then submits all
-  missing gene trace tasks to a dynamic C++ worker queue; the two CUR GEMM
-  stages use float32 arithmetic, with C, W, and trace sums retained/computed in
-  double. Summary RDS files hold references, while native binary files hold
-  non-reference summaries. Exact double M shards remain available for tail and
-  diagnostic rechecks, so this is not summary-only streaming. C++17 is required.
-  Reference-only diagonal scaling and a signed, truncated W inverse reconstruct
-  the trace powers without requiring non-reference self traces.
-  Approximate p-values below `tail_recheck` are recomputed exactly before the
-  outer multiple-testing adjustment; set `tail_recheck = 0` to disable this.
-  Up to `diagnostic_pairs` pairs with two non-landmark endpoints are sampled
-  for diagnostics (`10,000` by default; `0` disables diagnostics). The threshold
-  recheck is an operational rule, not a strict BY error guarantee.
 * See `inst/notes/pair-pipeline.md` for scope and validation. Held-out exact
   comparisons are development checks, not mandatory production work.
 
