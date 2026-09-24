@@ -212,6 +212,11 @@
   }
   rank <- as.integer(rank)
   n_per_cell <- as.integer(n_per_cell)
+  if (!is.numeric(seed) || length(seed) != 1L || !is.finite(seed) ||
+      seed < 0 || seed != floor(seed) || seed > .Machine$integer.max) {
+    stop("seed must be one non-negative integer.")
+  }
+  seed <- as.integer(seed)
   threads <- as.integer(threads)
   table_bytes <- .mgcvst_pca_table_bytes(basis$rank, rank)
   available <- .mgcvst_memory_probe()$available
@@ -227,7 +232,7 @@
   if (!is.null(checkpoint_dir)) {
     signature <- list(version = 1L, method = "pca_learning",
                       fit = .mgcvst_pair_signature(fit, basis), rank = rank,
-                      n_per_cell = n_per_cell, seed = as.integer(seed),
+                      n_per_cell = n_per_cell, seed = seed,
                       q = basis$rank)
     manifest <- file.path(checkpoint_dir, "manifest.rds")
     if (resume && file.exists(manifest) &&
@@ -414,7 +419,7 @@
       chunks = chunks, preparation_elapsed = preparation_elapsed,
       pca_learning = list(
         rank = rank, n_per_cell = n_per_cell,
-        seed = as.integer(seed), q = basis$rank, training = training,
+        seed = seed, q = basis$rank, training = training,
         checkpoint = list(path = path, basis_resumed = basis_resumed,
                           resumed_genes = resumed_genes,
                           projected_genes = length(missing)),

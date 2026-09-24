@@ -100,9 +100,12 @@ test_that("inlaST.test validates the split argument set", {
                "liu_approximation")
   expect_error(inlaST.test(fit, pairs = pair, conditional_precision = "float32"),
                "conditional_precision")
-  expect_error(mgcvST.test(fit, pairs = pair, pairwise_method = "liu"),
+  expect_error(mgcvST.test(fit, pairs = pair, pairwise_method = "score_liu"),
                "Unused arguments")
-  exact <- inlaST.test(fit, pairs = pair, liu_approximation = "exact")
+  expect_error(inlaST.test(fit, pairs = pair, pairwise_method = "liu"),
+               "score_liu")
+  exact <- inlaST.test(fit, pairs = pair, pairwise_method = "score_liu",
+                       liu_approximation = "exact")
   direct <- mgcvST.test(fit, pairs = pair)
   expect_identical(exact$results, direct$results)
 })

@@ -298,22 +298,24 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   expect_identical(test()$results, first$results)
 })
 
-test_that("PCAlearning checks rank, n_per_cell and trace-table memory", {
+test_that("PCAlearning checks rank, n_per_cell, seed and trace-table memory", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   G <- length(fit$feature_id)
   basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
-  run <- function(rank, n_per_cell = 3L) {
+  run <- function(rank, n_per_cell = 3L, seed = 1L) {
     index <- t(combn(G, 2L))
     mgcvST:::.mgcvst_pair_pcalearning(
       fit, index, seq_len(nrow(index)), 2L, 1000L, FALSE, basis, rank = rank,
-      n_per_cell = n_per_cell, seed = 1L
+      n_per_cell = n_per_cell, seed = seed
     )
   }
   expect_error(run(G + 1L), sprintf("achievable PCAlearning rank %d (%d training", G, G), fixed = TRUE)
   expect_error(run(0L), "rank must be one positive integer")
   expect_error(run(2.5), "rank must be one positive integer")
   expect_error(run(3L, n_per_cell = 0L), "n_per_cell must be one positive integer")
+  expect_error(run(3L, seed = -1L), "seed must be one non-negative integer")
+  expect_error(run(3L, seed = 1.5), "seed must be one non-negative integer")
   # q = 1404, r = 10: level-4 stage, about 5.1 GiB (5.4 GB peak measured).
   expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1404, 10) / 1024^3, 5.09, tolerance = 1e-2)
   local_mocked_bindings(.mgcvst_memory_probe = function(...) list(available = 1e3),

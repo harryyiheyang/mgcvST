@@ -5,7 +5,7 @@
   no longer takes `approximate`, `rank`, `n_per_cell`, `seed`,
   `pairwise_method`, `conditional_precision` or `cache_bytes`.
   `inlaST.test()` calls the internal score engines directly and takes
-  `pairwise_method = c("liu", "conditional_cauchy")`,
+  `pairwise_method = c("score_liu", "conditional_cauchy")`,
   `liu_approximation = c("exact", "pca_learning")`, `rank`, `n_per_cell`,
   `seed`, `checkpoint_dir`, `resume` and `conditional_precision`. The former
   argument names are not kept as aliases.

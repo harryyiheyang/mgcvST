@@ -8,12 +8,12 @@
 #' pair-stage timings of the Liu methods are stored in `timing$inla_projection`.
 #'
 #' @param fitinlaST An object returned by [inlaST.estimate()].
-#' @param pairwise_method `"liu"` tests the squared cross-gene score with Liu
+#' @param pairwise_method `"score_liu"` tests the squared cross-gene score with Liu
 #'   moment matching. `"conditional_cauchy"` evaluates the two
 #'   conditional-normal directions and combines their p-values by the
 #'   equal-weight Cauchy rule; see Details. With `pairs = NULL`, the
 #'   conditional method tests every available gene pair.
-#' @param liu_approximation Trace evaluation for `pairwise_method = "liu"`.
+#' @param liu_approximation Trace evaluation for `pairwise_method = "score_liu"`.
 #'   `"exact"` computes the four Liu trace moments in the reduced
 #'   observation-kernel coordinates. `"pca_learning"` projects every score
 #'   covariance `H_j` onto a rank-`rank` orthonormal basis learned from
@@ -22,8 +22,8 @@
 #'   `liu_approximation = "pca_learning"`.
 #' @param n_per_cell Training genes drawn per stratification cell by
 #'   `liu_approximation = "pca_learning"`.
-#' @param seed Integer seed for PCAlearning training-gene sampling; the caller's
-#'   random-number state is restored.
+#' @param seed Non-negative integer seed for PCAlearning training-gene sampling;
+#'   the caller's random-number state is restored.
 #' @param checkpoint_dir Optional checkpoint directory. The conditional method
 #'   saves per-gene variance rows; the Liu methods save reusable score states
 #'   and pair batches. With `NULL`, temporary storage is removed on exit.
@@ -92,7 +92,7 @@
 #' @export
 inlaST.test <- function(
     fitinlaST,
-    pairwise_method = c("liu", "conditional_cauchy"),
+    pairwise_method = c("score_liu", "conditional_cauchy"),
     liu_approximation = c("exact", "pca_learning"),
     rank = 10L, n_per_cell = 3L, seed = 1L,
     checkpoint_dir = NULL, resume = TRUE,
@@ -106,7 +106,7 @@ inlaST.test <- function(
   conditional_precision <- match.arg(conditional_precision)
   if (pairwise_method == "conditional_cauchy") {
     if (liu_approximation != "exact") {
-      stop("liu_approximation requires pairwise_method = 'liu'.")
+      stop("liu_approximation requires pairwise_method = 'score_liu'.")
     }
     if (!is.null(highlight)) {
       stop("highlight is unavailable for conditional pairwise results.")

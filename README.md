@@ -186,7 +186,7 @@ need not satisfy `P %*% 1 = 0` numerically. This does not make the
 conditioned kernel equivalent to either the raw kernel or a separately
 formed `C %*% G_raw %*% C`.
 
-`inlaST.test()` selects the pair method with `pairwise_method` (`"liu"`
+`inlaST.test()` selects the pair method with `pairwise_method` (`"score_liu"`
 or `"conditional_cauchy"`) and, for Liu pairs, the trace evaluation with
 `liu_approximation`. For large pair universes,
 `inlaST.test(..., liu_approximation = "pca_learning")`

@@ -6,7 +6,7 @@
 \usage{
 inlaST.test(
   fitinlaST,
-  pairwise_method = c("liu", "conditional_cauchy"),
+  pairwise_method = c("score_liu", "conditional_cauchy"),
   liu_approximation = c("exact", "pca_learning"),
   rank = 10L,
   n_per_cell = 3L,
@@ -30,13 +30,13 @@ inlaST.test(
 \arguments{
 \item{fitinlaST}{An object returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}.}
 
-\item{pairwise_method}{\code{"liu"} tests the squared cross-gene score with Liu
+\item{pairwise_method}{\code{"score_liu"} tests the squared cross-gene score with Liu
 moment matching. \code{"conditional_cauchy"} evaluates the two
 conditional-normal directions and combines their p-values by the
 equal-weight Cauchy rule; see Details. With \code{pairs = NULL}, the
 conditional method tests every available gene pair.}
 
-\item{liu_approximation}{Trace evaluation for \code{pairwise_method = "liu"}.
+\item{liu_approximation}{Trace evaluation for \code{pairwise_method = "score_liu"}.
 \code{"exact"} computes the four Liu trace moments in the reduced
 observation-kernel coordinates. \code{"pca_learning"} projects every score
 covariance \code{H_j} onto a rank-\code{rank} orthonormal basis learned from
@@ -48,8 +48,8 @@ stratified training genes; see Details.}
 \item{n_per_cell}{Training genes drawn per stratification cell by
 \code{liu_approximation = "pca_learning"}.}
 
-\item{seed}{Integer seed for PCAlearning training-gene sampling; the caller's
-random-number state is restored.}
+\item{seed}{Non-negative integer seed for PCAlearning training-gene sampling;
+the caller's random-number state is restored.}
 
 \item{checkpoint_dir}{Optional checkpoint directory. The conditional method
 saves per-gene variance rows; the Liu methods save reusable score states
