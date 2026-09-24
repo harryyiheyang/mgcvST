@@ -1,4 +1,5 @@
 ^\.git$
+^tests/benchmark$
 ^\.learnings$
 ^\.test-library$
 ^\.final-library$

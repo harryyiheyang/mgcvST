@@ -72,7 +72,8 @@ DenseFeatureResult one_feature(const arma::mat& T0,
                                const arma::vec& error,
                                double scale,
                                const arma::mat& X,
-                               const arma::mat* Vp) {
+                               const arma::mat* Vp,
+                               bool score_only) {
   DenseFeatureResult out;
   const arma::uword n = T0.n_rows;
   const arma::uword q = T0.n_cols;
@@ -104,6 +105,17 @@ DenseFeatureResult one_feature(const arma::mat& T0,
     WX = apply_w(Dinv_vec, F, DinvF, M, X);
   }
 
+  if (score_only) {
+    arma::mat We = apply_w(Dinv_vec, F, DinvF, M, error);
+    arma::mat Pe = apply_projection(We, WX, X.n_cols ? X.t() * We : arma::mat(), X, Vp);
+    out.a = F.t() * Pe;
+    if (!finite_vector(out.a)) {
+      out.error = "Dense score result contains non-finite values.";
+      out.a.reset();
+    }
+    return out;
+  }
+
   arma::mat rhs(n, q + 1L, arma::fill::zeros);
   rhs.cols(0L, q - 1L) = F;
   rhs.col(q) = error;
@@ -132,7 +144,8 @@ Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0,
                                         const arma::vec& scale,
                                         const arma::mat& X,
                                         const Rcpp::List& nuisance,
-                                        int threads = 1) {
+                                        int threads = 1,
+                                        bool score_only = false) {
   if (T0.n_rows == 0L || T0.n_cols == 0L) Rcpp::stop("T0 must be non-empty.");
   if (!finite_matrix(T0)) Rcpp::stop("T0 must be finite.");
   if (variance.n_rows != T0.n_rows || error.n_rows != T0.n_rows ||
@@ -189,7 +202,7 @@ Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0,
       arma::vec v = variance.col(jj);
       arma::vec e = error.col(jj);
       results[jj] = one_feature(T0, v, e, scale(jj), X,
-                                fixed_projection ? NULL : &vp[jj]);
+                                fixed_projection ? NULL : &vp[jj], score_only);
     } catch (const std::exception& ex) {
       results[jj].error = ex.what();
     } catch (...) {
@@ -204,9 +217,10 @@ Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0,
     } else {
       Rcpp::NumericVector avec(results[j].a.n_elem);
       std::copy(results[j].a.begin(), results[j].a.end(), avec.begin());
-      ans[j] = Rcpp::List::create(Rcpp::Named("a") = avec,
-                                   Rcpp::Named("H") = results[j].H,
-                                   Rcpp::Named("error") = R_NilValue);
+      ans[j] = Rcpp::List::create(
+        Rcpp::Named("a") = avec,
+        Rcpp::Named("H") = score_only ? SEXP(R_NilValue) : Rcpp::wrap(results[j].H),
+        Rcpp::Named("error") = R_NilValue);
     }
   }
   return ans;

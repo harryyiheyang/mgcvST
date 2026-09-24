@@ -74,96 +74,69 @@
   blocks
 }
 
-# Score vectors only: one Woodbury solve for the fixed design and error.
-.mgcvst_wgcna_score_vector <- function(T, F, variance, X, error) {
-  D <- 1 / variance
-  DT <- D * T
-  K <- diag(ncol(T)) + .magic_mm(T, DT, transA = TRUE)
-  Y <- cbind(X, error)
-  DY <- D * Y
-  U <- DY - .magic_mm(DT, .magic_solve(K, .magic_mm(T, DY, transA = TRUE)))
-  Pe <- U[, ncol(U), drop = FALSE]
-  if (ncol(X)) {
-    VX <- U[, seq_len(ncol(X)), drop = FALSE]
-    H <- CppMatrix::matrixGeneralizedInverse(.magic_mm(X, VX, transA = TRUE))
-    Pe <- Pe - .magic_mm(VX, .magic_mm(H, .magic_mm(X, Pe, transA = TRUE)))
-  }
-  as.numeric(.magic_mm(F, Pe, transA = TRUE))
-}
-
-# Reuse shared SPDE factors; retain all nuisance smoothers in each fitted V.
+# Score-only native kernels for both mgcv backends. No per-gene R loop and no
+# eigendecomposition fallback: every feature's score vector `a` is built by
+# the C++ dense batch kernel with score_only = TRUE (no H, no pair-calibration
+# matrices), in batches of 256 genes.
 .mgcvst_wgcna_scores <- function(fit, used, verbose, threads = 1L) {
   group <- "global"
-  if (.mgcvst_inla_downstream(fit)) {
-    .mgcvst_inla_require_sparse(fit)
-    return(.mgcvst_inla_wgcna_scores(fit, used, threads, verbose))
-  }
   legacy <- is.null(fit$geometry$smooth)
+  native <- NULL
+  T0 <- field_scale <- NULL
   if (legacy) {
-    Q <- fit$geometry$Q
-    if (isTRUE(fit$geometry$score_precision_psd)) {
-      Q <- as.matrix(Q)
-      E <- CppMatrix::matrixEigen((Q + t(Q)) / 2)
-      d <- as.numeric(E$values)
-      tol <- sqrt(.Machine$double.eps) * max(1, max(abs(d)))
-      if (min(d) < -tol) {
-        stop("The shared score precision is not positive semidefinite.")
-      }
-      keep <- d > tol
-      if (!any(keep)) {
-        stop("The shared score precision has no positive eigenvalues.")
-      }
-      V <- as.matrix(E$vectors[, keep, drop = FALSE])
-      base <- .magic_mm(
-        fit$geometry$B,
-        .magic_mm(sweep(V, 2L, 1 / sqrt(d[keep]), "*"), V, transB = TRUE)
-      )
-    } else {
-      base <- .mgcvst_spde_factor(fit$geometry$B, Q, 1)
-    }
-    scale <- .mgcvst_field_scale(fit)
+    T0 <- .mgcvst_legacy_shared_score_factor(fit$geometry)
+    field_scale <- .mgcvst_field_scale(fit)
+    width <- stats::setNames(ncol(T0), "global")
   } else {
     fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
+    native <- .mgcvst_model_dense_preparation(fit, used)
+    if (is.null(native)) {
+      stop("mgcvST.wgcna() requires a single marked-SPDE model with nuisance covariance.")
+    }
+    width <- native$width
   }
-  A <- NULL
-  width <- NULL
-  rows <- NULL
-  for (k in seq_along(used)) {
-    i <- used[k]
+  A <- matrix(NA_real_, unname(width), length(used),
+             dimnames = list(NULL, fit$feature_id[used]))
+  batch_size <- 256L
+  first <- 1L
+  while (first <= length(used)) {
+    ids <- used[first:min(length(used), first + batch_size - 1L)]
+    cols <- first:min(length(used), first + batch_size - 1L)
     if (legacy) {
-      T <- F <- sqrt(scale[i]) * base
-      a <- .mgcvst_wgcna_score_vector(
-        T, F, fit$working_variance[, i], fit$geometry$X,
-        fit$working_error[, i]
+      z <- mgcvst_dense_score_batch_cpp(
+        T0, fit$working_variance[, ids, drop = FALSE],
+        fit$working_error[, ids, drop = FALSE], field_scale[ids],
+        fit$geometry$X, list(), threads, score_only = TRUE
       )
-      widths <- stats::setNames(ncol(F), "global")
     } else {
-      z <- .mgcvst_model_operator(fit, i)
-      target <- z$target
-      F <- do.call(cbind, target)
-      Pe <- .mgcvst_model_apply_P(z$operator, fit$working_error[, i])
-      a <- as.numeric(.magic_mm(F, matrix(Pe, ncol = 1L), transA = TRUE))
-      widths <- vapply(target, ncol, integer(1L))
-    }
-    if (is.null(width)) {
-      width <- widths
-      if (is.null(names(width)) || anyNA(names(width)) ||
-          any(!nzchar(names(width))) || anyDuplicated(names(width))) {
-        stop("The fit does not have valid named score components.")
+      phi <- fit$dispersion[ids]
+      sp <- fit$smoothing_parameters[ids, , drop = FALSE]
+      bad <- !is.finite(phi) | phi <= 0 |
+        rowSums(!is.finite(sp) | sp <= 0) > 0L
+      z <- mgcvst_dense_score_batch_cpp(
+        native$T0, fit$working_variance[, ids, drop = FALSE],
+        fit$working_error[, ids, drop = FALSE],
+        phi / sp[, native$sp_index], native$X,
+        fit$nuisance_covariance[ids], threads, score_only = TRUE
+      )
+      for (k in seq_along(ids)) {
+        if (bad[k]) z[[k]] <- list(error =
+          "The feature has invalid dispersion or smoothing parameters.")
       }
-      end <- cumsum(width)
-      start <- end - width + 1L
-      rows <- unlist(lapply(group, function(x) seq.int(start[[x]], end[[x]])),
-                     use.names = FALSE)
-      A <- matrix(NA_real_, length(rows), length(used),
-                  dimnames = list(NULL, fit$feature_id[used]))
-    } else if (!identical(widths, width)) {
-      stop("Selected features do not share aligned score-coordinate groups.")
     }
-    A[, k] <- a[rows]
-    if (verbose && (k %% 100L == 0L || k == length(used))) {
-      message("Constructed scores for ", k, " of ", length(used), " features.")
+    for (k in seq_along(ids)) {
+      if (!is.null(z[[k]]$error)) {
+        stop("Feature '", fit$feature_id[ids[k]], "' failed WGCNA score ",
+             "construction: ", z[[k]]$error)
+      }
+      A[, cols[k]] <- z[[k]]$a
     }
+    if (verbose && (min(length(used), first + batch_size - 1L) %% 256L == 0L ||
+        first + batch_size - 1L >= length(used))) {
+      message("Constructed scores for ", min(length(used), first + batch_size - 1L),
+              " of ", length(used), " features.")
+    }
+    first <- first + length(ids)
   }
   if (any(!is.finite(A))) {
     stop("The selected score coordinates contain non-finite values.")
@@ -328,15 +301,10 @@
 #' The score coordinates of the single spatial component are divided by their
 #' coordinate count, as in the score covariance definition.
 #'
-#' An [inlaST.estimate()] fit is accepted here and **dispatched to the sparse
-#' INLA score kernel**, which is what [inlaST.wgcna()] calls directly. The two
-#' entry points therefore return the same result for the same INLA fit;
-#' `mgcvST.wgcna()` stays accepting so existing INLA code keeps working, and
-#' [inlaST.wgcna()] exists so INLA callers can name the sparse path explicitly
-#' and get INLA-specific argument checking.
+#' An [inlaST.estimate()] fit is not accepted here; use [inlaST.wgcna()] for
+#' sparse INLA fits.
 #'
-#' @param fitmgcvST A compact fit returned by [mgcvST.estimate()] or
-#'   [inlaST.estimate()].
+#' @param fitmgcvST A compact fit returned by [mgcvST.estimate()].
 #' @param indices Required gene IDs, integer positions in `fitmgcvST$feature_id`,
 #'   or a named list of such vectors. Each block must contain at least two distinct
 #'   genes. A vector defines the block named `selected`. Gene order is preserved.
@@ -347,15 +315,15 @@
 #'   Blocks smaller than `minClusterSize` retain their matrices and receive
 #'   grey (zero) labels, without changing the requested module size.
 #' @param verbose Whether to display compact progress messages.
-#' @param threads Positive OpenMP thread count used by sparse INLA score
-#'   construction. It has no effect on mgcv score construction.
+#' @param threads Positive OpenMP thread count controlling score construction
+#'   for both backends.
 #' @return An `mgcvST_wgcna` object with `modules` (component, feature ID, integer
 #'   module, color), named `networks` (feature IDs, covariance, correlation,
 #'   adjacency, TOM, tree, labels, modules, coordinate count `q`, and status),
 #'   `score` (aligned `A`, group names and widths), `settings`, and `timing`.
 #'   A zero module label means unassigned (grey). Module labels are local to
 #'   each input block. No biological annotations are inferred automatically.
-#' @seealso [inlaST.wgcna()] for the explicit sparse INLA entry point.
+#' @seealso [inlaST.wgcna()] for sparse INLA fits.
 #' @examples
 #' \dontrun{
 #' W <- mgcvST.wgcna(fit, indices = genes)
@@ -369,6 +337,9 @@ mgcvST.wgcna <- function(fitmgcvST, indices,
                          wgcna.para = NULL, verbose = FALSE, threads = 1L) {
   started <- proc.time()[["elapsed"]]
   call <- match.call()
+  if (.mgcvst_inla_downstream(fitmgcvST)) {
+    stop("mgcvST.wgcna() does not accept inlaST.estimate() fits; use inlaST.wgcna().")
+  }
   prepared <- .mgcvst_wgcna_prepare(fitmgcvST, indices, wgcna.para, verbose,
                                     threads, "mgcvST.wgcna")
   t0 <- proc.time()[["elapsed"]]

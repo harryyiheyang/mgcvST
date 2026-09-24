@@ -1,3 +1,28 @@
+# mgcvST 0.0.1.9016
+
+* `.mgcvst_pair_pipeline()` and the `calibration = "liu"` branch of
+  `.mgcvst_test_model()` build their result columns with preallocated vectors
+  written by index instead of quadratic row-wise `data.frame` assignment; the
+  numeric results are unchanged.
+* Liu-calibrated pairs are evaluated by a single fused, double-precision C++
+  kernel (`mgcvst_pair_liu_cpp`): score, the four Liu trace moments, and the
+  log-space Liu tail (`log_p_two_sided`, `log_p_positive`, `log_p_negative`)
+  in one call per pair chunk, with full-rank `H`. `mgcvST.test()` reports the
+  new `log_p_*` columns and adjusts on the log scale, so tails below the
+  double range keep their BH/BY decisions.
+* `mgcvST.test()`/`mgcvST.wgcna()` no longer accept `inlaST.estimate()` fits;
+  use `inlaST.test()`/`inlaST.wgcna()`. The now-unreachable exact fp16
+  dispatch inside `.mgcvst_test_model()` and the INLA dispatch inside
+  `.mgcvst_wgcna_scores()` were removed. The 0.995 sparse-INLA projection
+  coverage is now the single constant `.inlast_projection_coverage`.
+* `inlaST.wgcna()` builds its score matrix from the same observation-kernel
+  coordinate basis `inlaST.test()` uses, normalized by the basis rank, instead
+  of the raw sparse score vectors normalized by `m - 1`.
+* `mgcvST.wgcna()`'s mgcv score construction uses a score-only native C++
+  kernel (`mgcvst_dense_score_batch_cpp(..., score_only = TRUE)`, batches of
+  256 genes) for both the legacy SPDE and model backends; the per-gene R
+  fallback and eigendecomposition path were removed.
+
 # mgcvST 0.0.1.9015
 
 * The public test entry points are split. `mgcvST.test()` keeps the mgcv

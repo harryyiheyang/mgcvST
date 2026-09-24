@@ -16,8 +16,7 @@ mgcvST.wgcna(
 \method{print}{mgcvST_wgcna}(x, ...)
 }
 \arguments{
-\item{fitmgcvST}{A compact fit returned by \code{\link[=mgcvST.estimate]{mgcvST.estimate()}} or
-\code{\link[=inlaST.estimate]{inlaST.estimate()}}.}
+\item{fitmgcvST}{A compact fit returned by \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}.}
 
 \item{indices}{Required gene IDs, integer positions in \code{fitmgcvST$feature_id},
 or a named list of such vectors. Each block must contain at least two distinct
@@ -32,8 +31,8 @@ grey (zero) labels, without changing the requested module size.}
 
 \item{verbose}{Whether to display compact progress messages.}
 
-\item{threads}{Positive OpenMP thread count used by sparse INLA score
-construction. It has no effect on mgcv score construction.}
+\item{threads}{Positive OpenMP thread count controlling score construction
+for both backends.}
 
 \item{x}{An \code{mgcvST_wgcna} result.}
 
@@ -66,12 +65,8 @@ projection is applied.
 The score coordinates of the single spatial component are divided by their
 coordinate count, as in the score covariance definition.
 
-An \code{\link[=inlaST.estimate]{inlaST.estimate()}} fit is accepted here and \strong{dispatched to the sparse
-INLA score kernel}, which is what \code{\link[=inlaST.wgcna]{inlaST.wgcna()}} calls directly. The two
-entry points therefore return the same result for the same INLA fit;
-\code{mgcvST.wgcna()} stays accepting so existing INLA code keeps working, and
-\code{\link[=inlaST.wgcna]{inlaST.wgcna()}} exists so INLA callers can name the sparse path explicitly
-and get INLA-specific argument checking.
+An \code{\link[=inlaST.estimate]{inlaST.estimate()}} fit is not accepted here; use \code{\link[=inlaST.wgcna]{inlaST.wgcna()}} for
+sparse INLA fits.
 }
 \examples{
 \dontrun{
@@ -83,5 +78,5 @@ W$networks$block1$covariance
 }
 }
 \seealso{
-\code{\link[=inlaST.wgcna]{inlaST.wgcna()}} for the explicit sparse INLA entry point.
+\code{\link[=inlaST.wgcna]{inlaST.wgcna()}} for sparse INLA fits.
 }

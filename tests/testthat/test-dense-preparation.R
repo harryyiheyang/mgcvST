@@ -60,6 +60,37 @@ test_that("dense preparation isolates failed features and preserves thread resul
     T0, V[-1, ], E, scale, X, vp, 1L), "dimensions")
 })
 
+test_that("score_only batches match the full a vector for both nuisance modes", {
+  set.seed(916)
+  n <- 18L
+  q <- 4L
+  T0 <- matrix(rnorm(n * q), n, q)
+  E <- matrix(rnorm(n * 3L), n, 3L)
+  V <- matrix(runif(n * 3L, 0.4, 2), n, 3L)
+  scale <- c(0.2, 1, 3)
+  X <- cbind(1, seq_len(n) / n)
+  full <- mgcvST:::mgcvst_dense_score_batch_cpp(T0, V, E, scale, X, list(), 1L)
+  only <- mgcvST:::mgcvst_dense_score_batch_cpp(
+    T0, V, E, scale, X, list(), 1L, score_only = TRUE
+  )
+  for (i in seq_len(ncol(E))) {
+    expect_null(only[[i]]$error)
+    expect_null(only[[i]]$H)
+    expect_equal(only[[i]]$a, full[[i]]$a, tolerance = 1e-12)
+  }
+
+  vp <- list(diag(c(0.03, 0.1)), diag(c(0.01, 0.05)), diag(c(0.1, 0.02)))
+  full2 <- mgcvST:::mgcvst_dense_score_batch_cpp(T0, V, E, scale, X, vp, 1L)
+  only2 <- mgcvST:::mgcvst_dense_score_batch_cpp(
+    T0, V, E, scale, X, vp, 1L, score_only = TRUE
+  )
+  for (i in seq_len(ncol(E))) {
+    expect_null(only2[[i]]$error)
+    expect_null(only2[[i]]$H)
+    expect_equal(only2[[i]]$a, full2[[i]]$a, tolerance = 1e-12)
+  }
+})
+
 test_that("model preparation keeps the conditional nuisance covariance", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,

@@ -65,6 +65,26 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   expect_identical(W$networks$selected$feature_id, ids)
 })
 
+test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
+  skip_if_not_installed("WGCNA")
+  skip_if_not_installed("dynamicTreeCut")
+  skip_if_not_installed("fastcluster")
+
+  f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
+  fit <- mgcvST.estimate(
+    f$Y, f$model, diagnostics = FALSE,
+    BPPARAM = BiocParallel::SerialParam()
+  )
+  ids <- fit$feature_id[c(3L, 1L, 2L)]
+  W <- mgcvST.wgcna(fit, ids)
+  pairs <- t(utils::combn(ids, 2L))
+  T <- mgcvST.test(fit, pairs = pairs, calibration = "liu")
+  i <- match(T$results$feature1, colnames(W$score$A))
+  j <- match(T$results$feature2, colnames(W$score$A))
+  G <- crossprod(W$score$A)
+  expect_equal(T$results$signed_score, G[cbind(i, j)], tolerance = 1e-10)
+})
+
 test_that("WGCNA preserves overlapping block order", {
   skip_if_not_installed("WGCNA")
   skip_if_not_installed("dynamicTreeCut")
@@ -163,5 +183,57 @@ test_that("inlaST.wgcna rejects an mgcv fit and names the right entry point", {
   expect_error(
     inlaST.wgcna(fit, rownames(f$Y)),
     "requires a fit returned by inlaST.estimate"
+  )
+})
+
+test_that("INLA WGCNA scores are the test's projected observation-kernel scores", {
+  skip_on_cran()
+  skip_if_not_installed("INLA")
+  skip_if_not_installed("geometry")
+  set.seed(1731L)
+  n <- 60L
+  vertices <- as.matrix(expand.grid(
+    x = seq(0, 1, length.out = 5L), y = seq(0, 1, length.out = 5L)
+  ))
+  mesh <- list(loc = vertices, graph = list(tv = geometry::delaunayn(vertices)))
+  data <- data.frame(x = runif(n, 0.02, 0.98), y = runif(n, 0.02, 0.98),
+                     z = seq(-1, 1, length.out = n))
+  basis <- spde_basis(mesh, as.matrix(data[c("x", "y")]), kappa = 1.2,
+                      project_intercept = TRUE)
+  eta <- 0.3 + 0.2 * data$z + 0.15 * sin(2 * pi * data$x)
+  Y <- rbind(
+    a = eta + rnorm(n, sd = 0.3), b = eta + rnorm(n, sd = 0.3),
+    c = eta + rnorm(n, sd = 0.3), d = eta + rnorm(n, sd = 0.3)
+  )
+  model <- inlaST.set(response ~ z, data, basis, family = gaussian())
+  fit <- inlaST.estimate(
+    Y, model, BPPARAM = BiocParallel::SerialParam(),
+    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09)
+  )
+  ids <- rownames(Y)
+  used <- match(ids, fit$feature_id)
+
+  W <- inlaST.wgcna(fit, ids)
+  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
+  basis_r <- mgcvST:::.inlast_sparse_observation_basis(prepared)
+  A <- crossprod(basis_r$coordinate, fit$score_a[, used, drop = FALSE])
+  dimnames(A) <- list(NULL, ids)
+  expect_equal(W$score$A, A, tolerance = 1e-12)
+
+  pairs <- t(utils::combn(ids, 2L))
+  T <- inlaST.test(fit, pairs = pairs, calibration = "liu")
+  i <- match(fit$feature_id[T$result$i], ids)
+  j <- match(fit$feature_id[T$result$j], ids)
+  expect_equal(T$result$score,
+               unname(colSums(A[, i, drop = FALSE] * A[, j, drop = FALSE])),
+               tolerance = 1e-10)
+
+  expect_error(
+    mgcvST.test(fit),
+    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
+  )
+  expect_error(
+    mgcvST.wgcna(fit, ids),
+    "mgcvST.wgcna\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.wgcna\\(\\)."
   )
 })
