@@ -1,5 +1,15 @@
 # mgcvST 0.0.1.9015
 
+* `inlaST.test()` gains `approximate = "PCAlearning"` for sparse INLA fits.
+  Score covariances are projected onto a rank-`rank` basis learned from
+  stratified training genes (`n_per_cell`, `seed`), and the four Liu trace
+  moments are obtained by contraction with trace tables computed once. Liu
+  log p-values are returned in `log_p_two_sided`, `log_p_positive` and
+  `log_p_negative`, and BY adjustment is applied on the log scale. The result
+  element `pca_learning` stores the training genes, basis rotation,
+  coefficients, per-gene residuals and stage timings. `approximate` now takes
+  `"none"`, `"PCAlearning"` or `"landmark"`; logical values keep their
+  meaning (`FALSE` is `"none"`, `TRUE` is `"landmark"`).
 * Liu pair tests prepare each required gene once and evaluate native pair
   batches. Adaptive caches use available system, cgroup and Slurm memory;
   `cache_bytes` sets an explicit resident-state ceiling. Gene blocks reduce

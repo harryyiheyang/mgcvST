@@ -20,7 +20,10 @@ inlaST.test(
   cache_bytes = NULL,
   checkpoint_dir = NULL,
   resume = TRUE,
-  approximate = FALSE,
+  approximate = c("none", "PCAlearning", "landmark"),
+  rank = 10L,
+  n_per_cell = 3L,
+  seed = 1L,
   n_ref = 100L,
   ref_method = c("random", "score", "hyper"),
   ref_seed = 1L,
@@ -72,12 +75,23 @@ pair batches. With \code{NULL}, temporary storage is removed on exit.}
 
 \item{resume}{Reuse compatible completed checkpoint entries.}
 
-\item{approximate}{Use real-gene landmark CUR trace reconstruction with
-Liu calibration. Landmark-to-feature traces use float32 matrix products
-with double accumulation and storage; landmark block \code{W} uses double.
-Approximate p-values remain approximate throughout the test and are used
-for multiple-testing adjustment. The default \code{FALSE} computes exact traces
-in the existing common coordinates.}
+\item{approximate}{Pair trace evaluation for Liu calibration. \code{"none"}
+computes exact traces in the reduced observation-kernel coordinates.
+\code{"PCAlearning"} projects every score covariance \code{H_j} onto a rank-\code{rank}
+orthonormal basis learned from stratified training genes and obtains the
+four Liu trace moments by contraction of precomputed trace tables; see
+Details. \code{"landmark"} uses real-gene landmark CUR trace reconstruction
+(arguments \code{n_ref}, \code{ref_method}, \code{ref_seed}, \code{ref_tol},
+\code{diagnostic_pairs}). Logical values are accepted for compatibility:
+\code{FALSE} is \code{"none"} and \code{TRUE} is \code{"landmark"}.}
+
+\item{rank}{Number of basis matrices retained by \code{approximate = "PCAlearning"}.}
+
+\item{n_per_cell}{Training genes drawn per stratification cell by
+\code{approximate = "PCAlearning"}.}
+
+\item{seed}{Integer seed for PCAlearning training-gene sampling; the caller's
+random-number state is restored.}
 
 \item{n_ref}{Maximum number of real genes used as landmarks in approximate
 mode.}
@@ -118,4 +132,28 @@ For sparse INLA fits, Liu uses a constrained observation-kernel basis that
 retains at least 0.995 of its eigenvalue sum. This is a pairwise-test
 approximation; the fitted sparse field is unchanged. Basis and pair-stage
 timings are stored in \code{timing$inla_projection}.
+}
+\details{
+With \code{approximate = "PCAlearning"}, each gene receives the
+variance scales \code{sigma_g2 = dispersion / lambda} and
+\code{sigma_e2 = 1 + mean(mu) / theta} for negative-binomial genes (1 for
+Poisson genes), with \code{mu} recovered from the working variance. Genes are
+stratified into 10 quantile bins of \code{log(sigma_g2)} crossed with one
+Poisson bin and 9 quantile bins of \code{log(sigma_e2)}, and \code{n_per_cell} genes
+are drawn per cell, with the quota of sparse cells reallocated
+proportionally to cell size. The training matrices
+\verb{tau_j H_j}, \code{tau_j = sigma_e2 / sigma_g2}, define an orthonormal basis \code{B}
+through the eigen decomposition of their Gram matrix. Every tested gene is
+summarized by its basis coefficients \code{c_j}, and its residual
+\verb{e_j^2 = ||H_j||_F^2 - ||c_j||^2} is reported. Pair traces
+\verb{tr((H_i H_j)^s)}, \verb{s = 1, ..., 4}, are those of the projected matrices.
+Liu p-values are computed on the log scale and returned in the result
+columns \code{log_p_two_sided}, \code{log_p_positive} and \code{log_p_negative}. With
+\code{method = "BY"}, the step-up adjustment is applied to these log p-values,
+so decisions remain defined when p-values underflow; \code{information} and
+\code{effective_rank} are not computed on this path. The result element
+\code{pca_learning} stores the training genes, the Gram eigenvalues and
+rotation defining \code{B}, the coefficients \code{c_j}, the per-gene table with
+\verb{e2_relative = e_j^2 / ||H_j||_F^2}, and the stage timings, including the
+trace-table precomputation.
 }

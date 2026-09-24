@@ -4,6 +4,7 @@
 #include <omp.h>
 #endif
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -154,6 +155,63 @@ struct ReconstructionUnit {
   double tau;
   double constraint_norm;
 };
+
+std::vector<ReconstructionUnit> parse_units(const Rcpp::List& units, int m) {
+  const int features = units.size();
+  std::vector<ReconstructionUnit> parsed;
+  parsed.reserve(features);
+  for (int f = 0; f < features; ++f) {
+    const Rcpp::List unit = units[f];
+    ReconstructionUnit value;
+    value.a = Rcpp::as<Vec>(unit["a"]);
+    value.K = Rcpp::as<SpMat>(unit["K"]);
+    value.U = Rcpp::as<Mat>(unit["U"]);
+    value.Vp = Rcpp::as<Mat>(unit["expected_vp"]);
+    value.H_L = Rcpp::as<SpMat>(unit["H_L"]);
+    value.H_D = Rcpp::as<Vec>(unit["H_D"]);
+    value.H_perm = Rcpp::as<Eigen::VectorXi>(unit["H_perm"]);
+    value.hinv_g = Rcpp::as<Vec>(unit["hinv_g"]);
+    value.hden = Rcpp::as<double>(unit["hden"]);
+    value.tau = Rcpp::as<double>(unit["tau"]);
+    value.constraint_norm = Rcpp::as<double>(unit["constraint_diagnostic"]);
+    if (value.K.rows() != m || value.K.cols() != m ||
+        value.H_L.rows() != m || value.H_L.cols() != m ||
+        value.H_D.size() != m || value.H_perm.size() != m ||
+        value.hinv_g.size() != m || value.a.size() != m ||
+        !std::isfinite(value.tau) || value.tau <= 0 ||
+        !std::isfinite(value.hden) || value.hden <= 0) {
+      Rcpp::stop("A serialized sparse INLA unit is malformed.");
+    }
+    parsed.push_back(std::move(value));
+  }
+  return parsed;
+}
+
+// Reduced curvature C' (K - K S K - U Vp U') C / tau for the physical basis C,
+// built in 32-column blocks and symmetrized.
+Mat reduced_curvature(const ReconstructionUnit& unit,
+                      const Eigen::Map<Eigen::MatrixXd>& basis,
+                      const Vec& constraint) {
+  const int r = basis.cols();
+  const SpMat H_U = unit.H_L.transpose();
+  Mat M = Mat::Zero(r, r);
+  for (int first = 0; first < r; first += 32) {
+    const int width = std::min(32, r - first);
+    Mat V = basis.middleCols(first, width) / std::sqrt(unit.tau);
+    Mat Y = unit.K * V;
+    Mat SY = stored_constrained_solve(
+      unit.H_L, H_U, unit.H_D, unit.H_perm, constraint, Y,
+      unit.hinv_g, unit.hden
+    );
+    Y.noalias() -= unit.K * SY;
+    if (unit.U.cols()) {
+      Y.noalias() -= unit.U * (unit.Vp * (unit.U.transpose() * V));
+    }
+    M.middleCols(first, width) = basis.transpose() * Y /
+      std::sqrt(unit.tau);
+  }
+  return 0.5 * (M + M.transpose());
+}
 
 } // namespace
 
@@ -683,32 +741,8 @@ Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
   }
 
   const int features = units.size();
-  std::vector<ReconstructionUnit> parsed;
-  parsed.reserve(features);
-  for (int f = 0; f < features; ++f) {
-    const Rcpp::List unit = units[f];
-    ReconstructionUnit value;
-    value.a = Rcpp::as<Vec>(unit["a"]);
-    value.K = Rcpp::as<SpMat>(unit["K"]);
-    value.U = Rcpp::as<Mat>(unit["U"]);
-    value.Vp = Rcpp::as<Mat>(unit["expected_vp"]);
-    value.H_L = Rcpp::as<SpMat>(unit["H_L"]);
-    value.H_D = Rcpp::as<Vec>(unit["H_D"]);
-    value.H_perm = Rcpp::as<Eigen::VectorXi>(unit["H_perm"]);
-    value.hinv_g = Rcpp::as<Vec>(unit["hinv_g"]);
-    value.hden = Rcpp::as<double>(unit["hden"]);
-    value.tau = Rcpp::as<double>(unit["tau"]);
-    value.constraint_norm = Rcpp::as<double>(unit["constraint_diagnostic"]);
-    if (value.K.rows() != m || value.K.cols() != m ||
-        value.H_L.rows() != m || value.H_L.cols() != m ||
-        value.H_D.size() != m || value.H_perm.size() != m ||
-        value.hinv_g.size() != m || value.a.size() != m ||
-        !std::isfinite(value.tau) || value.tau <= 0 ||
-        !std::isfinite(value.hden) || value.hden <= 0) {
-      Rcpp::stop("A serialized sparse INLA unit is malformed.");
-    }
-    parsed.push_back(std::move(value));
-  }
+  const std::vector<ReconstructionUnit> parsed = parse_units(units, m);
+  const Vec g = constraint;
   std::vector<FeatureResult> result(features);
   int failed = 0;
 #ifdef _OPENMP
@@ -717,25 +751,8 @@ Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
   for (int f = 0; f < features; ++f) {
     try {
       const ReconstructionUnit& unit = parsed[f];
-      const SpMat H_U = unit.H_L.transpose();
-      Mat M = Mat::Zero(r, r);
-      for (int first = 0; first < r; first += 32) {
-        const int width = std::min(32, r - first);
-        Mat V = basis.middleCols(first, width) / std::sqrt(unit.tau);
-        Mat Y = unit.K * V;
-        Mat SY = stored_constrained_solve(
-          unit.H_L, H_U, unit.H_D, unit.H_perm, constraint, Y,
-          unit.hinv_g, unit.hden
-        );
-        Y.noalias() -= unit.K * SY;
-        if (unit.U.cols()) {
-          Y.noalias() -= unit.U * (unit.Vp * (unit.U.transpose() * V));
-        }
-        M.middleCols(first, width) = basis.transpose() * Y /
-          std::sqrt(unit.tau);
-      }
       result[f].a = coordinate.transpose() * unit.a;
-      result[f].M = 0.5 * (M + M.transpose());
+      result[f].M = reduced_curvature(unit, basis, g);
       result[f].statistic = result[f].a.squaredNorm();
       result[f].Vp = unit.Vp;
       result[f].constraint_norm = unit.constraint_norm;
@@ -766,4 +783,107 @@ Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
   out.attr("coordinate_width") = r;
   out.attr("normalization") = r;
   return out;
+}
+
+// PCAlearning materialization: per feature, the reduced curvature H is formed
+// in a thread-local buffer and reduced to the score coordinates a, the basis
+// coefficients c = <B_k, H>_F, ||H||_F^2 and, for features with pack = TRUE,
+// the float32 weighted-vech copy of H (upper triangle column-major, entry
+// (i, j) at j (j + 1) / 2 + i, off-diagonal weight sqrt(2); the layout of
+// src/pca_learning.cpp). pca_basis is the q (q + 1) / 2 x r weighted-vech basis
+// (NULL: no projection). H itself is never returned.
+// [[Rcpp::export]]
+Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
+    const Rcpp::List& units,
+    const Eigen::MappedSparseMatrix<double>& Q_map,
+    const Eigen::Map<Eigen::VectorXd> constraint,
+    const Eigen::Map<Eigen::MatrixXd> coordinate,
+    const Eigen::Map<Eigen::MatrixXd> basis,
+    Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis,
+    const Rcpp::LogicalVector& pack,
+    int threads = 1,
+    SEXP prepared = R_NilValue) {
+  const SpMat Q = Q_map;
+  const int m = Q.rows();
+  const int q = coordinate.cols();
+  const Eigen::Index L = (Eigen::Index)q * (q + 1) / 2;
+  if (Q.cols() != m || constraint.size() != m || coordinate.rows() != m ||
+      basis.rows() != m || basis.cols() != q) {
+    Rcpp::stop("Q, constraint, coordinate, and basis must align.");
+  }
+  const int features = units.size();
+  Rcpp::NumericMatrix PBr = pca_basis.isNotNull() ? Rcpp::NumericMatrix(pca_basis.get()) : Rcpp::NumericMatrix(L, 0);
+  const Eigen::Map<Mat> PB(PBr.begin(), L, PBr.ncol());
+  const int r = PB.cols();
+#ifndef _OPENMP
+  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
+#endif
+  if (!mgcvst_inla_sparse_prepared_valid_cpp(prepared)) {
+    Rcpp::stop("prepared must be a valid sparse INLA cache.");
+  }
+  Rcpp::XPtr<SparsePrepared> pointer(prepared);
+  const SparsePrepared* cache = pointer.get();
+  if (!cache->valid || cache->Q.rows() != m ||
+      !cache->constraint.isApprox(constraint, 0.0)) {
+    Rcpp::stop("prepared is not aligned with Q and constraint.");
+  }
+  const std::vector<ReconstructionUnit> parsed = parse_units(units, m);
+  const Vec g = constraint;
+  Mat A(q, features), C(features, r);
+  Vec fro2(features), statistic(features);
+  std::vector<std::vector<float> > packed(features);
+  std::vector<std::string> error(features);
+  int failed = 0;
+  const double w = std::sqrt(2.0);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads) reduction(+:failed)
+#endif
+  {
+    Vec h(L);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+    for (int f = 0; f < features; ++f) {
+      try {
+        const ReconstructionUnit& unit = parsed[f];
+        const Mat M = reduced_curvature(unit, basis, g);
+        Eigen::Index p = 0;
+        for (int j = 0; j < q; ++j) {
+          for (int i = 0; i < j; ++i) h[p++] = w * M(i, j);
+          h[p++] = M(j, j);
+        }
+        A.col(f) = coordinate.transpose() * unit.a;
+        statistic[f] = A.col(f).squaredNorm();
+        fro2[f] = h.squaredNorm();
+        if (r) C.row(f) = (PB.transpose() * h).transpose();
+        if (pack[f]) {
+          packed[f].resize(L);
+          for (Eigen::Index k = 0; k < L; ++k) packed[f][k] = (float)h[k];
+        }
+      } catch (const std::exception& e) {
+        error[f] = e.what();
+        A.col(f).setConstant(NA_REAL);
+        C.row(f).setConstant(NA_REAL);
+        fro2[f] = statistic[f] = NA_REAL;
+        failed += 1;
+      }
+    }
+  }
+  Rcpp::List packed_out(features);
+  Rcpp::CharacterVector error_out(features);
+  for (int f = 0; f < features; ++f) {
+    error_out[f] = error[f].empty() ? NA_STRING : Rcpp::String(error[f]);
+    if (!packed[f].empty()) {
+      Rcpp::RawVector x(4 * L);
+      std::memcpy(RAW(x), packed[f].data(), 4 * L);
+      packed_out[f] = x;
+      std::vector<float>().swap(packed[f]);
+    }
+  }
+  return Rcpp::List::create(
+    Rcpp::Named("a") = A, Rcpp::Named("C") = C, Rcpp::Named("fro2") = fro2,
+    Rcpp::Named("statistic") = statistic, Rcpp::Named("packed") = packed_out,
+    Rcpp::Named("error") = error_out, Rcpp::Named("failed") = failed,
+    Rcpp::Named("width") = q
+  );
 }

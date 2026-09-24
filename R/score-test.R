@@ -166,8 +166,18 @@ rkhs_score_calibrate <- function(U, H1, H2,
   )
 }
 
-# Match squared-score moments using trace powers of H1 H2.
-.liu_squared_score_moments <- function(U, A, B, C, D) {
+# Natural-log Liu p-values (columns two_sided, positive, negative) of signed
+# scores U from trace moments t1..t4 = tr((H1 H2)^s); log-space tail.
+.liu_log_p <- function(U, t1, t2, t3, t4, threads = 1L) {
+  n <- max(length(U), length(t1), length(t2), length(t3), length(t4))
+  mgcvst_liu_logp_cpp(rep_len(as.numeric(U), n), rep_len(as.numeric(t1), n),
+                      rep_len(as.numeric(t2), n), rep_len(as.numeric(t3), n),
+                      rep_len(as.numeric(t4), n), as.integer(threads))
+}
+
+# Match squared-score moments using trace powers of H1 H2. p_value and log_p
+# (natural log) come from the log-space Liu kernel shared with PCAlearning.
+.liu_squared_score_moments <- function(U, A, B, C, D, threads = 1L) {
   c1 <- A
   c2 <- A^2 + 3 * B
   c3 <- A^3 + 9 * A * B + 15 * C
@@ -192,9 +202,9 @@ rkhs_score_calibrate <- function(U, H1, H2,
   muX <- df + delta
   sigmaX <- sqrt(2) * a
   x <- tstar * sigmaX + muX
-  p_value <- stats::pchisq(x, df = df, ncp = delta, lower.tail = FALSE)
+  log_p <- as.vector(.liu_log_p(U, A, B, C, D, threads)[, 1L])
   list(
-    p_value = pmin(1, pmax(0, p_value)),
+    p_value = exp(log_p), log_p = log_p,
     c1 = c1, c2 = c2, c3 = c3, c4 = c4,
     skewness_scale = s1, kurtosis_scale = s2,
     scale = a, df = df, ncp = delta, transformed = x

@@ -1446,14 +1446,15 @@ print.mgcvST_fit <- function(x, ...) {
   pipeline <- NULL
   if (length(tested_rows)) {
     if (calibration == "liu") {
-      evaluate <- if (approximate) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
+      landmark <- isTRUE(approximate) || identical(approximate, "landmark")
+      evaluate <- if (landmark) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
       args <- list(
         fitmgcvST,
         index[tested_rows, , drop = FALSE], tested_rows,
         threads, chunk_size, verbose, cache_bytes = cache_bytes,
         checkpoint_dir = checkpoint_dir, resume = resume
       )
-      if (approximate) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
+      if (landmark) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
         ref_seed = ref_seed, ref_tol = ref_tol,
         diagnostic_pairs = diagnostic_pairs))
       evaluated <- do.call(evaluate, args)

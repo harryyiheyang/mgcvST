@@ -176,6 +176,25 @@ expected-likelihood working state, so its resulting operator need not satisfy
 equivalent to either the raw kernel or a separately formed
 `C %*% G_raw %*% C`.
 
+For large pair universes, `inlaST.test(..., approximate = "PCAlearning")`
+replaces the exact Liu trace moments by a low-rank approximation.
+Training genes are drawn by stratified sampling on the fitted spatial
+and observation variance scales, and their score covariances `H_j`,
+scaled by `sigma_e2 / sigma_g2`, define an orthonormal basis of `rank`
+symmetric matrices. Each tested gene is summarized by its basis
+coefficients `c_j`, and the four pair traces are obtained by contracting
+these coefficients with trace tables computed once. Liu calibration and
+BY adjustment are unchanged. In a validation with 1,404 score
+coordinates, 300 training genes and `rank = 10`, the relative residual
+`e_j^2 / ||H_j||_F^2` had median 0.0017 and maximum 0.027 across 150
+test genes. On their 11,175 pairs, the 1% and 99% quantiles of the
+difference in `-log10(p)` between the approximate and exact tests were
+-0.010 and 0.020, and the BY discoveries at `q = 0.05` were identical
+for the two-sided, positive and negative tests. On a separate 100-gene
+benchmark with 4,950 pairs, one of 2,352 exact two-sided BY discoveries
+was not recovered. Per-gene residuals are returned in
+`result$pca_learning$genes`.
+
 ## Included data and observed spatial locations
 
 ```{r setup, message=FALSE}

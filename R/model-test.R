@@ -85,7 +85,8 @@
     calibration = c("liu", "davies"),
     chunk_size = NULL,
     threads = NULL, verbose = FALSE, cache_bytes = NULL,
-    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
+    checkpoint_dir = NULL, resume = TRUE, approximate = "none",
+    rank = 10L, n_per_cell = 3L, seed = 1L,
     n_ref = 100L, ref_method = c("random", "score", "hyper"),
     ref_seed = 1L, ref_tol = 1e-6,
     diagnostic_pairs = 0L) {
@@ -201,7 +202,7 @@
   } else {
     0L
   }
-  inla_projection <- NULL
+  inla_projection <- pca_learning <- NULL
   inla_basis_elapsed <- 0
   inla_test_started <- NULL
   if (inla_fit && length(tested_rows)) {
@@ -212,7 +213,8 @@
     inla_basis_elapsed <- proc.time()[["elapsed"]] - t_basis
   }
   if (is.null(chunk_size)) {
-    chunk_size <- if (approximate) 10000L else if (inla_fit) .mgcvst_inla_pair_chunk_size(
+    chunk_size <- if (approximate == "PCAlearning") 1000000L else
+      if (approximate == "landmark") 10000L else if (inla_fit) .mgcvst_inla_pair_chunk_size(
       fitmgcvST, basis = inla_projection
     ) else if (calibration == "liu") 10000L else if (workers > 0L)
       ceiling(length(tested_rows) / workers) else 1L
@@ -238,12 +240,18 @@
         fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
         threads, chunk_size, verbose, basis = inla_projection,
         cache_bytes = cache_bytes, checkpoint_dir = checkpoint_dir,
-        resume = resume, approximate = approximate, n_ref = n_ref,
+        resume = resume, approximate = approximate, rank = rank,
+        n_per_cell = n_per_cell, seed = seed, n_ref = n_ref,
         ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
         diagnostic_pairs = diagnostic_pairs
       )
       elapsed <- proc.time()[["elapsed"]] - t0
       inla_projection <- attr(evaluated$result, "inla_pairwise")
+      pca_learning <- inla_projection$pca_learning
+      inla_projection$pca_learning <- NULL
+      if (!is.null(pca_learning)) {
+        result[c("log_p_two_sided", "log_p_positive", "log_p_negative")] <- NA_real_
+      }
       inla_projection$basis_elapsed <- inla_basis_elapsed
       inla_projection$test_wall_elapsed <- proc.time()[["elapsed"]] -
         inla_test_started
@@ -255,13 +263,14 @@
       result$statistic[target] <- result$signed_score[target]^2
       evaluated <- list()
     } else if (calibration == "liu") {
-      evaluate <- if (approximate) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
+      landmark <- approximate == "landmark"
+      evaluate <- if (landmark) .mgcvst_pair_approximate else .mgcvst_pair_pipeline
       args <- list(
         fitmgcvST, index[tested_rows, , drop = FALSE], tested_rows,
         threads, chunk_size, verbose, cache_bytes = cache_bytes,
         checkpoint_dir = checkpoint_dir, resume = resume
       )
-      if (approximate) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
+      if (landmark) args <- c(args, list(n_ref = n_ref, ref_method = ref_method,
         ref_seed = ref_seed, ref_tol = ref_tol,
         diagnostic_pairs = diagnostic_pairs))
       evaluated <- do.call(evaluate, args)
@@ -333,6 +342,24 @@
     }
   }
 
+  if (!is.null(pca_learning)) {
+    # PCAlearning adjusts natural-log p-values so that tails below the double
+    # range retain their BY decisions.
+    valid <- is.finite(result$log_p_two_sided)
+    result$p_positive[valid] <- exp(result$log_p_positive[valid])
+    result$p_negative[valid] <- exp(result$log_p_negative[valid])
+    side <- c("two_sided", "positive", "negative")
+    adjusted <- c("p_adjusted", "p_positive_adjusted", "p_negative_adjusted")
+    found <- c("discovered", "discovered_positive", "discovered_negative")
+    for (k in 1:3) {
+      lp <- result[[paste0("log_p_", side[k])]][valid]
+      if (FDR) lp <- if (method == "BY") .mgcvst_log_by(lp) else
+        log(stats::p.adjust(exp(lp), method))
+      result[[adjusted[k]]][valid] <- exp(lp)
+      result[[found[k]]] <- FALSE
+      result[[found[k]]][valid] <- lp <= log(q.value)
+    }
+  } else {
   valid <- is.finite(result$p_two_sided) &
     result$p_two_sided >= 0 & result$p_two_sided <= 1
   result$p_positive[valid] <- ifelse(result$signed_score[valid] >= 0,
@@ -355,6 +382,7 @@
   result$discovered <- valid & result$p_adjusted <= q.value
   result$discovered_positive <- valid & result$p_positive_adjusted <= q.value
   result$discovered_negative <- valid & result$p_negative_adjusted <= q.value
+  }
   result$retained <- result$highlighted | result$discovered
   raw_threshold <- if (any(result$discovered)) {
     max(result$p_two_sided[result$discovered])
@@ -373,7 +401,7 @@
   )
   if (inla_fit) timing$inla_projection <- inla_projection
   if (!is.null(pipeline)) timing$pair_pipeline <- pipeline
-  structure(
+  ans <- structure(
     list(
       results = result,
       threshold = list(
@@ -401,6 +429,8 @@
     ),
     class = "mgcvST_test"
   )
+  if (!is.null(pca_learning)) ans$pca_learning <- pca_learning
+  ans
 }
 
 # Single marked-SPDE entry point.
@@ -437,7 +467,11 @@
 #'   with double accumulation and storage; landmark block `W` uses double.
 #'   Approximate p-values remain approximate throughout the test and are used
 #'   for multiple-testing adjustment. The default `FALSE` computes exact traces
-#'   in the existing common coordinates.
+#'   in the existing common coordinates. The strings `"none"`, `"landmark"`
+#'   and, for sparse INLA fits, `"PCAlearning"` are also accepted; see
+#'   [inlaST.test()].
+#' @param rank,n_per_cell,seed PCAlearning basis rank, training genes per
+#'   stratification cell and sampling seed; see [inlaST.test()].
 #' @param n_ref Maximum number of real genes used as landmarks in approximate
 #'   mode.
 #' @param ref_method Landmark selection: uniform random sampling, k-means on
@@ -479,6 +513,7 @@ mgcvST.test <- function(
     chunk_size = NULL,
     threads = NULL, verbose = FALSE, cache_bytes = NULL,
     checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
+    rank = 10L, n_per_cell = 3L, seed = 1L,
     n_ref = 100L, ref_method = c("random", "score", "hyper"),
     ref_seed = 1L, ref_tol = 1e-6,
     diagnostic_pairs = 0L,
@@ -486,8 +521,12 @@ mgcvST.test <- function(
     conditional_precision = c("double", "float32")) {
   pairwise_method <- match.arg(pairwise_method)
   conditional_precision <- match.arg(conditional_precision)
-  if (!is.logical(approximate) || length(approximate) != 1L || is.na(approximate)) {
-    stop("approximate must be TRUE or FALSE.")
+  if (is.logical(approximate) && length(approximate) == 1L && !is.na(approximate)) {
+    approximate <- if (approximate) "landmark" else "none"
+  }
+  if (!is.character(approximate) || length(approximate) != 1L ||
+      !(approximate %in% c("none", "landmark", "PCAlearning"))) {
+    stop("approximate must be TRUE, FALSE, 'none', 'landmark' or 'PCAlearning'.")
   }
   if (pairwise_method == "conditional") {
     if (missing(method)) method <- "BY"
@@ -504,7 +543,7 @@ mgcvST.test <- function(
         !identical(calibration, "liu")) {
       stop("Conditional pairs do not use a non-Liu calibration argument.")
     }
-    if (approximate || !is.null(cache_bytes)) {
+    if (approximate != "none" || !is.null(cache_bytes)) {
       stop("approximate and cache_bytes require pairwise_method = 'liu'.")
     }
     if (length(list(...))) stop("Unused arguments in ... for conditional pairs.")
@@ -518,10 +557,10 @@ mgcvST.test <- function(
     stop("conditional_precision requires pairwise_method = 'conditional'.")
   }
   calibration <- match.arg(calibration)
-  if (approximate && calibration != "liu") {
-    stop("approximate = TRUE requires calibration = 'liu'.")
+  if (approximate != "none" && calibration != "liu") {
+    stop("approximate requires calibration = 'liu'.")
   }
-  if (approximate) ref_method <- match.arg(ref_method)
+  if (approximate == "landmark") ref_method <- match.arg(ref_method)
   engine <- .mgcvst_test_engine(fitmgcvST)
   args <- list(
     fitmgcvST = fitmgcvST, q.value = q.value, FDR = FDR, method = method,
@@ -532,5 +571,8 @@ mgcvST.test <- function(
     n_ref = n_ref, ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
     diagnostic_pairs = diagnostic_pairs
   )
+  if (approximate == "PCAlearning") {
+    args <- c(args, list(rank = rank, n_per_cell = n_per_cell, seed = seed))
+  }
   do.call(engine, args)
 }

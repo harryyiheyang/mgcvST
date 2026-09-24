@@ -21,6 +21,9 @@ mgcvST.test(
   checkpoint_dir = NULL,
   resume = TRUE,
   approximate = FALSE,
+  rank = 10L,
+  n_per_cell = 3L,
+  seed = 1L,
   n_ref = 100L,
   ref_method = c("random", "score", "hyper"),
   ref_seed = 1L,
@@ -77,7 +80,12 @@ Liu calibration. Landmark-to-feature traces use float32 matrix products
 with double accumulation and storage; landmark block \code{W} uses double.
 Approximate p-values remain approximate throughout the test and are used
 for multiple-testing adjustment. The default \code{FALSE} computes exact traces
-in the existing common coordinates.}
+in the existing common coordinates. The strings \code{"none"}, \code{"landmark"}
+and, for sparse INLA fits, \code{"PCAlearning"} are also accepted; see
+\code{\link[=inlaST.test]{inlaST.test()}}.}
+
+\item{rank, n_per_cell, seed}{PCAlearning basis rank, training genes per
+stratification cell and sampling seed; see \code{\link[=inlaST.test]{inlaST.test()}}.}
 
 \item{n_ref}{Maximum number of real genes used as landmarks in approximate
 mode.}

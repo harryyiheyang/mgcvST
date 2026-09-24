@@ -45,6 +45,10 @@ mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint,
     .Call(`_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp`, units, Q_map, constraint, coordinate, basis, threads, prepared)
 }
 
+mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads = 1L, prepared = NULL) {
+    .Call(`_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared)
+}
+
 mgcvst_state_write_cpp <- function(path, signature, feature_id, a, M, width, error = "") {
     invisible(.Call(`_mgcvST_mgcvst_state_write_cpp`, path, signature, feature_id, a, M, width, error))
 }
@@ -67,6 +71,34 @@ mgcvst_marginal_liu_moments_cpp <- function(powers, threads = 1L) {
 
 mgcvst_memory_status_cpp <- function() {
     .Call(`_mgcvST_mgcvst_memory_status_cpp`)
+}
+
+mgcvst_liu_logp_cpp <- function(U, t1, t2, t3, t4, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_liu_logp_cpp`, U, t1, t2, t3, t4, threads)
+}
+
+mgcvst_pca_pack_cpp <- function(M) {
+    .Call(`_mgcvST_mgcvst_pca_pack_cpp`, M)
+}
+
+mgcvst_pca_gram_cpp <- function(packed, tau, threads = 1L, chunk = 8192L) {
+    .Call(`_mgcvST_mgcvst_pca_gram_cpp`, packed, tau, threads, chunk)
+}
+
+mgcvst_pca_basis_cpp <- function(packed, tau, R, threads = 1L, chunk = 8192L) {
+    .Call(`_mgcvST_mgcvst_pca_basis_cpp`, packed, tau, R, threads, chunk)
+}
+
+mgcvst_pca_tables_cpp <- function(B, q, threads = 1L, block = 32L, tile = 192L) {
+    .Call(`_mgcvST_mgcvst_pca_tables_cpp`, B, q, threads, block, tile)
+}
+
+mgcvst_pca_pairs_cpp <- function(A, C, tables, i, j, threads = 1L, moments = TRUE) {
+    .Call(`_mgcvST_mgcvst_pca_pairs_cpp`, A, C, tables, i, j, threads, moments)
+}
+
+mgcvst_pca_pairs_block_cpp <- function(A, C, tables, first, last, threads = 1L, moments = TRUE, gene_block = 32L, pair_block = 1024L) {
+    .Call(`_mgcvST_mgcvst_pca_pairs_block_cpp`, A, C, tables, first, last, threads, moments, gene_block, pair_block)
 }
 
 mgcvst_pair_trace_powers_cpp <- function(matrixList, pairs, maxPower = 4L, threads = 1L) {

@@ -21,6 +21,42 @@
 #' @param BPPARAM Compatibility argument; only `SerialParam()` is accepted.
 #' @param threads Positive number of OpenMP threads for sparse INLA feature
 #'   preparation, reduced materialization and pair batches. `NULL` uses one thread.
+#' @param approximate Pair trace evaluation for Liu calibration. `"none"`
+#'   computes exact traces in the reduced observation-kernel coordinates.
+#'   `"PCAlearning"` projects every score covariance `H_j` onto a rank-`rank`
+#'   orthonormal basis learned from stratified training genes and obtains the
+#'   four Liu trace moments by contraction of precomputed trace tables; see
+#'   Details. `"landmark"` uses real-gene landmark CUR trace reconstruction
+#'   (arguments `n_ref`, `ref_method`, `ref_seed`, `ref_tol`,
+#'   `diagnostic_pairs`). Logical values are accepted for compatibility:
+#'   `FALSE` is `"none"` and `TRUE` is `"landmark"`.
+#' @param rank Number of basis matrices retained by `approximate = "PCAlearning"`.
+#' @param n_per_cell Training genes drawn per stratification cell by
+#'   `approximate = "PCAlearning"`.
+#' @param seed Integer seed for PCAlearning training-gene sampling; the caller's
+#'   random-number state is restored.
+#' @details With `approximate = "PCAlearning"`, each gene receives the
+#'   variance scales `sigma_g2 = dispersion / lambda` and
+#'   `sigma_e2 = 1 + mean(mu) / theta` for negative-binomial genes (1 for
+#'   Poisson genes), with `mu` recovered from the working variance. Genes are
+#'   stratified into 10 quantile bins of `log(sigma_g2)` crossed with one
+#'   Poisson bin and 9 quantile bins of `log(sigma_e2)`, and `n_per_cell` genes
+#'   are drawn per cell, with the quota of sparse cells reallocated
+#'   proportionally to cell size. The training matrices
+#'   `tau_j H_j`, `tau_j = sigma_e2 / sigma_g2`, define an orthonormal basis `B`
+#'   through the eigen decomposition of their Gram matrix. Every tested gene is
+#'   summarized by its basis coefficients `c_j`, and its residual
+#'   `e_j^2 = ||H_j||_F^2 - ||c_j||^2` is reported. Pair traces
+#'   `tr((H_i H_j)^s)`, `s = 1, ..., 4`, are those of the projected matrices.
+#'   Liu p-values are computed on the log scale and returned in the result
+#'   columns `log_p_two_sided`, `log_p_positive` and `log_p_negative`. With
+#'   `method = "BY"`, the step-up adjustment is applied to these log p-values,
+#'   so decisions remain defined when p-values underflow; `information` and
+#'   `effective_rank` are not computed on this path. The result element
+#'   `pca_learning` stores the training genes, the Gram eigenvalues and
+#'   rotation defining `B`, the coefficients `c_j`, the per-gene table with
+#'   `e2_relative = e_j^2 / ||H_j||_F^2`, and the stage timings, including the
+#'   trace-table precomputation.
 #' @return The `mgcvST_test` object returned by [mgcvST.test()].
 #' @export
 inlaST.test <- function(
@@ -29,12 +65,16 @@ inlaST.test <- function(
     pairs = NULL, highlight = NULL,
     calibration = "liu",
     chunk_size = NULL, threads = NULL, verbose = FALSE, cache_bytes = NULL,
-    checkpoint_dir = NULL, resume = TRUE, approximate = FALSE,
+    checkpoint_dir = NULL, resume = TRUE,
+    approximate = c("none", "PCAlearning", "landmark"),
+    rank = 10L, n_per_cell = 3L, seed = 1L,
     n_ref = 100L, ref_method = c("random", "score", "hyper"),
     ref_seed = 1L, ref_tol = 1e-6,
     diagnostic_pairs = 0L,
     pairwise_method = c("liu", "conditional"),
     conditional_precision = c("double", "float32")) {
+  if (is.logical(approximate)) approximate <- if (isTRUE(approximate)) "landmark" else "none"
+  approximate <- match.arg(approximate)
   pairwise_method <- match.arg(pairwise_method)
   conditional_precision <- match.arg(conditional_precision)
   if (pairwise_method == "conditional" && missing(method)) method <- "BY"
@@ -44,6 +84,7 @@ inlaST.test <- function(
     calibration = calibration, chunk_size = chunk_size,
     threads = threads, verbose = verbose, cache_bytes = cache_bytes,
     checkpoint_dir = checkpoint_dir, resume = resume, approximate = approximate,
+    rank = rank, n_per_cell = n_per_cell, seed = seed,
     n_ref = n_ref, ref_method = ref_method, ref_seed = ref_seed, ref_tol = ref_tol,
     diagnostic_pairs = diagnostic_pairs,
     pairwise_method = pairwise_method,

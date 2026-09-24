@@ -1,3 +1,15 @@
+# Benjamini-Yekutieli step-up on natural-log p-values; returns log adjusted
+# p-values, so tails below the double range keep their ordering and decisions.
+.mgcvst_log_by <- function(lp) {
+  m <- length(lp)
+  Hm <- digamma(m + 1) - digamma(1)
+  ord <- order(lp)
+  raw <- lp[ord] + log(m) + log(Hm) - log(seq_len(m))
+  out <- numeric(m)
+  out[ord] <- pmin(0, rev(cummin(rev(raw))))
+  out
+}
+
 # Conditional Cauchy pair testing for the sparse INLA score backend.
 .mgcvst_conditional_test <- function(fit, pairs, q.value, threads,
                                     chunk_size, checkpoint_dir, resume,
@@ -271,13 +283,7 @@
   pairs_out <- mgcvst_conditional_pairs_cpp(S, V, index)
   lp <- pairs_out$log_p
   if (anyNA(lp) || any(lp > 0)) stop("Cauchy calibration returned invalid log p-values.")
-  m <- length(lp)
-  Hm <- digamma(m + 1) - digamma(1)
-  ord <- order(lp)
-  raw <- lp[ord] + log(m) + log(Hm) - log(seq_len(m))
-  sorted_by <- pmin(0, rev(cummin(rev(raw))))
-  lby <- numeric(m)
-  lby[ord] <- sorted_by
+  lby <- .mgcvst_log_by(lp)
   results <- data.frame(
     feature1 = ids[index[, 1L]], feature2 = ids[index[, 2L]],
     S = pairs_out$score, p = exp(lp), log_p = lp,
