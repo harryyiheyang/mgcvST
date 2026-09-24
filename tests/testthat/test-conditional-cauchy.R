@@ -100,12 +100,14 @@ test_that("inlaST.test validates the split argument set", {
                "liu_approximation")
   expect_error(inlaST.test(fit, pairs = pair, conditional_precision = "float32"),
                "conditional_precision")
+  # mgcvST.test() does not accept inlaST.estimate() fits (Task E1); every
+  # call below now fails at that guard, before its own argument checks.
   expect_error(mgcvST.test(fit, pairs = pair, pairwise_method = "score_liu"),
-               "Unused arguments")
+               "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\).")
   expect_error(inlaST.test(fit, pairs = pair, pairwise_method = "liu"),
                "score_liu")
   exact <- inlaST.test(fit, pairs = pair, pairwise_method = "score_liu",
                        liu_approximation = "exact")
-  direct <- mgcvST.test(fit, pairs = pair)
-  expect_identical(exact$results, direct$results)
+  expect_error(mgcvST.test(fit, pairs = pair),
+               "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\).")
 })

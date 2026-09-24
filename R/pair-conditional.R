@@ -74,7 +74,7 @@
   if (anyDuplicated(ids)) stop("Conditional feature IDs must be unique.")
   fit <- .inlast_sparse_prepare(fit)
   t_basis <- proc.time()[["elapsed"]]
-  basis <- .inlast_sparse_observation_basis(fit, coverage = 0.995)
+  basis <- .inlast_sparse_observation_basis(fit)
   basis_elapsed <- proc.time()[["elapsed"]] - t_basis
   q <- basis$rank
   G <- length(used)
@@ -94,7 +94,7 @@
     compact = .inlast_compact_signature(fit, used, basis),
     score_rank = q, sp_index = fit$score_sparse$sp_index,
     nuisance_precision = .inlast_sparse_nuisance_precision(fit, used),
-    coverage = 0.995, conditional_precision = conditional_precision
+    coverage = .inlast_projection_coverage, conditional_precision = conditional_precision
   )
   signature <- digest::digest(signature_data, algo = "sha256")
 

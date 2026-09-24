@@ -145,21 +145,6 @@
       !is.null(checkpoint_dir) || !isTRUE(resume))) {
     stop("cache_bytes, checkpoint_dir and resume currently require calibration = 'liu'.")
   }
-  # The exact fp16 score_liu path for INLA fits returns its own compact
-  # result (integer i, j; double score, mlog10p; feature_id lookup; a
-  # failed-gene table; BH results), the same format inlaST.test() returns for
-  # this combination; it never builds the generic pair result below.
-  if (inla_fit && liu_approximation == "exact") {
-    if (!is.null(highlight)) {
-      stop("highlight is unavailable for the compact fp16 score_liu result; ",
-           "filter its i/j columns (or Parquet shards) directly.")
-    }
-    return(.mgcvst_inla_fp16_run(
-      fitmgcvST, pairs = pairs, checkpoint_dir = checkpoint_dir, resume = resume,
-      threads = threads, chunk_size = if (is.null(chunk_size)) 4000000L else chunk_size,
-      verbose = verbose, q.value = q.value, FDR = FDR, method = method
-    ))
-  }
 
   index <- .mgcvst_pair_index(pairs, fitmgcvST$feature_id)
   highlight_index <- matrix(integer(), nrow = 0L, ncol = 2L)
@@ -461,9 +446,8 @@
 #' Dispatches a compact fit to its registered score engine. Standard one-SPDE
 #' fits use the SPDE score path. One-component fits constructed from
 #' [model.set()] use the model score path. Pair p-values use exact Liu trace
-#' moments (or Davies calibration when requested). Sparse INLA fits are
-#' tested with the same exact Liu path; the INLA-specific pair methods are
-#' available through [inlaST.test()].
+#' moments (or Davies calibration when requested). Sparse INLA fits from
+#' [inlaST.estimate()] must be tested with [inlaST.test()] instead.
 #'
 #' @inheritParams .mgcvst_test_spde
 #' @param checkpoint_dir Optional checkpoint directory for Liu calibration.
@@ -480,6 +464,9 @@ mgcvST.test <- function(
     threads = NULL, verbose = FALSE,
     checkpoint_dir = NULL, resume = TRUE) {
   calibration <- match.arg(calibration)
+  if (.mgcvst_inla_downstream(fitmgcvST)) {
+    stop("mgcvST.test() does not accept inlaST.estimate() fits; use inlaST.test().")
+  }
   engine <- .mgcvst_test_engine(fitmgcvST)
   engine(
     fitmgcvST = fitmgcvST, q.value = q.value, FDR = FDR, method = method,

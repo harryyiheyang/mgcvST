@@ -34,15 +34,12 @@
 ## fp16 path is served directly by .mgcvst_inla_fp16_run() and never builds
 ## this legacy pair result shape.
 .mgcvst_inla_test_pairs <- function(fit, index, pair_index, threads,
-                                    chunk_size, verbose, coverage = 0.995,
-                                    full_rank = FALSE, basis = NULL,
+                                    chunk_size, verbose, basis = NULL,
                                     cache_bytes = NULL, checkpoint_dir = NULL,
                                     resume = TRUE, liu_approximation = "pca_learning",
                                     rank = 10L, n_per_cell = 3L, seed = 1L) {
   fit <- .inlast_sparse_prepare(fit)
-  if (is.null(basis)) basis <- .inlast_sparse_observation_basis(
-    fit, coverage = coverage, full_rank = full_rank
-  )
+  if (is.null(basis)) basis <- .inlast_sparse_observation_basis(fit)
   evaluated <- .mgcvst_pair_pcalearning(
     fit, index, pair_index, threads, chunk_size, verbose, basis = basis,
     rank = rank, n_per_cell = n_per_cell, seed = seed,

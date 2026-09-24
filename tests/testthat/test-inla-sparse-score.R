@@ -37,11 +37,14 @@ test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts",
     control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)
   )
   pairs <- t(combn(rownames(f$Y), 2L))
-  serial <- mgcvST.test(
+  # mgcvST.test() does not accept inlaST.estimate() fits (Task E1); this
+  # comparison now goes through inlaST.test(), the same exact fp16 path
+  # mgcvST.test() used to reach for INLA fits.
+  serial <- inlaST.test(
     fit, pairs = pairs, calibration = "liu",
     BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L
   )
-  threaded <- mgcvST.test(
+  threaded <- inlaST.test(
     fit, pairs = pairs, calibration = "liu",
     BPPARAM = BiocParallel::SerialParam(), threads = 2L,
     chunk_size = 1L
@@ -52,8 +55,12 @@ test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts",
                tolerance = 1e-10)
   bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
   expect_error(
-    mgcvST.test(fit, pairs = pairs, calibration = "liu", BPPARAM = bp),
+    inlaST.test(fit, pairs = pairs, calibration = "liu", BPPARAM = bp),
     "must be SerialParam"
+  )
+  expect_error(
+    mgcvST.test(fit, pairs = pairs, calibration = "liu"),
+    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
   )
 })
 

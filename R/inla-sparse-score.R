@@ -2,6 +2,10 @@
 # covariance retains the exact observation mean constraint and the nuisance
 # adjustment uses the expected working curvature.
 
+# Fraction of the observation-kernel eigenvalue sum retained by the
+# constrained projection basis shared by every sparse INLA pair method.
+.inlast_projection_coverage <- 0.995
+
 .inlast_sparse_score_capability <- function(model) {
   spec <- model$inla_spec
   random <- spec$random
@@ -105,11 +109,12 @@
   fit
 }
 
-.inlast_sparse_observation_basis <- function(fit, coverage = 0.995,
-                                              full_rank = FALSE) {
+.inlast_sparse_observation_basis <- function(fit) {
   fit <- .inlast_sparse_prepare(fit)
   geometry <- fit$score_sparse
   cache <- geometry$cache
+  coverage <- .inlast_projection_coverage
+  full_rank <- FALSE
   valid <- identical(cache$observation_basis_A, geometry$A) &&
     identical(cache$observation_basis_Q, geometry$Q) &&
     identical(cache$observation_basis_constraint, geometry$constraint) &&

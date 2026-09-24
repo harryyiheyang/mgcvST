@@ -88,14 +88,6 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
   expect_equal(grouped$information, z$information, tolerance = 1e-12)
   expect_equal(grouped$p_two_sided, z$p_two_sided, tolerance = 1e-12)
 
-  full <- mgcvST:::.mgcvst_inla_test_pairs(
-    fit, pairs, seq_len(nrow(pairs)), threads = 2L,
-    chunk_size = 1L, verbose = FALSE, full_rank = TRUE
-  )$result
-  expect_equal(full$signed_score, z$signed_score, tolerance = 1e-12)
-  expect_equal(full$information, z$information, tolerance = 1e-12)
-  expect_equal(full$p_two_sided, z$p_two_sided, tolerance = 1e-12)
-
   calls$basis <- 0L
   counted_basis <- function(fit, coverage = 0.995, full_rank = FALSE) {
     calls$basis <- calls$basis + 1L
@@ -104,8 +96,12 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
   testthat::local_mocked_bindings(
     .inlast_sparse_observation_basis = counted_basis,
     .package = "mgcvST")
-  public <- mgcvST.test(
-    fit, pairs = pairs[1:2, , drop = FALSE], calibration = "liu",
+  # mgcvST.test() no longer accepts inlaST.estimate() fits (Task E1); the
+  # basis-caching path it used to exercise is reached through inlaST.test()
+  # with liu_approximation = "pca_learning" instead.
+  public <- inlaST.test(
+    fit, pairwise_method = "score_liu", liu_approximation = "pca_learning",
+    pairs = pairs[1:2, , drop = FALSE], calibration = "liu",
     BPPARAM = BiocParallel::SerialParam()
   )
   expect_identical(calls$basis, 1L)
@@ -121,11 +117,11 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
 
   expect_error(
     mgcvST.test(fit, pairs = pairs, calibration = "davies"),
-    "calibration = 'liu' only"
+    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
   )
   snow <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
   expect_error(
     mgcvST.test(fit, pairs = pairs, calibration = "liu", BPPARAM = snow),
-    "must be SerialParam"
+    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
   )
 })

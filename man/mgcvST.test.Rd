@@ -63,7 +63,6 @@ Reusable score states and completed pair batches are saved there. With
 Dispatches a compact fit to its registered score engine. Standard one-SPDE
 fits use the SPDE score path. One-component fits constructed from
 \code{\link[=model.set]{model.set()}} use the model score path. Pair p-values use exact Liu trace
-moments (or Davies calibration when requested). Sparse INLA fits are
-tested with the same exact Liu path; the INLA-specific pair methods are
-available through \code{\link[=inlaST.test]{inlaST.test()}}.
+moments (or Davies calibration when requested). Sparse INLA fits from
+\code{\link[=inlaST.estimate]{inlaST.estimate()}} must be tested with \code{\link[=inlaST.test]{inlaST.test()}} instead.
 }

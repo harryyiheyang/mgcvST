@@ -74,7 +74,7 @@ test_that("sparse observation basis matches an independent QR reference", {
   g <- as.numeric(colMeans(A0))
   fit <- list(score_sparse = list(A = A, Q = Q, constraint = g))
   fit <- mgcvST:::.inlast_sparse_prepare(fit)
-  got <- mgcvST:::.inlast_sparse_observation_basis(fit, coverage = 0.995)
+  got <- mgcvST:::.inlast_sparse_observation_basis(fit)
 
   Q2 <- qr.Q(qr(matrix(g, ncol = 1L)), complete = TRUE)[, -1L, drop = FALSE]
   qp <- crossprod(Q2, Q0 %*% Q2)
@@ -93,15 +93,6 @@ test_that("sparse observation basis matches an independent QR reference", {
   expect_equal(tcrossprod(got$basis), tcrossprod(cref), tolerance = 2e-10)
   expect_equal(got$tail, 1 - keep[r], tolerance = 2e-10)
   expect_equal(crossprod(got$basis, Q0 %*% got$basis), diag(r),
-    tolerance = 2e-10)
-
-  all <- mgcvST:::.inlast_sparse_observation_basis(
-    fit, coverage = 0.995, full_rank = TRUE
-  )
-  expect_equal(all$rank, q - 1L)
-  expect_equal(crossprod(g, all$basis), matrix(0, 1L, q - 1L),
-    tolerance = 2e-12)
-  expect_equal(tcrossprod(all$basis), Q2 %*% solve(qp, t(Q2)),
     tolerance = 2e-10)
 })
 

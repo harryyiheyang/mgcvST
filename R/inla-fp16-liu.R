@@ -398,7 +398,7 @@
   RhpcBLASctl::blas_set_num_threads(1L)
 
   fit <- .inlast_sparse_prepare(fit)
-  basis <- .inlast_sparse_observation_basis(fit, coverage = 0.995)
+  basis <- .inlast_sparse_observation_basis(fit)
   explicit <- !is.null(pairs)
   pairs_u <- NULL
   if (explicit) {
