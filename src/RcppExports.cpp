@@ -52,8 +52,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_dense_score_batch_cpp
-Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0, const arma::mat& variance, const arma::mat& error, const arma::vec& scale, const arma::mat& X, const Rcpp::List& nuisance, int threads);
-RcppExport SEXP _mgcvST_mgcvst_dense_score_batch_cpp(SEXP T0SEXP, SEXP varianceSEXP, SEXP errorSEXP, SEXP scaleSEXP, SEXP XSEXP, SEXP nuisanceSEXP, SEXP threadsSEXP) {
+Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0, const arma::mat& variance, const arma::mat& error, const arma::vec& scale, const arma::mat& X, const Rcpp::List& nuisance, int threads, bool score_only);
+RcppExport SEXP _mgcvST_mgcvst_dense_score_batch_cpp(SEXP T0SEXP, SEXP varianceSEXP, SEXP errorSEXP, SEXP scaleSEXP, SEXP XSEXP, SEXP nuisanceSEXP, SEXP threadsSEXP, SEXP score_onlySEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -64,7 +64,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const arma::mat& >::type X(XSEXP);
     Rcpp::traits::input_parameter< const Rcpp::List& >::type nuisance(nuisanceSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_dense_score_batch_cpp(T0, variance, error, scale, X, nuisance, threads));
+    Rcpp::traits::input_parameter< bool >::type score_only(score_onlySEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_dense_score_batch_cpp(T0, variance, error, scale, X, nuisance, threads, score_only));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -462,12 +463,27 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_pair_liu_cpp
+Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a, const Rcpp::IntegerVector& left, const Rcpp::IntegerVector& right, int threads);
+RcppExport SEXP _mgcvST_mgcvst_pair_liu_cpp(SEXP HSEXP, SEXP aSEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type H(HSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type a(aSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type left(leftSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type right(rightSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_liu_cpp(H, a, left, right, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_conditional_variance_rows_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_variance_rows_cpp, 5},
     {"_mgcvST_mgcvst_conditional_all_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_all_pairs_cpp, 1},
     {"_mgcvST_mgcvst_conditional_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_conditional_pairs_cpp, 3},
-    {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 7},
+    {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 8},
     {"_mgcvST_mgcvst_inla_working_state_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_working_state_cpp, 9},
     {"_mgcvST_mgcvst_inla_compact_units_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_compact_units_cpp, 15},
     {"_mgcvST_mgcvst_fp16_cache_cpp", (DL_FUNC) &_mgcvST_mgcvst_fp16_cache_cpp, 2},
@@ -493,6 +509,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_pca_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_pairs_cpp, 7},
     {"_mgcvST_mgcvst_pca_pairs_block_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_pairs_block_cpp, 9},
     {"_mgcvST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_trace_powers_cpp, 4},
+    {"_mgcvST_mgcvst_pair_liu_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_liu_cpp, 5},
     {NULL, NULL, 0}
 };
 

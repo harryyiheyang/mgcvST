@@ -13,8 +13,8 @@ mgcvst_conditional_pairs_cpp <- function(S, V, pairs) {
     .Call(`_mgcvST_mgcvst_conditional_pairs_cpp`, S, V, pairs)
 }
 
-mgcvst_dense_score_batch_cpp <- function(T0, variance, error, scale, X, nuisance, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_dense_score_batch_cpp`, T0, variance, error, scale, X, nuisance, threads)
+mgcvst_dense_score_batch_cpp <- function(T0, variance, error, scale, X, nuisance, threads = 1L, score_only = FALSE) {
+    .Call(`_mgcvST_mgcvst_dense_score_batch_cpp`, T0, variance, error, scale, X, nuisance, threads, score_only)
 }
 
 mgcvst_inla_working_state_cpp <- function(A, X, B, C, O, family, size, dispersion, threads = 1L) {
@@ -115,5 +115,9 @@ mgcvst_pca_pairs_block_cpp <- function(A, C, tables, first, last, threads = 1L, 
 
 mgcvst_pair_trace_powers_cpp <- function(matrixList, pairs, maxPower = 4L, threads = 1L) {
     .Call(`_mgcvST_mgcvst_pair_trace_powers_cpp`, matrixList, pairs, maxPower, threads)
+}
+
+mgcvst_pair_liu_cpp <- function(H, a, left, right, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_pair_liu_cpp`, H, a, left, right, threads)
 }
 

@@ -1098,7 +1098,9 @@ print.mgcvST_fit <- function(x, ...) {
   stats::setNames(paths, as.character(payload$feature))
 }
 
-# Evaluate Liu-calibrated pairs from feature summaries in bounded C++ blocks.
+# Evaluate Liu-calibrated pairs from feature summaries with the fused
+# double-precision C++ kernel (mgcvst_pair_liu_cpp): score, trace moments,
+# and the log-space Liu tail in one call per chunk.
 .mgcvst_liu_pairs <- function(index, pair_index, feature_id, summaries, threads,
                               chunk_size, verbose) {
   active <- which(summaries$has_summary)
@@ -1108,6 +1110,7 @@ print.mgcvST_fit <- function(x, ...) {
 
   k <- nrow(index)
   score <- information <- effective_rank <- p_value <- rep(NA_real_, k)
+  log_p_two_sided <- log_p_positive <- log_p_negative <- rep(NA_real_, k)
   error_message <- rep(NA_character_, k)
   for (j in which(missing_summary)) {
     missing_feature <- index[j, ][!(index[j, ] %in% active_feature)]
@@ -1124,6 +1127,8 @@ print.mgcvST_fit <- function(x, ...) {
       result = data.frame(
         pair_index = pair_index, score = score, information = information,
         effective_rank = effective_rank, p_value = p_value,
+        log_p_two_sided = log_p_two_sided, log_p_positive = log_p_positive,
+        log_p_negative = log_p_negative,
         error_message = error_message, stringsAsFactors = FALSE
       ),
       elapsed = 0
@@ -1133,45 +1138,34 @@ print.mgcvST_fit <- function(x, ...) {
   avec <- do.call(cbind, summaries$a[active])
   H <- summaries$H[active]
   t0 <- proc.time()[["elapsed"]]
-  dense <- ncol(avec)^2 <= 4 * length(rows)
-  if (dense) {
-    G <- CppMatrix::matrixMultiply(avec, avec, transA = TRUE)
-    score[rows] <- G[cbind(local[rows, 1L], local[rows, 2L])]
-    rm(G)
-  }
 
   starts <- seq.int(1L, length(rows), by = chunk_size)
   for (b in seq_along(starts)) {
     z <- rows[starts[b]:min(length(rows), starts[b] + chunk_size - 1L)]
     pair <- local[z, , drop = FALSE]
-    if (!dense) {
-      score[z] <- colSums(
-        avec[, pair[, 1L], drop = FALSE] *
-          avec[, pair[, 2L], drop = FALSE]
-      )
-    }
-    moments <- mgcvst_pair_trace_powers_cpp(
-      H, pair, maxPower = 4L, threads = threads
-    )
-    good <- apply(is.finite(moments), 1L, all) &
-      moments[, 1L] > 1e-10 & moments[, 2L] > 0 &
-      moments[, 3L] > 0 & moments[, 4L] > 0
-    if (any(good)) {
-      zi <- z[good]
-      M <- moments[good, , drop = FALSE]
-      liu <- .liu_squared_score_moments(
-        abs(score[zi]), M[, 1L], M[, 2L], M[, 3L], M[, 4L]
-      )
-      information[zi] <- M[, 1L]
-      effective_rank[zi] <- M[, 1L]^2 / M[, 2L]
-      p_value[zi] <- liu$p_value
-      invalid <- !is.finite(p_value[zi]) | p_value[zi] < 0 | p_value[zi] > 1
-      error_message[zi[invalid]] <-
-        "Liu calibration returned an invalid p-value."
-    }
-    if (any(!good)) {
-      error_message[z[!good]] <-
+    perm <- order(pair[, 1L])
+    zp <- z[perm]
+    left <- pair[perm, 1L]
+    right <- pair[perm, 2L]
+    res <- mgcvst_pair_liu_cpp(H, avec, left, right, threads)
+
+    score[zp] <- res$score
+    information[zp] <- res$information
+    effective_rank[zp] <- res$effective_rank
+    log_p_two_sided[zp] <- res$log_p_two_sided
+    log_p_positive[zp] <- res$log_p_positive
+    log_p_negative[zp] <- res$log_p_negative
+    p_value[zp] <- exp(res$log_p_two_sided)
+
+    bad_moments <- res$status == 1L
+    bad_p <- res$status == 2L
+    if (any(bad_moments)) {
+      error_message[zp[bad_moments]] <-
         "Liu trace moments were non-finite or non-positive."
+    }
+    if (any(bad_p)) {
+      error_message[zp[bad_p]] <-
+        "Liu calibration returned an invalid p-value."
     }
     if (verbose && (b %% 10L == 0L || b == length(starts))) {
       message("Evaluated Liu block ", b, " of ", length(starts), ".")
@@ -1182,6 +1176,8 @@ print.mgcvST_fit <- function(x, ...) {
     result = data.frame(
       pair_index = pair_index, score = score, information = information,
       effective_rank = effective_rank, p_value = p_value,
+      log_p_two_sided = log_p_two_sided, log_p_positive = log_p_positive,
+      log_p_negative = log_p_negative,
       error_message = error_message,
       stringsAsFactors = FALSE
     ),

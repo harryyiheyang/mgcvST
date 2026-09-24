@@ -294,6 +294,12 @@
       result$effective_rank[target] <- evaluated$result$effective_rank
       result$p_two_sided[target] <- evaluated$result$p_value
       result$error_message[target] <- evaluated$result$error_message
+      if (is.null(result$log_p_two_sided)) {
+        result[c("log_p_two_sided", "log_p_positive", "log_p_negative")] <- NA_real_
+      }
+      result$log_p_two_sided[target] <- evaluated$result$log_p_two_sided
+      result$log_p_positive[target] <- evaluated$result$log_p_positive
+      result$log_p_negative[target] <- evaluated$result$log_p_negative
       evaluated <- list()
     } else {
     chunks <- .mgcvst_dense_pair_groups(tested_rows, index, chunk_size)
@@ -349,9 +355,11 @@
     }
   }
 
-  if (!is.null(pca_learning)) {
-    # PCAlearning adjusts natural-log p-values so that tails below the double
-    # range retain their BY decisions.
+  has_log_p <- !is.null(result$log_p_two_sided)
+  if (has_log_p) {
+    # Natural-log p-values (from PCAlearning or the exact Liu kernel) are
+    # adjusted in log space so that tails below the double range retain
+    # their BY/BH decisions.
     valid <- is.finite(result$log_p_two_sided)
     result$p_positive[valid] <- exp(result$log_p_positive[valid])
     result$p_negative[valid] <- exp(result$log_p_negative[valid])

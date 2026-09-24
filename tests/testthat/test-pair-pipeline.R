@@ -102,3 +102,60 @@ test_that("shared preparation keeps dense native and fallback state contracts", 
   )
   expect_equal(fallback_states[[2L]]$M, diag(2))
 })
+
+test_that("the fused C++ Liu pair kernel matches the old trace-powers + R Liu path", {
+  set.seed(20260924)
+  q <- 6L
+  K <- 8L
+  H <- lapply(seq_len(K), function(k) {
+    z <- matrix(rnorm(q * q), q, q)
+    crossprod(z) + diag(q) * 0.1
+  })
+  a <- matrix(rnorm(q * K), q, K)
+
+  idx <- which(upper.tri(matrix(0, K, K)), arr.ind = TRUE)
+  left <- idx[, 2L]
+  right <- idx[, 1L]
+  ord <- order(left)
+  left <- left[ord]
+  right <- right[ord]
+
+  new <- mgcvST:::mgcvst_pair_liu_cpp(H, a, left, right, threads = 1L)
+
+  pairs <- cbind(left, right)
+  old_score <- colSums(a[, left, drop = FALSE] * a[, right, drop = FALSE])
+  old_moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(H, pairs, maxPower = 4L, threads = 1L)
+  old_liu <- mgcvST:::.liu_squared_score_moments(
+    abs(old_score), old_moments[, 1L], old_moments[, 2L],
+    old_moments[, 3L], old_moments[, 4L]
+  )
+  old_information <- old_moments[, 1L]
+  old_effective_rank <- old_moments[, 1L]^2 / old_moments[, 2L]
+
+  expect_equal(new$score, old_score, tolerance = 1e-12)
+  expect_equal(new$information, old_information, tolerance = 1e-12)
+  expect_equal(new$effective_rank, old_effective_rank, tolerance = 1e-12)
+  finite_p <- old_liu$p_value > 1e-300
+  expect_equal(
+    exp(new$log_p_two_sided)[finite_p], old_liu$p_value[finite_p],
+    tolerance = 1e-10
+  )
+
+  # A constructed strong pair whose old p underflows to 0 has a finite
+  # log_p_two_sided well below log(1e-300).
+  strong_H <- lapply(1:2, function(k) diag(rep(100, q)))
+  strong_a <- cbind(rep(60, q), rep(60, q))
+  strong <- mgcvST:::mgcvst_pair_liu_cpp(
+    strong_H, strong_a, 1L, 2L, threads = 1L
+  )
+  strong_moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(
+    strong_H, matrix(c(1L, 2L), nrow = 1L), maxPower = 4L, threads = 1L
+  )
+  strong_old <- mgcvST:::.liu_squared_score_moments(
+    abs(sum(strong_a[, 1L] * strong_a[, 2L])), strong_moments[, 1L],
+    strong_moments[, 2L], strong_moments[, 3L], strong_moments[, 4L]
+  )
+  expect_equal(strong_old$p_value, 0)
+  expect_true(is.finite(strong$log_p_two_sided))
+  expect_lt(strong$log_p_two_sided, log(1e-300))
+})
