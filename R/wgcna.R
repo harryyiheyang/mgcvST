@@ -381,33 +381,29 @@ mgcvST.wgcna <- function(fitmgcvST, indices,
 #' Identify co-expression modules from a sparse INLA fit
 #'
 #' The sparse-kernel sibling of [mgcvST.wgcna()]. It takes an
-#' [inlaST.estimate()] fit, builds the gene-by-gene similarity
-#' \eqn{S_{ij} = a_i' a_j / (m - 1)} from the sparse INLA score vectors
-#' \eqn{a_i}, and then runs exactly the same WGCNA splitting as
-#' [mgcvST.wgcna()]: `WGCNA::adjacency.fromSimilarity()`,
+#' [inlaST.estimate()] fit and builds the gene-by-gene similarity
+#' \eqn{S_{ij} = (R'a_i)'(R'a_j)}, where `R` is the observation-kernel
+#' coordinate basis used by [inlaST.test()] (the same coverage constant), and
+#' \eqn{a_i} are the sparse INLA score vectors. It then runs exactly the same
+#' WGCNA splitting as [mgcvST.wgcna()]: `WGCNA::adjacency.fromSimilarity()`,
 #' `WGCNA::TOMsimilarity()`, `fastcluster::hclust()`,
 #' `dynamicTreeCut::cutreeDynamic()` and `WGCNA::labels2colors()`. The
 #' similarity, the normaliser and the downstream code are shared with
 #' [mgcvST.wgcna()], not re-derived.
 #'
-#' The score vectors are produced by the package's existing sparse OpenMP
-#' kernel, the same one that serves the sparse INLA marginal and pair tests. It
-#' returns the score coordinates only (`score_only = TRUE`), so no pair
-#' calibration matrix is formed. `threads` is the OpenMP thread count for that
-#' kernel; BiocParallel is not used, because the sparse INLA downstream runs one
-#' OpenMP layer in the manager process.
+#' The score vectors are produced by projecting the sparse INLA score vectors
+#' onto `R`; `threads` has no effect on this projection. BiocParallel is not
+#' used, because the sparse INLA downstream runs one OpenMP layer in the
+#' manager process.
 #'
-#' The normaliser is the sparse kernel's own `m - 1` (one less than the number
-#' of mesh coefficients), which is the constrained coordinate count, not
-#' `nrow(A)`. This is the same normalisation [mgcvST.wgcna()] applies to an INLA
-#' fit.
+#' The normaliser is the basis rank `r` (the number of retained projection
+#' coordinates), not `nrow(A)`.
 #'
 #' @inheritParams mgcvST.wgcna
 #' @param fitmgcvST A compact fit returned by [inlaST.estimate()].
 #' @return An `mgcvST_wgcna` object, identical in shape to the
 #'   [mgcvST.wgcna()] result.
-#' @seealso [mgcvST.wgcna()], which accepts an INLA fit as well and dispatches
-#'   to this same sparse kernel.
+#' @seealso [mgcvST.wgcna()] for `mgcvST.estimate()` fits.
 #' @examples
 #' \dontrun{
 #' fit <- inlaST.estimate(Y, model)

@@ -66,14 +66,16 @@
 }
 .mgcvst_inla_wgcna_scores <- function(fit, used, threads, verbose) {
   group <- "global"
-  A <- fit$score_a[, used, drop = FALSE]
+  fit <- .inlast_sparse_prepare(fit)
+  basis <- .inlast_sparse_observation_basis(fit)
+  A <- crossprod(basis$coordinate, fit$score_a[, used, drop = FALSE])
   colnames(A) <- fit$feature_id[used]
   if (any(!is.finite(A))) {
     stop("The fit does not retain valid sparse INLA score vectors for: ",
          paste(fit$feature_id[used[!is.finite(colSums(A))]], collapse = ", "), ".")
   }
   width <- stats::setNames(nrow(A), "global")
-  normalization <- as.integer(fit$score_sparse$normalization)
+  normalization <- basis$rank
   if (verbose) {
     message("Constructed scores for ", length(used),
             " features from the saved sparse INLA scores.")

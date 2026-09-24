@@ -28,8 +28,8 @@ grey (zero) labels, without changing the requested module size.}
 
 \item{verbose}{Whether to display compact progress messages.}
 
-\item{threads}{Positive OpenMP thread count used by sparse INLA score
-construction. It has no effect on mgcv score construction.}
+\item{threads}{Positive OpenMP thread count controlling score construction
+for both backends.}
 }
 \value{
 An \code{mgcvST_wgcna} object, identical in shape to the
@@ -37,27 +37,24 @@ An \code{mgcvST_wgcna} object, identical in shape to the
 }
 \description{
 The sparse-kernel sibling of \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}. It takes an
-\code{\link[=inlaST.estimate]{inlaST.estimate()}} fit, builds the gene-by-gene similarity
-\eqn{S_{ij} = a_i' a_j / (m - 1)} from the sparse INLA score vectors
-\eqn{a_i}, and then runs exactly the same WGCNA splitting as
-\code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}: \code{WGCNA::adjacency.fromSimilarity()},
+\code{\link[=inlaST.estimate]{inlaST.estimate()}} fit and builds the gene-by-gene similarity
+\eqn{S_{ij} = (R'a_i)'(R'a_j)}, where \code{R} is the observation-kernel
+coordinate basis used by \code{\link[=inlaST.test]{inlaST.test()}} (the same coverage constant), and
+\eqn{a_i} are the sparse INLA score vectors. It then runs exactly the same
+WGCNA splitting as \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}: \code{WGCNA::adjacency.fromSimilarity()},
 \code{WGCNA::TOMsimilarity()}, \code{fastcluster::hclust()},
 \code{dynamicTreeCut::cutreeDynamic()} and \code{WGCNA::labels2colors()}. The
 similarity, the normaliser and the downstream code are shared with
 \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}, not re-derived.
 }
 \details{
-The score vectors are produced by the package's existing sparse OpenMP
-kernel, the same one that serves the sparse INLA marginal and pair tests. It
-returns the score coordinates only (\code{score_only = TRUE}), so no pair
-calibration matrix is formed. \code{threads} is the OpenMP thread count for that
-kernel; BiocParallel is not used, because the sparse INLA downstream runs one
-OpenMP layer in the manager process.
+The score vectors are produced by projecting the sparse INLA score vectors
+onto \code{R}; \code{threads} has no effect on this projection. BiocParallel is not
+used, because the sparse INLA downstream runs one OpenMP layer in the
+manager process.
 
-The normaliser is the sparse kernel's own \code{m - 1} (one less than the number
-of mesh coefficients), which is the constrained coordinate count, not
-\code{nrow(A)}. This is the same normalisation \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}} applies to an INLA
-fit.
+The normaliser is the basis rank \code{r} (the number of retained projection
+coordinates), not \code{nrow(A)}.
 }
 \examples{
 \dontrun{
@@ -67,6 +64,5 @@ W$modules
 }
 }
 \seealso{
-\code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}, which accepts an INLA fit as well and dispatches
-to this same sparse kernel.
+\code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}} for \code{mgcvST.estimate()} fits.
 }
