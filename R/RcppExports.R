@@ -17,6 +17,42 @@ mgcvst_dense_score_batch_cpp <- function(T0, variance, error, scale, X, nuisance
     .Call(`_mgcvST_mgcvst_dense_score_batch_cpp`, T0, variance, error, scale, X, nuisance, threads)
 }
 
+mgcvst_inla_working_state_cpp <- function(A, X, B, C, O, family, size, dispersion, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_inla_working_state_cpp`, A, X, B, C, O, family, size, dispersion, threads)
+}
+
+mgcvst_inla_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
+    .Call(`_mgcvST_mgcvst_inla_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
+}
+
+mgcvst_fp16_cache_cpp <- function(n, r) {
+    .Call(`_mgcvST_mgcvst_fp16_cache_cpp`, n, r)
+}
+
+mgcvst_fp16_cache_release_cpp <- function(pointer) {
+    invisible(.Call(`_mgcvST_mgcvst_fp16_cache_release_cpp`, pointer))
+}
+
+mgcvst_fp16_cache_info_cpp <- function(pointer) {
+    .Call(`_mgcvST_mgcvst_fp16_cache_info_cpp`, pointer)
+}
+
+mgcvst_fp16_build_cpp <- function(pointer, slots, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, coordinate, basis, budget, threads = 1L, nuisance_precision = NULL) {
+    .Call(`_mgcvST_mgcvst_fp16_build_cpp`, pointer, slots, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, coordinate, basis, budget, threads, nuisance_precision)
+}
+
+mgcvst_fp16_write_cpp <- function(pointer, slots, feature_index, feature_id, signature, path) {
+    invisible(.Call(`_mgcvST_mgcvst_fp16_write_cpp`, pointer, slots, feature_index, feature_id, signature, path))
+}
+
+mgcvst_fp16_read_cpp <- function(pointer, slots, feature_index, feature_id, signature, path, budget) {
+    .Call(`_mgcvST_mgcvst_fp16_read_cpp`, pointer, slots, feature_index, feature_id, signature, path, budget)
+}
+
+mgcvst_fp16_pairs_cpp <- function(pointer, used, left_first, left_last, left = NULL, right = NULL, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_fp16_pairs_cpp`, pointer, used, left_first, left_last, left, right, threads)
+}
+
 mgcvst_inla_sparse_prepare_cpp <- function(Q_map, constraint) {
     .Call(`_mgcvST_mgcvst_inla_sparse_prepare_cpp`, Q_map, constraint)
 }
@@ -29,16 +65,8 @@ mgcvst_inla_sparse_observation_basis_cpp <- function(A_map, constraint, coverage
     .Call(`_mgcvST_mgcvst_inla_sparse_observation_basis_cpp`, A_map, constraint, coverage, full_rank, prepared)
 }
 
-mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, score_only = FALSE, null_target = FALSE, block_size = 32L, prepared = NULL, unit_only = FALSE, nuisance_precision = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, score_only, null_target, block_size, prepared, unit_only, nuisance_precision)
-}
-
-mgcvst_inla_sparse_units_cpp <- function(A, Q, constraint, X, E, D, tau, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_units_cpp`, A, Q, constraint, X, E, D, tau, threads, prepared, nuisance_precision)
-}
-
-mgcvst_inla_sparse_materialize_cpp <- function(units, Q_map, constraint, threads = 1L, prepared = NULL, block_size = 32L) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_materialize_cpp`, units, Q_map, constraint, threads, prepared, block_size)
+mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, null_target = FALSE, block_size = 32L, prepared = NULL, nuisance_precision = NULL) {
+    .Call(`_mgcvST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, null_target, block_size, prepared, nuisance_precision)
 }
 
 mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint, coordinate, basis, threads = 1L, prepared = NULL) {
