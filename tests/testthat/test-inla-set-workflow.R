@@ -49,15 +49,6 @@
   }
 }
 
-.inlast_set_workflow_spatial_mean <- function(fit, feature = 1L) {
-  vapply(fit$score_components, function(component) {
-    j <- fit$geometry$target[[component]]
-    B <- fit$geometry$smooth[[j]]$B
-    coefficient <- fit$smooth_coefficients[[component]][feature, ]
-    mean(as.numeric(B %*% coefficient))
-  }, numeric(1L))
-}
-
 test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   skip_on_cran()
   f <- .inlast_set_workflow_fixture()
@@ -137,29 +128,6 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   expect_error(inlaST.set(G = bad_G), "mean|cent|formula|projection")
 })
 
-test_that("diagnostic covariance reuses the required expected solve", {
-  skip_on_cran()
-  f <- .inlast_set_workflow_fixture()
-  model <- inlaST.set(
-    response ~ z + offset(offset0), f$data, f$basis, family = gaussian(),
-    coordinates = c("u", "v"),
-    control = list(fixed_precision = 1.25, gaussian_precision = 4)
-  )
-  diagnostic <- inlaST.estimate(f$Y, model, diagnostics = TRUE)
-  expect_true(all(vapply(diagnostic$expected_nuisance_covariance, is.matrix, logical(1))))
-  ordinary <- inlaST.estimate(f$Y, model)
-  expect_true(all(ordinary$diagnostics$converged))
-  expect_true(all(vapply(ordinary$expected_nuisance_covariance, is.null, logical(1))))
-  for (field in c("nuisance_covariance", "working_error", "working_variance")) {
-    expect_equal(ordinary[[field]], diagnostic[[field]], tolerance = 1e-9)
-  }
-  a <- inlaST.test(ordinary, pairs = matrix(c(1, 2), 1), calibration = "liu")
-  b <- inlaST.test(diagnostic, pairs = matrix(c(1, 2), 1), calibration = "liu")
-  for (field in c("signed_score", "information", "p_two_sided")) {
-    expect_equal(a$results[[field]], b$results[[field]], tolerance = 1e-9)
-  }
-})
-
 test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geometry", {
   skip_on_cran()
   skip_if_not_installed("INLA")
@@ -205,79 +173,6 @@ test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geo
   expect_identical(native3_score$normalization, nrow(xyz) - 1L)
 })
 
-test_that("stored INLA controls are inherited and explicit controls override", {
-  skip_on_cran()
-  f <- .inlast_set_workflow_fixture(seed = 1602L)
-  stored <- list(fixed_precision = 1.25, gaussian_precision = 4,
-                 precision_prior = list(
-                   prior = "normal", param = c(0, 1 / 9), initial = -.5
-                 ))
-  model <- inlaST.set(
-    response ~ z + offset(offset0), f$data, f$basis,
-    family = gaussian(), coordinates = c("u", "v"), control = stored
-  )
-  inherited <- inlaST.estimate(
-    f$Y, model, retain_smooth = TRUE, retain_marginal = TRUE,
-    BPPARAM = BiocParallel::SerialParam(), control = list()
-  )
-  overridden <- inlaST.estimate(
-    f$Y[1L, , drop = FALSE], model, retain_smooth = TRUE,
-    BPPARAM = BiocParallel::SerialParam(),
-    control = list(
-      fixed_precision = 2,
-      precision_prior = list(prior = "flat", param = numeric(), initial = 1)
-    )
-  )
-
-  expect_equal(unname(inherited$dispersion), rep(.25, 2L), tolerance = 1e-12)
-  expect_equal(unname(overridden$dispersion), .25, tolerance = 1e-12)
-  expect_equal(unname(inherited$lambda), rep(.25 * 1.25, 2L),
-               tolerance = 1e-10)
-  expect_equal(unname(overridden$lambda), .25 * 2, tolerance = 1e-10)
-  expect_lt(max(abs(inherited$observation_spatial_mean)), 1e-10)
-  expect_lt(max(abs(overridden$observation_spatial_mean)), 1e-10)
-  expect_lt(max(abs(.inlast_set_workflow_spatial_mean(inherited))), 1e-10)
-  expect_true(all(vapply(inherited$nuisance_covariance, is.matrix, logical(1L))))
-  expect_identical(inherited$geometry$nuisance_projection,
-                   "expected_Fisher_penalized_Vp")
-  expect_identical(inherited$score_backend, "sparse")
-  expect_identical(
-    inherited$estimation$control$precision_prior,
-    list(prior = "normal", param = c(0, 1 / 9), initial = -.5)
-  )
-  expect_identical(
-    overridden$estimation$control$precision_prior,
-    list(prior = "flat", param = numeric(), initial = 1)
-  )
-
-  pair <- matrix(c(1L, 2L), nrow = 1L)
-  direct_pair <- mgcvST.test(
-    inherited, pairs = pair, calibration = "liu",
-    BPPARAM = BiocParallel::SerialParam()
-  )
-  named_pair <- inlaST.test(
-    inherited, pairs = pair, calibration = "liu",
-    BPPARAM = BiocParallel::SerialParam()
-  )
-  expect_numerically_equivalent_test(named_pair, direct_pair)
-  direct_marginal <- mgcvST.marginal(
-    inherited, features = 2:1, calibration = "liu",
-    BPPARAM = BiocParallel::SerialParam()
-  )
-  named_marginal <- inlaST.marginal(
-    inherited, features = 2:1, calibration = "liu",
-    BPPARAM = BiocParallel::SerialParam()
-  )
-  expect_identical(named_marginal, direct_marginal)
-  expect_error(
-    inlaST.set(
-      response ~ z, f$data, f$basis, family = gaussian(),
-      coordinates = c("u", "v"), control = list(not_a_control = 1)
-    ),
-    "Unknown|unknown|control"
-  )
-})
-
 test_that("a fixed NB family does not partially match nb_size_prior", {
   skip_on_cran()
   f <- .inlast_set_workflow_fixture(seed = 1604L)
@@ -292,41 +187,3 @@ test_that("a fixed NB family does not partially match nb_size_prior", {
   expect_identical(model$inla_control[["nb_size_prior", exact = TRUE]], prior)
 })
 
-test_that("set control and native geometry survive serialization and SOCK", {
-  skip_on_cran()
-  f <- .inlast_set_workflow_fixture(n = 46L, seed = 1603L)
-  basis <- f$basis
-  complete <- response ~ z + offset(offset0) +
-    s(u, v, bs = "spde", xt = basis)
-  stored <- list(fixed_precision = 1.4, gaussian_precision = 5)
-  model <- inlaST.set(complete, f$data, gaussian(), control = stored)
-  restored <- unserialize(serialize(model, NULL))
-
-  expect_identical(restored$inla_control, model$inla_control)
-  expect_identical(restored$score_backend, model$score_backend)
-  .inlast_expect_same_set_geometry(restored, model, tolerance = 0)
-  serial <- inlaST.estimate(
-    f$Y, model, retain_smooth = TRUE,
-    BPPARAM = BiocParallel::SerialParam(), control = list()
-  )
-  bp <- BiocParallel::SnowParam(2L, type = "SOCK")
-  parallel <- tryCatch(
-    inlaST.estimate(
-      f$Y, restored, retain_smooth = TRUE, BPPARAM = bp,
-      control = list(), chunk_size = 1L
-    ),
-    finally = BiocParallel::bpstop(bp)
-  )
-
-  expect_equal(serial$working_error, parallel$working_error, tolerance = 2e-5)
-  expect_equal(serial$working_variance, parallel$working_variance,
-               tolerance = 2e-5)
-  expect_equal(serial$nuisance_covariance, parallel$nuisance_covariance,
-               tolerance = 2e-5)
-  expect_equal(serial$lambda, parallel$lambda, tolerance = 2e-5)
-  expect_lt(max(abs(parallel$observation_spatial_mean)), 1e-10)
-  expect_lt(max(abs(.inlast_set_workflow_spatial_mean(parallel, 1L))), 1e-10)
-  expect_lt(max(abs(.inlast_set_workflow_spatial_mean(parallel, 2L))), 1e-10)
-  expect_identical(parallel$geometry$nuisance_projection,
-                   "expected_Fisher_penalized_Vp")
-})

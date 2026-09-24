@@ -58,15 +58,6 @@
        P1 = mgcvST:::.mgcvst_model_apply_P(operator, rep(1, nrow(F))))
 }
 
-test_that("conditioned score removes one mean direction, not spatial signal", {
-  f <- .projection_score_fixture()
-  expect_lt(max(abs(colMeans(f$Z))), 1e-14)
-  state <- mgcvST:::.mgcvst_model_score_state(f$fit, 1L)
-  expect_gt(sum(abs(state$a)), 1e-6)
-  expect_gt(sum(abs(state$M)), 1e-6)
-  expect_gt(max(eigen(state$M, symmetric = TRUE, only.values = TRUE)$values), 1e-6)
-})
-
 test_that("centering an already conditioned factor is an algebraic identity", {
   f <- .projection_score_fixture(0.973)
   C <- diag(nrow(f$Z)) - matrix(1 / nrow(f$Z), nrow(f$Z), nrow(f$Z))

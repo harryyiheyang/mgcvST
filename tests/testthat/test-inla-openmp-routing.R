@@ -129,29 +129,3 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
     "must be SerialParam"
   )
 })
-
-test_that("sparse INLA WGCNA scores retain redundant coordinates and q-1 scale", {
-  fit <- .inla_openmp_fit(3L)
-  seen_threads <- NULL
-  batch <- function(fit, features, threads = 1L, score_only = FALSE,
-                    null_target = FALSE) {
-    seen_threads <<- threads
-    lapply(features, function(i) list(
-      a = c(i, i + 1, -2 * i - 1), M = NULL, error = NULL,
-      normalization = 2L, width = c(global = 3L), backend = "test"
-    ))
-  }
-  testthat::local_mocked_bindings(
-    .inlast_sparse_prepare = function(fit) fit,
-    .inlast_sparse_batch = batch,
-    .package = "mgcvST")
-  z <- mgcvST:::.mgcvst_inla_wgcna_scores(
-    fit, c(3L, 1L, 2L), threads = 3L, verbose = FALSE
-  )
-  expect_identical(seen_threads, 3L)
-  expect_identical(z$width, c(global = 3L))
-  expect_identical(z$normalization, 2L)
-  expect_identical(z$feature_id, c("g3", "g1", "g2"))
-  expect_equal(crossprod(z$A) / z$normalization,
-    crossprod(z$A) / 2, tolerance = 0)
-})

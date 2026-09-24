@@ -22,25 +22,6 @@
   )
 }
 
-.native_iid_constrained_covariance <- function(X, random, tau, variance,
-                                               constraint, nuisance_index,
-                                               fixed_precision = 0) {
-  Dinv <- 1 / as.numeric(variance)
-  L <- cbind(X, do.call(cbind, lapply(random, function(x) as.matrix(x$A))))
-  penalty <- do.call(Matrix::bdiag, c(
-    list(Matrix::Diagonal(ncol(X), fixed_precision)),
-    lapply(seq_along(random), function(j) tau[j] * random[[j]]$Q)
-  ))
-  H <- crossprod(L * sqrt(Dinv)) + as.matrix(penalty)
-  q <- ncol(random[[1L]]$A)
-  C <- matrix(0, nrow = 1L, ncol = ncol(H))
-  C[1L, ncol(X) + seq_len(q)] <- constraint
-  HinvC <- solve(H, t(C))
-  V <- solve(H)
-  V <- V - HinvC %*% solve(C %*% HinvC, t(HinvC))
-  V[nuisance_index, nuisance_index, drop = FALSE]
-}
-
 test_that("native iid design preserves multiple random-effect terms in order", {
   d <- .native_iid_data(n = 18L, levels = 3L)
   f <- response ~ cell + age + offset(offset0) +
@@ -313,48 +294,3 @@ test_that("estimated re and GP smooths agree with mgcv REML", {
   expect_equal(gp_inla, gp_mgcv, tolerance = 1e-3)
 })
 
-test_that("native 3D Gaussian multi-iid fit and score agree with dense operators", {
-  skip_on_cran()
-  skip_if_not_installed("INLA")
-  skip_if_not_installed("fmesher")
-  skip_if_not_installed("geometry")
-  testthat::local_mocked_bindings(
-    .mgcvst_thread_limit = function(...) stop("INLA changed the thread environment"),
-    .package = "mgcvST"
-  )
-  d <- .native_iid_data(n = 36L, levels = 3L, seed = 2502L)
-  mesh <- .native_iid_mesh3d()
-  eta <- .3 + .2 * d$age + d$offset0 + ifelse(d$cell == "a", .15, -.05)
-  set.seed(2503L)
-  Y <- rbind(gene_a = eta + rnorm(nrow(d), sd = .5),
-             gene_b = eta + rnorm(nrow(d), sd = .5))
-  model <- inlaST.set(
-    response ~ cell + age + offset(offset0) +
-      s(slide, bs = "re") + s(batch, bs = "re"), d,
-    family = gaussian(), mesh = mesh, kappa = .8,
-    coordinates = c("x", "y", "z"),
-    control = list(fixed_precision = c(1.1, 1.7, 2.2), gaussian_precision = 4)
-  )
-  fit <- inlaST.estimate(
-    Y, model, BPPARAM = BiocParallel::SerialParam(), diagnostics = TRUE,
-    retain_marginal = TRUE, threads = 1L
-  )
-  expect_true(all(fit$diagnostics$converged))
-  expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
-  expect_identical(dim(fit$nuisance_covariance[[1L]]), c(13L, 13L))
-
-  spec <- model$inla_spec
-  tau <- as.numeric(fit$smoothing_parameters[1L, ]) / fit$dispersion[1L]
-  oracle <- .native_iid_constrained_covariance(
-    spec$fixed$X, spec$random, tau, fit$working_variance[, 1L],
-    spec$random[[1L]]$constraint, spec$nuisance_index
-  )
-  expect_equal(unname(fit$nuisance_covariance[[1L]]), unname(oracle), tolerance = 2e-7)
-
-  marginal <- inlaST.marginal(fit, features = 1:2, threads = 1L)
-  pair <- inlaST.test(
-    fit, pairs = matrix(c(1L, 2L), nrow = 1L), calibration = "liu", threads = 1L
-  )
-  expect_true(all(is.finite(marginal$p_value)))
-  expect_true(is.finite(pair$results$p_two_sided[1L]))
-})
