@@ -154,7 +154,7 @@
   r <- basis$rank
   p <- ncol(fit$geometry$nuisance_design)
   if (is.null(p)) p <- 0L
-  n <- nrow(fit$working_variance)
+  n <- nrow(fit$score_sparse$A)
   if (is.null(n)) n <- 0L
   estimate <- 8 * (r^2 + r + p^2) + 2048
   if (!is.null(state_bytes)) estimate <- max(estimate, state_bytes)

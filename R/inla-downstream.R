@@ -147,29 +147,3 @@ inlaST.test <- function(
     n_per_cell = n_per_cell, seed = seed
   )
 }
-
-#' Re-evaluate retained marginal tests from an INLA fit
-#'
-#' This is the INLA-named entry point for [mgcvST.marginal()].  It delegates
-#' directly to the existing frozen-state replay implementation.  The original
-#' INLA models are not refitted.
-#'
-#' @param fitinlaST An object returned by [inlaST.estimate()] with
-#'   `retain_marginal = TRUE`.
-#' @inheritParams mgcvST.marginal
-#' @param calibration Only `"liu"` is supported for INLA.
-#' @param BPPARAM Compatibility argument; only `SerialParam()` is accepted.
-#' @return The data frame returned by [mgcvST.marginal()].
-#' @export
-inlaST.marginal <- function(
-    fitinlaST, features = NULL,
-    calibration = "liu", fallback = c("none", "liu"),
-    BPPARAM = BiocParallel::SerialParam(), chunk_size = 100L, threads = 1L,
-    null.tol = 1e-10, max_eps = 1e-8, max_iter = 1e5) {
-  mgcvST.marginal(
-    fitmgcvST = fitinlaST, features = features,
-    calibration = calibration, fallback = fallback, BPPARAM = BPPARAM,
-    chunk_size = chunk_size, threads = threads, null.tol = null.tol,
-    max_eps = max_eps, max_iter = max_iter
-  )
-}

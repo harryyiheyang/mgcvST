@@ -9,7 +9,7 @@
 
 # Per-gene variance scales of the first-stage fit that define training strata.
 # NB: V = 1 / mu + 1 / theta; Poisson (and other families): V = 1 / mu.
-.mgcvst_pca_scales <- function(fit) {
+.mgcvst_pca_scales <- function(fit, threads = 1L) {
   G <- length(fit$feature_id)
   nb <- fit$diagnostics$family_used == "negative_binomial"
   theta <- vapply(fit$family_parameters, function(x) {
@@ -19,7 +19,8 @@
   for (first in seq.int(1L, G, by = 500L)) {
     ids <- first:min(first + 499L, G)
     it <- ifelse(nb[ids], 1 / theta[ids], 0)
-    D <- sweep(fit$working_variance[, ids, drop = FALSE], 2L, it, "-")
+    V <- .inlast_working_state(fit, ids, threads = threads)$variance
+    D <- sweep(V, 2L, it, "-")
     mu_bar[ids] <- colMeans(1 / D)
   }
   sigma_g2 <- as.numeric(fit$dispersion) /
@@ -258,7 +259,7 @@
     if (verbose) message("Resumed the rank-", rank, " PCAlearning basis.")
   } else {
     universe <- which(.mgcvst_feature_available(fit))
-    scales <- .mgcvst_pca_scales(fit)
+    scales <- .mgcvst_pca_scales(fit, threads = threads)
     sampled <- .mgcvst_pca_training(scales, universe, n_per_cell, seed)
     sampled$scales <- scales
     t_sample <- proc.time()[["elapsed"]] - started

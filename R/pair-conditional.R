@@ -78,94 +78,24 @@
   basis_elapsed <- proc.time()[["elapsed"]] - t_basis
   q <- basis$rank
   G <- length(used)
-  A <- matrix(NA_real_, q, G, dimnames = list(NULL, ids))
+  A <- crossprod(basis$coordinate, fit$score_a[, used, drop = FALSE])
+  dimnames(A) <- list(NULL, ids)
+  score_elapsed <- 0
+  if (any(!is.finite(A))) stop("Conditional score coordinates are non-finite.")
+  S <- crossprod(A)
+
   existing_manifest <- !is.null(checkpoint_dir) && dir.exists(checkpoint_dir) &&
     file.exists(file.path(checkpoint_dir, "manifest.rds"))
   checkpoint_manifest <- if (existing_manifest) {
     readRDS(file.path(checkpoint_dir, "manifest.rds"))
   } else NULL
-  if (existing_manifest && is.null(checkpoint_manifest$version) && float32) {
-    stop("Legacy conditional checkpoints require conditional_precision = 'double'.")
-  }
-  unit_dir <- NULL
-  if (!existing_manifest) {
-    unit_dir <- tempfile("mgcvst-conditional-units-", tmpdir = tempdir())
-    if (!dir.create(unit_dir)) stop("Could not create conditional unit storage.")
-    on.exit(unlink(unit_dir, recursive = TRUE), add = TRUE)
-  }
-  t_score <- proc.time()[["elapsed"]]
-  starts <- seq.int(1L, G, by = 32L)
-  for (first in starts) {
-    rows <- first:min(G, first + 31L)
-    if (existing_manifest) {
-      states <- .inlast_sparse_batch(fit, used[rows], threads,
-                                     score_only = TRUE)
-      if (length(states) != length(rows)) {
-        stop("Sparse INLA score preparation returned the wrong gene count.")
-      }
-      for (k in seq_along(rows)) {
-        state <- states[[k]]
-        if (!is.null(state$error)) {
-          stop("Conditional score preparation failed for ", ids[rows[k]],
-               ": ", state$error)
-        }
-        A[, rows[k]] <- as.numeric(crossprod(basis$coordinate, state$a))
-      }
-    } else {
-      units <- .inlast_sparse_units(fit, used[rows], threads = threads)
-      if (length(units) != length(rows)) {
-        stop("Sparse INLA score preparation returned the wrong gene count.")
-      }
-      for (k in seq_along(rows)) {
-        unit <- units[[k]]
-        if (!is.null(unit$error)) {
-          stop("Conditional score preparation failed for ", ids[rows[k]],
-               ": ", unit$error)
-        }
-        A[, rows[k]] <- as.numeric(crossprod(basis$coordinate, unit$a))
-        saveRDS(list(unit), file.path(unit_dir, sprintf("unit-%05d.rds", rows[k])),
-                compress = FALSE)
-      }
-      rm(units)
-    }
-  }
-  score_elapsed <- proc.time()[["elapsed"]] - t_score
-  if (any(!is.finite(A))) stop("Conditional score coordinates are non-finite.")
-  S <- crossprod(A)
-
-  legacy_checkpoint <- existing_manifest && is.null(checkpoint_manifest$version)
-  geometry_parts <- list(
-    fit$score_sparse$A, fit$score_sparse$Q,
-    fit$score_sparse$constraint, fit$geometry$nuisance_design
+  signature_data <- list(
+    version = 3L, ids = ids,
+    compact = .inlast_compact_signature(fit, used, basis),
+    score_rank = q, sp_index = fit$score_sparse$sp_index,
+    nuisance_precision = .inlast_sparse_nuisance_precision(fit, used),
+    coverage = 0.995, conditional_precision = conditional_precision
   )
-  if (legacy_checkpoint) geometry_parts <- c(geometry_parts,
-    list(basis$coordinate, basis$basis))
-  geometry_hash <- digest::digest(geometry_parts, algo = "sha256")
-  working_hash <- vapply(used, function(j) {
-    digest::digest(fit$working_variance[, j], algo = "sha256")
-  }, character(1L))
-  if (legacy_checkpoint) {
-    signature_data <- list(
-      version = 1L, ids = ids, A = A,
-      geometry_hash = geometry_hash,
-      working_hash = working_hash,
-      smoothing = fit$smoothing_parameters[used, , drop = FALSE],
-      dispersion = fit$dispersion[used]
-    )
-  } else {
-    error_hash <- vapply(used, function(j) {
-      digest::digest(fit$working_error[, j], algo = "sha256")
-    }, character(1L))
-    signature_data <- list(
-      version = 2L, ids = ids, geometry_hash = geometry_hash,
-      working_hash = working_hash, error_hash = error_hash,
-      smoothing = fit$smoothing_parameters[used, , drop = FALSE],
-      dispersion = fit$dispersion[used], score_rank = q,
-      sp_index = fit$score_sparse$sp_index,
-      nuisance_precision = .inlast_sparse_nuisance_precision(fit, used),
-      coverage = 0.995, conditional_precision = conditional_precision
-    )
-  }
   signature <- digest::digest(signature_data, algo = "sha256")
 
   temporary <- is.null(checkpoint_dir)
@@ -196,7 +126,7 @@
   } else {
     existing <- list.files(checkpoint_dir, all.files = TRUE, no.. = TRUE)
     if (length(existing)) stop("The conditional checkpoint directory is not empty.")
-    saveRDS(list(version = 2L, signature = signature, feature_id = ids,
+    saveRDS(list(version = 3L, signature = signature, feature_id = ids,
                  rank = q),
             paste0(manifest_path, ".pending"))
     if (!file.rename(paste0(manifest_path, ".pending"), manifest_path)) {
@@ -216,15 +146,9 @@
   variance_elapsed <- 0
   if (length(missing)) for (first in seq.int(1L, length(missing), by = chunk_size)) {
     rows <- missing[first:min(length(missing), first + chunk_size - 1L)]
-    if (existing_manifest) {
-      t_units <- proc.time()[["elapsed"]]
-      units <- .inlast_sparse_units(fit, used[rows], threads = threads)
-      score_elapsed <- score_elapsed + proc.time()[["elapsed"]] - t_units
-    } else {
-      units <- lapply(rows, function(row) {
-        readRDS(file.path(unit_dir, sprintf("unit-%05d.rds", row)))[[1L]]
-      })
-    }
+    t_units <- proc.time()[["elapsed"]]
+    units <- .inlast_sparse_units(fit, used[rows], threads = threads)
+    score_elapsed <- score_elapsed + proc.time()[["elapsed"]] - t_units
     if (length(units) != length(rows)) {
       stop("Sparse INLA unit preparation returned the wrong gene count.")
     }
@@ -270,9 +194,6 @@
       if (file.exists(done[row])) unlink(done[row])
       if (!file.rename(done_pending, done[row])) {
         stop("Could not finalize conditional done marker ", row, ".")
-      }
-      if (!existing_manifest) {
-        unlink(file.path(unit_dir, sprintf("unit-%05d.rds", row)))
       }
     }
     rm(units, states, Vb)

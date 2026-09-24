@@ -95,6 +95,12 @@
     cache$general_A <- methods::as(methods::as(geometry$A, "generalMatrix"), "CsparseMatrix")
     cache$A <- geometry$A
   }
+  X <- fit$geometry$nuisance_design
+  if (!is.null(X) && !identical(cache$X, X)) {
+    cache$general_X <- methods::as(methods::as(methods::as(
+      as.matrix(X), "CsparseMatrix"), "generalMatrix"), "dMatrix")
+    cache$X <- X
+  }
   fit$score_sparse <- geometry
   fit
 }
@@ -127,17 +133,11 @@
   spec <- fit$model$inla_spec
   if (is.null(spec)) spec <- fit$inla_spec
   if (is.null(spec)) return(NULL)
-  blocks <- which(vapply(spec$random, function(z) !isTRUE(z$target), logical(1L)))
-  if (!length(blocks)) return(NULL)
-  width <- vapply(spec$random[blocks], function(z) ncol(z$A), integer(1L))
-  sp <- vapply(spec$random[blocks], function(z) as.integer(z$sp_index), integer(1L))
-  precision <- t(fit$smoothing_parameters[features, sp, drop = FALSE] /
-                   as.numeric(fit$dispersion[features]))
-  .inlast_iid_nuisance_precision(ncol(spec$fixed$X), width, precision, length(features))
+  .inlast_nuisance_precision(spec, fit$smoothing_parameters, fit$dispersion, features)
 }
 
-.inlast_null_nuisance_precision <- function(spec, smoothing_parameters,
-                                            dispersion, features) {
+.inlast_nuisance_precision <- function(spec, smoothing_parameters,
+                                       dispersion, features) {
   blocks <- which(vapply(spec$random, function(z) !isTRUE(z$target), logical(1L)))
   if (!length(blocks)) return(NULL)
   width <- vapply(spec$random[blocks], function(z) ncol(z$A), integer(1L))
@@ -147,22 +147,17 @@
   .inlast_iid_nuisance_precision(ncol(spec$fixed$X), width, precision, length(features))
 }
 
-.inlast_sparse_null_batch <- function(score_sparse, nuisance_design, null_state,
-                                      features, threads = 1L) {
+# Null-model score vectors and full-space curvature trace moments.
+.inlast_sparse_null_batch <- function(score_sparse, nuisance_design, E, V,
+                                      nuisance_precision, threads = 1L) {
   score_fit <- .inlast_sparse_prepare(list(score_sparse = score_sparse))
   geometry <- score_fit$score_sparse
   scale <- geometry$cache$penalty_norm
   Q <- geometry$cache$general_Q
-  nuisance_precision <- null_state$nuisance_precision
-  if (!is.null(nuisance_precision)) {
-    nuisance_precision <- nuisance_precision[, features, drop = FALSE]
-  }
   out <- mgcvst_inla_sparse_batch_cpp(
     geometry$cache$general_A, Q,
-    as.numeric(geometry$constraint), as.matrix(nuisance_design),
-    null_state$working_error[, features, drop = FALSE],
-    null_state$working_variance[, features, drop = FALSE],
-    rep.int(1 / scale, length(features)), as.integer(threads), FALSE, TRUE,
+    as.numeric(geometry$constraint), as.matrix(nuisance_design), E, V,
+    rep.int(1 / scale, ncol(E)), as.integer(threads), TRUE,
     32L, geometry$cache$prepared, nuisance_precision = nuisance_precision
   )
   for (j in seq_along(out)) {
@@ -173,62 +168,130 @@
   out
 }
 
-.inlast_sparse_batch <- function(fit, features, threads = 1L,
-                                 score_only = FALSE) {
-  fit <- .inlast_sparse_prepare(fit)
-  geometry <- fit$score_sparse
-  if (!is.list(geometry) || is.null(geometry$Q)) {
-    stop("The fit lacks its sparse INLA score geometry.")
+# Marginal score test of each converged null fit, in chunks of null working
+# models; nothing of the null fits is retained.
+.inlast_null_marginal <- function(feature_id, score_sparse, nuisance_design,
+                                  null_fits, null_spec, dispersion,
+                                  smoothing_parameters, features,
+                                  chunk_size = 16L, threads = 1L) {
+  ans <- data.frame(feature_id = feature_id[features], statistic = NA_real_, p_value = NA_real_,
+    method_requested = "liu", method_used = "liu", fallback_used = FALSE,
+    fallback_reason = NA_character_, davies_ifault = NA_integer_,
+    error_message = NA_character_, stringsAsFactors = FALSE)
+  for (rows in split(seq_along(features), ceiling(seq_along(features) / chunk_size))) {
+    ids <- features[rows]
+    E <- do.call(cbind, lapply(null_fits[ids], `[[`, "working_error"))
+    V <- do.call(cbind, lapply(null_fits[ids], `[[`, "working_variance"))
+    z <- .inlast_sparse_null_batch(
+      score_sparse, nuisance_design, E, V,
+      .inlast_nuisance_precision(null_spec, smoothing_parameters, dispersion, ids),
+      threads
+    )
+    for (j in seq_along(rows)) {
+      k <- rows[j]
+      if (!is.null(z[[j]]$error) && nzchar(z[[j]]$error)) {
+        ans$error_message[k] <- z[[j]]$error
+        next
+      }
+      ans$statistic[k] <- z[[j]]$statistic
+      ans$p_value[k] <- .mgcvst_marginal_liu(z[[j]]$statistic, z[[j]]$moments)
+      if (!is.finite(ans$p_value[k])) ans$error_message[k] <- "Invalid marginal Liu p-value."
+    }
   }
-  Q <- geometry$cache$general_Q
-  phi <- as.numeric(fit$dispersion[features])
-  tau <- as.numeric(fit$smoothing_parameters[features, geometry$sp_index]) / phi
-  if (any(!is.finite(tau)) || any(tau <= 0)) {
-    stop("The feature has invalid dispersion or smoothing parameters.")
-  }
-  out <- mgcvst_inla_sparse_batch_cpp(
-    geometry$cache$general_A, Q,
-    as.numeric(geometry$constraint), as.matrix(fit$geometry$nuisance_design),
-    fit$working_error[, features, drop = FALSE],
-    fit$working_variance[, features, drop = FALSE], tau,
-    as.integer(threads), score_only, FALSE, 32L, geometry$cache$prepared,
-    nuisance_precision = .inlast_sparse_nuisance_precision(fit, features)
-  )
-  for (j in seq_along(out)) {
-    out[[j]]$width <- stats::setNames(length(out[[j]]$a), geometry$target)
-    out[[j]]$normalization <- ncol(Q) - 1L
-    out[[j]]$backend <- "sparse_conditioned_INLA_OpenMP"
-  }
-  out
-}
-
-.mgcvst_model_sparse_score_state <- function(fit, feature, score_only = FALSE) {
-  ans <- .inlast_sparse_batch(fit, feature, 1L, score_only)[[1L]]
-  if (!is.null(ans$error) && nzchar(ans$error)) stop(ans$error)
   ans
 }
 
-.inlast_sparse_units <- function(fit, features, threads = 1L) {
-  fit <- .inlast_sparse_prepare(fit)
-  geometry <- fit$score_sparse
-  tau <- as.numeric(fit$smoothing_parameters[features, geometry$sp_index]) /
-    as.numeric(fit$dispersion[features])
-  mgcvst_inla_sparse_units_cpp(
-    geometry$cache$general_A, geometry$cache$general_Q,
-    as.numeric(geometry$constraint), as.matrix(fit$geometry$nuisance_design),
-    fit$working_error[, features, drop = FALSE],
-    fit$working_variance[, features, drop = FALSE], tau,
-    as.integer(threads), geometry$cache$prepared,
-    nuisance_precision = .inlast_sparse_nuisance_precision(fit, features)
+# Full-space expected-curvature score vectors a_j of the fitted spatial models,
+# computed once at estimation from the working models of `fits`.
+.inlast_estimate_scores <- function(fits, score_sparse, spec, nuisance_design,
+                                    dispersion, smoothing_parameters, features,
+                                    threads = 1L, block = 64L) {
+  score_fit <- .inlast_sparse_prepare(list(score_sparse = score_sparse))
+  geometry <- score_fit$score_sparse
+  a <- matrix(NA_real_, ncol(geometry$Q), length(fits))
+  error <- rep(NA_character_, length(fits))
+  tau <- as.numeric(smoothing_parameters[, geometry$sp_index]) / as.numeric(dispersion)
+  bad <- features[!is.finite(tau[features]) | tau[features] <= 0]
+  error[bad] <- "The feature has invalid dispersion or smoothing parameters."
+  features <- setdiff(features, bad)
+  X <- as.matrix(nuisance_design)
+  for (rows in split(seq_along(features), ceiling(seq_along(features) / block))) {
+    ids <- features[rows]
+    out <- mgcvst_inla_sparse_batch_cpp(
+      geometry$cache$general_A, geometry$cache$general_Q,
+      as.numeric(geometry$constraint), X,
+      do.call(cbind, lapply(fits[ids], `[[`, "working_error")),
+      do.call(cbind, lapply(fits[ids], `[[`, "working_variance")),
+      tau[ids], as.integer(threads), FALSE, 32L, geometry$cache$prepared,
+      nuisance_precision = .inlast_nuisance_precision(
+        spec, smoothing_parameters, dispersion, ids
+      )
+    )
+    for (k in seq_along(ids)) {
+      if (!is.null(out[[k]]$error)) error[ids[k]] <- out[[k]]$error else
+        a[, ids[k]] <- out[[k]]$a
+    }
+  }
+  list(a = a, error = error)
+}
+
+.inlast_family_code <- function(family) {
+  code <- match(family, c("gaussian", "poisson", "negative_binomial")) - 1L
+  if (anyNA(code)) stop("Unknown or missing INLA feature family.")
+  code
+}
+
+# Saved compact working-model inputs of `features` for the shared
+# coefficient -> eta -> mu -> V step.
+.inlast_compact_inputs <- function(fit, features, penalty = TRUE) {
+  features <- as.integer(features)
+  offset <- fit$offset
+  n <- nrow(fit$score_sparse$A)
+  O <- if (is.null(offset)) matrix(0, n, 1L) else if (is.matrix(offset))
+    t(offset[features, , drop = FALSE]) else matrix(as.numeric(offset), n, 1L)
+  storage.mode(O) <- "double"
+  size <- vapply(fit$family_parameters[features], function(x) {
+    if (length(x)) as.numeric(x[1L]) else NA_real_
+  }, numeric(1L))
+  B <- fit$target_coefficients[, features, drop = FALSE]
+  C <- fit$nuisance_coefficients[, features, drop = FALSE]
+  a <- fit$score_a[, features, drop = FALSE]
+  dimnames(B) <- dimnames(C) <- dimnames(a) <- NULL
+  dispersion <- as.numeric(fit$dispersion[features])
+  list(
+    B = B, C = C, O = O, family = .inlast_family_code(fit$feature_family[features]),
+    size = size, dispersion = dispersion,
+    tau = as.numeric(fit$smoothing_parameters[features, fit$score_sparse$sp_index]) /
+      dispersion,
+    a = a,
+    nuisance_precision = if (penalty) .inlast_sparse_nuisance_precision(fit, features)
   )
 }
 
-.inlast_sparse_materialize <- function(fit, units, threads = 1L) {
+# Shared step: eta, mu and working variance (n x features) recovered from the
+# saved coefficients and family parameters.
+.inlast_working_state <- function(fit, features, threads = 1L) {
+  fit <- .inlast_sparse_prepare(fit)
+  cache <- fit$score_sparse$cache
+  z <- .inlast_compact_inputs(fit, features, penalty = FALSE)
+  mgcvst_inla_working_state_cpp(
+    cache$general_A, cache$general_X, z$B, z$C, z$O, z$family, z$size,
+    z$dispersion, as.integer(threads)
+  )
+}
+
+# Double reconstruction units (K, U, Vp, H factor) from the shared working
+# state, carrying the saved score vector a_j.
+.inlast_sparse_units <- function(fit, features, threads = 1L) {
   fit <- .inlast_sparse_prepare(fit)
   geometry <- fit$score_sparse
-  mgcvst_inla_sparse_materialize_cpp(
-    units, geometry$cache$general_Q, as.numeric(geometry$constraint),
-    as.integer(threads), geometry$cache$prepared, 32L
+  z <- .inlast_compact_inputs(fit, features)
+  mgcvst_inla_compact_units_cpp(
+    geometry$cache$general_A, geometry$cache$general_Q,
+    as.numeric(geometry$constraint), geometry$cache$general_X,
+    z$B, z$C, z$O, z$family, z$size, z$dispersion, z$tau, z$a,
+    as.integer(threads), geometry$cache$prepared,
+    nuisance_precision = z$nuisance_precision
   )
 }
 
@@ -240,4 +303,35 @@
     units, geometry$cache$general_Q, as.numeric(geometry$constraint),
     basis$coordinate, basis$basis, as.integer(threads), geometry$cache$prepared
   )
+}
+
+# Hash of the compact state that determines pair tests of `features`:
+# coefficients, saved scores, family and precision parameters, offsets,
+# shared geometry and, when supplied, the common projection basis.
+.inlast_compact_signature <- function(fit, features, basis = NULL) {
+  spec <- fit$model$inla_spec
+  sparse <- fit$score_sparse
+  offset <- fit$offset
+  if (is.matrix(offset)) offset <- offset[features, , drop = FALSE]
+  .mgcvst_pair_input_hash(list(
+    version = 1L, estimator = fit$estimator, feature_id = fit$feature_id[features],
+    target = fit$target_coefficients[, features, drop = FALSE],
+    nuisance = fit$nuisance_coefficients[, features, drop = FALSE],
+    score = fit$score_a[, features, drop = FALSE],
+    family = fit$feature_family[features],
+    family_parameters = fit$family_parameters[features],
+    dispersion = fit$dispersion[features],
+    smoothing = fit$smoothing_parameters[features, , drop = FALSE],
+    offset = offset,
+    geometry = list(
+      A = sparse$A, Q = sparse$Q, constraint = sparse$constraint,
+      sp_index = sparse$sp_index, nuisance_design = fit$geometry$nuisance_design,
+      fixed_width = ncol(spec$fixed$X),
+      random = lapply(spec$random, function(z) {
+        list(target = z$target, kind = z$kind, subtype = z$subtype,
+             sp_index = z$sp_index, width = ncol(z$A))
+      })
+    ),
+    basis = if (is.null(basis)) NULL else basis[c("coordinate", "basis", "rank", "coverage")]
+  ))
 }

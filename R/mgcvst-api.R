@@ -109,6 +109,15 @@
 # Identify features with a complete compact working model.
 .mgcvst_feature_available <- function(fit) {
   n <- length(fit$feature_id)
+  if (identical(fit$estimator, "INLA") && identical(fit$score_backend, "sparse")) {
+    if (length(fit$dispersion) != n || length(fit$lambda) != n ||
+        ncol(fit$score_a) != n) {
+      stop("The compact fit dimensions are incompatible with feature_id.")
+    }
+    return(is.finite(fit$dispersion) & fit$dispersion > 0 &
+      is.finite(fit$lambda) & fit$lambda > 0 &
+      colSums(!is.finite(fit$score_a)) == 0L)
+  }
   if (length(fit$dispersion) != n || length(fit$lambda) != n ||
       ncol(fit$working_error) != n || ncol(fit$working_variance) != n) {
     stop("The compact fit dimensions are incompatible with feature_id.")

@@ -73,37 +73,17 @@
 }
 .mgcvst_inla_wgcna_scores <- function(fit, used, threads, verbose) {
   group <- "global"
-  fit <- .inlast_sparse_prepare(fit)
-  blocks <- split(seq_along(used), ceiling(seq_along(used) / 32L))
-  states <- vector("list", length(used))
-  for (rows in blocks) {
-    states[rows] <- .inlast_sparse_batch(
-      fit, features = used[rows], threads = threads, score_only = TRUE
-    )
-  }
-  if (length(states) != length(used)) {
-    stop("The sparse INLA batch returned an incompatible feature count.")
-  }
-  failed <- vapply(states, function(z) {
-    !is.null(z$error) && length(z$error) == 1L && !is.na(z$error) && nzchar(z$error)
-  }, logical(1L))
-  if (any(failed)) {
-    stop("Sparse INLA score construction failed: ", paste(
-      paste0(fit$feature_id[used[failed]], ": ",
-             vapply(states[failed], `[[`, character(1L), "error")),
-      collapse = " | "
-    ))
-  }
-  coordinate_width <- length(states[[1L]]$a)
-  normalization <- as.integer(states[[1L]]$normalization)
-  width <- stats::setNames(coordinate_width, "global")
-  A <- do.call(cbind, lapply(states, `[[`, "a"))
+  A <- fit$score_a[, used, drop = FALSE]
   colnames(A) <- fit$feature_id[used]
-  if (nrow(A) != coordinate_width || any(!is.finite(A))) {
-    stop("The sparse INLA batch returned invalid score coordinates.")
+  if (any(!is.finite(A))) {
+    stop("The fit does not retain valid sparse INLA score vectors for: ",
+         paste(fit$feature_id[used[!is.finite(colSums(A))]], collapse = ", "), ".")
   }
+  width <- stats::setNames(nrow(A), "global")
+  normalization <- as.integer(fit$score_sparse$normalization)
   if (verbose) {
-    message("Constructed scores for ", length(used), " features with C++ OpenMP.")
+    message("Constructed scores for ", length(used),
+            " features from the saved sparse INLA scores.")
   }
   list(
     A = A, group = group, width = width,

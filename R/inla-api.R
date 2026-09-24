@@ -540,10 +540,8 @@ inlaST.set <- function(
 #'   `phi` and the family actually used are reported in the diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
 #' @param retain_smooth Retain estimated score-component coefficients.
-#' @param diagnostics Retain an additional reference to the expected-Fisher
-#'   nuisance covariance in `expected_nuisance_covariance`. This covariance
-#'   is always reconstructed for `nuisance_covariance`; no extra solve is needed.
-#' @param retain_marginal Retain the frozen state needed by [mgcvST.marginal()].
+#' @param diagnostics Retain the per-feature INLA optimizer/hyperparameter
+#'   diagnostics in `inla_diagnostics`.
 #' @details Hyperparameter priors remain part of INLA's empirical-Bayes
 #' estimates; these are not mgcv REML estimates. `mgcv::nb(theta = value)`
 #' fixes NB size, and a conflicting `control$nb_size` is rejected. The
@@ -576,7 +574,7 @@ inlaST.estimate <- function(
     Y, model, feature_id = rownames(Y),
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
     offset = NULL, control = list(), retain_smooth = FALSE,
-    diagnostics = FALSE, retain_marginal = FALSE, threads = 1L) {
+    diagnostics = FALSE, threads = 1L) {
   if (!requireNamespace("INLA", quietly = TRUE)) {
     stop("inlaST.estimate() requires the INLA package.")
   }
@@ -590,8 +588,6 @@ inlaST.estimate <- function(
   # Sparse-only: the geometry builder is the capability gate. It stops with the
   # reason when the model cannot be scored; there is no dense alternative.
   score_sparse <- .inlast_sparse_score_geometry(model)
-  if (!is.logical(retain_marginal) || length(retain_marginal) != 1L ||
-      is.na(retain_marginal)) stop("retain_marginal must be TRUE or FALSE.")
   # Validate once in the parent so a misspelled or invalid control cannot turn
   # every feature into an otherwise opaque per-feature failure.
   control <- .inlast_control(.inlast_merge_control(model$inla_control, control))
@@ -654,7 +650,6 @@ inlaST.estimate <- function(
   n <- ncol(Y)
   p <- nrow(Y)
   n_sp <- model$inla_spec$geometry_sp_length
-  null_E <- null_V <- matrix(NA_real_, n, p, dimnames = list(NULL, feature_id))
   null_dispersion <- stats::setNames(rep(NA_real_, p), feature_id)
   null_smoothing_parameters <- matrix(NA_real_, p, n_sp,
     dimnames = list(feature_id, model$inla_spec$sp_names))
@@ -669,8 +664,6 @@ inlaST.estimate <- function(
       null_error_call[j] <- paste(deparse(conditionCall(z)), collapse = " ")
       next
     }
-    null_E[, j] <- z$working_error
-    null_V[, j] <- z$working_variance
     null_dispersion[j] <- z$dispersion
     if (length(z$smoothing_parameters)) {
       null_smoothing_parameters[j, seq_along(z$smoothing_parameters)] <-
@@ -679,32 +672,19 @@ inlaST.estimate <- function(
     null_converged[j] <- isTRUE(z$converged)
     null_fit_seconds[j] <- z$fit_seconds
   }
-  null_state <- list(
-    working_error = null_E,
-    working_variance = null_V,
-    nuisance_precision = NULL
-  )
   marginal <- NULL
   marginal_elapsed <- 0
   valid_null <- which(null_converged)
   if (length(valid_null)) {
-    nuisance_precision <- .inlast_null_nuisance_precision(
-      null_spec, null_smoothing_parameters, null_dispersion, valid_null
-    )
-    if (!is.null(nuisance_precision)) {
-      null_state$nuisance_precision <- matrix(
-        NA_real_, nrow(nuisance_precision), p,
-        dimnames = list(NULL, feature_id)
-      )
-      null_state$nuisance_precision[, valid_null] <- nuisance_precision
-    }
     marginal_t0 <- proc.time()[["elapsed"]]
     marginal <- .inlast_null_marginal(
-      feature_id, score_sparse, model$geometry$nuisance_design, null_state,
+      feature_id, score_sparse, model$geometry$nuisance_design,
+      null_fits, null_spec, null_dispersion, null_smoothing_parameters,
       valid_null, chunk_size = min(16L, chunk_size), threads = threads
     )
     marginal_elapsed <- proc.time()[["elapsed"]] - marginal_t0
   }
+  rm(null_fits, null_chunks)
   fit_t0 <- proc.time()[["elapsed"]]
   chunks <- BiocParallel::bplapply(
     payloads, .inlast_chunk_task(), spec = model$inla_spec,
@@ -718,15 +698,16 @@ inlaST.estimate <- function(
   fit_elapsed <- proc.time()[["elapsed"]] - fit_t0
   fits <- unlist(chunks, recursive = FALSE)
 
-  E <- V <- matrix(NA_real_, n, p, dimnames = list(NULL, feature_id))
   dispersion <- stats::setNames(rep(NA_real_, p), feature_id)
   family_parameters <- stats::setNames(vector("list", p), feature_id)
   smoothing_parameters <- matrix(
     NA_real_, p, n_sp,
     dimnames = list(feature_id, model$inla_spec$sp_names)
   )
-  nuisance_covariance <- stats::setNames(vector("list", p), feature_id)
-  expected_nuisance_covariance <- stats::setNames(vector("list", p), feature_id)
+  m <- ncol(score_sparse$A)
+  px <- ncol(model$geometry$nuisance_design)
+  target_coefficients <- matrix(NA_real_, m, p, dimnames = list(NULL, feature_id))
+  nuisance_coefficients <- matrix(NA_real_, px, p, dimnames = list(NULL, feature_id))
   diagnostics_table <- data.frame(
     index = seq_len(p), feature_id = feature_id, converged = FALSE,
     marginal_p_value = NA_real_, marginal_requested_method = NA_character_,
@@ -764,13 +745,11 @@ inlaST.estimate <- function(
       diagnostics_table$error_call[j] <- paste(deparse(conditionCall(z)), collapse = " ")
       next
     }
-    E[, j] <- z$working_error
-    V[, j] <- z$working_variance
     dispersion[j] <- z$dispersion
     family_parameters[[j]] <- z$family_parameters
     smoothing_parameters[j, ] <- z$smoothing_parameters
-    nuisance_covariance[j] <- list(z$nuisance_covariance)
-    expected_nuisance_covariance[j] <- list(z$expected_nuisance_covariance)
+    target_coefficients[, j] <- as.numeric(z$random_mode[[1L]])
+    if (px) nuisance_coefficients[, j] <- as.numeric(z$fixed_mode)
     diagnostics_table$converged[j] <- isTRUE(z$converged)
     diagnostics_table$criterion[j] <- z$log_marginal_likelihood
     diagnostics_table$fit_seconds[j] <- z$fit_seconds
@@ -800,18 +779,29 @@ inlaST.estimate <- function(
   estimation <- if (is.na(first_good)) NULL else fits[[first_good]]$estimation
   if (!is.null(estimation)) estimation$control <- control
 
+  # a_j (full q-dim whitened score, pre-projection) while `fits` still holds
+  # each feature's working error/variance from the OpenMP state step; neither
+  # is retained on the returned fit.
+  scores <- .inlast_estimate_scores(
+    fits, score_sparse, model$inla_spec, model$geometry$nuisance_design,
+    dispersion, smoothing_parameters, which(diagnostics_table$converged),
+    threads = threads
+  )
+  chunks <- NULL
+  fits <- NULL
+
   ans <- structure(list(
     feature_id = feature_id,
-    working_error = E,
-    working_variance = V,
     dispersion = dispersion,
     lambda = component_lambda[, "global"],
     component_lambda = component_lambda,
     smoothing_parameters = smoothing_parameters,
     family_parameters = family_parameters,
+    feature_family = family_used,
+    target_coefficients = target_coefficients,
+    nuisance_coefficients = nuisance_coefficients,
+    score_a = scores$a,
     geometry = model$geometry,
-    nuisance_covariance = nuisance_covariance,
-    expected_nuisance_covariance = expected_nuisance_covariance,
     row_id = model$geometry$row_id,
     offset = total_offset,
     linear_design = model$geometry$X,
@@ -839,12 +829,7 @@ inlaST.estimate <- function(
     mean_constraint_active = TRUE,
     call = match.call()
   ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
-  chunks <- NULL
-  fits <- NULL
-  ans$marginal_data <- list(version = 2L, definition = "sparse_INLA_null_marginal_TAPS_Liu")
-  if (retain_marginal) ans$marginal_data$null_state <- null_state
   if (!is.null(marginal)) {
-    ans$marginal_data$result <- marginal
     valid <- match(marginal$feature_id, feature_id)
     ans$diagnostics$marginal_p_value[valid] <- marginal$p_value
     ans$diagnostics$marginal_requested_method[valid] <- "liu"
@@ -857,8 +842,15 @@ inlaST.estimate <- function(
       ans$diagnostics$score_error_message[failed] <- marginal$error_message[failed_score]
     }
   }
-  if (!retain_marginal) {
-    ans$marginal_data <- NULL
+  score_failed <- !is.na(scores$error) & nzchar(scores$error)
+  if (any(score_failed)) {
+    ans$diagnostics$score_error_class[score_failed] <- "sparse_score"
+    ans$diagnostics$score_error_message[score_failed] <- ifelse(
+      is.na(ans$diagnostics$score_error_message[score_failed]),
+      scores$error[score_failed],
+      paste(ans$diagnostics$score_error_message[score_failed],
+            scores$error[score_failed], sep = " | ")
+    )
   }
   ans
 }

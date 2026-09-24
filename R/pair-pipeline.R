@@ -24,12 +24,17 @@
   smooth <- if (is.list(geometry$smooth)) lapply(geometry$smooth, function(z) {
     z[c("B", "penalties", "sp_index", "fixed", "score_component")]
   }) else NULL
-  sparse <- if (identical(fit$score_backend, "sparse")) {
+  sparse_backend <- identical(fit$score_backend, "sparse")
+  sparse <- if (sparse_backend) {
     z <- fit$score_sparse
     list(A = z$A, Q = z$Q, constraint = z$constraint,
          sp_index = z$sp_index,
          nuisance_design = geometry$nuisance_design,
-         basis = basis[c("coordinate", "basis", "rank", "coverage")])
+         basis = basis[c("coordinate", "basis", "rank", "coverage")],
+         target = fit$target_coefficients, nuisance = fit$nuisance_coefficients,
+         score = fit$score_a, family = fit$feature_family,
+         family_parameters = fit$family_parameters, dispersion = fit$dispersion,
+         smoothing_parameters = fit$smoothing_parameters)
   } else NULL
   spec <- if (is.list(fit$model)) fit$model$inla_spec else NULL
   if (is.null(spec)) spec <- fit$inla_spec
@@ -39,12 +44,15 @@
          width = if (is.null(z$A)) NULL else ncol(z$A))
   }) else NULL
   inputs <- list(
-    pipeline_version = 2L, estimator = fit$estimator,
+    pipeline_version = 3L, estimator = fit$estimator,
     test_engine = fit$test_engine, score_backend = fit$score_backend,
-    feature_id = fit$feature_id, working_error = fit$working_error,
-    working_variance = fit$working_variance, dispersion = fit$dispersion,
-    lambda = fit$lambda, smoothing_parameters = fit$smoothing_parameters,
-    nuisance_covariance = fit$nuisance_covariance,
+    feature_id = fit$feature_id,
+    working_error = if (sparse_backend) NULL else fit$working_error,
+    working_variance = if (sparse_backend) NULL else fit$working_variance,
+    dispersion = if (sparse_backend) NULL else fit$dispersion,
+    lambda = fit$lambda,
+    smoothing_parameters = if (sparse_backend) NULL else fit$smoothing_parameters,
+    nuisance_covariance = if (sparse_backend) NULL else fit$nuisance_covariance,
     geometry = list(B = geometry$B, Q = geometry$Q, X = geometry$X,
                     score_precision_psd = geometry$score_precision_psd,
                     nuisance_design = geometry$nuisance_design,
@@ -52,7 +60,7 @@
     sparse = sparse, random = random,
     inla_fixed_width = if (is.null(spec$fixed$X)) NULL else ncol(spec$fixed$X)
   )
-  list(version = 2L, md5 = .mgcvst_pair_input_hash(inputs))
+  list(version = 3L, md5 = .mgcvst_pair_input_hash(inputs))
 }
 
 # Build one bounded feature batch with the existing full-precision score kernels.
@@ -226,7 +234,7 @@
       ncol(native$X) else if (mode == "legacy_native") ncol(fit$geometry$X) else
         ncol(fit$geometry$nuisance_design)
     if (is.null(p)) p <- 0L
-    n <- nrow(fit$working_variance)
+    n <- if (sparse) nrow(fit$score_sparse$A) else nrow(fit$working_variance)
     feature_work <- if (sparse) {
       8 * (8 * q^2 + 4 * q * p + 4 * p^2 + 4 * n + 4 * width^2)
     } else 8 * (8 * n * q + 4 * n * p + 8 * q^2 + 4 * q * p + 4 * p^2)

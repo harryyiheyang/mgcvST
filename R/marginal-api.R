@@ -313,9 +313,8 @@ mgcvST.marginal <- function(fitmgcvST, features = NULL,
     BPPARAM = BiocParallel::SerialParam(), chunk_size = 100L, threads = 1L,
     null.tol = 1e-10, max_eps = 1e-8, max_iter = 1e5) {
   if (identical(fitmgcvST$estimator, "INLA")) {
-    if (missing(calibration)) calibration <- "liu"
-    return(.inlast_marginal(fitmgcvST, features, match.arg(calibration),
-                            BPPARAM, chunk_size, threads))
+    stop("mgcvST.marginal() does not support INLA fits; the marginal Liu ",
+         "test is already reported in inlaST.estimate()'s diagnostics table.")
   }
   calibration <- match.arg(calibration)
   fallback <- match.arg(fallback)

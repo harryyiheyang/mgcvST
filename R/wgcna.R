@@ -216,16 +216,25 @@
   if (!identical(available, "global")) {
     stop("The fit must carry exactly one score component named 'global'.")
   }
-  E <- fit$working_error
-  V <- fit$working_variance
-  if (length(dim(E)) != 2L || length(dim(V)) != 2L ||
-      !identical(dim(E), dim(V)) || ncol(E) != length(ids) ||
-      length(fit$dispersion) != length(ids)) {
-    stop("The compact fit dimensions are incompatible with feature_id.")
+  if (.mgcvst_inla_downstream(fit)) {
+    if (!is.matrix(fit$score_a) || ncol(fit$score_a) != length(ids) ||
+        length(fit$dispersion) != length(ids)) {
+      stop("The compact fit dimensions are incompatible with feature_id.")
+    }
+    valid <- is.finite(fit$dispersion[used]) & fit$dispersion[used] > 0 &
+      colSums(!is.finite(fit$score_a[, used, drop = FALSE])) == 0L
+  } else {
+    E <- fit$working_error
+    V <- fit$working_variance
+    if (length(dim(E)) != 2L || length(dim(V)) != 2L ||
+        !identical(dim(E), dim(V)) || ncol(E) != length(ids) ||
+        length(fit$dispersion) != length(ids)) {
+      stop("The compact fit dimensions are incompatible with feature_id.")
+    }
+    valid <- is.finite(fit$dispersion[used]) & fit$dispersion[used] > 0 &
+      colSums(!is.finite(E[, used, drop = FALSE])) == 0L &
+      colSums(!is.finite(V[, used, drop = FALSE]) | V[, used, drop = FALSE] <= 0) == 0L
   }
-  valid <- is.finite(fit$dispersion[used]) & fit$dispersion[used] > 0 &
-    colSums(!is.finite(E[, used, drop = FALSE])) == 0L &
-    colSums(!is.finite(V[, used, drop = FALSE]) | V[, used, drop = FALSE] <= 0) == 0L
   if (any(!valid)) {
     stop("Selected features lack valid working models: ",
          paste(ids[used[!valid]], collapse = ", "), ".")
