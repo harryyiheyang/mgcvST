@@ -17,7 +17,9 @@ test_that("pair checkpoints require complete compatible result batches", {
   dir.create(path)
   on.exit(unlink(path, recursive = TRUE), add = TRUE)
   z <- data.frame(pair_index = 1:2, score = c(1, 2), information = 1,
-    effective_rank = 1, p_value = c(0.4, 0.2), error_message = NA_character_)
+    effective_rank = 1, p_value = c(0.4, 0.2),
+    log_p_two_sided = log(c(0.4, 0.2)), log_p_positive = log(c(0.2, 0.1)),
+    log_p_negative = log(c(0.8, 0.9)), error_message = NA_character_)
   mgcvST:::.mgcvst_pair_checkpoint_write(path, 1L, 2L, z)
   expect_identical(mgcvST:::.mgcvst_pair_checkpoint_read(path, 1L, 1:3)$result, z)
   expect_identical(mgcvST:::.mgcvst_pair_checkpoint_read(

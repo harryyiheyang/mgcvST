@@ -17,7 +17,8 @@
   if (!file.exists(file)) return(NULL)
   z <- readRDS(file)
   columns <- c("pair_index", "score", "information", "effective_rank",
-               "p_value", "error_message")
+               "p_value", "log_p_two_sided", "log_p_positive",
+               "log_p_negative", "error_message")
   if (!is.list(z) || !identical(z$first, first) ||
       length(z$last) != 1L || !is.finite(z$last) ||
       z$last < first || z$last > length(pair_index) ||

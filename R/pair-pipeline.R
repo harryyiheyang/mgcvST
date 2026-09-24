@@ -236,11 +236,15 @@
   index <- index[ord, , drop = FALSE]
   pair_index <- pair_index[ord]
 
-  result <- data.frame(
-    pair_index = pair_index, score = rep(NA_real_, nrow(index)),
-    information = NA_real_, effective_rank = NA_real_, p_value = NA_real_,
-    error_message = NA_character_, stringsAsFactors = FALSE
-  )
+  n_pairs <- nrow(index)
+  r_score <- rep(NA_real_, n_pairs)
+  r_information <- rep(NA_real_, n_pairs)
+  r_effective_rank <- rep(NA_real_, n_pairs)
+  r_p_value <- rep(NA_real_, n_pairs)
+  r_log_p_two_sided <- rep(NA_real_, n_pairs)
+  r_log_p_positive <- rep(NA_real_, n_pairs)
+  r_log_p_negative <- rep(NA_real_, n_pairs)
+  r_error_message <- rep(NA_character_, n_pairs)
   cache <- new.env(parent = emptyenv())
   cache$state <- list()
   cache$bytes <- 0
@@ -257,7 +261,15 @@
   while (first <= nrow(index)) {
     saved <- .mgcvst_pair_checkpoint_read(pair_path, first, pair_index)
     if (!is.null(saved)) {
-      result[seq.int(first, saved$last), ] <- saved$result
+      idx <- seq.int(first, saved$last)
+      r_score[idx] <- saved$result$score
+      r_information[idx] <- saved$result$information
+      r_effective_rank[idx] <- saved$result$effective_rank
+      r_p_value[idx] <- saved$result$p_value
+      r_log_p_two_sided[idx] <- saved$result$log_p_two_sided
+      r_log_p_positive[idx] <- saved$result$log_p_positive
+      r_log_p_negative[idx] <- saved$result$log_p_negative
+      r_error_message[idx] <- saved$result$error_message
       resumed_pairs <- resumed_pairs + nrow(saved$result)
       chunks <- chunks + 1L
       first <- saved$last + 1L
@@ -330,7 +342,14 @@
     )
     z <- .mgcvst_liu_pairs(index[rows, , drop = FALSE], pair_index[rows],
                            fit$feature_id, summaries, threads, length(rows), FALSE)
-    result[rows, names(z$result)] <- z$result
+    r_score[rows] <- z$result$score
+    r_information[rows] <- z$result$information
+    r_effective_rank[rows] <- z$result$effective_rank
+    r_p_value[rows] <- z$result$p_value
+    r_log_p_two_sided[rows] <- z$result$log_p_two_sided
+    r_log_p_positive[rows] <- z$result$log_p_positive
+    r_log_p_negative[rows] <- z$result$log_p_negative
+    r_error_message[rows] <- z$result$error_message
     .mgcvst_pair_checkpoint_write(pair_path, first, last, z$result)
     elapsed <- elapsed + z$elapsed
     chunks <- chunks + 1L
@@ -341,7 +360,14 @@
     if (exists("state", inherits = FALSE)) rm(state)
     first <- last + 1L
   }
-  result <- result[order(ord), , drop = FALSE]
+  back <- order(ord)
+  result <- data.frame(
+    pair_index = pair_index[back], score = r_score[back],
+    information = r_information[back], effective_rank = r_effective_rank[back],
+    p_value = r_p_value[back], log_p_two_sided = r_log_p_two_sided[back],
+    log_p_positive = r_log_p_positive[back], log_p_negative = r_log_p_negative[back],
+    error_message = r_error_message[back], stringsAsFactors = FALSE
+  )
   rownames(result) <- NULL
   list(result = result, elapsed = elapsed,
        metadata = list(path = if (isTRUE(store$temporary)) NULL else store$path,
