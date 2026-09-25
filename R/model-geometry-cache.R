@@ -28,18 +28,31 @@
   family <- .working_family_id(fit$family$family)
   if (is.null(cache) || is.null(cache$L) ||
       (!isTRUE(cache$frozen) && (is.null(cache$signature) ||
-       !identical(.mgcvst_geometry_signature(fit), cache$signature))) ||
-      !(family %in% c("gaussian", "poisson", "quasipoisson",
-                      "negative_binomial")) ||
-      fit$rank != length(fit$coefficients)) return(NULL)
+       !identical(.mgcvst_geometry_signature(fit), cache$signature)))) {
+    return(list(error = "missing geometry cache"))
+  }
+  if (!(family %in% c("gaussian", "poisson", "quasipoisson",
+                      "negative_binomial"))) {
+    return(list(error = "unsupported family"))
+  }
+  if (fit$rank != length(fit$coefficients)) {
+    return(list(error = sprintf(
+      "rank-deficient fit (rank %d of %d)", fit$rank, length(fit$coefficients)
+    )))
+  }
   tested <- sort(unique(unlist(lapply(
     geometry$smooth[geometry$target], `[[`, "columns"), use.names = FALSE
   )))
   nuisance <- setdiff(seq_len(ncol(cache$L)), tested)
-  if (!length(nuisance) || !all(dim(fit$Vp) == ncol(cache$L))) return(NULL)
+  if (!length(nuisance)) return(list(error = "no nuisance columns"))
+  if (!all(dim(fit$Vp) == ncol(cache$L))) {
+    return(list(error = "Vp dimension mismatch"))
+  }
   VpN <- as.matrix(fit$Vp[nuisance, nuisance, drop = FALSE])
   if (any(!is.finite(VpN)) ||
-      !isTRUE(isSymmetric(VpN, tol = 100 * .Machine$double.eps))) return(NULL)
+      !isTRUE(isSymmetric(VpN, tol = 100 * .Machine$double.eps))) {
+    return(list(error = "non-finite or asymmetric nuisance Vp block"))
+  }
   list(columns = nuisance, design = cache$L[, nuisance, drop = FALSE],
        covariance = VpN)
 }

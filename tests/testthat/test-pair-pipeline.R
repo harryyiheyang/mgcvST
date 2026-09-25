@@ -58,7 +58,7 @@ test_that("bounded pair blocks preserve self, duplicate, and reversed pairs", {
   expect_true(all(vapply(seen, `[[`, integer(1L), "rows") <= 9L))
 })
 
-test_that("shared preparation keeps dense native and fallback state contracts", {
+test_that("shared preparation keeps dense native state contracts", {
   fit <- list(
     working_error = matrix(0, 3L, 2L),
     working_variance = matrix(1, 3L, 2L),
@@ -73,18 +73,14 @@ test_that("shared preparation keeps dense native and fallback state contracts", 
     lapply(seq_along(scale), function(i) list(a = c(i, i + 1),
                                               H = diag(c(i, i + 1))))
   }
-  fallback <- function(fit, feature) {
-    list(a = c(feature, feature + 1), M = diag(2), width = 2L)
-  }
   testthat::local_mocked_bindings(
     mgcvst_dense_score_batch_cpp = native_batch,
-    .mgcvst_model_score_state = fallback,
     .package = "mgcvST"
   )
   native <- list(T0 = matrix(1, 3L, 2L), X = matrix(1, 3L, 1L),
                  sp_index = 1L, width = c(global = 2L))
   model <- mgcvST:::.mgcvst_pair_build_batch(
-    fit, 1:2, 2L, NULL, "model_native", native = native
+    fit, 1:2, 2L, mode = "model_native", native = native
   )
   expect_equal(seen$scale, c(0.5, 0.5))
   expect_identical(model[[1L]]$a, c(1, 2))
@@ -92,15 +88,11 @@ test_that("shared preparation keeps dense native and fallback state contracts", 
   expect_identical(model[[1L]]$width, c(global = 2L))
 
   legacy <- mgcvST:::.mgcvst_pair_build_batch(
-    fit, 1:2, 2L, NULL, "legacy_native",
+    fit, 1:2, 2L, mode = "legacy_native",
     T0 = matrix(1, 3L, 2L), field_scale = c(0.25, 0.75)
   )
   expect_equal(seen$scale, c(0.25, 0.75))
   expect_equal(legacy[[1L]]$M, diag(c(1, 2)))
-  fallback_states <- mgcvST:::.mgcvst_pair_build_batch(
-    fit, 1:2, 1L, NULL, "model_fallback"
-  )
-  expect_equal(fallback_states[[2L]]$M, diag(2))
 })
 
 test_that("the fused C++ Liu pair kernel matches the old trace-powers + R Liu path", {

@@ -17,44 +17,34 @@
 }
 
 # Construct each requested model score state once and write one packed shard.
+# `native` (from .mgcvst_model_dense_preparation()) must be non-NULL: a
+# model.set() fit without a usable conditional nuisance covariance is a hard
+# error at the call site, not a per-feature R-loop fallback.
 .mgcvst_model_state_shard <- function(features, fit, paths, threads = 1L,
                                       native = NULL) {
   .mgcvst_thread_limit()
-  if (!is.null(native)) {
-    for (first in seq.int(1L, length(features), by = 32L)) {
-      rows <- first:min(length(features), first + 31L)
-      ids <- features[rows]
-      phi <- fit$dispersion[ids]
-      sp <- fit$smoothing_parameters[ids, , drop = FALSE]
-      bad <- !is.finite(phi) | phi <= 0 |
-        rowSums(!is.finite(sp) | sp <= 0) > 0L
-      units <- mgcvst_dense_score_batch_cpp(
-        native$T0, fit$working_variance[, ids, drop = FALSE],
-        fit$working_error[, ids, drop = FALSE],
-        fit$dispersion[ids] / fit$smoothing_parameters[ids, native$sp_index],
-        native$X, fit$nuisance_covariance[ids], threads
-      )
-      for (k in seq_along(ids)) {
-        z <- units[[k]]
-        if (bad[k]) z <- list(error =
-          "The feature has invalid dispersion or smoothing parameters.")
-        unit <- if (is.null(z$error)) {
-          .mgcvst_pack_score_state(list(a = z$a, M = z$H, width = native$width))
-        } else list(error = z$error)
-        saveRDS(unit, paths[rows[k]])
-      }
+  for (first in seq.int(1L, length(features), by = 32L)) {
+    rows <- first:min(length(features), first + 31L)
+    ids <- features[rows]
+    phi <- fit$dispersion[ids]
+    sp <- fit$smoothing_parameters[ids, , drop = FALSE]
+    bad <- !is.finite(phi) | phi <= 0 |
+      rowSums(!is.finite(sp) | sp <= 0) > 0L
+    units <- mgcvst_dense_score_batch_cpp(
+      native$T0, fit$working_variance[, ids, drop = FALSE],
+      fit$working_error[, ids, drop = FALSE],
+      fit$dispersion[ids] / fit$smoothing_parameters[ids, native$sp_index],
+      native$X, fit$nuisance_covariance[ids], threads
+    )
+    for (k in seq_along(ids)) {
+      z <- units[[k]]
+      if (bad[k]) z <- list(error =
+        "The feature has invalid dispersion or smoothing parameters.")
+      unit <- if (is.null(z$error)) {
+        .mgcvst_pack_score_state(list(a = z$a, M = z$H, width = native$width))
+      } else list(error = z$error)
+      saveRDS(unit, paths[rows[k]])
     }
-    return(features)
-  }
-  for (k in seq_along(features)) {
-    z <- tryCatch(.mgcvst_model_score_state(fit, features[k]),
-                  error = function(e) e)
-    if (inherits(z, "condition")) {
-      unit <- list(error = conditionMessage(z))
-    } else {
-      unit <- .mgcvst_pack_score_state(z)
-    }
-    saveRDS(unit, paths[k])
   }
   features
 }
@@ -289,14 +279,9 @@
     } else {
     chunks <- .mgcvst_dense_pair_groups(tested_rows, index, chunk_size)
     used <- sort(unique(as.vector(index[tested_rows, , drop = FALSE])))
-    feature_workers <- max(1L, min(length(used), BiocParallel::bpworkers(BPPARAM)))
-    feature_groups <- split(used, ceiling(seq_along(used) /
-      ceiling(length(used) / feature_workers)))
     cache_dir <- .mgcvst_dense_temp_dir()
     on.exit(.mgcvst_dense_cleanup(cache_dir), add = TRUE)
     worker_bundle <- .mgcvst_worker_bundle()
-    state_shard <- get(".mgcvst_model_state_shard", envir = worker_bundle,
-                       inherits = FALSE)
     test_chunk <- get(".mgcvst_dense_pair_chunk", envir = worker_bundle,
                       inherits = FALSE)
     t0 <- proc.time()[["elapsed"]]
@@ -306,17 +291,11 @@
     native_preparation <- !is.null(native)
     shard_paths <- file.path(cache_dir, paste0("state-", used, ".rds"))
     names(shard_paths) <- as.character(used)
-    if (native_preparation) {
-      .mgcvst_model_state_shard(used, test_fit, shard_paths, threads, native)
-    } else {
-    BiocParallel::bplapply(
-      seq_along(feature_groups), function(k, groups, paths, fit, worker_fun) {
-        feature <- groups[[k]]
-        worker_fun(feature, fit, paths[as.character(feature)])
-      }, groups = feature_groups, paths = shard_paths, fit = test_fit,
-      worker_fun = state_shard, BPPARAM = BPPARAM
-    )
+    if (!native_preparation) {
+      stop("Model score states require the conditional nuisance covariance; ",
+           "re-estimate with the current mgcvST.estimate().")
     }
+    .mgcvst_model_state_shard(used, test_fit, shard_paths, threads, native)
     summary_elapsed <- proc.time()[["elapsed"]] - t0
     payload <- lapply(chunks, function(rows) {
       pair <- index[rows, , drop = FALSE]

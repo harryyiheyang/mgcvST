@@ -63,7 +63,12 @@
   list(version = 3L, md5 = .mgcvst_pair_input_hash(inputs))
 }
 
-# Build one bounded feature batch with the existing full-precision score kernels.
+# Build one bounded feature batch with the existing full-precision score
+# kernels. Callers only ever pass mode "model_native" or "legacy_native";
+# the former per-feature R-loop fallback ("model_fallback", built on
+# .mgcvst_model_score_state()) is deleted: a model.set() fit without a
+# usable native dense preparation is a hard error in .mgcvst_pair_pipeline()
+# below, never a fallback here.
 .mgcvst_pair_build_batch <- function(fit, ids, threads, mode, native = NULL,
                                      T0 = NULL, field_scale = NULL) {
   if (identical(mode, "model_native")) {
@@ -84,21 +89,14 @@
       list(a = z[[k]]$a, M = z[[k]]$H, width = native$width)
     }))
   }
-  if (identical(mode, "legacy_native")) {
-    z <- mgcvst_dense_score_batch_cpp(
-      T0, fit$working_variance[, ids, drop = FALSE],
-      fit$working_error[, ids, drop = FALSE], field_scale[ids],
-      fit$geometry$X, list(), threads
-    )
-    return(lapply(z, function(x) {
-      if (!is.null(x$error)) list(error = x$error) else
-        list(a = x$a, M = x$H, width = length(x$a))
-    }))
-  }
-  lapply(ids, function(id) {
-    z <- tryCatch(.mgcvst_model_score_state(fit, id), error = function(e) e)
-    if (inherits(z, "condition")) list(error = conditionMessage(z)) else
-      list(a = z$a, M = z$M, width = z$width)
+  z <- mgcvst_dense_score_batch_cpp(
+    T0, fit$working_variance[, ids, drop = FALSE],
+    fit$working_error[, ids, drop = FALSE], field_scale[ids],
+    fit$geometry$X, list(), threads
+  )
+  lapply(z, function(x) {
+    if (!is.null(x$error)) list(error = x$error) else
+      list(a = x$a, M = x$H, width = length(x$a))
   })
 }
 
@@ -143,7 +141,7 @@
   } else {
     target <- fit$geometry$target
     width <- if (length(target)) ncol(fit$geometry$smooth[[unname(target[[1L]])]]$B) else 1L
-    mode <- "model_fallback"
+    mode <- "model_native"
   }
   if (!is.finite(width) || width < 1L) stop("The score coordinate width is invalid.")
   if (is.null(state_store)) {
@@ -190,10 +188,13 @@
     if (identical(mode, "legacy_native")) {
       T0 <- .mgcvst_legacy_shared_score_factor(fit$geometry)
       field_scale <- .mgcvst_field_scale(fit)
-    } else if (identical(mode, "model_fallback")) {
+    } else {
       fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
       native <- .mgcvst_model_dense_preparation(fit, missing)
-      if (!is.null(native)) mode <- "model_native"
+      if (is.null(native)) {
+        stop("Model score states require the conditional nuisance covariance; ",
+             "re-estimate with the current mgcvST.estimate().")
+      }
     }
     q <- width
     p <- if (!is.null(native)) ncol(native$X) else if (mode == "legacy_native")

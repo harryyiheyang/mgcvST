@@ -119,3 +119,48 @@ test_that("model preparation keeps the conditional nuisance covariance", {
   expect_equal(out$timing$elapsed,
                out$timing$summary_elapsed + out$timing$pair_elapsed)
 })
+
+test_that("a feature without a usable nuisance covariance fails at estimation, no fallback", {
+  f <- st_fixture(nuisance = TRUE)
+  original <- mgcvST:::.mgcvst_nuisance_state
+  # .mgcvst_estimate_model() runs every per-feature fit through a worker
+  # bundle (.mgcvst_worker_bundle()) that rebinds each copied function's
+  # environment to an isolated bundle env; an ordinary closure over a local
+  # counter would lose that counter once the mock's environment is
+  # reassigned. Stash both the call counter and the true original function
+  # as attributes of the mock closure itself, which survive
+  # environment(mock) <- bundle, and read them back via sys.function().
+  options(.mgcvst_test_nuisance_calls = 0L)
+  on.exit(options(.mgcvst_test_nuisance_calls = NULL), add = TRUE)
+  mock <- function(fit, geometry, cache) {
+    real <- attr(sys.function(), "real")
+    n <- getOption(".mgcvst_test_nuisance_calls", 0L) + 1L
+    options(.mgcvst_test_nuisance_calls = n)
+    if (n == 2L) return(list(error = "rank-deficient fit (rank 3 of 4)"))
+    real(fit, geometry, cache)
+  }
+  attr(mock, "real") <- original
+  testthat::local_mocked_bindings(
+    .mgcvst_nuisance_state = mock,
+    .package = "mgcvST"
+  )
+  fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
+                         BPPARAM = BiocParallel::SerialParam())
+  expect_identical(fit$feature_id[2L], "response2")
+  expect_true(grepl(
+    "nuisance covariance unavailable: rank-deficient fit",
+    fit$diagnostics$error_message[2L], fixed = TRUE
+  ))
+  available <- mgcvST:::.mgcvst_feature_available(fit)
+  expect_false(available[2L])
+  expect_true(all(available[-2L]))
+
+  pairs <- rbind(c(1L, 2L), c(2L, 3L), c(1L, 3L))
+  out <- mgcvST.test(fit, pairs = pairs, threads = 1L)
+  bad <- out$results$feature1 == "response2" | out$results$feature2 == "response2"
+  expect_true(any(bad) && !all(bad))
+  expect_true(all(is.na(out$results$p_two_sided[bad])))
+  expect_true(all(!is.na(out$results$error_message[bad])))
+  expect_false(any(out$results$discovered[bad]))
+  expect_true(all(is.finite(out$results$p_two_sided[!bad])))
+})

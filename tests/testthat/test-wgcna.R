@@ -89,44 +89,26 @@ test_that("WGCNA preserves overlapping block order", {
   skip_if_not_installed("WGCNA")
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
+  skip_on_cran()
+  skip_if_not_installed("geometry")
 
-  set.seed(719L)
-  n <- 16L
-  p <- 6L
-  ids <- paste0("g", seq_len(p))
-  global <- list(
-    B = matrix(rnorm(n * 3L), n, 3L), fixed = FALSE,
-    score_component = "global", penalties = list(diag(c(1, 2, 3))),
-    sp_index = 1L
-  )
-  nuisance <- list(
-    B = cbind(1, seq_len(n) / n), fixed = FALSE,
-    score_component = NULL, penalties = list(diag(c(0, 2))), sp_index = 2L
-  )
-  fit <- structure(list(
-    feature_id = ids,
-    working_error = matrix(rnorm(n * p), n, p),
-    working_variance = matrix(runif(n * p, 0.7, 1.4), n, p),
-    dispersion = seq(0.8, 1.2, length.out = p),
-    smoothing_parameters = cbind(rep(1.1, p), rep(0.8, p)),
-    geometry = list(
-      X = matrix(1, n, 1L), smooth = list(global, nuisance),
-      target = list(global = 1L)
-    ),
-    score_components = "global"
-  ), class = c("mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
-  colnames(fit$working_error) <- colnames(fit$working_variance) <- ids
-  rownames(fit$smoothing_parameters) <- ids
-  colnames(fit$smoothing_parameters) <- c("global", "s(z)")
-  fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(fit)
-  blocks <- list(second = c("g6", "g2", "g4"),
-                 first = c("g4", "g1", "g2"))
+  f <- st_fixture(family = gaussian())
+  fit <- mgcvST.estimate(f$Y, f$G, diagnostics = FALSE,
+                         BPPARAM = BiocParallel::SerialParam())
+  ids <- fit$feature_id
+  blocks <- list(second = ids[c(3L, 1L, 2L)], first = ids[c(2L, 1L, 3L)])
 
   W <- mgcvST.wgcna(fit, blocks)
-  states <- lapply(match(W$score$feature_id, ids), function(i) {
-    mgcvST:::.mgcvst_model_score_state(fit, i)
-  })
-  A <- vapply(states, function(z) z$a[1:3], numeric(3L))
+
+  used <- match(W$score$feature_id, ids)
+  T0 <- mgcvST:::.mgcvst_legacy_shared_score_factor(fit$geometry)
+  field_scale <- mgcvST:::.mgcvst_field_scale(fit)
+  z <- mgcvST:::mgcvst_dense_score_batch_cpp(
+    T0, fit$working_variance[, used, drop = FALSE],
+    fit$working_error[, used, drop = FALSE], field_scale[used],
+    fit$geometry$X, list(), 1L, score_only = TRUE
+  )
+  A <- vapply(z, `[[`, numeric(ncol(T0)), "a")
   colnames(A) <- W$score$feature_id
 
   expect_identical(names(W$networks), names(blocks))
@@ -134,7 +116,7 @@ test_that("WGCNA preserves overlapping block order", {
   expect_identical(W$networks$first$feature_id, blocks$first)
   expect_identical(W$score$feature_id, unique(unlist(blocks, use.names = FALSE)))
   expect_identical(W$score$group, "global")
-  expect_identical(W$score$width, c(global = 3L))
+  expect_identical(unname(W$score$width), ncol(T0))
   expect_equal(W$score$A, A, tolerance = 1e-10)
 })
 

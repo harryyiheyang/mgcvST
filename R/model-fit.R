@@ -106,11 +106,12 @@
   geometry <- .mgcvst_cached_model_geometry(fit, geometry_cache,
                                            L = fit$.taps_score_X)
   nuisance <- .mgcvst_nuisance_state(fit, geometry, geometry_cache)
-  if (!is.null(nuisance)) {
-    geometry$nuisance_columns <- nuisance$columns
-    geometry$nuisance_design <- nuisance$design
-    geometry$nuisance_projection <- "conditional_Vp_block"
+  if (!is.null(nuisance$error)) {
+    stop("nuisance covariance unavailable: ", nuisance$error)
   }
+  geometry$nuisance_columns <- nuisance$columns
+  geometry$nuisance_design <- nuisance$design
+  geometry$nuisance_projection <- "conditional_Vp_block"
   fit_summary <- if (diagnostics) summary(fit) else NULL
   criterion <- if (length(fit$gcv.ubre) == 1L) as.numeric(fit$gcv.ubre) else NA_real_
   criterion_name <- if (length(fit$gcv.ubre) == 1L) names(fit$gcv.ubre) else NA_character_
@@ -130,7 +131,7 @@
     family_parameters = if (is.null(W$family_parameters)) numeric() else
       as.numeric(W$family_parameters),
     geometry = geometry,
-    nuisance_covariance = if (is.null(nuisance)) NULL else nuisance$covariance,
+    nuisance_covariance = nuisance$covariance,
     sp = geometry$sp,
     coefficients = coefficients,
     residual_df = as.numeric(fit$df.residual),
