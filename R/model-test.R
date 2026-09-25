@@ -68,7 +68,7 @@
 
 # Shared orchestration for model.set() score engines.
 .mgcvst_test_model <- function(
-    fitmgcvST, pair_function, test_definition,
+    fitmgcvST, test_definition,
     q.value = 0.05, FDR = TRUE, method = "BH",
     BPPARAM = BiocParallel::SerialParam(), ...,
     pairs = NULL, highlight = NULL,
@@ -415,8 +415,7 @@
 # Single marked-SPDE entry point.
 .mgcvst_test_model_single <- function(...) {
   .mgcvst_test_model(
-    ..., pair_function = .mgcvst_model_pair_single,
-    test_definition = "single_global_cross_gene_covariance_at_independence"
+    ..., test_definition = "single_global_cross_gene_covariance_at_independence"
   )
 }
 

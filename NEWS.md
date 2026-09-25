@@ -1,3 +1,23 @@
+# mgcvST 0.0.1.9017
+
+* A `model.set()` feature without a usable conditional nuisance covariance now
+  fails at estimation (`mgcvST.estimate()` reports it as
+  "nuisance covariance unavailable: <reason>" and it becomes unavailable to
+  downstream testing/WGCNA) instead of silently falling back to a per-feature
+  eigendecomposition. `.mgcvst_pair_pipeline()`, the davies branch of
+  `.mgcvst_test_model()`, and `.mgcvst_model_state_shard()` no longer carry a
+  per-feature R-loop fallback for model.set() fits; each now stops with
+  "Model score states require the conditional nuisance covariance; re-estimate
+  with the current mgcvST.estimate()." when the native dense preparation is
+  unavailable. Legacy `spde`-engine fits are unaffected.
+* The now-dead model-score chain reachable only through the unused
+  `pair_function` parameter of the internal `.mgcvst_test_model()`
+  (`.mgcvst_model_pair_single()`, `.mgcvst_model_cached_state()`,
+  `.mgcvst_model_score_state()`, `.mgcvst_model_operator()`,
+  `.mgcvst_model_operator_legacy()`, `.mgcvst_model_operator_vp()`,
+  `.mgcvst_model_apply_P()`, `.mgcvst_model_vsolve()`, and the now-orphaned
+  `.mgcvst_full_rank_design()`) is removed.
+
 # mgcvST 0.0.1.9016
 
 * `.mgcvst_pair_pipeline()` and the `calibration = "liu"` branch of

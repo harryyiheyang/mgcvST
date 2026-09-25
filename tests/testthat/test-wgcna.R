@@ -40,9 +40,19 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   para <- list(power = 4, minClusterSize = 2L, deepSplit = 0L)
   W <- mgcvST.wgcna(fit, ids, wgcna.para = para)
 
-  A <- vapply(match(ids, fit$feature_id), function(i) {
-    mgcvST:::.mgcvst_model_score_state(fit, i)$a
-  }, numeric(nrow(W$score$A)))
+  used <- match(ids, fit$feature_id)
+  ref_fit <- fit
+  ref_fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(ref_fit)
+  native <- mgcvST:::.mgcvst_model_dense_preparation(ref_fit, used)
+  phi <- fit$dispersion[used]
+  sp <- fit$smoothing_parameters[used, , drop = FALSE]
+  z <- mgcvST:::mgcvst_dense_score_batch_cpp(
+    native$T0, fit$working_variance[, used, drop = FALSE],
+    fit$working_error[, used, drop = FALSE],
+    phi / sp[, native$sp_index], native$X,
+    fit$nuisance_covariance[used], 1L, score_only = TRUE
+  )
+  A <- vapply(z, `[[`, numeric(ncol(native$T0)), "a")
   colnames(A) <- ids
   S <- crossprod(A) / nrow(A)
   dimnames(S) <- list(ids, ids)

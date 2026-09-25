@@ -49,29 +49,3 @@ test_that("model pair states are constructed once per unique feature", {
   expect_identical(count$features, 3L)
   expect_true(all(is.finite(ans$results$p_two_sided)))
 })
-
-test_that("packed model pair evaluation preserves direct pair results", {
-  f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(
-    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), diagnostics = FALSE
-  )
-  pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
-  fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(fit)
-  for (calibration in c("liu", "davies")) {
-    if (calibration == "davies") skip_if_not_installed("CompQuadForm")
-    expected <- lapply(seq_len(nrow(pairs)), function(k) {
-      mgcvST:::.mgcvst_model_pair_single(
-        fit, pairs[k, 1L], pairs[k, 2L], calibration
-      )
-    })
-    ans <- mgcvST.test(
-      fit, pairs = pairs, calibration = calibration, chunk_size = 1L,
-      BPPARAM = BiocParallel::SerialParam()
-    )
-    expect_equal(ans$results$signed_score,
-                 vapply(expected, `[[`, numeric(1L), "score"), tolerance = 1e-10)
-    expect_equal(ans$results$p_two_sided,
-                 vapply(expected, `[[`, numeric(1L), "p_two_sided"),
-                 tolerance = 1e-12)
-  }
-})

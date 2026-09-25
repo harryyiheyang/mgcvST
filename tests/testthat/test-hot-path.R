@@ -79,8 +79,6 @@ test_that("prepared GAM designs do not depend on later prediction methods", {
   expect_identical(getOption("mgcvST.test_lpmatrix_count"), 0L)
   expect_true(all(is.finite(fit$working_error)))
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
-  expect_s3_class(mgcvST:::.mgcvst_model_operator(fit, 1L)$operator,
-                  "mgcvst_vp_score_operator")
 })
 
 test_that("custom worker initialization retains shared prediction geometry", {
@@ -110,20 +108,13 @@ test_that("Vp model projection is numerically equivalent with unchanged contract
       expect_numerically_equivalent_test(a, b)
     }
   }
-  for (i in 1:3) {
-    a <- old$.mgcvst_model_score_state(fit, i)
-    b <- mgcvST:::.mgcvst_model_score_state(fit, i)
-    expect_equal(a$a, b$a, tolerance = 1e-10)
-    expect_equal(a$M, b$M, tolerance = 1e-10)
-    expect_identical(a$width, b$width)
-  }
   fit$smoothing_parameters[2,1] <- -1
   a <- old$mgcvST.test(fit, pairs = pairs)
   b <- mgcvST.test(fit, pairs = pairs)
   expect_numerically_equivalent_test(a, b)
 })
 
-test_that("conditional nuisance state is compact, shared and CppMatrix-backed", {
+test_that("conditional nuisance state is compact and shared", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
@@ -137,20 +128,6 @@ test_that("conditional nuisance state is compact, shared and CppMatrix-backed", 
   expect_true(all(vapply(blocks, function(x) identical(dim(x), rep(ncol(LN), 2L)), logical(1L))))
   expect_false(any(vapply(blocks[-1L], identical, logical(1L), y = blocks[[1L]])))
   expect_null(fit$gam)
-  original_multiply <- CppMatrix::matrixMultiply
-  calls <- 0L
-  testthat::local_mocked_bindings(
-    matrixMultiply = function(...) {
-      calls <<- calls + 1L
-      original_multiply(...)
-    },
-    .package = "CppMatrix"
-  )
-  state <- mgcvST:::.mgcvst_model_score_state(fit, 1L)
-  expect_gt(calls, 0L)
-  expect_true(all(is.finite(c(state$a, state$M))))
-  expect_false(any(c("%*%", "crossprod", "tcrossprod") %in%
-                   all.names(body(mgcvST:::.mgcvst_model_apply_P))))
 })
 
 test_that("ordinary overall low-rank smooths share the same Vp machinery", {
@@ -167,12 +144,6 @@ test_that("ordinary overall low-rank smooths share the same Vp machinery", {
   )
   expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
-  testthat::local_mocked_bindings(
-    matrixEigen = function(...) stop("nuisance penalty was eigendecomposed"),
-    .package = "CppMatrix"
-  )
-  state <- mgcvST:::.mgcvst_model_score_state(fit, 1L)
-  expect_true(all(is.finite(c(state$a, state$M))))
 })
 
 test_that("ordinary Liu engine is unchanged", {
