@@ -111,6 +111,10 @@ inlaST.test <- function(
   pairwise_method <- match.arg(pairwise_method)
   liu_approximation <- match.arg(liu_approximation)
   conditional_precision <- match.arg(conditional_precision)
+  if (pairwise_method != "conditional_cauchy" &&
+      !identical(conditional_precision, "double")) {
+    stop("conditional_precision requires pairwise_method = 'conditional_cauchy'.")
+  }
   if (pairwise_method == "score_liu" && liu_approximation == "exact") {
     if (!is.null(highlight)) {
       stop("highlight is unavailable for the compact fp16 score_liu result; ",
@@ -144,9 +148,6 @@ inlaST.test <- function(
       fitinlaST, pairs, q.value, FDR, method, threads, chunk_size,
       checkpoint_dir, resume, conditional_precision, match.call()
     ))
-  }
-  if (!identical(conditional_precision, "double")) {
-    stop("conditional_precision requires pairwise_method = 'conditional_cauchy'.")
   }
   # Only liu_approximation = "pca_learning" reaches this point; "exact" is
   # handled above for both pairs = NULL and an explicit pair block.

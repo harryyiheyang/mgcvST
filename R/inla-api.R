@@ -488,6 +488,35 @@ inlaST.set <- function(
   })
 }
 
+.inlast_nuisance_mode <- function(fit, spec) {
+  map <- spec$nuisance_map
+  width <- ncol(spec$nuisance_design)
+  if (!is.list(map) || length(map) != width) {
+    stop("The INLA nuisance coefficient map is incomplete.")
+  }
+  value <- vapply(map, function(z) {
+    if (identical(z$source, "fixed")) {
+      if (length(z$index) != 1L || is.na(z$index) || z$index < 1L ||
+          z$index > length(fit$fixed_mode)) {
+        stop("The INLA fixed nuisance coefficient map is invalid.")
+      }
+      return(as.numeric(fit$fixed_mode[z$index]))
+    }
+    if (identical(z$source, "random")) {
+      if (length(z$block) != 1L || is.na(z$block) || z$block < 1L ||
+          z$block > length(fit$random_mode) || length(z$index) != 1L ||
+          is.na(z$index) || z$index < 1L ||
+          z$index > length(fit$random_mode[[z$block]])) {
+        stop("The INLA random nuisance coefficient map is invalid.")
+      }
+      return(as.numeric(fit$random_mode[[z$block]][z$index]))
+    }
+    stop("The INLA nuisance coefficient map has an unknown source.")
+  }, numeric(1L))
+  names(value) <- colnames(spec$nuisance_design)
+  value
+}
+
 #' Estimate mgcvST working models with sparse INLA
 #'
 #' Fits one latent Gaussian model per feature with INLA and returns the compact
@@ -749,7 +778,9 @@ inlaST.estimate <- function(
     family_parameters[[j]] <- z$family_parameters
     smoothing_parameters[j, ] <- z$smoothing_parameters
     target_coefficients[, j] <- as.numeric(z$random_mode[[1L]])
-    if (px) nuisance_coefficients[, j] <- as.numeric(z$fixed_mode)
+    if (px) {
+      nuisance_coefficients[, j] <- .inlast_nuisance_mode(z, model$inla_spec)
+    }
     diagnostics_table$converged[j] <- isTRUE(z$converged)
     diagnostics_table$criterion[j] <- z$log_marginal_likelihood
     diagnostics_table$fit_seconds[j] <- z$fit_seconds

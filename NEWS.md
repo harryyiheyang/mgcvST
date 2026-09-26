@@ -1,3 +1,14 @@
+# mgcvST 0.0.1.9018
+
+* `inlaST.estimate()` now retains the fitted modes of native iid nuisance
+  blocks, such as `s(slide, bs = "re")`, in `nuisance_coefficients` alongside
+  the fixed-effect modes. Compact working-state reconstruction therefore
+  reproduces the fitted predictor for models with nuisance random effects,
+  restoring the intended Stage 2 score covariance for those models.
+* `inlaST.test()` now rejects `conditional_precision = "float32"` before
+  entering either `score_liu` backend unless
+  `pairwise_method = "conditional_cauchy"` is selected explicitly.
+
 # mgcvST 0.0.1.9017
 
 * A `model.set()` feature without a usable conditional nuisance covariance now

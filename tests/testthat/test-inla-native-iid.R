@@ -96,6 +96,59 @@ test_that("native iid maps fixed and random nuisance columns in combined order",
   expect_true(mgcvST:::.inlast_sparse_score_capability(model6)$eligible)
 })
 
+test_that("native iid modes follow the nuisance coefficient map", {
+  spec <- list(
+    nuisance_design = matrix(0, 2L, 4L,
+      dimnames = list(NULL, c("fixed1", "fixed2", "iid1", "iid2"))),
+    nuisance_map = list(
+      list(source = "fixed", block = NA_integer_, index = 1L),
+      list(source = "fixed", block = NA_integer_, index = 2L),
+      list(source = "random", block = 2L, index = 1L),
+      list(source = "random", block = 2L, index = 2L)
+    )
+  )
+  fit <- list(
+    fixed_mode = c(0.5, -0.25),
+    random_mode = list(global = c(9, 8), slide = c(0.1, 0.3))
+  )
+  expect_equal(
+    mgcvST:::.inlast_nuisance_mode(fit, spec),
+    c(fixed1 = 0.5, fixed2 = -0.25, iid1 = 0.1, iid2 = 0.3)
+  )
+})
+
+test_that("native iid modes survive inlaST estimate compaction", {
+  skip_on_cran()
+  skip_if_not_installed("INLA")
+  skip_if_not_installed("fmesher")
+  skip_if_not_installed("geometry")
+  d <- .native_iid_data(n = 48L, levels = 3L, seed = 4911L)
+  effect <- c(-0.4, 0.1, 0.35)[match(d$slide, paste0("slide", 1:3))]
+  set.seed(4912L)
+  y <- 0.3 + effect + d$offset0 + rnorm(nrow(d), sd = 0.25)
+  model <- inlaST.set(
+    response ~ offset(offset0) + s(slide, bs = "re"), d,
+    family = gaussian(), mesh = .native_iid_mesh3d(), kappa = 0.8,
+    coordinates = c("x", "y", "z")
+  )
+  control <- list(
+    fixed_precision = c(2, 3), gaussian_precision = 16,
+    num_threads = 1L
+  )
+  fit <- inlaST.estimate(
+    matrix(y, nrow = 1L, dimnames = list("gene", NULL)), model,
+    BPPARAM = BiocParallel::SerialParam(), control = control, threads = 1L
+  )
+  direct <- mgcvST:::.inlast_fit_feature(
+    model$inla_spec, y, offset = model$offset, control = control
+  )
+  expected <- unname(c(direct$fixed_mode, direct$random_mode[[2L]]))
+  expect_equal(as.numeric(fit$nuisance_coefficients[, 1L]), expected,
+               tolerance = 1e-8)
+  working <- mgcvST:::.inlast_working_state(fit, 1L, threads = 1L)
+  expect_equal(as.numeric(working$eta), direct$eta, tolerance = 1e-8)
+})
+
 test_that("native iid rejects unsupported grouping structures", {
   d <- .native_iid_data()
   d$numeric_group <- seq_len(nrow(d))
