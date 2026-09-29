@@ -1,6 +1,6 @@
 # Exact score_liu for the sparse INLA backend, backed by the fp16 pair kernel
 # (src/inla_fp16.cpp). Per-gene reduced curvature is built once in double and
-# packed to fp16; pairs are scored by fp32 GEMM with double traces and Liu
+# normalized per gene and packed to fp16; pairs use fp32 GEMM, double traces and Liu
 # tail. Both an explicit (normalized, bounds-checked) pair block and the full
 # gene-pair universe (pairs = NULL, generated and scored in left-gene blocks,
 # never materialized as one pair matrix or character data frame) share the
@@ -8,7 +8,8 @@
 
 # Signature covering everything that determines the fp16 gene states of `used`.
 .mgcvst_inla_fp16_signature <- function(fit, used, basis) {
-  digest::digest(list(version = 1L, format = "fp16_liu",
+  digest::digest(list(version = 2L, format = "fp16_liu",
+                      scaling = "max_abs_curvature",
                       compact = .inlast_compact_signature(fit, used, basis),
                       r = basis$rank), algo = "sha256")
 }
@@ -17,7 +18,7 @@
 # fraction of available memory; mgcvst_fp16_build_cpp enforces the exact safe
 # line and stops with an explicit error if memory is actually insufficient.
 .mgcvst_inla_fp16_batch_size <- function(r) {
-  per_gene <- r * (r + 1) + 8 * r
+  per_gene <- r * (r + 1) + 8 * (r + 1)
   probe <- .mgcvst_memory_probe()
   available <- if (is.finite(probe$available)) probe$available else 8 * 1024^3
   as.integer(max(1L, min(2048L, floor(0.3 * available / max(1, per_gene)))))
@@ -52,7 +53,7 @@
     stop("Could not create the fp16 gene-state checkpoint directory.")
   }
   manifest_path <- file.path(root, "fp16-states-manifest.rds")
-  manifest <- list(version = 1L, signature = sig,
+  manifest <- list(version = 2L, signature = sig,
                    feature_id = fit$feature_id[used], r = r,
                    batch_size = batch_size)
   if (file.exists(manifest_path)) {
@@ -61,7 +62,7 @@
     }
     if (!identical(readRDS(manifest_path), manifest)) {
       stop("The fp16 checkpoint in ", root, " was written for a different fit, ",
-           "basis, gene universe, or batch size.")
+           "state format, basis, gene universe, or batch size.")
     }
   } else {
     tmp <- tempfile("fp16-states-manifest-", tmpdir = root, fileext = ".tmp")
@@ -115,7 +116,7 @@
   failed <- which(info$state == 2L)
   list(
     cache = cache, release = release, used = used, n = n, r = r,
-    built = built, resumed = resumed, bytes = info$bytes,
+    built = built, resumed = resumed, bytes = info$bytes, signature = sig,
     failed = data.frame(feature_id = fit$feature_id[used[failed]],
                         error = info$error[failed], stringsAsFactors = FALSE),
     root = root, temporary = temporary
@@ -163,13 +164,13 @@
     stop("Could not create the fp16 pair checkpoint directory.")
   }
   manifest_path <- file.path(pairs_dir, "manifest.rds")
-  manifest <- list(version = 1L, explicit = TRUE,
+  manifest <- list(version = 2L, explicit = TRUE, state_signature = state$signature,
                    signature = digest::digest(pairs_u, algo = "sha256"))
   shard <- file.path(pairs_dir, "pairs-explicit.parquet")
   if (file.exists(manifest_path)) {
     if (!identical(readRDS(manifest_path), manifest)) {
       stop("The fp16 pair checkpoint in ", pairs_dir, " was written for a ",
-           "different explicit pair block; use a new checkpoint_dir.")
+           "different state format, gene states, or explicit pair block; use a new checkpoint_dir.")
     }
     if (resume && file.exists(shard)) {
       if (verbose) message("Reusing the checkpointed explicit pair shard.")
@@ -300,11 +301,12 @@
     stop("Could not create the fp16 pair checkpoint directory.")
   }
   manifest_path <- file.path(pairs_dir, "manifest.rds")
-  manifest <- list(version = 1L, n = n, chunk_size = chunk_size)
+  manifest <- list(version = 2L, state_signature = state$signature,
+                   n = n, chunk_size = chunk_size)
   if (file.exists(manifest_path)) {
     if (!identical(readRDS(manifest_path), manifest)) {
       stop("The fp16 pair checkpoint in ", pairs_dir, " was written for a ",
-           "different gene universe or chunk_size; use a new checkpoint_dir.")
+           "different state format, gene states, gene universe, or chunk_size; use a new checkpoint_dir.")
     }
   } else {
     tmp <- tempfile("pairs-manifest-", tmpdir = pairs_dir, fileext = ".tmp")

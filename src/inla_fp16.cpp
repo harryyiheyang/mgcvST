@@ -21,13 +21,14 @@ namespace {
 using FMat = Eigen::MatrixXf;
 using Half = Eigen::half;
 
-// Resident per-gene exact Liu state: projected score a (double) and the upper
-// triangle of the reduced curvature M, column-major with the diagonal, stored
-// as two-byte halves.
+// Per-gene Liu state: a / sqrt(scale) in double and the upper triangle of
+// M / scale in two-byte halves, where scale = max(abs(M)). Pair calibration
+// uses these equivalent normalized states; public scores retain their units.
 struct HalfCache {
   int n = 0;
   int r = 0;
   Mat a;
+  Vec scale;
   std::vector<std::vector<Half> > m;
   std::vector<int> state;  // 0 empty, 1 ready, 2 failed
   std::vector<std::string> error;
@@ -35,10 +36,10 @@ struct HalfCache {
 };
 
 const char kMagic[8] = {'M', 'G', 'S', 'T', 'F', '1', '6', '\0'};
-const int32_t kVersion = 1;
+const int32_t kVersion = 2;
 
 inline size_t packed_length(int r) { return (size_t)r * (r + 1) / 2; }
-inline double gene_bytes(int r) { return 2.0 * packed_length(r) + 8.0 * r; }
+inline double gene_bytes(int r) { return 2.0 * packed_length(r) + 8.0 * (r + 1); }
 
 HalfCache* cache_pointer(SEXP pointer) {
   if (TYPEOF(pointer) != EXTPTRSXP || R_ExternalPtrAddr(pointer) == NULL) {
@@ -266,6 +267,7 @@ SEXP mgcvst_fp16_cache_cpp(int n, int r) {
   cache->n = n;
   cache->r = r;
   cache->a = Mat::Constant(r, n, NA_REAL);
+  cache->scale = Vec::Constant(n, NA_REAL);
   cache->m.resize(n);
   cache->state.assign(n, 0);
   cache->error.resize(n);
@@ -291,7 +293,8 @@ Rcpp::List mgcvst_fp16_cache_info_cpp(SEXP pointer) {
   return Rcpp::List::create(
     Rcpp::Named("state") = Rcpp::wrap(cache->state), Rcpp::Named("error") = error,
     Rcpp::Named("bytes") = cache->bytes, Rcpp::Named("n") = cache->n,
-    Rcpp::Named("r") = cache->r, Rcpp::Named("gene_bytes") = gene_bytes(cache->r)
+    Rcpp::Named("r") = cache->r, Rcpp::Named("gene_bytes") = gene_bytes(cache->r),
+    Rcpp::Named("scale") = cache->scale
   );
 }
 
@@ -376,18 +379,25 @@ Rcpp::List mgcvst_fp16_build_cpp(
       curvature_unit(z.A, z.X, Q, g, V, tau[f], penalty.col(f).data(), unit);
       const Mat M = reduced_curvature(unit, basis, g);
       if (!M.allFinite()) throw std::runtime_error("The reduced curvature is non-finite.");
+      const double scale = M.cwiseAbs().maxCoeff();
+      if (scale <= 0) throw std::runtime_error("The reduced curvature is identically zero.");
+      const Vec projected = (coordinate.transpose() * a.col(f)) / std::sqrt(scale);
+      if (!projected.allFinite()) {
+        throw std::runtime_error("The normalized projected score is non-finite.");
+      }
       std::vector<Half> packed(L);
       size_t at = 0;
       for (int j = 0; j < r; ++j) {
         for (int i = 0; i <= j; ++i) {
-          const Half h(static_cast<float>(M(i, j)));
+          const Half h(static_cast<float>(M(i, j) / scale));
           if (!std::isfinite(static_cast<float>(h))) {
-            throw std::runtime_error("The reduced curvature exceeds the fp16 range.");
+            throw std::runtime_error("The normalized reduced curvature exceeds the fp16 range.");
           }
           packed[at++] = h;
         }
       }
-      cache->a.col(slot) = coordinate.transpose() * a.col(f);
+      cache->a.col(slot) = projected;
+      cache->scale[slot] = scale;
       cache->m[slot].swap(packed);
       cache->state[slot] = 1;
     } catch (const std::exception& x) {
@@ -411,8 +421,8 @@ Rcpp::List mgcvst_fp16_build_cpp(
 }
 
 // Write built cache slots as one binary shard: header (r, signature, gene
-// indices and ids, states, error messages), double projected scores, then the
-// raw fp16 upper-triangle payloads.
+// indices and ids, states, error messages), double scales and normalized
+// projected scores, then the normalized fp16 upper-triangle payloads.
 // [[Rcpp::export]]
 void mgcvst_fp16_write_cpp(SEXP pointer, const Rcpp::IntegerVector& slots,
                            const Rcpp::IntegerVector& feature_index,
@@ -445,6 +455,7 @@ void mgcvst_fp16_write_cpp(SEXP pointer, const Rcpp::IntegerVector& slots,
   for (int f = 0; f < k; ++f) {
     const int slot = slots[f] - 1;
     if (cache->state[slot] == 1) {
+      put<double>(out, cache->scale[slot]);
       out.write(reinterpret_cast<const char*>(cache->a.col(slot).data()),
                 sizeof(double) * cache->r);
     }
@@ -482,6 +493,7 @@ double mgcvst_fp16_read_cpp(SEXP pointer, const Rcpp::IntegerVector& slots,
   std::vector<int> state(k);
   std::vector<std::string> error(k);
   std::vector<Eigen::VectorXd> a(k);
+  std::vector<double> scale(k);
   std::vector<std::vector<Half> > m(k);
   int ready = 0;
   try {
@@ -508,13 +520,27 @@ double mgcvst_fp16_read_cpp(SEXP pointer, const Rcpp::IntegerVector& slots,
     }
     for (int f = 0; f < k; ++f) {
       if (state[f] != 1) continue;
+      scale[f] = get<double>(in);
+      if (!std::isfinite(scale[f]) || scale[f] <= 0) {
+        throw std::runtime_error("invalid gene scale");
+      }
       a[f].resize(r);
       in.read(reinterpret_cast<char*>(a[f].data()), sizeof(double) * r);
+      if (!in) throw std::runtime_error("truncated");
+      if (!a[f].allFinite()) throw std::runtime_error("invalid normalized score");
     }
     for (int f = 0; f < k; ++f) {
       if (state[f] != 1) continue;
       m[f].resize(L);
       in.read(reinterpret_cast<char*>(m[f].data()), sizeof(Half) * L);
+      if (!in) throw std::runtime_error("truncated");
+      float maximum = 0;
+      for (size_t at = 0; at < L; ++at) {
+        const float value = static_cast<float>(m[f][at]);
+        if (!std::isfinite(value)) throw std::runtime_error("invalid normalized curvature");
+        maximum = std::max(maximum, std::abs(value));
+      }
+      if (maximum != 1.0f) throw std::runtime_error("invalid normalized curvature scale");
     }
     if (!in) throw std::runtime_error("truncated");
     in.peek();
@@ -528,6 +554,7 @@ double mgcvst_fp16_read_cpp(SEXP pointer, const Rcpp::IntegerVector& slots,
     cache->error[slot] = error[f];
     if (state[f] == 1) {
       cache->a.col(slot) = a[f];
+      cache->scale[slot] = scale[f];
       cache->m[slot].swap(m[f]);
       cache->bytes += gene_bytes(r);
     }
@@ -638,10 +665,10 @@ Rcpp::List mgcvst_fp16_pairs_cpp(SEXP pointer, const Rcpp::IntegerVector& used,
           }
         }
         const double score = cache->a.col(l).dot(cache->a.col(j));
-        sp[k] = score;
+        sp[k] = score * (std::sqrt(cache->scale[l]) * std::sqrt(cache->scale[j]));
         const bool good = std::isfinite(score) && std::isfinite(v[0]) &&
           std::isfinite(v[1]) && std::isfinite(v[2]) && std::isfinite(v[3]) &&
-          v[0] > 1e-10 && v[1] > 0 && v[2] > 0 && v[3] > 0;
+          v[0] > 0 && v[1] > 0 && v[2] > 0 && v[3] > 0;
         if (!good) continue;
         double lp[3];
         mgcvst_liu::liu_log_p(score, v[0], v[1], v[2], v[3], lp);

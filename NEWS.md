@@ -1,3 +1,12 @@
+# mgcvST 0.0.1.9022
+
+* `inlaST.test(approximate_test = FALSE)` scales each gene's reduced curvature
+  and projected score before fp16 storage. The equivalent squared-score Liu
+  calculation now retains very small or large curvature states, while the
+  reported signed score remains on its original scale. The reduced geometry
+  and its coverage are unchanged. State and pair checkpoint formats now
+  include the scaling contract; earlier checkpoint directories must be replaced.
+
 # mgcvST 0.0.1.9021
 
 * `inlaST.estimate()` now extracts the fixed-effect modes of null models with
