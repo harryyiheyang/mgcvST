@@ -542,7 +542,9 @@
     paste0(".inlast_x", seq_len(ncol(z$X)))
   } else character()
   for (j in seq_len(ncol(z$X))) fixed_data[[fixed_internal[j]]] <- z$X[, j]
-  random_internal <- paste0(".inlast_r", seq_along(z$random))
+  random_internal <- if (length(z$random)) {
+    paste0(".inlast_r", seq_along(z$random))
+  } else character()
   effects <- list(fixed_data)
   Astack <- list(1)
   for (j in seq_along(z$random)) {

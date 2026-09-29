@@ -1,3 +1,11 @@
+# mgcvST 0.0.1.9021
+
+* `inlaST.estimate()` now extracts the fixed-effect modes of null models with
+  no random blocks. Empty random-block tags are kept empty, avoiding an
+  internal latent-mode specification error for intercept-only or covariate
+  null models. Nonempty random blocks, offsets, priors, and score calculations
+  are unchanged.
+
 # mgcvST 0.0.1.9020
 
 * `mgcvST.estimate()` fits a null model with one parametric coefficient and no
