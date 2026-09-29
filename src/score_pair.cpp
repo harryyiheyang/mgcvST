@@ -110,13 +110,21 @@ Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a
     Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
   }
 #endif
+  // Normalize each feature before matrix products; retain public score units.
   std::vector<const double*> Hptr(n);
+  Eigen::VectorXd scales(n);
+  Eigen::MatrixXd normalized_a(q, n);
   for (int i = 0; i < n; ++i) {
     Rcpp::NumericMatrix current(H[i]);
     if (current.nrow() != q || current.ncol() != q) {
       Rcpp::stop("Every matrix in H must be square with dimension nrow(a).");
     }
     Hptr[i] = current.begin();
+    Eigen::Map<const Eigen::MatrixXd> M(current.begin(), q, q);
+    scales[i] = M.allFinite() ? M.cwiseAbs().maxCoeff() : NA_REAL;
+    if (std::isfinite(scales[i]) && scales[i] > 0) {
+      for (int j = 0; j < q; ++j) normalized_a(j, i) = a(j, i) / std::sqrt(scales[i]);
+    } else normalized_a.col(i).setConstant(NA_REAL);
   }
   const R_xlen_t N = left.size();
   if (right.size() != N) Rcpp::stop("left and right must have equal length.");
@@ -162,7 +170,8 @@ Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a
 #pragma omp parallel num_threads(threads)
 #endif
   {
-    Eigen::MatrixXd P1(q, q), P2(q, q);
+    Eigen::MatrixXd P1(q, q), P2(q, q), Ln(q, q), Rn(q, q);
+    int current = -1;
 #ifdef _OPENMP
 #pragma omp for schedule(dynamic, 1)
 #endif
@@ -170,10 +179,21 @@ Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a
       const Task& task = tasks[t];
       const int l = task.left;
       Eigen::Map<const Eigen::MatrixXd> Lm(Hptr[l], q, q);
+      if (current != l && std::isfinite(scales[l]) && scales[l] > 0) {
+        Ln = Lm / scales[l];
+        current = l;
+      }
       for (R_xlen_t k = task.first; k < task.last; ++k) {
         const int r = rightp[k] - 1;
+        scorep[k] = A.col(l).dot(A.col(r));
+        infop[k] = rankp[k] = NA_REAL;
+        lp2p[k] = lp1p[k] = lp0p[k] = NA_REAL;
+        statusp[k] = 1;
+        if (!std::isfinite(scales[l]) || scales[l] <= 0 ||
+            !std::isfinite(scales[r]) || scales[r] <= 0) continue;
         Eigen::Map<const Eigen::MatrixXd> Rm(Hptr[r], q, q);
-        P1.noalias() = Lm * Rm;
+        Rn = Rm / scales[r];
+        P1.noalias() = Ln * Rn;
         P2.noalias() = P1 * P1;
         double v[4] = {0, 0, 0, 0};
         for (int i = 0; i < q; ++i) v[0] += P1(i, i);
@@ -185,18 +205,13 @@ Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a
             v[3] += h * ht;
           }
         }
-        const double sc = A.col(l).dot(A.col(r));
-        scorep[k] = sc;
+        const double sc = normalized_a.col(l).dot(normalized_a.col(r));
         const bool good = std::isfinite(sc) && std::isfinite(v[0]) &&
           std::isfinite(v[1]) && std::isfinite(v[2]) && std::isfinite(v[3]) &&
-          v[0] > 1e-10 && v[1] > 0 && v[2] > 0 && v[3] > 0;
-        if (!good) {
-          infop[k] = rankp[k] = NA_REAL;
-          lp2p[k] = lp1p[k] = lp0p[k] = NA_REAL;
-          statusp[k] = 1;
-          continue;
-        }
-        infop[k] = v[0];
+          v[0] > 0 && v[1] > 0 && v[2] > 0 && v[3] > 0;
+        if (!good) continue;
+        const double units = std::sqrt(scales[l]) * std::sqrt(scales[r]);
+        infop[k] = (v[0] * units) * units;
         rankp[k] = v[0] * v[0] / v[1];
         double lp[3];
         mgcvst_liu::liu_log_p(sc, v[0], v[1], v[2], v[3], lp);

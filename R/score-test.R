@@ -95,9 +95,22 @@ rkhs_score_calibrate <- function(U, H1, H2,
   method <- match.arg(method)
   U <- as.numeric(U)
   if (length(U) != 1L || !is.finite(U)) stop("U must be finite.")
-  moments <- .rkhs_score_moments(H1, H2)
+  H1 <- .as_numeric_matrix(H1, "H1")
+  H2 <- .as_numeric_matrix(H2, "H2")
+  if (!all(dim(H1) == dim(H2)) || nrow(H1) != ncol(H1) || nrow(H1) < 1L) {
+    stop("H1 and H2 must be non-empty square matrices with identical dimensions.")
+  }
+  scale1 <- max(abs(H1))
+  scale2 <- max(abs(H2))
+  units <- sqrt(scale1) * sqrt(scale2)
+  normalized <- if (scale1 > 0 && scale2 > 0) {
+    .rkhs_score_moments(H1 / scale1, H2 / scale2)
+  } else rep(0, 4L)
+  moments <- normalized
+  # Restore units in steps, avoiding premature overflow/underflow of units^k.
+  for (j in 1:4) for (k in seq_len(2L * j)) moments[j] <- moments[j] * units
   information <- moments[1L]
-  if (!is.finite(information) || information <= 1e-10) {
+  if (!all(is.finite(normalized)) || any(normalized <= 0)) {
     return(list(
       p_two_sided = NA_real_, p_positive = NA_real_,
       p_negative = NA_real_, information = information,
@@ -105,27 +118,34 @@ rkhs_score_calibrate <- function(U, H1, H2,
       liu_parameters = NULL
     ))
   }
-  effective_rank <- information^2 / moments[2L]
+  effective_rank <- normalized[1L]^2 / normalized[2L]
+  normalized_score <- U / units
   s <- numeric(0)
 
   if (method == "liu") {
     liu <- .liu_squared_score_moments(
-      abs(U), moments[1L], moments[2L], moments[3L], moments[4L]
+      abs(normalized_score), normalized[1L], normalized[2L], normalized[3L], normalized[4L]
     )
     p.two <- liu$p_value
   } else {
     if (!requireNamespace("CompQuadForm", quietly = TRUE)) {
       stop("method = 'davies' requires the optional CompQuadForm package.")
     }
-    s <- rkhs_score_singular_values(H1, H2)
+    # Check the original matrices so the existing PSD tolerance keeps its units.
+    F1 <- .psd_factor(H1) / sqrt(scale1)
+    F2 <- .psd_factor(H2) / sqrt(scale2)
+    if (ncol(F1) && ncol(F2)) {
+      s <- as.numeric(CppMatrix::matrixSVD(.magic_mm(F1, F2, transA = TRUE))$d)
+      s <- s[s > 0]
+    }
     weights <- c(s / 2, -s / 2)
-    fit <- CompQuadForm::davies(abs(U), lambda = weights)
+    fit <- CompQuadForm::davies(abs(normalized_score), lambda = weights)
     if (is.finite(fit$Qq) && fit$Qq > 0 && fit$Qq <= 1) {
       p.two <- min(1, 2 * as.numeric(fit$Qq))
       liu <- NULL
     } else {
       liu <- .liu_squared_score_moments(
-        abs(U), moments[1L], moments[2L], moments[3L], moments[4L]
+        abs(normalized_score), normalized[1L], normalized[2L], normalized[3L], normalized[4L]
       )
       p.two <- liu$p_value
     }
@@ -133,6 +153,12 @@ rkhs_score_calibrate <- function(U, H1, H2,
 
   p.positive <- if (U >= 0) p.two / 2 else 1 - p.two / 2
   p.negative <- if (U <= 0) p.two / 2 else 1 - p.two / 2
+  s <- s * units
+  if (!is.null(liu)) {
+    for (j in 1:4) for (k in seq_len(2L * j)) {
+      liu[[paste0("c", j)]] <- liu[[paste0("c", j)]] * units
+    }
+  }
 
   list(
     p_two_sided = p.two,

@@ -1,7 +1,8 @@
 # Completed pair batches are separate from reusable per-feature score states.
 .mgcvst_pair_checkpoint <- function(store, index, pair_index, calibration = NULL) {
   if (isTRUE(store$temporary)) return(NULL)
-  inputs <- list(version = 1L, index = index, pair_index = pair_index)
+  inputs <- list(version = 2L, calibration_contract = "scale_normalized",
+                 index = index, pair_index = pair_index)
   if (!is.null(calibration)) inputs$calibration <- calibration
   signature <- digest::digest(inputs, algo = "sha256")
   path <- file.path(store$path, paste0("pairs-", signature))

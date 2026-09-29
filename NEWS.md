@@ -1,3 +1,14 @@
+# mgcvST 0.0.1.9023
+
+* `rkhs_score_calibrate()` and the fused mgcv Liu pair kernel normalize
+  covariance states before calibration. Positive information is no longer
+  rejected solely because it is at or below 1e-10 in the input units.
+  Squared-score Liu and Davies calibration use the same statistical formulas;
+  public scores, information, moments and cumulants retain their original units.
+  Davies keeps the existing positive-semidefinite check on the original matrices.
+  Pair-result checkpoints use a new calibration signature; existing feature
+  states remain reusable and earlier pair results are retained separately.
+
 # mgcvST 0.0.1.9022
 
 * `inlaST.test(approximate_test = FALSE)` scales each gene's reduced curvature
