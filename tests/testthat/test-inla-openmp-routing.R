@@ -97,11 +97,10 @@ test_that("sparse INLA pair routing is bounded, OpenMP-only and exact Liu", {
     .inlast_sparse_observation_basis = counted_basis,
     .package = "mgcvST")
   # mgcvST.test() no longer accepts inlaST.estimate() fits (Task E1); the
-  # basis-caching path it used to exercise is reached through inlaST.test()
-  # with liu_approximation = "pca_learning" instead.
+  # basis-caching path it used to exercise is reached through the default
+  # PCAlearning inlaST.test() instead.
   public <- inlaST.test(
-    fit, pairwise_method = "score_liu", liu_approximation = "pca_learning",
-    pairs = pairs[1:2, , drop = FALSE], calibration = "liu",
+    fit, pairs = pairs[1:2, , drop = FALSE],
     BPPARAM = BiocParallel::SerialParam()
   )
   expect_identical(calls$basis, 1L)

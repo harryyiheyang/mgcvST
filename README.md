@@ -113,7 +113,7 @@ Y <- t(as.matrix(MISO_E13$expression))
 fit <- inlaST.estimate(Y, model, retain_marginal = TRUE,
                        marginal_args = list(method = "liu"))
 pairs <- t(combn(rownames(Y), 2L))
-result <- inlaST.test(fit, pairs = pairs, calibration = "liu")
+result <- inlaST.test(fit, pairs = pairs)
 marginal <- inlaST.marginal(fit, calibration = "liu")
 ```
 
@@ -186,10 +186,8 @@ need not satisfy `P %*% 1 = 0` numerically. This does not make the
 conditioned kernel equivalent to either the raw kernel or a separately
 formed `C %*% G_raw %*% C`.
 
-`inlaST.test()` selects the pair method with `pairwise_method` (`"score_liu"`
-or `"conditional_cauchy"`) and, for Liu pairs, the trace evaluation with
-`liu_approximation`. For large pair universes,
-`inlaST.test(..., liu_approximation = "pca_learning")`
+`inlaST.test()` tests each gene pair by the squared cross-gene score with
+Liu moment matching. By default (`approximate_test = TRUE`), PCAlearning
 replaces the exact Liu trace moments by a low-rank approximation.
 Training genes are drawn by stratified sampling on the fitted spatial
 and observation variance scales, and their score covariances `H_j`,
@@ -207,6 +205,11 @@ for the two-sided, positive and negative tests. On a separate 100-gene
 benchmark with 4,950 pairs, one of 2,352 exact two-sided BY discoveries
 was not recovered. Per-gene residuals are returned in
 `result$pca_learning$genes`.
+
+With `approximate_test = FALSE`, `inlaST.test()` computes the exact Liu trace
+moments with the fp16 score-state backend and returns a compact result with
+integer `i`, `j` and double `score`, `mlog10p` columns. For both settings,
+`method` selects the multiple-testing adjustment, such as `"BH"` or `"BY"`.
 
 ## Included data and observed spatial locations
 

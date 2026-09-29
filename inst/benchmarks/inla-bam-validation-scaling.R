@@ -97,7 +97,8 @@ for (i in tasks) {
     stop("INLA returned an invalid fit in scaling task ", i, "; checkpoint retained.")
   }
   t0 <- proc.time()[["elapsed"]]
-  PI <- inlaST.test(I, pairs = matrix(ids, nrow = 1), calibration = "liu", BPPARAM = bp)
+  PI <- inlaST.test(I, pairs = matrix(ids, nrow = 1), approximate_test = FALSE,
+                    BPPARAM = bp)
   inla_pair_seconds <- proc.time()[["elapsed"]] - t0
 
   d$response <- Y[1, ]

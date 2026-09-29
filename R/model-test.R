@@ -66,6 +66,18 @@
        width = stats::setNames(ncol(T0), names(geometry$target)))
 }
 
+# Benjamini-Yekutieli step-up on natural-log p-values; returns log adjusted
+# p-values, so tails below the double range keep their ordering and decisions.
+.mgcvst_log_by <- function(lp) {
+  m <- length(lp)
+  Hm <- digamma(m + 1) - digamma(1)
+  ord <- order(lp)
+  raw <- lp[ord] + log(m) + log(Hm) - log(seq_len(m))
+  out <- numeric(m)
+  out[ord] <- pmin(0, rev(cummin(rev(raw))))
+  out
+}
+
 # Shared orchestration for model.set() score engines.
 .mgcvst_test_model <- function(
     fitmgcvST, test_definition,

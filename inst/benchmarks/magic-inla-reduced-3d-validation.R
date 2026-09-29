@@ -42,7 +42,7 @@ if (file.info(checkpoint.file)$size > 1000000000) stop("The recoverable fit exce
 
 P <- t(combn(seq_along(id), 2L))
 t0 <- proc.time()[["elapsed"]]
-public <- mgcvST::inlaST.test(F, pairs = t(combn(id, 2L)), calibration = "liu",
+public <- mgcvST::inlaST.test(F, pairs = t(combn(id, 2L)), approximate_test = FALSE,
   BPPARAM = SerialParam(), threads = 1L)
 public.seconds <- proc.time()[["elapsed"]] - t0
 

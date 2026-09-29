@@ -3,9 +3,10 @@
 ## Settings
 
 - Branch `pca-learning-liu` from `32ead29`.
-- Entry point: `inlaST.test(fit, liu_approximation = "pca_learning", rank = 10, n_per_cell = 3,
-  seed = 1, checkpoint_dir = NULL, resume = TRUE)`; internal `.mgcvst_pair_pcalearning`.
-  Timings below were measured with the earlier argument name `approximate = "PCAlearning"`.
+- Entry point: `inlaST.test(fit, approximate_test = TRUE, rank = 10, n_per_cell = 3,
+  seed = 1, checkpoint_dir = NULL, resume = TRUE)` (the default); internal
+  `.mgcvst_pair_pcalearning`. Timings below were measured with the earlier argument name
+  `approximate = "PCAlearning"`.
 - Package compile flags unchanged (no AVX2/FMA).
 - Machine: i7-14700K (20 cores, 28 logical processors), 66 GB RAM, Windows 11, R 4.6.1.
 - Threads: kernel verification and audit timings in this worktree used 28 threads; the
@@ -56,7 +57,7 @@ Training set S (300 genes), r = 10, q = 1404, eval set T (11,175 pairs).
 Audit scripts and log (session scratchpad, not in the package): `testA/t1_liu.R`, `t1b_nc.R`,
 `t1c_nc.R`, `t2_real.R`, `t2_real.log`, `t2a_tables_syn.R`, `t3_stream.R`, `t4_pairs_by.R`.
 
-Exact path (`liu_approximation = "exact"`): p-values change only in the noncentral far tail, where the
+Exact path (`approximate_test = FALSE`): p-values change only in the noncentral far tail, where the
 C++ log-space Liu is more accurate than R `pchisq(ncp)` (reviewer: old R relative error 3.5e-3 at
 p 1e-14 to 1e-50 for ncp < 80; 0 or off by 3.3 in log p for ncp >= 80). Central-branch agreement
 with R: 2.4e-15 relative (p >= 1e-5) to 1.7e-13 (p to 1e-280). All 16,125 exact T and bench100

@@ -213,7 +213,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   expect_equal(W$score$A, A, tolerance = 1e-12)
 
   pairs <- t(utils::combn(ids, 2L))
-  T <- inlaST.test(fit, pairs = pairs, calibration = "liu")
+  T <- inlaST.test(fit, pairs = pairs, approximate_test = FALSE)
   i <- match(fit$feature_id[T$result$i], ids)
   j <- match(fit$feature_id[T$result$j], ids)
   expect_equal(T$result$score,

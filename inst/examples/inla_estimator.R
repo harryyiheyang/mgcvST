@@ -35,7 +35,7 @@ for (dataset in datasets) {
     stop("An INLA feature did not converge for ", dataset)
   }
   pairs <- t(utils::combn(rownames(Y), 2L))
-  tested <- inlaST.test(fit, pairs = pairs, calibration = "liu", threads = 1L)
+  tested <- inlaST.test(fit, pairs = pairs, threads = 1L)
   recalibrated <- inlaST.marginal(
     fit, calibration = "liu", BPPARAM = BiocParallel::SerialParam()
   )

@@ -6,20 +6,17 @@
 \usage{
 inlaST.test(
   fitinlaST,
-  pairwise_method = c("score_liu", "conditional_cauchy"),
-  liu_approximation = c("exact", "pca_learning"),
+  approximate_test = TRUE,
   rank = 10L,
   n_per_cell = 3L,
   seed = 1L,
   checkpoint_dir = NULL,
   resume = TRUE,
-  conditional_precision = c("double", "float32"),
   q.value = 0.05,
   FDR = TRUE,
   method = "BH",
   pairs = NULL,
   highlight = NULL,
-  calibration = "liu",
   chunk_size = NULL,
   threads = NULL,
   verbose = FALSE,
@@ -30,44 +27,34 @@ inlaST.test(
 \arguments{
 \item{fitinlaST}{An object returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}.}
 
-\item{pairwise_method}{\code{"score_liu"} tests the squared cross-gene score with Liu
-moment matching. \code{"conditional_cauchy"} evaluates the two
-conditional-normal directions and combines their p-values by the
-equal-weight Cauchy rule; see Details. With \code{pairs = NULL}, both the
-conditional method and \code{score_liu} with \code{liu_approximation = "exact"}
-test every available gene pair.}
+\item{approximate_test}{\code{TRUE} (the default) evaluates the four Liu trace
+moments by PCAlearning: every score covariance \code{H_j} is projected onto a
+rank-\code{rank} orthonormal basis learned from stratified training genes; see
+Details. \code{FALSE} computes the exact Liu trace moments in the reduced
+observation-kernel coordinates with the fp16 score-state backend.}
 
-\item{liu_approximation}{Trace evaluation for \code{pairwise_method = "score_liu"}.
-\code{"exact"} computes the four Liu trace moments in the reduced
-observation-kernel coordinates. \code{"pca_learning"} projects every score
-covariance \code{H_j} onto a rank-\code{rank} orthonormal basis learned from
-stratified training genes; see Details.}
+\item{rank}{Number of PCAlearning basis matrices. Unused when
+\code{approximate_test = FALSE}.}
 
-\item{rank}{Number of basis matrices retained by
-\code{liu_approximation = "pca_learning"}.}
-
-\item{n_per_cell}{Training genes drawn per stratification cell by
-\code{liu_approximation = "pca_learning"}.}
+\item{n_per_cell}{Training genes drawn per PCAlearning stratification cell.
+Unused when \code{approximate_test = FALSE}.}
 
 \item{seed}{Non-negative integer seed for PCAlearning training-gene sampling;
-the caller's random-number state is restored.}
+the caller's random-number state is restored. Unused when
+\code{approximate_test = FALSE}.}
 
-\item{checkpoint_dir}{Optional checkpoint directory. The conditional method
-saves per-gene variance rows; the Liu methods save reusable score states
-and pair batches. With \code{NULL}, temporary storage is removed on exit.}
+\item{checkpoint_dir}{Optional checkpoint directory for reusable score
+states and pair batches. With \code{NULL}, temporary storage is removed on exit.}
 
 \item{resume}{Reuse compatible completed checkpoint entries.}
-
-\item{conditional_precision}{Precision used for conditional variance
-multiplication: \code{"double"} or \code{"float32"}. Scores and p-values remain in
-double precision.}
 
 \item{q.value}{Pair-covariance discovery threshold in \verb{(0, 1]}.}
 
 \item{FDR}{Logical; if \code{TRUE}, adjust pair p-values before applying
 \code{q.value}.}
 
-\item{method}{Method passed to \code{stats::p.adjust()} when \code{FDR = TRUE}.}
+\item{method}{Multiple-testing adjustment passed to \code{\link[stats:p.adjust]{stats::p.adjust()}},
+such as \code{"BH"} or \code{"BY"}.}
 
 \item{pairs}{Required two-column tested-pair universe using feature IDs or
 one-based indices.}
@@ -75,11 +62,8 @@ one-based indices.}
 \item{highlight}{Optional two-column pairs that must be tested and retained.
 They may overlap \code{pairs}; non-overlapping highlights are appended.}
 
-\item{calibration}{Only \code{"liu"} is supported for INLA fits.}
-
-\item{chunk_size}{For conditional pairs, the number of genes materialized
-together (1 to 64). For Liu pairs, the maximum number of tested pairs per
-native batch; the adaptive memory budget may reduce distinct features.}
+\item{chunk_size}{Maximum number of tested pairs per native batch; the
+adaptive memory budget may reduce distinct features.}
 
 \item{threads}{Positive number of OpenMP threads for sparse INLA feature
 preparation, reduced materialization and pair batches. \code{NULL} uses one thread.}
@@ -92,23 +76,25 @@ preparation, reduced materialization and pair batches. \code{NULL} uses one thre
 are rejected.}
 }
 \value{
-With \code{pairwise_method = "score_liu"} and \code{liu_approximation = "exact"} (the default), a compact list with integer \code{i}, \code{j} and double
-\code{score}, \code{mlog10p} pairs (materialized in \verb{$result} for an explicit
+With \code{approximate_test = TRUE}, an \code{mgcvST_test} object. With
+\code{approximate_test = FALSE}, a compact list with integer \code{i}, \code{j} and
+double \code{score}, \code{mlog10p} pairs (materialized in \verb{$result} for an explicit
 \code{pairs} block, or as Parquet \verb{$shards} with \code{pairs = NULL} or a
 checkpointed explicit block), plus \verb{$feature_id}, \verb{$failed} (genes whose
 fp16 state could not be built) and \verb{$bh} (BH results); see
-\code{.mgcvst_inla_fp16_run()}. Otherwise, an \code{mgcvST_test} object.
+\code{.mgcvst_inla_fp16_run()}.
 }
 \description{
 Pairwise covariance test for fits returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}. The
 sparse INLA score state stored on the fit is reused; no model is refitted.
-For sparse INLA fits, both pair methods use a constrained observation-kernel
-basis that retains at least 0.995 of its eigenvalue sum. This is a
-pairwise-test approximation; the fitted sparse field is unchanged. Basis and
-pair-stage timings of the Liu methods are stored in \code{timing$inla_projection}.
+Each gene pair is tested by the squared cross-gene score with Liu moment
+matching, the only pair test for INLA fits. The score uses a constrained
+observation-kernel basis that retains at least 0.995 of its eigenvalue sum.
+This is a pairwise-test approximation; the fitted sparse field is unchanged.
+Basis and pair-stage timings are stored in \code{timing$inla_projection}.
 }
 \details{
-With \code{liu_approximation = "pca_learning"}, each gene receives the
+With \code{approximate_test = TRUE}, each gene receives the
 variance scales \code{sigma_g2 = dispersion / lambda} and
 \code{sigma_e2 = 1 + mean(mu) / theta} for negative-binomial genes (1 for
 Poisson genes), with \code{mu} recovered from the working variance. Genes are
@@ -131,30 +117,6 @@ rotation defining \code{B}, the coefficients \code{c_j}, the per-gene table with
 \verb{e2_relative = e_j^2 / ||H_j||_F^2}, and the stage timings, including the
 trace-table precomputation.
 
-With \code{pairwise_method = "conditional_cauchy"}, let \verb{S_ij = a_i' a_j} and
-\verb{v_(i|j) = a_j' M_i a_j}. Under independent Gaussian null scores,
-\code{S_ij | a_j} is normal with variance \code{v_(i|j)}, so each directional
-two-sided normal p-value is exactly uniform. The directions are combined
-using \code{T = (tan((0.5-p_(i|j))*pi) + tan((0.5-p_(j|i))*pi))/2} and the
-standard Cauchy upper tail. Because \code{T} cannot exceed its larger component,
-\code{p_ij >= min(p_(i|j), p_(j|i))} and the null rejection probability is at
-most \code{2*alpha} under any dependence.
-
-For \code{X = 1/p_(i|j)} and \code{Y = 1/p_(j|i)}, both directional tails satisfy
-\code{Pr(X > x) = Pr(Y > x) = 1/x}; in the far tail, \code{1/p_ij} approaches
-\code{(X+Y)/2}. If both directions become extreme together, their normal
-z-scores obey \code{z_2 = R*z_1}, where \code{R = sqrt(v_(i|j)/v_(j|i))}.
-Under a continuous, nondegenerate distribution of \code{R}, unequal extremes
-occur together only when \code{abs(R-1)} is of order \code{1/log(1/alpha)}.
-Thus the combined tail approaches the nominal tail as \code{alpha} tends to
-zero under this condition.
-
-The conditional results contain \code{signed_score}, \code{statistic}
-(\code{signed_score^2}), the combined \code{p_two_sided}, the directional
-\code{p_1_given_2} (variance \code{v_(1|2)}) and \code{p_2_given_1}, and their natural-log
-versions. Multiple testing follows \code{FDR}, \code{method} and \code{q.value} as for
-Liu pairs (\code{p_adjusted}, \code{log_p_adjusted}, \code{discovered}); \code{method = "BY"}
-is applied to the log p-values, so tails below the floating-point range
-keep their ordering and decisions. \code{highlight} is unavailable for this
-method.
+With \code{approximate_test = FALSE} and \code{pairs = NULL}, every available gene
+pair is tested.
 }

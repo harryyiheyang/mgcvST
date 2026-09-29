@@ -41,21 +41,19 @@ test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts",
   # comparison now goes through inlaST.test(), the same exact fp16 path
   # mgcvST.test() used to reach for INLA fits.
   serial <- inlaST.test(
-    fit, pairs = pairs, calibration = "liu",
+    fit, pairs = pairs, approximate_test = FALSE,
     BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L
   )
   threaded <- inlaST.test(
-    fit, pairs = pairs, calibration = "liu",
+    fit, pairs = pairs, approximate_test = FALSE,
     BPPARAM = BiocParallel::SerialParam(), threads = 2L,
     chunk_size = 1L
   )
-  expect_equal(threaded$results$signed_score, serial$results$signed_score,
-               tolerance = 1e-10)
-  expect_equal(threaded$results$p_two_sided, serial$results$p_two_sided,
-               tolerance = 1e-10)
+  expect_identical(nrow(serial$result), nrow(pairs))
+  expect_equal(threaded$result, serial$result, tolerance = 1e-10)
   bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
   expect_error(
-    inlaST.test(fit, pairs = pairs, calibration = "liu", BPPARAM = bp),
+    inlaST.test(fit, pairs = pairs, approximate_test = FALSE, BPPARAM = bp),
     "must be SerialParam"
   )
   expect_error(

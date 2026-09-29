@@ -80,15 +80,16 @@ test_that("PCAlearning training sampling reallocates sparse cells and restores R
   expect_identical(small$train, seq_len(50L))
 })
 
-test_that("liu_approximation = 'exact' keeps the exact INLA Liu path", {
+test_that("approximate_test = FALSE keeps the exact INLA Liu path", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
-  exact <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L)
-  none <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                      liu_approximation = "exact")
-  expect_identical(none$results, exact$results)
+  exact <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
+                       approximate_test = FALSE)
+  expect_named(exact$result, c("i", "j", "score", "mlog10p"))
   expect_null(exact$pca_learning)
+  expect_identical(exact$feature_id[exact$result$i], pairs[, 1L])
+  expect_identical(exact$feature_id[exact$result$j], pairs[, 2L])
 
   prepared <- mgcvST:::.inlast_sparse_prepare(fit)
   basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
@@ -101,9 +102,48 @@ test_that("liu_approximation = 'exact' keeps the exact INLA Liu path", {
   }, numeric(1L))
   liu <- mgcvST:::.liu_squared_score_moments(abs(score), moments[, 1L], moments[, 2L],
                                              moments[, 3L], moments[, 4L])
-  expect_equal(exact$results$signed_score, score, tolerance = 1e-10)
-  expect_equal(exact$results$p_two_sided, liu$p_value, tolerance = 1e-10)
-  expect_equal(exact$results$p_adjusted, p.adjust(exact$results$p_two_sided, "BY"))
+  expect_equal(exact$result$score, score, tolerance = 1e-10)
+  expect_equal(exact$result$mlog10p, -log10(liu$p_value), tolerance = 1e-3)
+})
+
+test_that("the default inlaST.test() call is approximate_test = TRUE", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  pairs <- t(combn(fit$feature_id, 2L))
+  default <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L)
+  explicit <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L,
+                          approximate_test = TRUE)
+  expect_s3_class(default, "mgcvST_test")
+  expect_false(is.null(default$pca_learning))
+  expect_identical(default$results, explicit$results)
+  expect_identical(default$pca_learning$training, explicit$pca_learning$training)
+})
+
+test_that("inlaST.test validates approximate_test and rejects removed arguments", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  pair <- matrix(fit$feature_id[1:2], 1L)
+  for (bad in list(NA, NULL, "TRUE", 1L, c(TRUE, FALSE))) {
+    expect_error(inlaST.test(fit, pairs = pair, approximate_test = bad),
+                 "approximate_test must be TRUE or FALSE.", fixed = TRUE)
+  }
+  for (flag in c(TRUE, FALSE)) {
+    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
+                             pairwise_method = "conditional_cauchy"),
+                 "pairwise_method")
+    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
+                             liu_approximation = "exact"),
+                 "liu_approximation")
+    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
+                             conditional_precision = "float32"),
+                 "conditional_precision")
+    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
+                             calibration = "liu"))
+  }
+  expect_false(any(c("pairwise_method", "liu_approximation", "calibration",
+                     "conditional_precision") %in% names(formals(inlaST.test))))
+  expect_false(exists(".mgcvst_conditional_test", asNamespace("mgcvST"),
+                      inherits = FALSE))
 })
 
 test_that("full-rank PCAlearning reproduces exact Liu p-values", {
@@ -111,29 +151,25 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
   fit <- .pca_nb_fit()
   G <- length(fit$feature_id)
   pairs <- t(combn(fit$feature_id, 2L))
-  exact <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L)
+  exact <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
+                       approximate_test = FALSE)$result
   withr::local_seed(5L)
   before <- .Random.seed
-  pca <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                     liu_approximation = "pca_learning", rank = G)
+  pca <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L, rank = G)
   expect_identical(.Random.seed, before)
   z <- pca$pca_learning
   expect_identical(z$training$feature_id, fit$feature_id)
   expect_identical(dim(z$coefficients), c(G, G))
   # training matrices are stored in float32
   expect_lt(max(abs(z$genes$e2_relative)), 1e-6)
-  expect_equal(pca$results$signed_score, exact$results$signed_score, tolerance = 1e-10)
-  expect_equal(pca$results$p_two_sided, exact$results$p_two_sided, tolerance = 1e-5)
-  expect_equal(pca$results$p_positive, exact$results$p_positive, tolerance = 1e-5)
-  expect_equal(pca$results$p_negative, exact$results$p_negative, tolerance = 1e-5)
+  expect_equal(pca$results$signed_score, exact$score, tolerance = 1e-10)
+  expect_equal(-pca$results$log_p_two_sided / log(10), exact$mlog10p,
+               tolerance = 1e-3)
   expect_equal(exp(pca$results$log_p_two_sided), pca$results$p_two_sided)
   expect_equal(pca$results$p_adjusted, p.adjust(pca$results$p_two_sided, "BY"),
                tolerance = 1e-12)
   expect_equal(pca$results$p_negative_adjusted,
                p.adjust(pca$results$p_negative, "BY"), tolerance = 1e-12)
-  expect_identical(pca$results$discovered, exact$results$discovered)
-  expect_identical(pca$results$discovered_positive, exact$results$discovered_positive)
-  expect_identical(pca$results$discovered_negative, exact$results$discovered_negative)
   expect_true(all(c("sample", "gram", "tables", "pairs") %in% names(z$elapsed)))
   expect_true("total" %in% names(z$table_timing))
 
@@ -150,15 +186,14 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
   # A pair list (reversed order, subset) uses the (i, j) kernel with equal results.
   sub <- c(5L, 1L, 20L, 13L)
   listed <- inlaST.test(fit, pairs = pairs[sub, 2:1], method = "BY", threads = 2L,
-                        liu_approximation = "pca_learning", rank = G)
+                        rank = G)
   expect_identical(listed$timing$inla_projection$pair_schedule, "pcalearning_pair_list")
   expect_equal(listed$results$log_p_two_sided, pca$results$log_p_two_sided[sub],
                tolerance = 1e-12)
   expect_equal(listed$results$log_p_positive, pca$results$log_p_positive[sub],
                tolerance = 1e-12)
 
-  low <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                     liu_approximation = "pca_learning", rank = 3L)
+  low <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L, rank = 3L)
   expect_true(all(low$pca_learning$genes$e2_relative > -1e-12))
   expect_equal(low$pca_learning$genes$e2,
                low$pca_learning$genes$fro2 - unname(rowSums(low$pca_learning$coefficients^2)))
@@ -291,8 +326,7 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   public <- tempfile("mgcvst-pca-public-")
   on.exit(unlink(public, recursive = TRUE), add = TRUE)
   test <- function() inlaST.test(fit, pairs = t(combn(fit$feature_id, 2L)),
-                                 threads = 2L, liu_approximation = "pca_learning",
-                                 rank = 3L, checkpoint_dir = public, resume = TRUE)
+                                 threads = 2L, rank = 3L, checkpoint_dir = public, resume = TRUE)
   first <- test()
   expect_true(file.exists(file.path(public, "pca-basis.rds")))
   expect_identical(test()$results, first$results)

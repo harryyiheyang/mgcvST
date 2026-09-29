@@ -1,3 +1,16 @@
+# mgcvST 0.0.1.9019
+
+* `inlaST.test()` now exposes only the squared-score Liu test. The conditional
+  Cauchy pair test is removed from the package, together with its R and C++
+  implementation, tests, example and HPC benchmark scripts.
+* The pair-test selectors `pairwise_method`, `liu_approximation`,
+  `calibration` and `conditional_precision` are removed from `inlaST.test()`.
+  The new argument `approximate_test` selects the trace evaluation:
+  `TRUE` (the default) uses the PCAlearning approximation to the four Liu trace
+  moments, and `FALSE` uses the exact fp16 Liu path. Both routes keep their
+  numerical implementation and result shapes. `method` still selects the
+  multiple-testing adjustment.
+
 # mgcvST 0.0.1.9018
 
 * `inlaST.estimate()` now retains the fitted modes of native iid nuisance

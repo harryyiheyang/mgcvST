@@ -30,7 +30,7 @@
   invisible(NULL)
 }
 
-## Only liu_approximation = "pca_learning" reaches this function; the exact
+## Only inlaST.test(approximate_test = TRUE) reaches this function; the exact
 ## fp16 path is served directly by .mgcvst_inla_fp16_run() and never builds
 ## this legacy pair result shape.
 .mgcvst_inla_test_pairs <- function(fit, index, pair_index, threads,
