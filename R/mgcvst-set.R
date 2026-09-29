@@ -2,7 +2,8 @@
 #'
 #' Supplies a complete mgcv formula or an external mgcv setup. Shared full and
 #' null GAM setups are prepared with a zero response; each feature is later
-#' fitted independently with BAM.
+#' fitted independently with BAM. A null model with one parametric coefficient
+#' and no smooths uses GAM to preserve its matrix dimensions.
 #'
 #' @param formula Complete two-sided mgcv formula. The response is a label and
 #'   need not exist in `data`; mgcv expands factors, interactions and contrasts.

@@ -292,7 +292,7 @@
     ".mgcvst_condition", ".mgcvst_fit_chunk",
     ".mgcvst_capture_marginal", ".mgcvst_marginal_geometry",
     ".mgcvst_null_score_setup", ".mgcvst_null_score_spectrum",
-    ".mgcvst_null_score_test",
+    ".mgcvst_null_score_test", ".mgcvst_fit_null",
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     "taps_score_test", ".mgcvst_marginal_spectrum", ".mgcvst_marginal_working",
     ".mgcvst_marginal_matrixsqrt", ".mgcvst_marginal_moments",
@@ -425,11 +425,10 @@
     t0 <- proc.time()[["elapsed"]]
     marginal_result <- tryCatch(
       {
-        null_fit <- do.call(mgcv::bam, c(list(
-          formula = null_setup$spec$formula, data = null_data,
-          family = unserialize(family_serialized), offset = null_setup$spec$offset,
-          method = "fREML", discrete = TRUE, nthreads = 1L,
-          control = control), gam_args))
+        null_fit <- .mgcvst_fit_null(
+          null_setup, null_data, unserialize(family_serialized),
+          null_setup$spec$offset, control, gam_args
+        )
         .mgcvst_marginal_score(
           null_fit, marginal_test = marginal_test,
           marginal_args = marginal_args,
@@ -665,7 +664,9 @@
 #'   This opt-in representation supports prediction and other downstream uses
 #'   without retaining full `gam` objects.
 #' @param method Retained for API compatibility. Null and full fits use
-#'   `mgcv::bam(method = "fREML", discrete = TRUE)`.
+#'   `mgcv::bam(method = "fREML", discrete = TRUE)`, except a null model with
+#'   one parametric coefficient and no smooths uses `mgcv::gam(method = "REML")`
+#'   to avoid BAM's one-column QR dimension error.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
 #'   always forced to one. It may additionally carry `poisson_screen_phi`
 #'   (default `1.1`), the Poisson prescreen threshold: with a negative-binomial

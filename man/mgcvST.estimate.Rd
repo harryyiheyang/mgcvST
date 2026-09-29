@@ -54,7 +54,9 @@ Use \code{list(method = "liu")} for direct Liu, or the default Davies with
 Liu fallback within mgcvST. No additional marginal call is needed.}
 
 \item{method}{Retained for API compatibility. Null and full fits use
-\code{mgcv::bam(method = "fREML", discrete = TRUE)}.}
+\code{mgcv::bam(method = "fREML", discrete = TRUE)}, except a null model with
+one parametric coefficient and no smooths uses \code{mgcv::gam(method = "REML")}
+to avoid BAM's one-column QR dimension error.}
 
 \item{retain_smooth}{Logical; retain the feature-by-coefficient smooth
 coefficient matrix and one shared reduced fit basis and unscaled penalty.

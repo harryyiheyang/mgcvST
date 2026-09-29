@@ -177,12 +177,10 @@
     null_fit <- NULL
     marginal_result <- tryCatch(
       {
-        null_fit <- do.call(
-          mgcv::bam,
-          c(list(formula = null_setup$spec$formula, data = null_data,
-                 family = unserialize(if (isTRUE(payload$poisson[j])) routed_family_raw else family_raw),
-                 offset = feature_offset,
-                 method = "fREML", discrete = TRUE, nthreads = 1L, control = control), gam_args)
+        null_fit <- .mgcvst_fit_null(
+          null_setup, null_data,
+          unserialize(if (isTRUE(payload$poisson[j])) routed_family_raw else family_raw),
+          feature_offset, control, gam_args
         )
         .mgcvst_marginal_score(
           null_fit, marginal_test, marginal_args,

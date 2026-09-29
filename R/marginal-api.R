@@ -18,13 +18,35 @@
                       response = ".mgcvST_null_response")
   }
   colnames(X) <- G$term.names
+  if (!is.null(null_spec$X0)) X0 <- null_spec$X0
   list(
-    spec = null_spec, X = X, X0 = if (is.null(null_spec$X0)) X0 else null_spec$X0,
+    spec = null_spec, X = X, X0 = X0,
+    single_parametric = ncol(X0) == 1L &&
+      !length(mgcv::interpret.gam(null_spec$formula)$smooth.spec),
     smooth = G$smooth, target_S = G$S[[target$first.sp]],
     term.names = G$term.names, target_index = target_index,
     target_columns = target_columns,
     keep_columns = keep_columns
   )
+}
+
+# BAM's one-column QR update drops the matrix dimension in mgcv 1.9-4.
+.mgcvst_fit_null <- function(setup, data, family, offset, control, gam_args) {
+  if (setup$single_parametric) {
+    if (!is.null(gam_args$rho) && !isTRUE(gam_args$rho == 0)) {
+      stop("A one-coefficient parametric null cannot preserve BAM's nonzero rho in GAM.")
+    }
+    gam_args[c("rho", "AR.start", "chunk.size", "gc.level", "use.chol",
+               "cluster", "samfrac", "discrete", "nthreads", "coef")] <- NULL
+  }
+  args <- c(list(formula = setup$spec$formula, data = data, family = family,
+                 offset = offset, control = control), gam_args)
+  if (setup$single_parametric) {
+    do.call(mgcv::gam, c(args, list(method = "REML", discrete = FALSE)))
+  } else {
+    do.call(mgcv::bam, c(args, list(method = "fREML", discrete = TRUE,
+                                  nthreads = 1L)))
+  }
 }
 
 # Evaluate the spatial score from a pure null GAM and the prepared target block.

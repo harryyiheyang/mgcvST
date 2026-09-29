@@ -1,3 +1,11 @@
+# mgcvST 0.0.1.9020
+
+* `mgcvST.estimate()` fits a null model with one parametric coefficient and no
+  smooth terms with `mgcv::gam(method = "REML")`. This avoids the one-column
+  QR dimension error in `mgcv::bam()` 1.9-4, which made intercept-only null
+  scores unavailable. The formula, offsets, family, and score calculation are
+  preserved. Other null models and all spatial fits keep their BAM path.
+
 # mgcvST 0.0.1.9019
 
 * `inlaST.test()` now exposes only the squared-score Liu test. The conditional
