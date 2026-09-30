@@ -1,36 +1,28 @@
 .pair_pipeline_fit <- function() {
   ids <- c("g1", "g2", "g3")
   list(
-    feature_id = ids, test_engine = "single_model",
-    estimator = "INLA", score_backend = "sparse",
+    feature_id = ids, test_engine = "spde",
+    estimator = "mgcv", score_backend = "dense",
     working_error = matrix(0, 4L, 3L),
     working_variance = matrix(1, 4L, 3L),
     dispersion = rep(1, 3L), lambda = rep(1, 3L),
     smoothing_parameters = matrix(1, 3L, 1L),
     nuisance_covariance = list(),
-    geometry = list(nuisance_design = matrix(numeric(), 4L, 0L)),
-    score_sparse = list(A = Matrix::Diagonal(4L, 3L),
-                        Q = Matrix::Diagonal(3L),
-                        constraint = rep(1, 3L), sp_index = 1L)
+    geometry = list(B = matrix(c(1, 0, 0, 0, 0, 1, 0, 0), 4L, 2L),
+                    Q = diag(2L), X = matrix(numeric(), 4L, 0L))
   )
 }
 
 test_that("bounded pair blocks preserve self, duplicate, and reversed pairs", {
   fit <- .pair_pipeline_fit()
-  basis <- list(coordinate = matrix(c(1, 0, 0, 0, 1, 0), 3L, 2L),
-                basis = matrix(c(1, 0, 0, 0, 1, 0), 3L, 2L),
-                rank = 2L, coverage = 0.995)
   pairs <- rbind(c(1L, 1L), c(1L, 2L), c(2L, 1L), c(1L, 2L),
                  c(2L, 2L), c(2L, 3L), c(3L, 2L), c(3L, 3L), c(1L, 3L))
   original <- mgcvST:::.mgcvst_liu_pairs
   seen <- list()
   testthat::local_mocked_bindings(
-    .inlast_sparse_prepare = function(fit) fit,
-    .inlast_sparse_units = function(fit, features, threads = 1L)
-      lapply(features, function(i) list(feature = i)),
-    .inlast_sparse_materialize_reduced = function(fit, units, basis, threads = 1L)
-      lapply(units, function(z) {
-        i <- z$feature
+    .mgcvst_pair_build_batch = function(fit, ids, threads, mode, native = NULL,
+                                        T0 = NULL, field_scale = NULL)
+      lapply(ids, function(i) {
         list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
       }),
     .mgcvst_liu_pairs = function(index, pair_index, feature_id, summaries,
@@ -44,12 +36,12 @@ test_that("bounded pair blocks preserve self, duplicate, and reversed pairs", {
   )
   full <- mgcvST:::.mgcvst_pair_pipeline(
     fit, pairs, seq_len(nrow(pairs)), threads = 1L, chunk_size = 9L,
-    verbose = FALSE, basis = basis, cache_bytes = 100000
+    verbose = FALSE, cache_bytes = 100000
   )
   seen <- list()
   bounded <- mgcvST:::.mgcvst_pair_pipeline(
     fit, pairs, seq_len(nrow(pairs)), threads = 1L, chunk_size = 9L,
-    verbose = FALSE, basis = basis, cache_bytes = 4200
+    verbose = FALSE, cache_bytes = 4200
   )
   expect_identical(bounded$result$pair_index, seq_len(nrow(pairs)))
   expect_equal(bounded$result, full$result, tolerance = 1e-12)
