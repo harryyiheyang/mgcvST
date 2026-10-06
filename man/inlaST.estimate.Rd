@@ -102,8 +102,18 @@ spatial mean are retained in the result.
 The score uses the SPDE covariance conditioned on observation mean zero.
 The sparse score uses a matching expected-curvature nuisance adjustment.
 The INLA path is sparse-only: the sparse kernel is the sole score and
-marginal implementation, there is no dense score, no custom marginal
-callback and no fallback. A design the sparse capability gate rejects makes
+marginal implementation, with no dense score or custom marginal callback.
+If INLA's native program crashes during the spatial fit (\code{inlaCrashError})
+after a successful null fit, that null fit supplies the fixed and iid
+nuisance effects, family parameters and working state. The spatial effect
+is set to zero and its original-FEM precision is assigned \code{1e8};
+\code{lambda = dispersion * 1e8}. No additional fit is attempted. The null score
+p-value is retained and pair scores use the usual working-model formulas.
+\code{diagnostics$spatial_fallback} identifies these usable fallback states;
+\code{outer_convergence} is \code{"null_zero_spatial_fallback"} and the original
+error remains in \code{error_class}, \code{error_message} and \code{error_call}. Their
+spatial likelihood criterion is missing. Input errors and unsuccessful
+null fits do not use this fallback. A design the sparse capability gate rejects makes
 \code{\link[=inlaST.set]{inlaST.set()}} error at setup, and a model that somehow reaches this
 function without that geometry errors here.
 Flat hyperpriors need not yield proper hyperparameter posteriors. They are

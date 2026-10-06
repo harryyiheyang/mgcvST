@@ -1,3 +1,12 @@
+# mgcvST 0.0.1.9024
+
+* When INLA's native spatial fit crashes after a successful null fit,
+  `inlaST.estimate()` reuses the null fixed and nuisance estimates, sets the
+  spatial effect to zero, and assigns spatial precision `1e8` on the original
+  FEM scale. The fallback and original error are explicit in diagnostics.
+  Existing null p-values and downstream score formulas are retained. Input
+  errors and failed null fits retain their existing failure behavior.
+
 # mgcvST 0.0.1.9023
 
 * `rkhs_score_calibrate()` and the fused mgcv Liu pair kernel normalize

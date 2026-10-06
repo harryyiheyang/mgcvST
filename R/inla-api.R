@@ -587,8 +587,18 @@ inlaST.set <- function(
 #' The score uses the SPDE covariance conditioned on observation mean zero.
 #' The sparse score uses a matching expected-curvature nuisance adjustment.
 #' The INLA path is sparse-only: the sparse kernel is the sole score and
-#' marginal implementation, there is no dense score, no custom marginal
-#' callback and no fallback. A design the sparse capability gate rejects makes
+#' marginal implementation, with no dense score or custom marginal callback.
+#' If INLA's native program crashes during the spatial fit (`inlaCrashError`)
+#' after a successful null fit, that null fit supplies the fixed and iid
+#' nuisance effects, family parameters and working state. The spatial effect
+#' is set to zero and its original-FEM precision is assigned `1e8`;
+#' `lambda = dispersion * 1e8`. No additional fit is attempted. The null score
+#' p-value is retained and pair scores use the usual working-model formulas.
+#' `diagnostics$spatial_fallback` identifies these usable fallback states;
+#' `outer_convergence` is `"null_zero_spatial_fallback"` and the original
+#' error remains in `error_class`, `error_message` and `error_call`. Their
+#' spatial likelihood criterion is missing. Input errors and unsuccessful
+#' null fits do not use this fallback. A design the sparse capability gate rejects makes
 #' [inlaST.set()] error at setup, and a model that somehow reaches this
 #' function without that geometry errors here.
 #' Flat hyperpriors need not yield proper hyperparameter posteriors. They are
@@ -713,7 +723,12 @@ inlaST.estimate <- function(
     )
     marginal_elapsed <- proc.time()[["elapsed"]] - marginal_t0
   }
-  rm(null_fits, null_chunks)
+  rm(null_chunks)
+  # Keep only small null estimates while the spatial fits are running.
+  for (j in seq_len(p)) {
+    if (inherits(null_fits[[j]], "condition")) next
+    null_fits[[j]][c("working_error", "working_variance", "eta", "mu", "inla")] <- NULL
+  }
   fit_t0 <- proc.time()[["elapsed"]]
   chunks <- BiocParallel::bplapply(
     payloads, .inlast_chunk_task(), spec = model$inla_spec,
@@ -722,10 +737,19 @@ inlaST.estimate <- function(
     BPPARAM = BPPARAM
   )
   rm(payloads)
-  rm(Y)
-  checked$Y <- NULL
   fit_elapsed <- proc.time()[["elapsed"]] - fit_t0
   fits <- unlist(chunks, recursive = FALSE)
+  for (j in seq_len(p)) {
+    if (!inherits(fits[[j]], "inlaCrashError")) next
+    feature_offset <- model$offset
+    if (!is.null(offset)) feature_offset <- feature_offset +
+      if (is.matrix(offset)) offset[j, ] else offset
+    fits[[j]] <- .inlast_spatial_fallback(
+      fits[[j]], null_fits[[j]], model$inla_spec, Y[j, ], feature_offset
+    )
+  }
+  rm(null_fits, Y)
+  checked$Y <- NULL
 
   dispersion <- stats::setNames(rep(NA_real_, p), feature_id)
   family_parameters <- stats::setNames(vector("list", p), feature_id)
@@ -745,6 +769,8 @@ inlaST.estimate <- function(
     criterion_name = "INLA log marginal likelihood", fit_seconds = NA_real_,
     outer_convergence = NA_character_, error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
+    spatial_fallback = FALSE, spatial_fallback_method = NA_character_,
+    spatial_precision_assigned = NA_real_,
     null_converged = null_converged, null_fit_seconds = null_fit_seconds,
     null_error_class = null_error_class, null_error_message = null_error_message,
     null_error_call = null_error_call,
@@ -785,13 +811,23 @@ inlaST.estimate <- function(
     diagnostics_table$criterion[j] <- z$log_marginal_likelihood
     diagnostics_table$fit_seconds[j] <- z$fit_seconds
     diagnostics_table$outer_convergence[j] <- if (isTRUE(z$converged)) "converged" else "failed"
+    if (!is.null(z$spatial_fallback)) {
+      fallback <- z$spatial_fallback
+      diagnostics_table$spatial_fallback[j] <- TRUE
+      diagnostics_table$spatial_fallback_method[j] <- fallback$method
+      diagnostics_table$spatial_precision_assigned[j] <- fallback$spatial_precision
+      diagnostics_table$outer_convergence[j] <- "null_zero_spatial_fallback"
+      diagnostics_table$error_class[j] <- fallback$error_class[1L]
+      diagnostics_table$error_message[j] <- fallback$error_message
+      diagnostics_table$error_call[j] <- fallback$error_call
+    }
     constraint_residual[j, ] <- z$constraint_residual
     observation_spatial_mean[j, ] <- z$observation_spatial_mean
     if (diagnostics) {
       inla_diagnostics[[j]] <- z[c(
         "tau", "tau_internal", "precision_scale", "lambda", "mode_status", "mode_status_text",
         "constraint_residual", "constraint_residual_uncorrected",
-        "observation_spatial_mean", "estimation"
+        "observation_spatial_mean", "estimation", "spatial_fallback"
       )]
     }
     if (!is.null(coefficient)) {
