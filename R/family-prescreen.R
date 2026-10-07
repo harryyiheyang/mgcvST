@@ -21,8 +21,7 @@
 #' dispersion as a routing statistic. The spatial term is omitted so that the
 #' calculation is inexpensive and identical across the two estimation paths.
 #' This statistic is a screening criterion rather than the scale estimate of the
-#' subsequent spatial fit. The threshold is calibrated for the package workflow;
-#' its default is `1.01`.
+#' subsequent spatial fit. The default screening threshold is `1.01`.
 #' Genes above the threshold keep the negative binomial family and are fitted
 #' exactly as before.
 #'
