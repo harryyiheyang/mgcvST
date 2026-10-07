@@ -559,7 +559,7 @@ inlaST.set <- function(
 #'   objective corresponds to density proportional to `1/parameter` on its
 #'   positive scale.
 #'   `control.inla` accepts supported numerical tuning, with Gaussian latent
-#'   strategy and EB integration enforced. `poisson_screen_phi` (default `1.1`)
+#'   strategy and EB integration enforced. `poisson_screen_phi` (default `1.01`)
 #'   is the Poisson prescreen threshold: with a negative-binomial family, each
 #'   feature first gets an offset-and-covariate-only Poisson GLM, and a feature
 #'   whose Pearson dispersion `phi = sum((y - mu)^2 / mu) / (n - p)` is at most

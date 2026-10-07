@@ -61,7 +61,7 @@ Normal parameters are mean and precision. A flat log-hyperparameter
 objective corresponds to density proportional to \code{1/parameter} on its
 positive scale.
 \code{control.inla} accepts supported numerical tuning, with Gaussian latent
-strategy and EB integration enforced. \code{poisson_screen_phi} (default \code{1.1})
+strategy and EB integration enforced. \code{poisson_screen_phi} (default \code{1.01})
 is the Poisson prescreen threshold: with a negative-binomial family, each
 feature first gets an offset-and-covariate-only Poisson GLM, and a feature
 whose Pearson dispersion \code{phi = sum((y - mu)^2 / mu) / (n - p)} is at most

@@ -669,7 +669,7 @@
 #'   to avoid BAM's one-column QR dimension error.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
 #'   always forced to one. It may additionally carry `poisson_screen_phi`
-#'   (default `1.1`), the Poisson prescreen threshold: with a negative-binomial
+#'   (default `1.01`), the Poisson prescreen threshold: with a negative-binomial
 #'   family, each feature first gets an offset-and-covariate-only Poisson GLM,
 #'   and a feature whose Pearson dispersion
 #'   `phi = sum((y - mu)^2 / mu) / (n - p)` is at most the threshold is fitted

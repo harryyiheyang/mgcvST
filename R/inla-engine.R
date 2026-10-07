@@ -53,7 +53,7 @@
     keep_fit = FALSE,
     # Poisson prescreen threshold on the covariate-only Pearson dispersion; see
     # R/family-prescreen.R. Used by inlaST.estimate() only, never by the engine.
-    poisson_screen_phi = 1.1
+    poisson_screen_phi = .mgcvst_prescreen_default
   )
   unknown <- setdiff(names(control), names(defaults))
   if (length(unknown)) {

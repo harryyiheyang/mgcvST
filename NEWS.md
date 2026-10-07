@@ -1,3 +1,10 @@
+# mgcvST 0.0.1.9025
+
+* The default Poisson prescreen threshold is now `1.01` for both mgcv and
+  INLA estimation. Explicit thresholds retain their supplied values, and
+  `poisson_screen_phi = 0` continues to disable screening. Family targets,
+  model fitting and score formulas are unchanged.
+
 # mgcvST 0.0.1.9024
 
 * When INLA's native spatial fit crashes after a successful null fit,

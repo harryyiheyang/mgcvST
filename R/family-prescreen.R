@@ -22,7 +22,7 @@
 #' calculation is inexpensive and identical across the two estimation paths.
 #' This statistic is a screening criterion rather than the scale estimate of the
 #' subsequent spatial fit. The threshold is calibrated for the package workflow;
-#' its default is `1.1`.
+#' its default is `1.01`.
 #' Genes above the threshold keep the negative binomial family and are fitted
 #' exactly as before.
 #'
@@ -42,7 +42,7 @@
 NULL
 
 # The package default for control$poisson_screen_phi.
-.mgcvst_prescreen_default <- 1.1
+.mgcvst_prescreen_default <- 1.01
 
 # Normalise the knob. Absent/NULL means "use the default"; 0 (the documented
 # "off" setting) disables the screen; otherwise one finite positive threshold.
