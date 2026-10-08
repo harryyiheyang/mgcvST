@@ -119,6 +119,27 @@ test_that("the default inlaST.test() call is approximate_test = TRUE", {
   expect_identical(default$pca_learning$training, explicit$pca_learning$training)
 })
 
+test_that("approximate inlaST.test() builds the observation basis once", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  pairs <- t(combn(fit$feature_id, 2L))
+  r <- mgcvST:::.inlast_sparse_observation_basis(
+    mgcvST:::.inlast_sparse_prepare(fit)
+  )$rank
+  calls <- new.env(parent = emptyenv())
+  calls$basis <- 0L
+  observation_basis <- mgcvST:::.inlast_sparse_observation_basis
+  testthat::local_mocked_bindings(
+    .inlast_sparse_observation_basis = function(fit) {
+      calls$basis <- calls$basis + 1L
+      observation_basis(fit)
+    },
+    .package = "mgcvST")
+  out <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L)
+  expect_identical(calls$basis, 1L)
+  expect_identical(out$timing$inla_projection$r, r)
+})
+
 test_that("inlaST.test validates approximate_test and rejects removed arguments", {
   skip_on_cran()
   fit <- .pca_nb_fit()

@@ -1,3 +1,19 @@
+# mgcvST 0.0.1.9027
+
+* Removed internal code left unreachable after the fp16 exact path and
+  PCAlearning replaced the double-precision sparse INLA pair pipeline: the
+  sparse unit store (`R/unit-store.R`) and the exact-pair chunk-size and memory
+  helpers `.mgcvst_inla_pair_chunk_size()` and `.mgcvst_inla_memory_plan()`.
+  Fits, scores and p-values are unchanged.
+* Tests of the deleted pipeline were removed. The `mgcvST.set()` factor
+  interaction test now places its nuisance smooth on a separate covariate,
+  because `z + s(z)` is rank deficient and such fits correctly fail without a
+  conditional nuisance covariance. The check that approximate `inlaST.test()`
+  builds the observation basis once now runs on a fitted INLA model. The dense
+  Woodbury check of fitted-model curvature with multiple iid nuisance penalties
+  now targets the current compact reconstruction units, which replaced the
+  curvature output of the sparse batch kernel.
+
 # mgcvST 0.0.1.9026
 
 * API change: every user-facing `kappa` is now a unit-scale value, and its

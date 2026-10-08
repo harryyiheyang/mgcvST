@@ -216,9 +216,7 @@
   }
   if (is.null(chunk_size)) {
     chunk_size <- if (liu_approximation == "pca_learning") 1000000L else
-      if (inla_fit) .mgcvst_inla_pair_chunk_size(
-      fitmgcvST, basis = inla_projection
-    ) else if (calibration == "liu") 10000L else if (workers > 0L)
+      if (calibration == "liu") 10000L else if (workers > 0L)
       ceiling(length(tested_rows) / workers) else 1L
   }
   chunk_size <- as.integer(chunk_size)

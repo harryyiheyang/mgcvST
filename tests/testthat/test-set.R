@@ -6,11 +6,14 @@ test_that("set expands factor interactions once for shared BAM null and full des
     d$b <- factor(rep(1:2, length.out = nrow(d)))
     d$x <- d$x + 1e-6
     d$y <- d$y - 5e-7
+    # A nuisance smooth of z would contain the parametric z, and rank-deficient
+    # fits have no conditional nuisance covariance.
+    d$w <- runif(nrow(d))
     basis <- f$basis
     saved <- serialize(basis, NULL)
-    form <- if (pc) response ~ a * z + b + offset(offset0) + s(z, k = 5) +
+    form <- if (pc) response ~ a * z + b + offset(offset0) + s(w, k = 5) +
       s(x, y, bs = "spdePC", xt = basis) else
-      response ~ a * z + b + offset(offset0) + s(z, k = 5) + s(x, y, bs = "spde", xt = basis)
+      response ~ a * z + b + offset(offset0) + s(w, k = 5) + s(x, y, bs = "spde", xt = basis)
     model <- mgcvST.set(form, d, family)
     expect_true(model$shared_design)
     expect_identical(serialize(basis, NULL), saved)
@@ -18,7 +21,7 @@ test_that("set expands factor interactions once for shared BAM null and full des
     expect_equal(external$L, model$L, tolerance = 1e-8)
     expect_true(all(unlist(model$timing) >= 0))
     expect_false(grepl("spde", paste(deparse(model$null_formula), collapse = " ")))
-    expect_match(paste(deparse(model$null_formula), collapse = " "), "s\\(z")
+    expect_match(paste(deparse(model$null_formula), collapse = " "), "s\\(w")
     sm <- model$G$smooth[[2L]]
     expect_true(sm$timing$basis_calls >= 1L)
     expected <- mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")]), pc)

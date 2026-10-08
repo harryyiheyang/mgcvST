@@ -12,15 +12,6 @@
   invisible(NULL)
 }
 
-.mgcvst_inla_pair_chunk_size <- function(fit, memory_bytes = NULL,
-                                         basis = NULL) {
-  if (is.null(basis)) basis <- .inlast_sparse_observation_basis(fit)
-  if (is.null(memory_bytes)) memory_bytes <- .mgcvst_inla_memory_plan(
-    fit, basis, pairs = 1L, threads = 1L)$cache_bytes
-  r <- basis$rank
-  as.integer(max(1L, min(128L, floor(memory_bytes / (2 * 8 * r^2)))))
-}
-
 .mgcvst_inla_serial_backend <- function(BPPARAM) {
   if (!inherits(BPPARAM, "SerialParam")) {
     stop(
