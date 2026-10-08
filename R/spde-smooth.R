@@ -50,14 +50,22 @@ spde_model <- function(mesh, alpha = 2, constr = FALSE, ...) {
 
 #' Evaluate the proper Matern SPDE precision matrix
 #'
+#' This low-level helper takes the internal, mesh-scale kappa, not the
+#' unit-scale `kappa` of [spde_basis()] and [inlaST.set()]. The FEM matrices
+#' of [spde_model()] are in the units of the mesh vertex coordinates (the
+#' normalized coordinates for an [spde_mesh()]). Pass the `kappa_internal`
+#' stored on a basis or model to reproduce its precision.
+#'
 #' @param model An object returned by [spde_model()].
-#' @param kappa Positive dimensionless spatial scale.
+#' @param kappa_internal Positive SPDE scale in mesh vertex coordinate units,
+#'   for example `spde_basis(...)$kappa_internal`.
 #' @param tau Positive precision multiplier.
 #' @return A sparse symmetric precision matrix.
 #' @export
-spde_precision <- function(model, kappa, tau = 1) {
-  if (length(kappa) != 1L || !is.finite(kappa) || kappa <= 0) {
-    stop("kappa must be one positive finite number.")
+spde_precision <- function(model, kappa_internal, tau = 1) {
+  if (!is.numeric(kappa_internal) || length(kappa_internal) != 1L ||
+      !is.finite(kappa_internal) || kappa_internal <= 0) {
+    stop("kappa_internal must be one positive finite number.")
   }
   if (length(tau) != 1L || !is.finite(tau) || tau <= 0) {
     stop("tau must be one positive finite number.")
@@ -66,9 +74,7 @@ spde_precision <- function(model, kappa, tau = 1) {
   if (is.null(p$M0) || is.null(p$M1) || is.null(p$M2)) {
     stop("model does not contain M0, M1, and M2.")
   }
-  Matrix::forceSymmetric(
-    tau^2 * (kappa^4 * p$M0 + 2 * kappa^2 * p$M1 + p$M2)
-  )
+  Matrix::forceSymmetric(tau^2 * .spde_fem_precision(p, kappa_internal))
 }
 
 #' mgcv SPDE smooth methods
@@ -94,18 +100,11 @@ smooth.construct.spde.smooth.spec <- function(object, data, knots) {
                            parent = emptyenv())
   object$X <- .spde_basis_at(basis, loc, timing = object$timing, stage = "basis")
 
-  if (is.null(basis$kappa)) {
-    object$S <- basis$penalty
-    object$sp <- rep(-1, 2L)
-    object$L <- rbind(c(1, 4), c(1, 2), c(1, 0))
-    object$kappa.estimated <- TRUE
-  } else {
-    object$S <- list(basis$Q)
-    object$sp <- -1
-    object$L <- NULL
-    object$kappa.estimated <- FALSE
-  }
-  object$kappa <- basis$kappa
+  object$S <- list(basis$Q)
+  object$sp <- -1
+  object$L <- NULL
+  kappa <- .spde_kappa_fields(basis)
+  object[names(kappa)] <- kappa
   object$rank <- as.integer(vapply(object$S, Matrix::rankMatrix, numeric(1)))
   object$null.space.dim <- 0L
   object$C <- matrix(0, 0L, ncol(object$X))

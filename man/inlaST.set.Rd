@@ -16,7 +16,7 @@ inlaST.set(
   control = list(),
   ...,
   mesh = NULL,
-  kappa = NULL
+  kappa = 0.05
 )
 }
 \arguments{
@@ -24,7 +24,8 @@ inlaST.set(
 
 \item{data}{Model data with one row per spatial observation.}
 
-\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object.}
+\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object. Its fixed unit-scale
+\code{kappa} defines the shared spatial kernel shape.}
 
 \item{family}{An mgcv family object. The default is \code{mgcv::nb()}.}
 
@@ -57,12 +58,25 @@ single spatial term is built directly from \code{mesh}, \code{kappa} and
 projector remains sparse; the bounded nuisance design is dense. See the
 nuisance-smooth section. Mesh dimension (2 or 3) is detected automatically.}
 
-\item{kappa}{Fixed positive spatial scale required by \code{mesh}. With
-\code{alpha = 2} the Matern smoothness is \code{nu = 1} in 2D and \code{nu = 1/2} in 3D,
-and the practical range is \code{sqrt(8 * nu) / kappa}.}
+\item{kappa}{Unit-scale SPDE kappa for the native \code{mesh} setup; the default
+is \code{0.05}. It is fixed and never estimated, so all features share one
+Gaussian-process kernel shape and differ only in variance. The unit
+length \code{L} is the largest per-axis span, \code{max - min}, of the observation
+coordinates named by \code{coordinates}, and \code{kappa} is the SPDE scale in
+coordinates divided by \code{L}. The package converts it to
+\code{kappa_internal = kappa * s / L} on the mesh, where \code{s} is the
+\code{\link[=spde_mesh]{spde_mesh()}} coordinate scale; for an \code{fm_mesh_2d} or \code{fm_mesh_3d} in
+raw coordinates, \code{s = 1} and \code{kappa_internal = kappa / L}. Larger \code{kappa}
+gives a more local field. With \code{alpha = 2} the Matern smoothness is
+\code{nu = 1} in 2D and \code{nu = 1/2} in 3D, and the practical range in unit
+lengths is \code{sqrt(8 * nu) / kappa}. The default \code{0.05} therefore gives
+about 57 unit lengths in 2D and 40 in 3D, a very smooth global field.
+\code{NULL} is an error. The basis, complete-formula and \code{G} setups take the
+unit-scale kappa from \code{\link[=spde_basis]{spde_basis()}} and do not accept this argument.}
 }
 \value{
-An \code{inlaST_model} for \code{\link[=inlaST.estimate]{inlaST.estimate()}}.
+An \code{inlaST_model} for \code{\link[=inlaST.estimate]{inlaST.estimate()}}. It stores \code{kappa_unit},
+\code{unit_length}, \code{coordinate_span} and \code{kappa_internal}.
 }
 \description{
 Constructs the same fixed-kappa SPDE score geometry as \code{\link[=model.set]{model.set()}} while

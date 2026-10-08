@@ -21,7 +21,9 @@ Supply either \code{formula} and \code{data}, or \code{G}.}
 }
 \value{
 An \code{mgcvST_model} containing the shared full and null GAM setups,
-their training designs, the target spatial geometry and setup timing.
+their training designs, the target spatial geometry and setup timing. It
+also stores the target \code{\link[=spde_basis]{spde_basis()}} \code{kappa_unit}, \code{unit_length},
+\code{coordinate_span} and \code{kappa_internal}.
 }
 \description{
 Supplies a complete mgcv formula or an external mgcv setup. Shared full and

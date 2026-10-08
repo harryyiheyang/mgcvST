@@ -25,7 +25,11 @@ if (as.character(utils::packageVersion("mgcvST")) != desc || !exists("mgcvst_pai
 MAGIC <- readRDS(magic.file)
 d <- MAGIC$covariates
 mesh <- fmesher::fm_mesh_3d(loc = MAGIC$meshes$native3d$loc, tv = MAGIC$meshes$native3d$tv)
-kappa <- MAGIC$meshes$native3d$contract$kappa_fixed
+# The contract stores a physical kappa in 1/mm; inlaST.set() takes the unit-scale
+# kappa relative to L, the largest observation coordinate span in mm.
+kappa_mm <- MAGIC$meshes$native3d$contract$kappa_fixed
+L <- max(apply(as.matrix(d[c("x_mm", "y_mm", "z_mm")]), 2L, function(z) diff(range(z))))
+kappa <- kappa_mm * L
 ids <- colnames(MAGIC$expression)
 Y <- t(MAGIC$expression[, ids, drop = FALSE])
 rownames(Y) <- ids
@@ -53,7 +57,7 @@ flat <- list(prior = "flat", param = numeric(), initial = 0)
 S <- mgcvST::inlaST.set(response ~ offset(log(exposure)), d, mesh = mesh, kappa = kappa,
   coordinates = c("x_mm", "y_mm", "z_mm"), family = mgcv::nb())
 if (!identical(S$mean_constraint, "observation")) stop("The current native model did not retain the observation-mean constraint.")
-write.csv(data.frame(observations = nrow(d), mesh_nodes = ncol(S$inla_spec$random[[1L]]$Q), kappa = kappa,
+write.csv(data.frame(observations = nrow(d), mesh_nodes = ncol(S$inla_spec$random[[1L]]$Q), kappa_unit = kappa, unit_length_mm = L, kappa_mm = S$kappa_internal,
   constraint = "g = A^T 1/n", nuisance = "expected-curvature -U Vp U^T", disk_budget_bytes = 1000000000,
   io_scope = "sub-1GB files; OS-cache first/repeat read only; no cache clearing; no 154GB cold-read extrapolation"), file.path(out, "production-contract.csv"), row.names = FALSE)
 if (!run.fit) quit(save = "no", status = 0L)

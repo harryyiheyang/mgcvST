@@ -93,7 +93,8 @@ make_geometry <- function(kappa, layout, n = 120L, mesh_side = 8L,
     mesh_info$transform$scale
   A <- as.matrix(mgcvST:::.spde_basis_project(mesh_info, scaled))
   fem <- mgcvST:::.spde_basis_fem(mesh_info)
-  Q <- kappa^4 * fem$M0 + 2 * kappa^2 * fem$M1 + fem$M2
+  k <- basis$kappa_internal
+  Q <- k^4 * fem$M0 + 2 * k^2 * fem$M1 + fem$M2
   Q <- as.matrix(Matrix::forceSymmetric(Q))
 
   g <- as.numeric(crossprod(A, rep(1 / n, n)))

@@ -1,3 +1,36 @@
+# mgcvST 0.0.1.9026
+
+* API change: every user-facing `kappa` is now a unit-scale value, and its
+  default is `0.05` in both `spde_basis()` (previously `0.1`) and
+  `inlaST.set()` (previously `NULL`). The unit length `L` is the largest
+  per-axis span, `max - min`, of the observation coordinates supplied to the
+  model, and `kappa` is the SPDE scale in coordinates divided by `L`. The
+  package converts it internally: the native mesh path uses
+  `kappa_internal = kappa / L` on a raw-coordinate mesh, and the mgcv path uses
+  `kappa_internal = kappa * s / L`, where `s` is the `spde_mesh()` coordinate
+  scale. The same `kappa` therefore gives the same kernel shape whether
+  coordinates are recorded in millimetres or micrometres. With `alpha = 2`,
+  the practical range is `sqrt(8 * nu) / kappa` unit lengths, about 57 in 2D
+  and 40 in 3D at the default.
+* Callers that passed a physical or raw-coordinate kappa, for example
+  `kappa_mm`, must now pass the unit-scale kappa instead. A script that
+  computed `kappa_mm = kappa_unit / L` now passes `kappa_unit` directly; a
+  stored physical kappa converts as `kappa_unit = kappa_mm * L`.
+* Bases, smooths, models and fits store `kappa_unit`, `unit_length`,
+  `coordinate_span` and `kappa_internal`, and their print methods report
+  `kappa_unit` and `L`. These fields replace the former `kappa` field. Native
+  INLA models also record `spde$range_unit` and `spde$range`.
+* mgcvST never estimates kappa. Every SPDE term uses one fixed kappa, so all
+  features share one Gaussian-process kernel shape and differ only in variance.
+  The joint kappa/tau REML path was removed: `spde_basis(kappa = NULL)` and
+  `inlaST.set(kappa = NULL)` are errors, bases no longer carry the three
+  projected FEM penalties, and smooths no longer carry `kappa.estimated`.
+  Bases saved by earlier versions must be rebuilt with `spde_basis()`.
+* `inlaST.set()` accepts `kappa` only with `mesh`; the basis, complete-formula
+  and `G` setups take kappa from `spde_basis()`.
+* `spde_precision(model, kappa_internal, tau)` renames its `kappa` argument to
+  `kappa_internal`, because it takes the mesh-scale value.
+
 # mgcvST 0.0.1.9025
 
 * The default Poisson prescreen threshold is now `1.01` for both mgcv and

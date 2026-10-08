@@ -13,7 +13,9 @@
 #'   Supply either `formula` and `data`, or `G`.
 #' @param ... Setup arguments passed to `mgcv::gam(..., fit = FALSE)`.
 #' @return An `mgcvST_model` containing the shared full and null GAM setups,
-#'   their training designs, the target spatial geometry and setup timing.
+#'   their training designs, the target spatial geometry and setup timing. It
+#'   also stores the target [spde_basis()] `kappa_unit`, `unit_length`,
+#'   `coordinate_span` and `kappa_internal`.
 #' @export
 mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
                        G = NULL, ...) {
@@ -143,6 +145,7 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
   class(pseudo) <- c("gam", "glm", "lm")
   geometry <- .mgcvst_model_geometry(pseudo, L)
   response <- attr(full_G$terms, "response")
+  kappa <- .spde_kappa_fields(full_G$smooth[[geometry$target[[1L]]]])
   structure(list(
     G = full_G, L = L, geometry = geometry, shared_design = TRUE,
     setting = "global", components = geometry$score_components,
@@ -151,8 +154,9 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
     response = names(full_G$mf)[response], null_formula = null_formula,
     null_data = data, null_X = as.matrix(null_G$X),
     null_response = names(full_G$mf)[response],
-    kappa = stats::setNames(vapply(geometry$target, function(j) full_G$smooth[[j]]$kappa,
-                                  numeric(1L)), geometry$score_components),
+    kappa_unit = kappa$kappa_unit, unit_length = kappa$unit_length,
+    coordinate_span = kappa$coordinate_span,
+    kappa_internal = kappa$kappa_internal,
     offset = geometry$offset,
     timing = list(setup_seconds = proc.time()[["elapsed"]] - t0,
                   lpmatrix_seconds = 0, elapsed = proc.time()[["elapsed"]] - t0)

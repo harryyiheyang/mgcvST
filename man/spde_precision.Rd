@@ -4,12 +4,13 @@
 \alias{spde_precision}
 \title{Evaluate the proper Matern SPDE precision matrix}
 \usage{
-spde_precision(model, kappa, tau = 1)
+spde_precision(model, kappa_internal, tau = 1)
 }
 \arguments{
 \item{model}{An object returned by \code{\link[=spde_model]{spde_model()}}.}
 
-\item{kappa}{Positive dimensionless spatial scale.}
+\item{kappa_internal}{Positive SPDE scale in mesh vertex coordinate units,
+for example \code{spde_basis(...)$kappa_internal}.}
 
 \item{tau}{Positive precision multiplier.}
 }
@@ -17,5 +18,9 @@ spde_precision(model, kappa, tau = 1)
 A sparse symmetric precision matrix.
 }
 \description{
-Evaluate the proper Matern SPDE precision matrix
+This low-level helper takes the internal, mesh-scale kappa, not the
+unit-scale \code{kappa} of \code{\link[=spde_basis]{spde_basis()}} and \code{\link[=inlaST.set]{inlaST.set()}}. The FEM matrices
+of \code{\link[=spde_model]{spde_model()}} are in the units of the mesh vertex coordinates (the
+normalized coordinates for an \code{\link[=spde_mesh]{spde_mesh()}}). Pass the \code{kappa_internal}
+stored on a basis or model to reproduce its precision.
 }

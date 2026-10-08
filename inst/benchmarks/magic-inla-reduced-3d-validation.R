@@ -16,7 +16,11 @@ id <- c("Snap25", "Foxp1", "Tfap2b")
 if (!all(id %in% colnames(M0$expression))) stop("The three registered MAGIC genes are unavailable.")
 Y <- t(M0$expression[, id, drop = FALSE])
 mesh <- fmesher::fm_mesh_3d(loc = M0$meshes$native3d$loc, tv = M0$meshes$native3d$tv)
-kappa <- M0$meshes$native3d$contract$kappa_fixed
+# The contract stores a physical kappa in 1/mm; inlaST.set() takes the unit-scale
+# kappa relative to L, the largest observation coordinate span in mm.
+kappa_mm <- M0$meshes$native3d$contract$kappa_fixed
+L <- max(apply(as.matrix(d[c("x_mm", "y_mm", "z_mm")]), 2L, function(z) diff(range(z))))
+kappa <- kappa_mm * L
 flat <- list(prior = "flat", param = numeric(), initial = 0)
 S <- mgcvST::inlaST.set(response ~ offset(log(exposure)), d, mesh = mesh,
   kappa = kappa, coordinates = c("x_mm", "y_mm", "z_mm"), family = mgcv::nb())

@@ -21,28 +21,28 @@ fit_pair <- function(D, gene1, gene2, mesh, pc = FALSE) {
   D2 <- D$covariates
   D1$response <- D$expression[[gene1]]
   D2$response <- D$expression[[gene2]]
+  basis <- spde_basis(mesh, as.matrix(D$covariates[, c("x", "y")]),
+                      kappa = kappa, pc_cutoff = cutoff)
   if (pc) {
     f1 <- gam(
       response ~ offset(offset0) + s(
-        x, y, bs = "spdePC", xt = list(mesh = mesh, pc_cutoff = cutoff),
-        sp = c(-1, kappa)
+        x, y, bs = "spdePC", xt = basis, sp = -1
       ), data = D1, family = nb(link = "log"), method = "REML", control = ctrl
     )
     f2 <- gam(
       response ~ offset(offset0) + s(
-        x, y, bs = "spdePC", xt = list(mesh = mesh, pc_cutoff = cutoff),
-        sp = c(-1, kappa)
+        x, y, bs = "spdePC", xt = basis, sp = -1
       ), data = D2, family = nb(link = "log"), method = "REML", control = ctrl
     )
   } else {
     f1 <- gam(
       response ~ offset(offset0) + s(
-        x, y, bs = "spde", xt = list(mesh = mesh), sp = c(-1, kappa)
+        x, y, bs = "spde", xt = basis, sp = -1
       ), data = D1, family = nb(link = "log"), method = "REML", control = ctrl
     )
     f2 <- gam(
       response ~ offset(offset0) + s(
-        x, y, bs = "spde", xt = list(mesh = mesh), sp = c(-1, kappa)
+        x, y, bs = "spde", xt = basis, sp = -1
       ), data = D2, family = nb(link = "log"), method = "REML", control = ctrl
     )
   }

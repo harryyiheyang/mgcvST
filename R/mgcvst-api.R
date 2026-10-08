@@ -216,7 +216,10 @@
       projected_dimension = s[["pc_full_dimension"]],
       pc_retained_dimension = s[["pc_retained_dimension"]],
       pc_cutoff = s[["pc_cutoff"]],
-      kappa = s[["kappa"]]
+      kappa_unit = s[["kappa_unit"]],
+      unit_length = s[["unit_length"]],
+      coordinate_span = s[["coordinate_span"]],
+      kappa_internal = s[["kappa_internal"]]
     )
     ans$smooth_coefficients <- coefficients
     ans$fit_geometry <- list(
@@ -925,6 +928,10 @@ mgcvST.estimate <- function(
       test_engine = "spde",
       call = call
     )
+  if (length(target_index)) {
+    kappa <- .spde_kappa_fields(G$smooth[[target_index[1L]]])
+    ans[names(kappa)] <- kappa
+  }
   if (retain_marginal) {
     ans$marginal_data <- .mgcvst_collect_marginal(chunks, p, feature_id)
   }
@@ -959,6 +966,10 @@ print.mgcvST_fit <- function(x, ...) {
   cat("  features:", length(x$feature_id), "\n")
   cat("  fitted:", sum(.mgcvst_feature_available(x)), "\n")
   cat("  backend:", x$timing$backend, "with", x$timing$workers, "worker(s)\n")
+  if (!is.null(x$kappa_unit)) {
+    cat("  kappa (unit scale, fixed):", format(x$kappa_unit), "\n")
+    cat("  unit length L:", format(x$unit_length), "\n")
+  }
   cat("  elapsed seconds:", format(x$timing$elapsed), "\n")
   cat("  object size:", format(utils::object.size(x), units = "auto"), "\n")
   invisible(x)

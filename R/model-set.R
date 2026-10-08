@@ -29,13 +29,16 @@
 #'
 #' @param formula A two-sided mgcv-style formula.
 #' @param data Model data with one row per spatial observation.
-#' @param basis A prepared [spde_basis()] object.
+#' @param basis A prepared [spde_basis()] object. Its fixed unit-scale
+#'   `kappa` defines the shared spatial kernel shape.
 #' @param family An mgcv family object. The default is `mgcv::nb()`.
 #' @param setting The model uses one `"global"` spatial score process.
 #'   `setting = "global_local"` is not supported.
 #' @param coordinates Character vector naming the two coordinate columns.
 #' @param ... Additional arguments passed to `mgcv::gam(..., fit = FALSE)`.
-#' @return An object of class `mgcvST_model` for [mgcvST.estimate()].
+#' @return An object of class `mgcvST_model` for [mgcvST.estimate()]. It
+#'   stores the basis `kappa_unit`, `unit_length`, `coordinate_span` and
+#'   `kappa_internal`.
 #' @export
 model.set <- function(
     formula, data, basis, family = mgcv::nb(),
@@ -69,9 +72,6 @@ model.set <- function(
     stop("basis must be an object returned by spde_basis().")
   }
   basis <- list(global = basis)
-  if (any(vapply(basis, function(x) is.null(x$kappa), logical(1L)))) {
-    stop("model.set() requires fixed-kappa bases for covariance score testing.")
-  }
   for (component in names(basis)) {
     .spde_basis_validate(basis[[component]], xy)
     basis[[component]]$component <- component
@@ -116,6 +116,7 @@ model.set <- function(
   class(pseudo) <- c("gam", "glm", "lm")
   geometry <- .mgcvst_model_geometry(pseudo, L)
   components <- "global"
+  kappa <- .spde_kappa_fields(basis$global)
   structure(
     list(
       G = G,
@@ -132,11 +133,10 @@ model.set <- function(
       internal_formula = formula0,
       response = as.character(response),
       coordinates = coordinates,
-      kappa = stats::setNames(
-        vapply(basis[components], function(x) {
-          if (is.null(x$kappa)) NA_real_ else x$kappa
-        }, numeric(1)), components
-      ),
+      kappa_unit = kappa$kappa_unit,
+      unit_length = kappa$unit_length,
+      coordinate_span = kappa$coordinate_span,
+      kappa_internal = kappa$kappa_internal,
       offset = if (is.null(G$offset)) numeric(nrow(data)) else as.numeric(G$offset)
     ),
     class = "mgcvST_model"
@@ -154,6 +154,8 @@ print.mgcvST_model <- function(x, ...) {
   cat("  setting:", x$setting, "\n")
   cat("  response bridge:", x$response, "-> .mgcvST_response\n")
   cat("  components:", paste(x$components, collapse = ", "), "\n")
-  cat("  kappa:", paste(names(x$kappa), format(x$kappa), sep = "=", collapse = ", "), "\n")
+  cat("  kappa (unit scale, fixed):", format(x$kappa_unit), "\n")
+  cat("  unit length L:", format(x$unit_length), "\n")
+  cat("  kappa (internal mesh scale):", format(x$kappa_internal), "\n")
   invisible(x)
 }

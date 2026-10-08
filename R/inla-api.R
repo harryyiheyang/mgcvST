@@ -1,10 +1,8 @@
 # Build the observation-centred projected basis used by the existing score
-# engine and the raw sparse SPDE matrices used by INLA.
+# engine and the raw sparse SPDE matrices used by INLA. The basis keeps the
+# kappa_internal fixed by spde_basis() from its own observation coordinates.
 .inlast_prepare_basis <- function(basis, coordinates) {
   .spde_basis_validate(basis)
-  if (is.null(basis$kappa)) {
-    stop("inlaST.set() currently requires every SPDE basis to have fixed kappa.")
-  }
   mesh <- list(xy = basis$mesh_vertices, tv = basis$mesh_triangles)
   coordinates <- as.matrix(coordinates)
   storage.mode(coordinates) <- "double"
@@ -14,9 +12,7 @@
   loc <- sweep(coordinates, 2L, basis$transform$center, "-") /
     basis$transform$scale
   A <- .spde_basis_project(mesh, loc)
-  fem <- .spde_basis_fem(mesh)
-  Q <- basis$kappa^4 * fem$M0 + 2 * basis$kappa^2 * fem$M1 + fem$M2
-  Q <- Matrix::forceSymmetric(Q)
+  Q <- .spde_fem_precision(.spde_basis_fem(mesh), basis$kappa_internal)
 
   # This is the observation mean, not a mesh-node sum-to-zero constraint.
   g <- as.numeric(Matrix::crossprod(A, rep(1 / nrow(A), nrow(A))))
@@ -25,20 +21,12 @@
     stop("The observation mean constraint has invalid rank.")
   }
   Z <- qr.Q(qg, complete = TRUE)[, -1L, drop = FALSE]
-  projected_penalty <- list(
-    crossprod(Z, as.matrix(fem$M0 %*% Z)),
-    2 * crossprod(Z, as.matrix(fem$M1 %*% Z)),
-    crossprod(Z, as.matrix(fem$M2 %*% Z))
-  )
-  projected_penalty <- lapply(projected_penalty, function(x) (x + t(x)) / 2)
-  projected_Q <- basis$kappa^4 * projected_penalty[[1L]] +
-    basis$kappa^2 * projected_penalty[[2L]] + projected_penalty[[3L]]
+  projected_Q <- crossprod(Z, as.matrix(Q %*% Z))
 
   constrained <- basis
   constrained$coordinates <- coordinates
   constrained$coordinate_keys <- .spde_coordinate_keys(coordinates)
   constrained$B <- as.matrix(A %*% Z)
-  constrained$penalty <- projected_penalty
   constrained$Q <- (projected_Q + t(projected_Q)) / 2
   constrained$projection <- Z
   constrained$projection_rank <- 1L
@@ -244,9 +232,21 @@
 #'   `offset()`, parametric terms, and admissible nuisance terms. The spatial
 #'   projector remains sparse; the bounded nuisance design is dense. See the
 #'   nuisance-smooth section. Mesh dimension (2 or 3) is detected automatically.
-#' @param kappa Fixed positive spatial scale required by `mesh`. With
-#'   `alpha = 2` the Matern smoothness is `nu = 1` in 2D and `nu = 1/2` in 3D,
-#'   and the practical range is `sqrt(8 * nu) / kappa`.
+#' @param kappa Unit-scale SPDE kappa for the native `mesh` setup; the default
+#'   is `0.05`. It is fixed and never estimated, so all features share one
+#'   Gaussian-process kernel shape and differ only in variance. The unit
+#'   length `L` is the largest per-axis span, `max - min`, of the observation
+#'   coordinates named by `coordinates`, and `kappa` is the SPDE scale in
+#'   coordinates divided by `L`. The package converts it to
+#'   `kappa_internal = kappa * s / L` on the mesh, where `s` is the
+#'   [spde_mesh()] coordinate scale; for an `fm_mesh_2d` or `fm_mesh_3d` in
+#'   raw coordinates, `s = 1` and `kappa_internal = kappa / L`. Larger `kappa`
+#'   gives a more local field. With `alpha = 2` the Matern smoothness is
+#'   `nu = 1` in 2D and `nu = 1/2` in 3D, and the practical range in unit
+#'   lengths is `sqrt(8 * nu) / kappa`. The default `0.05` therefore gives
+#'   about 57 unit lengths in 2D and 40 in 3D, a very smooth global field.
+#'   `NULL` is an error. The basis, complete-formula and `G` setups take the
+#'   unit-scale kappa from [spde_basis()] and do not accept this argument.
 #' @param precision_scale Scale on which the spatial log-precision prior is
 #'   defined. `"raw"` retains the original FEM precision parameterization.
 #'   `"observation"` normalizes each constrained spatial field to unit mean
@@ -254,14 +254,17 @@
 #'   equals one. A user-supplied proper prior then applies to this standardized
 #'   precision and generally changes the prior on the original FEM multiplier.
 #'   The default flat log prior is invariant to this constant log-scale shift.
-#' @return An `inlaST_model` for [inlaST.estimate()].
+#' @return An `inlaST_model` for [inlaST.estimate()]. It stores `kappa_unit`,
+#'   `unit_length`, `coordinate_span` and `kappa_internal`.
 #' @export
 inlaST.set <- function(
     formula = NULL, data = NULL, basis = NULL, family = mgcv::nb(),
     setting = "global", coordinates = c("x", "y"),
     precision_scale = c("raw", "observation"), G = NULL, control = list(),
-    ..., mesh = NULL, kappa = NULL) {
+    ..., mesh = NULL, kappa = 0.05) {
   t0 <- proc.time()[["elapsed"]]
+  kappa_supplied <- !missing(kappa)
+  kappa <- .spde_kappa_check(kappa)
   if (!identical(setting, "global")) {
     stop("setting must be \"global\". The second \"local\" geographic process ",
          "(setting = \"global_local\") was removed from mgcvST; supply one ",
@@ -295,6 +298,11 @@ inlaST.set <- function(
     native$timing <- list(setup_seconds = proc.time()[["elapsed"]] - t0,
                           elapsed = proc.time()[["elapsed"]] - t0)
     return(native)
+  }
+  if (kappa_supplied) {
+    stop("kappa applies only to the native mesh setup. The basis, ",
+         "complete-formula and G setups take the unit-scale kappa from ",
+         "spde_basis().")
   }
   requested_setting <- setting
   precision_scale <- match.arg(precision_scale)
@@ -896,6 +904,8 @@ inlaST.estimate <- function(
     mean_constraint_active = TRUE,
     call = match.call()
   ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
+  kappa <- .spde_kappa_fields(model)
+  ans[names(kappa)] <- kappa
   if (!is.null(marginal)) {
     valid <- match(marginal$feature_id, feature_id)
     ans$diagnostics$marginal_p_value[valid] <- marginal$p_value

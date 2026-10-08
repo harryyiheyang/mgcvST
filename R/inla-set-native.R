@@ -23,17 +23,27 @@
 #
 # the standard Lindgren-Rue-Lindstrom finite-element approximation of the
 # operator `(kappa^2 - Laplacian)^(alpha/2)` at `alpha = 2`.  `M0` is the lumped
-# mass matrix, `M1` the stiffness matrix and `M2 = M1 M0^-1 M1`.  `kappa` is
-# fixed by the caller; the single precision multiplier `tau` is the smoothing
-# parameter estimated by INLA (`generic0` with `Cmatrix = Q`).
+# mass matrix, `M1` the stiffness matrix and `M2 = M1 M0^-1 M1`.  Here `kappa`
+# is the mesh-scale `kappa_internal`.  It is derived from the caller's
+# unit-scale kappa and never estimated; the single precision multiplier
+# `tau` is the smoothing parameter estimated by INLA (`generic0` with
+# `Cmatrix = Q`).
+#
+# Unit-scale kappa.  The caller supplies `kappa_unit`.  With `L` the largest
+# per-axis span of the observation coordinates and `s` the mesh coordinate
+# scale (`spde_mesh()` transform, 1 for a raw fmesher mesh), the precision uses
+# `kappa_internal = kappa_unit * s / L` in mesh coordinates.  Rescaling every
+# coordinate and mesh vertex by `c` rescales `L` by `c`, and `Q` only by the
+# positive constant `c^(d - 4)`, so the field shape is unit invariant.
 #
 # Smoothness and range.  With `alpha = 2` the Matern smoothness is
 # `nu = alpha - d/2`, so `nu = 1` on a 2D mesh and `nu = 1/2` on a 3D mesh
 # (the 3D field is exponential-correlated, i.e. rougher for the same `kappa`).
-# The usual empirical range at correlation 0.1 is `sqrt(8 * nu) / kappa`, hence
-# `2 * sqrt(2) / kappa` in 2D and `2 / kappa` in 3D.  Because `nu` differs by
-# dimension, the same `kappa` does NOT mean the same field in 2D and 3D; the
-# per-dimension `nu` and `range` are recorded on the returned model.
+# The usual empirical range at correlation 0.1 is `sqrt(8 * nu) / kappa_unit`
+# unit lengths, hence `2 * sqrt(2) / kappa_unit` in 2D and `2 / kappa_unit` in
+# 3D.  Because `nu` differs by dimension, the same `kappa` does NOT mean the
+# same field in 2D and 3D; the per-dimension `nu` and ranges are recorded on
+# the returned model.
 #
 # Observation-mean constraint.  The linear predictor is
 #
@@ -322,7 +332,8 @@
        row_id = as.character(rownames(mf)))
 }
 
-# Observation coordinates, mapped through the mesh's own coordinate transform.
+# Observation coordinates in their original units. They define the unit length
+# for kappa and are mapped through the mesh's own coordinate transform later.
 .inlast_native_coordinates <- function(data, coordinates, m) {
   if (!is.character(coordinates) || length(coordinates) != m$dim ||
       anyDuplicated(coordinates) || !all(coordinates %in% names(data))) {
@@ -334,16 +345,21 @@
   if (any(!is.finite(loc))) {
     stop("The observation coordinates must be finite.")
   }
-  sweep(loc, 2L, m$center, "-") / m$scale
+  loc
 }
 
 # Matern smoothness and practical range for the detected mesh dimension.
+# `range_unit` is in unit lengths; `range` is in observation coordinate units.
 .inlast_native_matern <- function(kappa, dim, alpha = 2) {
   nu <- alpha - dim / 2
   if (nu <= 0) stop("alpha = 2 does not give a valid Matern field in dimension ", dim, ".")
-  list(alpha = alpha, dim = dim, kappa = kappa, nu = nu,
-       range = sqrt(8 * nu) / kappa,
-       range_definition = "sqrt(8 nu)/kappa, correlation ~0.1")
+  range_unit <- sqrt(8 * nu) / kappa$kappa_unit
+  list(alpha = alpha, dim = dim, kappa_unit = kappa$kappa_unit,
+       kappa_internal = kappa$kappa_internal, nu = nu,
+       range_unit = range_unit, range = range_unit * kappa$unit_length,
+       range_definition = paste(
+         "sqrt(8 nu)/kappa_unit unit lengths; range = range_unit *",
+         "unit_length coordinate units; correlation ~0.1"))
 }
 
 # Width of a target block's retained coefficient vector.  Legacy blocks store
@@ -372,23 +388,21 @@
     stop("The native INLA path supports precision_scale = 'raw' only; the ",
          "observation-scale normaliser needs the dense projected basis.")
   }
-  if (length(kappa) != 1L || !is.numeric(kappa) || !is.finite(kappa) || kappa <= 0) {
-    stop("kappa must be one positive finite number.")
-  }
-  kappa <- as.numeric(kappa)
   m <- .inlast_native_mesh(mesh)
   design <- .inlast_native_design(formula, data)
   .inlast_check_nuisance_width(ncol(design$X) +
     sum(vapply(design$nuisance, function(z) ncol(z$Z), integer(1L))))
-  loc <- .inlast_native_coordinates(as.data.frame(data), coordinates, m)
+  raw_loc <- .inlast_native_coordinates(as.data.frame(data), coordinates, m)
   n <- length(design$y)
-  if (nrow(loc) != n) stop("The coordinates and the model frame disagree in length.")
+  if (nrow(raw_loc) != n) stop("The coordinates and the model frame disagree in length.")
+  kappa <- .spde_kappa_scale(kappa, raw_loc, m$scale)
+  loc <- sweep(raw_loc, 2L, m$center, "-") / m$scale
 
   A <- .inlast_native_projector(m, loc)
   A <- methods::as(methods::as(A, "generalMatrix"), "CsparseMatrix")
   fem <- .inlast_native_fem(m)
-  Q <- kappa^4 * fem$M0 + 2 * kappa^2 * fem$M1 + fem$M2
-  Q <- methods::as(Matrix::forceSymmetric(Q), "symmetricMatrix")
+  Q <- .spde_fem_precision(fem, kappa$kappa_internal)
+  Q <- methods::as(Q, "symmetricMatrix")
   if (!inherits(Q, "dsCMatrix")) Q <- methods::as(Q, "dsCMatrix")
   if (nrow(Q) != m$q || ncol(A) != m$q || any(!is.finite(Q@x)) ||
       any(!is.finite(A@x))) {
@@ -484,7 +498,10 @@
     response = design$response,
     y = design$y,
     offset = design$offset,
-    kappa = stats::setNames(kappa, "global"),
+    kappa_unit = kappa$kappa_unit,
+    unit_length = kappa$unit_length,
+    coordinate_span = kappa$coordinate_span,
+    kappa_internal = kappa$kappa_internal,
     family = family,
     inla_spec = spec,
     spde = c(.inlast_native_matern(kappa, m$dim),

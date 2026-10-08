@@ -72,21 +72,73 @@
   list(M0 = M0, M1 = M1, M2 = Matrix::forceSymmetric(M2))
 }
 
+# Proper Matern SPDE precision (alpha = 2) on the mesh scale.
+.spde_fem_precision <- function(fem, kappa_internal) {
+  Matrix::forceSymmetric(
+    kappa_internal^4 * fem$M0 + 2 * kappa_internal^2 * fem$M1 + fem$M2
+  )
+}
+
+.spde_kappa_check <- function(kappa) {
+  if (is.null(kappa)) {
+    stop("kappa = NULL is not supported: mgcvST never estimates kappa. ",
+         "Supply one positive unit-scale kappa; the default is 0.05.",
+         call. = FALSE)
+  }
+  if (!is.numeric(kappa) || length(kappa) != 1L || !is.finite(kappa) ||
+      kappa <= 0) {
+    stop("kappa must be one positive finite unit-scale number ",
+         "(the default is 0.05).", call. = FALSE)
+  }
+  as.numeric(kappa)
+}
+
+# Convert a unit-scale kappa to the mesh scale. The unit length L is the
+# largest per-axis span of the observation coordinates `loc`, in raw
+# coordinate units. Mesh coordinates equal raw coordinates divided by
+# `mesh_scale` (the spde_mesh() transform; 1 for a raw mesh), so
+# kappa_internal = kappa_unit * mesh_scale / L.
+.spde_kappa_scale <- function(kappa, loc, mesh_scale = 1) {
+  kappa <- .spde_kappa_check(kappa)
+  loc <- as.matrix(loc)
+  span <- apply(loc, 2L, function(z) max(z) - min(z))
+  names(span) <- colnames(loc)
+  L <- max(span)
+  if (!is.finite(L) || L <= 0) {
+    stop("The observation coordinates must span a positive length on at ",
+         "least one axis to define the unit length for kappa.", call. = FALSE)
+  }
+  if (length(mesh_scale) != 1L || !is.finite(mesh_scale) || mesh_scale <= 0) {
+    stop("The mesh coordinate scale must be one positive finite number.")
+  }
+  list(kappa_unit = kappa, unit_length = L, coordinate_span = span,
+       kappa_internal = kappa * mesh_scale / L)
+}
+
+# The unit-scale kappa record carried by bases, smooths, models and fits.
+.spde_kappa_fields <- function(x) {
+  list(kappa_unit = x$kappa_unit, unit_length = x$unit_length,
+       coordinate_span = x$coordinate_span,
+       kappa_internal = x$kappa_internal)
+}
+
 .spde_basis_validate <- function(x, loc = NULL, pc = FALSE) {
   if (!inherits(x, "mgcvST_spde_basis")) {
     stop("xt must be an object returned by spde_basis().")
   }
-  if (is.null(x$B) || is.null(x$penalty) || is.null(x$coordinates)) {
+  if (is.null(x$B) || is.null(x$Q) || is.null(x$coordinates)) {
     stop("xt is missing the prepared SPDE basis matrices.")
+  }
+  k <- x$kappa_internal
+  if (is.null(x$kappa_unit) || length(k) != 1L || !is.finite(k) || k <= 0) {
+    stop("xt has no fixed unit-scale kappa; rebuild it with spde_basis(). ",
+         "mgcvST never estimates kappa.")
   }
   if (!is.null(loc) && (!is.numeric(loc) || ncol(as.matrix(loc)) != 2L ||
       any(!is.finite(loc)))) {
     stop("The smooth coordinates must be a finite two-column numeric matrix.")
   }
   if (pc) {
-    if (is.null(x$kappa)) {
-      stop("bs = 'spdePC' requires a basis constructed with fixed kappa.")
-    }
     cutoff <- x$pc_cutoff
     if (length(cutoff) != 1L || !is.finite(cutoff) ||
         cutoff <= 0 || cutoff > 1) {
@@ -185,44 +237,53 @@
 
 #' Prepare an SPDE basis for mgcvST fitting
 #'
-#' Constructs the observation projector and finite-element penalties once.
-#' The returned object is self-contained: fitting with `bs = "spde"` or
+#' Constructs the observation projector and the fixed-kappa SPDE precision
+#' once. The returned object is self-contained: fitting with `bs = "spde"` or
 #' `bs = "spdePC"` requires neither INLA, fmesher nor sf.
 #' Basis construction and prediction use geometry for barycentric interpolation
-#' on the saved mesh. No FEM, penalty, precision or PC decomposition is
+#' on the saved mesh. No FEM, precision or PC decomposition is
 #' recomputed. Outside-mesh coordinates cause an error. Every evaluation uses
 #' the supplied coordinates, including training, subset and reordered rows.
-#' A fixed-kappa basis also saves `pc_mesh_projection = Z V` and the original
+#' The basis also saves `pc_mesh_projection = Z V` and the original
 #' training `pc_training_basis = B V`; new PC prediction never forms `A Z`.
 #'
-#' Coordinates are transformed using the scale stored by [spde_mesh()]. Thus,
-#' `kappa` is dimensionless on a unit-width map. For a map scale `L`, its
-#' raw-coordinate value is `kappa / L`.
+#' @section Unit-scale kappa:
+#' `kappa` is a unit-scale value. The unit length `L` is the largest
+#' per-axis span, `max - min`, of `loc`, the observation coordinates supplied
+#' to the model. The SPDE has scale `kappa` in coordinates divided by `L`, so
+#' the same `kappa` gives the same field shape whether the coordinates are
+#' recorded in millimetres or micrometres. The package converts it
+#' internally. Mesh coordinates are the original coordinates divided by the
+#' [spde_mesh()] scale `s` (`s = 1` for an `fm_mesh_2d` or a list mesh), and
+#' the precision uses `kappa_internal = kappa * s / L`. The returned object
+#' stores `kappa_unit`, `unit_length` (`L`), `coordinate_span` (the span per
+#' axis) and `kappa_internal`.
 #'
 #' @param mesh A [spde_mesh()], `fm_mesh_2d`, or list containing `loc` and
 #'   `graph$tv`.
-#' @param loc Observation coordinates in the original coordinate system.
-#' @param kappa Positive fixed dimensionless spatial scale. The default is
-#'   `0.1`. Set explicitly to `NULL` to prepare the three penalties needed for
-#'   joint estimation of kappa and tau by `bs = "spde"`.
+#' @param loc Observation coordinates in the original coordinate system. Their
+#'   bounding box defines the unit length for `kappa`.
+#' @param kappa Unit-scale SPDE kappa; the default is `0.05`. It is fixed and
+#'   never estimated, so every feature fitted with this basis shares one
+#'   Gaussian-process kernel shape and differs only in variance. Larger
+#'   `kappa` gives a more local field. With `alpha = 2`, the practical range
+#'   in unit lengths is `sqrt(8 * nu) / kappa`, where `nu = 1` in 2D and
+#'   `nu = 1/2` in 3D. The default `0.05` therefore gives a practical range of
+#'   about 57 unit lengths in 2D and 40 in 3D, a very smooth global field.
+#'   `NULL` is an error.
 #' @param pc_cutoff Cumulative covariance contribution retained by
 #'   `bs = "spdePC"`. The default is `0.999`.
 #' @param project_intercept Whether to project the intercept from the mesh
 #'   coefficient space.
 #' @return A self-contained object to pass directly as `xt`.
 #' @export
-spde_basis <- function(mesh, loc, kappa = 0.1, pc_cutoff = 0.999,
+spde_basis <- function(mesh, loc, kappa = 0.05, pc_cutoff = 0.999,
                        project_intercept = TRUE) {
   x <- .spde_basis_mesh(mesh)
   loc.raw <- .spde_xy(loc)
   loc.scaled <- sweep(loc.raw, 2L, x$transform$center, "-") /
     x$transform$scale
-  if (!is.null(kappa)) {
-    kappa <- as.numeric(kappa)
-    if (length(kappa) != 1L || !is.finite(kappa) || kappa <= 0) {
-      stop("kappa must be NULL or one positive finite number.")
-    }
-  }
+  kappa <- .spde_kappa_scale(kappa, loc.raw, x$transform$scale)
   pc_cutoff <- as.numeric(pc_cutoff)
   if (length(pc_cutoff) != 1L || !is.finite(pc_cutoff) ||
       pc_cutoff <= 0 || pc_cutoff > 1) {
@@ -249,49 +310,35 @@ spde_basis <- function(mesh, loc, kappa = 0.1, pc_cutoff = 0.999,
     Z <- diag(m.raw)
   }
   B <- CppMatrix::matrixMultiply(as.matrix(A), Z)
-  penalty <- list(
-    CppMatrix::matrixMultiply(t(Z), CppMatrix::matrixMultiply(fem$M0, Z)),
-    2 * CppMatrix::matrixMultiply(t(Z), CppMatrix::matrixMultiply(fem$M1, Z)),
-    CppMatrix::matrixMultiply(t(Z), CppMatrix::matrixMultiply(fem$M2, Z))
-  )
-  penalty <- lapply(penalty, function(S) (S + t(S)) / 2)
-
-  Q <- NULL
-  pc.values <- NULL
-  pc.vectors <- NULL
-  pc.cumulative <- NULL
-  if (!is.null(kappa)) {
-    Q <- kappa^4 * penalty[[1L]] + kappa^2 * penalty[[2L]] + penalty[[3L]]
-    Q <- (Q + t(Q)) / 2
-    G <- CppMatrix::matrixSolve(Q, diag(ncol(Q)))
-    E <- CppMatrix::matrixEigen((G + t(G)) / 2)
-    ord <- order(E$values, decreasing = TRUE)
-    pc.values <- as.numeric(E$values[ord])
-    pc.vectors <- as.matrix(E$vectors[, ord, drop = FALSE])
-    tol <- sqrt(.Machine$double.eps) * max(1, max(abs(pc.values)))
-    if (min(pc.values) < -tol) {
-      stop("The projected SPDE covariance is not positive semidefinite.")
-    }
-    pc.values <- pmax(pc.values, 0)
-    if (any(pc.values <= 0) || !is.finite(sum(pc.values))) {
-      stop("The projected SPDE covariance has invalid eigenvalues.")
-    }
-    pc.cumulative <- cumsum(pc.values) / sum(pc.values)
+  Q <- .spde_fem_precision(fem, kappa$kappa_internal)
+  Q <- CppMatrix::matrixMultiply(t(Z), CppMatrix::matrixMultiply(Q, Z))
+  Q <- (Q + t(Q)) / 2
+  G <- CppMatrix::matrixSolve(Q, diag(ncol(Q)))
+  E <- CppMatrix::matrixEigen((G + t(G)) / 2)
+  ord <- order(E$values, decreasing = TRUE)
+  pc.values <- as.numeric(E$values[ord])
+  pc.vectors <- as.matrix(E$vectors[, ord, drop = FALSE])
+  tol <- sqrt(.Machine$double.eps) * max(1, max(abs(pc.values)))
+  if (min(pc.values) < -tol) {
+    stop("The projected SPDE covariance is not positive semidefinite.")
   }
+  pc.values <- pmax(pc.values, 0)
+  if (any(pc.values <= 0) || !is.finite(sum(pc.values))) {
+    stop("The projected SPDE covariance has invalid eigenvalues.")
+  }
+  pc.cumulative <- cumsum(pc.values) / sum(pc.values)
 
-  out <- list(
-    B = B, penalty = penalty, Q = Q, coordinates = loc.raw,
-    kappa = kappa, pc_cutoff = pc_cutoff, pc_values = pc.values,
+  out <- c(list(B = B, Q = Q, coordinates = loc.raw), kappa, list(
+    pc_cutoff = pc_cutoff, pc_values = pc.values,
     pc_vectors = pc.vectors, pc_cumulative = pc.cumulative,
     transform = x$transform, mesh_vertices = x$xy,
     mesh_triangles = x$tv, projection = Z,
     projection_rank = fitqr$rank, project_intercept = project_intercept,
     raw_dimension = m.raw
-  )
+  ))
   class(out) <- "mgcvST_spde_basis"
   out$coordinate_keys <- .spde_coordinate_keys(loc.raw)
-  if (!is.null(kappa)) out <- .spde_basis_pc_cache(out)
-  out
+  .spde_basis_pc_cache(out)
 }
 
 #' @rdname spde_basis
@@ -303,7 +350,9 @@ print.mgcvST_spde_basis <- function(x, ...) {
   cat("mgcvST SPDE basis\n")
   cat("  observations:", nrow(x$B), "\n")
   cat("  coefficients:", ncol(x$B), "\n")
-  cat("  kappa:", if (is.null(x$kappa)) "estimated" else x$kappa, "\n")
+  cat("  kappa (unit scale, fixed):", format(x$kappa_unit), "\n")
+  cat("  unit length L:", format(x$unit_length), "\n")
+  cat("  kappa (internal mesh scale):", format(x$kappa_internal), "\n")
   cat("  PC cumulative contribution:", x$pc_cutoff, "\n")
   invisible(x)
 }

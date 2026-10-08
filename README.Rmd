@@ -6,8 +6,19 @@ output: github_document
 
 `mgcvST` provides proper Matérn SPDE smooths for `mgcv`, finite-element mesh
 construction, and covariance score tests for pairs of spatial features. The
-spatial range parameter `kappa` is fixed by design. An intercept is projected
-from the SPDE coefficient space before fitting.
+SPDE `kappa` is fixed by design and never estimated, so all features share one
+Gaussian-process kernel shape and differ only in variance. An intercept is
+projected from the SPDE coefficient space before fitting.
+
+Every user-facing `kappa` is unit-scale. The unit length `L` is the largest
+per-axis span of the observation coordinates, and `kappa` is the SPDE scale in
+coordinates divided by `L`; the package converts it to the mesh scale
+internally. The same `kappa` therefore gives the same kernel whether
+coordinates are recorded in millimetres or micrometres. Larger `kappa` gives a
+more local field. With `alpha = 2`, the practical range is
+`sqrt(8 * nu) / kappa` unit lengths, with `nu = 1` in 2D and `nu = 1/2` in 3D.
+The default `kappa = 0.05` gives about 57 unit lengths in 2D and 40 in 3D, a
+very smooth global field. The examples below use `kappa = 0.1`.
 
 The primary analysis uses frequentist `mgcv` estimation, including `bam` for
 larger data. INLA supplies a supplementary sparse SPDE estimator. Paired
@@ -271,8 +282,8 @@ grid::popViewport()
 ## MISO E13: PC-truncated SPDE fit, random field, and score test
 
 The following chunk fits `Mapt` and `Map1b` on the finer MISO mesh. It fixes
-`kappa = 0.1`, estimates only the smoothing parameter by REML, and retains
-the `0.999` covariance-trace PC basis. For the pairwise test, the raw
+the unit-scale `kappa = 0.1`, estimates only the smoothing parameter by REML,
+and retains the `0.999` covariance-trace PC basis. For the pairwise test, the raw
 `gam(..., fit = FALSE)` setup is passed directly to `mgcvST.estimate()`.
 This path uses the stored positive-semidefinite `pc_score_Q` in the full
 projected coordinate system.

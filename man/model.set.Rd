@@ -19,7 +19,8 @@ model.set(
 
 \item{data}{Model data with one row per spatial observation.}
 
-\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object.}
+\item{basis}{A prepared \code{\link[=spde_basis]{spde_basis()}} object. Its fixed unit-scale
+\code{kappa} defines the shared spatial kernel shape.}
 
 \item{family}{An mgcv family object. The default is \code{mgcv::nb()}.}
 
@@ -31,7 +32,9 @@ model.set(
 \item{...}{Additional arguments passed to \code{mgcv::gam(..., fit = FALSE)}.}
 }
 \value{
-An object of class \code{mgcvST_model} for \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}.
+An object of class \code{mgcvST_model} for \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}. It
+stores the basis \code{kappa_unit}, \code{unit_length}, \code{coordinate_span} and
+\code{kappa_internal}.
 }
 \description{
 Builds the reusable \code{mgcv::gam(..., fit = FALSE)} setup consumed by

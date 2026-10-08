@@ -49,9 +49,9 @@ smooth.construct.spdePC.smooth.spec <- function(object, data, knots) {
   object$projection.rank <- basis$projection_rank
   object$project.intercept <- basis$project_intercept
   object$raw.dimension <- basis$raw_dimension
-  object$kappa <- basis$kappa
-  object$kappa.estimated <- FALSE
-  z <- .spde_basis_component(object)
+  kappa <- .spde_kappa_fields(basis)
+  object[names(kappa)] <- kappa
+  z <-.spde_basis_component(object)
   object$component <- z$component
   object$score.component <- z$score.component
   class(object) <- c("spdePC.smooth", "mgcv.smooth")

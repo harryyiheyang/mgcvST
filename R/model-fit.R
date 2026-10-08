@@ -490,6 +490,8 @@
     ),
     class = c("mgcvST_model_fit", "mgcvST_fit", "mgcvST")
   )
+  kappa <- .spde_kappa_fields(model)
+  ans[names(kappa)] <- kappa
   if (retain_marginal) {
     marginal_chunks <- lapply(chunks, function(chunk) list(
       index = vapply(chunk, `[[`, integer(1L), "index"),
