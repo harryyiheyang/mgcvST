@@ -281,7 +281,7 @@
   used <- score$method
   if (!is.character(used) || length(used) != 1L) used <- NA_character_
   fallback <- if (is.na(requested) || is.na(used)) NA else
-    identical(requested, "davies") && identical(used, "liu")
+    identical(requested, "davies") && !identical(used, "davies")
   cache <- if (cacheable) attr(score, "marginal_spectrum", exact = TRUE) else NULL
   list(p_value = p_value, requested_method = requested,
        method = used, fallback = fallback, cache = cache)
@@ -299,7 +299,7 @@
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     "taps_score_test", ".mgcvst_marginal_spectrum", ".mgcvst_marginal_working",
     ".mgcvst_marginal_matrixsqrt", ".mgcvst_marginal_moments",
-    ".mgcvst_marginal_liu", ".mgcvst_marginal_davies",
+    ".mgcvst_marginal_liu", ".mgcvst_marginal_saddlepoint", ".mgcvst_marginal_davies",
     ".gam_training_lpmatrix", ".gam_single_smooth",
     ".mgcvst_expand_penalty", ".mgcvst_model_geometry",
     ".mgcvst_geometry_signature", ".mgcvst_model_sp",
@@ -660,8 +660,9 @@
 #'   during estimation is always performed; full gam objects are never retained.
 #' @param marginal_args Named list of additional marginal-score arguments.
 #'   `fit`, `test.component`, and `n_threads` are controlled by mgcvST.
-#'   Use `list(method = "liu")` for direct Liu, or the default Davies with
-#'   Liu fallback within mgcvST. No additional marginal call is needed.
+#'   Use `list(method = "liu")` for direct Liu, or the default Davies with a
+#'   saddlepoint fallback (Kuonen 1999) when Davies fails in the extreme tail.
+#'   No additional marginal call is needed.
 #' @param retain_smooth Logical; retain the feature-by-coefficient smooth
 #'   coefficient matrix and one shared reduced fit basis and unscaled penalty.
 #'   This opt-in representation supports prediction and other downstream uses

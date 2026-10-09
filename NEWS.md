@@ -1,3 +1,16 @@
+# mgcvST 0.0.1.9028
+
+* The Stage 1 (marginal) Davies calibration now falls back to a saddlepoint
+  approximation (Kuonen 1999, Biometrika 86:929) instead of Liu when Davies
+  fails, which happens in the extreme upper tail. The saddlepoint has the
+  correct exponential tail rate and bounded relative error there (Chen and
+  Lumley 2019, CSDA 139:75); single-chi-square moment matching decays too
+  fast and understates small p-values. Diagnostics report
+  `marginal_method = "saddlepoint"` and `marginal_fallback = TRUE` for these
+  features. `mgcvST.marginal(fallback = )` now takes `"none"` or
+  `"saddlepoint"`. Davies p-values, Liu calibration when requested, and the
+  INLA marginal Liu test are unchanged.
+
 # mgcvST 0.0.1.9027
 
 * Removed internal code left unreachable after the fp16 exact path and

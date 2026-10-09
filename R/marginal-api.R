@@ -89,7 +89,7 @@
   method <- match.arg(method, c("davies", "liu"))
   z <- .mgcvst_null_score_spectrum(null_fit, setup)
   if (method == "davies") {
-    result <- .mgcvst_marginal_davies(z, "liu", max_eps, max_iter)
+    result <- .mgcvst_marginal_davies(z, "saddlepoint", max_eps, max_iter)
     p <- result$p_value
     method <- result$method_used
   } else {
@@ -235,6 +235,37 @@
   c(sum(lambda), sum(lambda^2), sum(lambda^3), sum(lambda^4))
 }
 
+# Saddlepoint upper tail of Q = sum(lambda_i chi^2_1) (Kuonen 1999, Biometrika
+# 86:929, Barndorff-Nielsen form). K(t) = -1/2 sum log(1 - 2 lambda t); the
+# relative error stays bounded in the extreme right tail (Chen and Lumley 2019,
+# CSDA 139:75), so it replaces Liu as the fallback when Davies fails there.
+# Near the mean (t ~ 0) the formula is singular and the modified Liu tail,
+# which is accurate in the centre, is used instead.
+.mgcvst_marginal_saddlepoint <- function(q, lambda) {
+  lambda <- lambda[lambda > 0]
+  if (!length(lambda) || !is.finite(q) || q <= 0) return(NA_real_)
+  Kp <- function(t) sum(lambda / (1 - 2 * lambda * t)) - q
+  mean_q <- sum(lambda)
+  if (abs(q - mean_q) < 1e-6 * mean_q) {
+    return(.mgcvst_marginal_liu(q, .mgcvst_marginal_moments(lambda)))
+  }
+  t_hat <- if (q > mean_q) {
+    stats::uniroot(Kp, c(0, (1 - 1e-12) / (2 * max(lambda))), tol = 1e-15)$root
+  } else {
+    lo <- -1 / (2 * max(lambda))
+    while (Kp(lo) > 0) lo <- 2 * lo
+    stats::uniroot(Kp, c(lo, 0), tol = 1e-15)$root
+  }
+  K <- -0.5 * sum(log1p(-2 * lambda * t_hat))
+  K2 <- sum(2 * lambda^2 / (1 - 2 * lambda * t_hat)^2)
+  w <- sign(t_hat) * sqrt(max(2 * (t_hat * q - K), 0))
+  v <- t_hat * sqrt(K2)
+  if (!is.finite(w) || !is.finite(v) || w == 0 || v / w <= 0) {
+    return(.mgcvst_marginal_liu(q, .mgcvst_marginal_moments(lambda)))
+  }
+  stats::pnorm(w + log(v / w) / w, lower.tail = FALSE)
+}
+
 .mgcvst_marginal_davies <- function(z, fallback, max_eps, max_iter) {
   d <- tryCatch(CompQuadForm::davies(q = z$statistic, lambda = z$lambda,
                                     lim = max_iter, acc = max_eps),
@@ -249,9 +280,9 @@
   }
   ifault <- if (inherits(d, "condition") || length(d$ifault) != 1L)
     NA_integer_ else as.integer(d$ifault)
-  if (failed && fallback == "liu") {
-    p <- .mgcvst_marginal_liu(z$statistic, .mgcvst_marginal_moments(z$lambda))
-    list(p_value = p, method_used = "liu", fallback_used = TRUE,
+  if (failed && fallback == "saddlepoint") {
+    p <- .mgcvst_marginal_saddlepoint(z$statistic, z$lambda)
+    list(p_value = p, method_used = "saddlepoint", fallback_used = TRUE,
          fallback_reason = reason, davies_ifault = ifault, error_message = NA_character_)
   } else {
     list(p_value = if (failed) NA_real_ else as.numeric(d$Qq),
@@ -315,12 +346,13 @@
 #' separate marginal-only OpenMP kernel sums spectral powers across features;
 #' R's scalar noncentral chi-square tail calculation is retained. No nested
 #' OpenMP runs inside BiocParallel workers. Davies failures remain NA unless
-#' `fallback = "liu"` is explicitly requested; the actual method is reported.
+#' `fallback = "saddlepoint"` is explicitly requested; the actual method is reported.
 #'
 #' @param fitmgcvST Result of [mgcvST.estimate()] with `retain_marginal = TRUE`.
 #' @param features Unique feature IDs or one-based indices; NULL selects all.
 #' @param calibration Either `"davies"` or `"liu"`.
-#' @param fallback Either `"none"` (default) or explicit Davies-to-Liu fallback.
+#' @param fallback Either `"none"` (default) or an explicit Davies-to-saddlepoint
+#'   fallback (Kuonen 1999) when Davies fails, typically in the extreme tail.
 #' @param BPPARAM BiocParallel configuration; defaults to serial execution.
 #' @param chunk_size Number of features per interruptible task/block.
 #' @param threads OpenMP threads for the parent-process marginal Liu kernel.
@@ -331,7 +363,7 @@
 #' filtering or multiple-testing correction is applied implicitly.
 #' @export
 mgcvST.marginal <- function(fitmgcvST, features = NULL,
-    calibration = c("davies", "liu"), fallback = c("none", "liu"),
+    calibration = c("davies", "liu"), fallback = c("none", "saddlepoint"),
     BPPARAM = BiocParallel::SerialParam(), chunk_size = 100L, threads = 1L,
     null.tol = 1e-10, max_eps = 1e-8, max_iter = 1e5) {
   if (identical(fitmgcvST$estimator, "INLA")) {

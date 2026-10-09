@@ -29,7 +29,7 @@ taps_score_test <- function(fit, test.component = 1L, null.tol = 1e-10,
     stop("The marginal score has no finite positive mixture spectrum.")
   }
   if (method == "davies") {
-    result <- .mgcvst_marginal_davies(z, "liu", max_eps, max_iter)
+    result <- .mgcvst_marginal_davies(z, "saddlepoint", max_eps, max_iter)
     p <- result$p_value
     method <- result$method_used
   } else {

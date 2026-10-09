@@ -81,13 +81,36 @@ test_that("Davies failures never switch calibration without explicit consent", {
   z <- list(statistic = 100, lambda = c(1,2,3))
   testthat::local_mocked_bindings(davies = function(...) list(Qq=0,ifault=1L), .package="CompQuadForm")
   none <- mgcvST:::.mgcvst_marginal_davies(z,"none",1e-8,1e5)
-  yes <- mgcvST:::.mgcvst_marginal_davies(z,"liu",1e-8,1e5)
+  yes <- mgcvST:::.mgcvst_marginal_davies(z,"saddlepoint",1e-8,1e5)
   expect_true(is.na(none$p_value))
   expect_identical(none$method_used,"davies")
   expect_false(none$fallback_used)
   expect_true(yes$fallback_used)
-  expect_identical(yes$method_used,"liu")
+  expect_identical(yes$method_used,"saddlepoint")
   expect_true(is.finite(yes$p_value))
+})
+
+test_that("the saddlepoint fallback agrees with Davies where Davies is accurate", {
+  skip_if_not_installed("CompQuadForm")
+  set.seed(11)
+  lambda <- sort(rexp(300)^2, decreasing = TRUE)
+  mu <- sum(lambda); sd <- sqrt(2 * sum(lambda^2))
+  for (q in mu + sd * c(-1, 0.5, 3, 6, 10)) {
+    d <- CompQuadForm::davies(q, lambda, lim = 1e6, acc = 1e-14)
+    expect_identical(d$ifault, 0L)
+    sp <- mgcvST:::.mgcvst_marginal_saddlepoint(q, lambda)
+    expect_lt(abs(log10(sp) - log10(d$Qq)), 0.05)
+  }
+})
+
+test_that("the saddlepoint fallback stays finite beyond machine precision", {
+  lambda <- c(5, 2, rep(0.5, 50))
+  q <- 1200
+  sp <- mgcvST:::.mgcvst_marginal_saddlepoint(q, lambda)
+  expect_true(is.finite(sp) && sp > 0 && sp < 1e-40)
+  # exponential tail rate 1/(2 * max(lambda)) (Chen and Lumley 2019, Theorem 1)
+  sp2 <- mgcvST:::.mgcvst_marginal_saddlepoint(q + 10, lambda)
+  expect_lt(abs((log(sp) - log(sp2)) / 10 - 1 / (2 * max(lambda))), 0.01)
 })
 
 test_that("Snow workers use retained state and chunk caches", {
