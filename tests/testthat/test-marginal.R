@@ -113,6 +113,20 @@ test_that("the saddlepoint fallback stays finite beyond machine precision", {
   expect_lt(abs((log(sp) - log(sp2)) / 10 - 1 / (2 * max(lambda))), 0.01)
 })
 
+test_that("the saddlepoint uses its limit at the mean and returns 1 for q <= 0", {
+  lambda <- c(5, 2, rep(0.5, 50))
+  mu <- sum(lambda)
+  rho3 <- 8 * sum(lambda^3) / (2 * sum(lambda^2))^1.5
+  centre <- mgcvST:::.mgcvst_marginal_saddlepoint(mu, lambda)
+  expect_equal(centre, 0.5 - rho3 / (6 * sqrt(2 * pi)), tolerance = 1e-12)
+  for (f in c(0.999, 1.001)) {
+    expect_lt(abs(mgcvST:::.mgcvst_marginal_saddlepoint(mu * f, lambda) - centre), 0.01)
+  }
+  expect_identical(mgcvST:::.mgcvst_marginal_saddlepoint(0, lambda), 1)
+  expect_identical(mgcvST:::.mgcvst_marginal_saddlepoint(-2, lambda), 1)
+  expect_true(is.na(mgcvST:::.mgcvst_marginal_saddlepoint(3, numeric(0))))
+})
+
 test_that("Snow workers use retained state and chunk caches", {
   skip_on_cran()
   f <- st_fixture(nuisance=TRUE)

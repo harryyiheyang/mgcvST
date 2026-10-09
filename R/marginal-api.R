@@ -239,16 +239,16 @@
 # 86:929, Barndorff-Nielsen form). K(t) = -1/2 sum log(1 - 2 lambda t); the
 # relative error stays bounded in the extreme right tail (Chen and Lumley 2019,
 # CSDA 139:75), so it replaces Liu as the fallback when Davies fails there.
-# Near the mean (t ~ 0) the formula is singular and the modified Liu tail,
-# which is accurate in the centre, is used instead.
+# At the mean (t = 0) the formula is 0/0 and its limit
+# 1/2 - rho3 / (6 sqrt(2 pi)), rho3 = kappa3 / kappa2^(3/2), is used.
 .mgcvst_marginal_saddlepoint <- function(q, lambda) {
   lambda <- lambda[lambda > 0]
-  if (!length(lambda) || !is.finite(q) || q <= 0) return(NA_real_)
+  if (!length(lambda) || !is.finite(q)) return(NA_real_)
+  if (q <= 0) return(1)
   Kp <- function(t) sum(lambda / (1 - 2 * lambda * t)) - q
   mean_q <- sum(lambda)
-  if (abs(q - mean_q) < 1e-6 * mean_q) {
-    return(.mgcvst_marginal_liu(q, .mgcvst_marginal_moments(lambda)))
-  }
+  centre <- 0.5 - 8 * sum(lambda^3) / (2 * sum(lambda^2))^1.5 / (6 * sqrt(2 * pi))
+  if (abs(q - mean_q) < 1e-6 * mean_q) return(centre)
   t_hat <- if (q > mean_q) {
     stats::uniroot(Kp, c(0, (1 - 1e-12) / (2 * max(lambda))), tol = 1e-15)$root
   } else {
@@ -260,9 +260,7 @@
   K2 <- sum(2 * lambda^2 / (1 - 2 * lambda * t_hat)^2)
   w <- sign(t_hat) * sqrt(max(2 * (t_hat * q - K), 0))
   v <- t_hat * sqrt(K2)
-  if (!is.finite(w) || !is.finite(v) || w == 0 || v / w <= 0) {
-    return(.mgcvst_marginal_liu(q, .mgcvst_marginal_moments(lambda)))
-  }
+  if (!is.finite(w) || !is.finite(v) || w == 0 || v / w <= 0) return(centre)
   stats::pnorm(w + log(v / w) / w, lower.tail = FALSE)
 }
 

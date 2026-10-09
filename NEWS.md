@@ -1,3 +1,10 @@
+# mgcvST 0.0.1.9029
+
+* The marginal saddlepoint no longer calls Liu: at the mean, where the
+  Lugannani-Rice formula is 0/0, it uses the limit 1/2 - rho3 / (6 sqrt(2 pi)),
+  rho3 = kappa3 / kappa2^(3/2). A statistic q <= 0 now has saddlepoint p-value
+  1 (was NA). Davies p-values are unchanged.
+
 # mgcvST 0.0.1.9028
 
 * The Stage 1 (marginal) Davies calibration now falls back to a saddlepoint
