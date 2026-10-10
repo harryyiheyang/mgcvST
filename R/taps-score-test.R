@@ -5,7 +5,7 @@ taps_score_test <- function(fit, test.component = 1L, null.tol = 1e-10,
                             n_threads = 1L, lpmatrix = NULL) {
   if (!inherits(fit, "gam")) stop("fit must be a fitted gam object.")
   .working_family_id(fit$family$family)
-  method <- match.arg(method, c("davies", "liu"))
+  method <- match.arg(method, "davies")
   if (length(test.component) != 1L || !is.finite(test.component) ||
       test.component != as.integer(test.component) || test.component < 1L ||
       test.component > length(fit$smooth)) {
@@ -28,14 +28,9 @@ taps_score_test <- function(fit, test.component = 1L, null.tol = 1e-10,
   if (!length(z$lambda) || !is.finite(z$statistic) || any(!is.finite(z$lambda))) {
     stop("The marginal score has no finite positive mixture spectrum.")
   }
-  if (method == "davies") {
-    result <- .mgcvst_marginal_davies(z, "saddlepoint", max_eps, max_iter)
-    p <- result$p_value
-    method <- result$method_used
-  } else {
-    p <- .mgcvst_marginal_liu(z$statistic, .mgcvst_marginal_moments(z$lambda))
-  }
-  out <- data.frame(smooth.term = z$smooth.term, smooth.pvalue = p, method = method)
+  result <- .mgcvst_marginal_davies(z, max_eps, max_iter)
+  out <- data.frame(smooth.term = z$smooth.term, smooth.pvalue = result$p_value,
+                    method = result$method_used)
   attr(out, "marginal_spectrum") <- list(
     statistic = z$statistic, lambda = z$lambda,
     smooth.term = z$smooth.term, null.tol = null.tol,

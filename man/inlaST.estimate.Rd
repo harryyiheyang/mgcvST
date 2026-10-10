@@ -95,10 +95,17 @@ disabled. The small coefficient covariance
 is reconstructed by sparse precision solves without an observation-level inverse.
 Cross-feature iid effects are treated as independent in pairwise calibration.
 Sparse downstream scores rebuild the nuisance covariance from
-the same expected Fisher matrix and use exact Liu trace moments;
+the same expected Fisher matrix;
 this does not establish finite-sample calibration after hyperparameter
-estimation. Every spatial component's constraint residual and observed
-spatial mean are retained in the result.
+estimation. The marginal score test of each null fit
+(\code{diagnostics$marginal_p_value}) is calibrated by Davies on the positive
+eigenvalues of the full-space expected curvature. When Davies errors,
+returns a missing or non-finite p-value, or returns a value outside
+(0, 1], the saddlepoint approximation (Kuonen 1999) is used instead;
+\code{marginal_method} reports \code{"davies"} or \code{"saddlepoint"} and
+\code{marginal_fallback} flags the fallback. Pair tests in \code{\link[=inlaST.test]{inlaST.test()}} are
+calibrated by Liu moment matching. Every spatial component's constraint
+residual and observed spatial mean are retained in the result.
 The score uses the SPDE covariance conditioned on observation mean zero.
 The sparse score uses a matching expected-curvature nuisance adjustment.
 The INLA path is sparse-only: the sparse kernel is the sole score and

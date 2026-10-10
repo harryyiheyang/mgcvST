@@ -86,16 +86,11 @@
 
 .mgcvst_null_score_test <- function(null_fit, setup, method = "davies",
                                     max_eps = 1e-8, max_iter = 1e5) {
-  method <- match.arg(method, c("davies", "liu"))
+  method <- match.arg(method, "davies")
   z <- .mgcvst_null_score_spectrum(null_fit, setup)
-  if (method == "davies") {
-    result <- .mgcvst_marginal_davies(z, "saddlepoint", max_eps, max_iter)
-    p <- result$p_value
-    method <- result$method_used
-  } else {
-    p <- .mgcvst_marginal_liu(z$statistic, .mgcvst_marginal_moments(z$lambda))
-  }
-  out <- data.frame(smooth.term = z$smooth.term, smooth.pvalue = p, method = method)
+  result <- .mgcvst_marginal_davies(z, max_eps, max_iter)
+  out <- data.frame(smooth.term = z$smooth.term, smooth.pvalue = result$p_value,
+                    method = result$method_used)
   attr(out, "marginal_spectrum") <- list(
     statistic = z$statistic, lambda = z$lambda, smooth.term = z$smooth.term
   )
@@ -199,8 +194,8 @@
        valid_idx = if (extended) is.finite(z) & is.finite(w) & w > 1e-12 else NULL)
 }
 
-# Preserve the upstream square-root and marginal Liu arithmetic, including
-# the original eigensolver, symmetrization order and spectral cutoff.
+# Preserve the upstream square-root arithmetic, including the original
+# eigensolver, symmetrization order and spectral cutoff.
 .mgcvst_marginal_matrixsqrt <- function(A) {
   fit <- CppMatrix::matrixEigen(t(A) / 2 + A / 2)
   d <- c(fit$value)
@@ -209,36 +204,10 @@
   list(w = CppMatrix::matrixMultiply(fit$vector, t(fit$vector) * d))
 }
 
-.mgcvst_marginal_liu <- function(q, moments) {
-  c1 <- moments[1L]; c2 <- moments[2L]
-  c3 <- moments[3L]; c4 <- moments[4L]
-  s1 <- c3 / (c2^(3/2))
-  s2 <- c4 / c2^2
-  muQ <- c1
-  sigmaQ <- sqrt(2 * c2)
-  tstar <- (q - muQ) / sigmaQ
-  if (s1^2 > s2) {
-    a <- 1 / (s1 - sqrt(s1^2 - s2))
-    delta <- s1 * a^3 - a^2
-    l <- a^2 - 2 * delta
-  } else {
-    delta <- 0
-    l <- 1 / s2
-    a <- sqrt(l)
-  }
-  muX <- l + delta
-  sigmaX <- sqrt(2) * a
-  stats::pchisq(tstar * sigmaX + muX, df = l, ncp = delta, lower.tail = FALSE)
-}
-
-.mgcvst_marginal_moments <- function(lambda) {
-  c(sum(lambda), sum(lambda^2), sum(lambda^3), sum(lambda^4))
-}
-
 # Saddlepoint upper tail of Q = sum(lambda_i chi^2_1) (Kuonen 1999, Biometrika
 # 86:929, Barndorff-Nielsen form). K(t) = -1/2 sum log(1 - 2 lambda t); the
 # relative error stays bounded in the extreme right tail (Chen and Lumley 2019,
-# CSDA 139:75), so it replaces Liu as the fallback when Davies fails there.
+# CSDA 139:75), so it is the Stage 1 fallback when Davies fails there.
 # At the mean (t = 0) the formula is 0/0 and its limit
 # 1/2 - rho3 / (6 sqrt(2 pi)), rho3 = kappa3 / kappa2^(3/2), is used.
 .mgcvst_marginal_saddlepoint <- function(q, lambda) {
@@ -264,34 +233,33 @@
   stats::pnorm(w + log(v / w) / w, lower.tail = FALSE)
 }
 
-.mgcvst_marginal_davies <- function(z, fallback, max_eps, max_iter) {
+# Stage 1 calibration: Davies, then the saddlepoint when Davies fails. Davies
+# fails if it errors, returns a missing or non-finite p-value, or returns
+# Qq <= 0 or Qq > 1. ifault is reported but does not decide the method.
+.mgcvst_marginal_davies <- function(z, max_eps, max_iter) {
   d <- tryCatch(CompQuadForm::davies(q = z$statistic, lambda = z$lambda,
                                     lim = max_iter, acc = max_eps),
                 error = function(e) e)
-  failed <- inherits(d, "condition") || !isTRUE(d$ifault == 0L) ||
-    length(d$Qq) != 1L || !is.finite(d$Qq) || d$Qq <= 0 || d$Qq > 1
-  reason <- if (!failed) NA_character_ else if (inherits(d, "condition")) {
-    conditionMessage(d)
-  } else {
+  error <- inherits(d, "condition")
+  failed <- error || length(d$Qq) != 1L || !is.finite(d$Qq) ||
+    d$Qq <= 0 || d$Qq > 1
+  ifault <- if (error || length(d$ifault) != 1L) NA_integer_ else as.integer(d$ifault)
+  if (!failed) {
+    return(list(p_value = as.numeric(d$Qq), method_used = "davies",
+                fallback_used = FALSE, fallback_reason = NA_character_,
+                davies_ifault = ifault, error_message = NA_character_))
+  }
+  reason <- if (error) conditionMessage(d) else
     paste0("Davies numerical failure: Qq=", paste(d$Qq, collapse = ","),
            ", ifault=", paste(d$ifault, collapse = ","))
-  }
-  ifault <- if (inherits(d, "condition") || length(d$ifault) != 1L)
-    NA_integer_ else as.integer(d$ifault)
-  if (failed && fallback == "saddlepoint") {
-    p <- .mgcvst_marginal_saddlepoint(z$statistic, z$lambda)
-    list(p_value = p, method_used = "saddlepoint", fallback_used = TRUE,
-         fallback_reason = reason, davies_ifault = ifault, error_message = NA_character_)
-  } else {
-    list(p_value = if (failed) NA_real_ else as.numeric(d$Qq),
-         method_used = "davies", fallback_used = FALSE,
-         fallback_reason = NA_character_, davies_ifault = ifault,
-         error_message = reason)
-  }
+  list(p_value = .mgcvst_marginal_saddlepoint(z$statistic, z$lambda),
+       method_used = "saddlepoint", fallback_used = TRUE,
+       fallback_reason = reason, davies_ifault = ifault,
+       error_message = NA_character_)
 }
 
-.mgcvst_marginal_chunk <- function(payload, geometry, calibration, fallback,
-                                  null.tol, max_eps, max_iter, n_threads = 1L) {
+.mgcvst_marginal_chunk <- function(payload, geometry, null.tol, max_eps,
+                                  max_iter, n_threads = 1L) {
   .mgcvst_thread_limit()
   if (!identical(n_threads, 1L)) stop("Marginal workers require n_threads = 1.")
   lapply(seq_along(payload$index), function(k) {
@@ -301,10 +269,8 @@
         if (inherits(state, "condition")) stop(state)
         if (is.null(state)) stop("No retained marginal state for this feature.")
         z <- state$marginal_cache
-        if (calibration == "davies") {
-          z$calibration <- .mgcvst_marginal_davies(z, fallback, max_eps, max_iter)
-          z$lambda <- NULL
-        }
+        z$calibration <- .mgcvst_marginal_davies(z, max_eps, max_iter)
+        z$lambda <- NULL
         return(z)
       }
       if (inherits(state, "condition")) stop(state)
@@ -324,10 +290,8 @@
       if (!length(z$lambda) || !is.finite(z$statistic) || any(!is.finite(z$lambda))) {
         stop("Marginal TAPS produced an empty or non-finite quadratic-form spectrum.")
       }
-      if (calibration == "davies") {
-        z$calibration <- .mgcvst_marginal_davies(z, fallback, max_eps, max_iter)
-        z$lambda <- NULL
-      }
+      z$calibration <- .mgcvst_marginal_davies(z, max_eps, max_iter)
+      z$lambda <- NULL
       z
     }, error = function(e) e)
   })
@@ -340,41 +304,36 @@
 #' `retain_marginal = TRUE` to retain the needed response, coefficients and
 #' family state. Pairwise working quantities alone are not sufficient.
 #' Shared design and penalties are stored once; feature spectra are computed
-#' through BiocParallel with one numerical thread per worker. For Liu, a
-#' separate marginal-only OpenMP kernel sums spectral powers across features;
-#' R's scalar noncentral chi-square tail calculation is retained. No nested
-#' OpenMP runs inside BiocParallel workers. Davies failures remain NA unless
-#' `fallback = "saddlepoint"` is explicitly requested; the actual method is reported.
+#' through BiocParallel with one numerical thread per worker.
+#' Each p-value is calibrated by Davies. When Davies fails, that is, when it
+#' errors, returns a missing or non-finite p-value, or returns a value outside
+#' (0, 1], the saddlepoint approximation (Kuonen 1999) is used instead. The
+#' method actually used is reported for every feature.
 #'
 #' @param fitmgcvST Result of [mgcvST.estimate()] with `retain_marginal = TRUE`.
 #' @param features Unique feature IDs or one-based indices; NULL selects all.
-#' @param calibration Either `"davies"` or `"liu"`.
-#' @param fallback Either `"none"` (default) or an explicit Davies-to-saddlepoint
-#'   fallback (Kuonen 1999) when Davies fails, typically in the extreme tail.
 #' @param BPPARAM BiocParallel configuration; defaults to serial execution.
 #' @param chunk_size Number of features per interruptible task/block.
-#' @param threads OpenMP threads for the parent-process marginal Liu kernel.
 #' @param null.tol Upstream penalty-column null-space threshold.
 #' @param max_eps,max_iter Davies accuracy and integration limit.
 #' @return A data.frame in requested feature order with statistic, p-value,
-#' requested/actual method, fallback and numerical failure information. No
-#' filtering or multiple-testing correction is applied implicitly.
+#' requested method (`"davies"`), method used (`"davies"` or `"saddlepoint"`),
+#' fallback flag and reason, Davies `ifault`, and numerical failure
+#' information. No filtering or multiple-testing correction is applied
+#' implicitly.
 #' @export
 mgcvST.marginal <- function(fitmgcvST, features = NULL,
-    calibration = c("davies", "liu"), fallback = c("none", "saddlepoint"),
-    BPPARAM = BiocParallel::SerialParam(), chunk_size = 100L, threads = 1L,
+    BPPARAM = BiocParallel::SerialParam(), chunk_size = 100L,
     null.tol = 1e-10, max_eps = 1e-8, max_iter = 1e5) {
   if (identical(fitmgcvST$estimator, "INLA")) {
-    stop("mgcvST.marginal() does not support INLA fits; the marginal Liu ",
+    stop("mgcvST.marginal() does not support INLA fits; the marginal score ",
          "test is already reported in inlaST.estimate()'s diagnostics table.")
   }
-  calibration <- match.arg(calibration)
-  fallback <- match.arg(fallback)
   if (!inherits(fitmgcvST, "mgcvST_fit") || is.null(fitmgcvST$marginal_data)) {
     stop("Estimate with retain_marginal = TRUE before calling mgcvST.marginal().")
   }
   if (!inherits(BPPARAM, "BiocParallelParam")) stop("BPPARAM must inherit from 'BiocParallelParam'.")
-  for (name in c("chunk_size", "threads", "max_iter")) {
+  for (name in c("chunk_size", "max_iter")) {
     value <- get(name)
     if (!is.numeric(value) || length(value) != 1L || !is.finite(value) ||
         value < 1 || value > .Machine$integer.max || value != as.integer(value)) {
@@ -386,9 +345,6 @@ mgcvST.marginal <- function(fitmgcvST, features = NULL,
     if (!is.numeric(value) || length(value) != 1L || !is.finite(value) || value <= 0) {
       stop(name, " must be positive and finite.")
     }
-  }
-  if (calibration == "davies" && !requireNamespace("CompQuadForm", quietly = TRUE)) {
-    stop("calibration = 'davies' requires CompQuadForm.")
   }
   ids <- fitmgcvST$feature_id
   if (is.null(features)) features <- seq_along(ids)
@@ -408,42 +364,21 @@ mgcvST.marginal <- function(fitmgcvST, features = NULL,
          version = data$version)
   })
   evaluated <- BiocParallel::bplapply(payload, .mgcvst_marginal_chunk,
-    geometry = data$geometry, calibration = calibration, fallback = fallback,
-    null.tol = null.tol, max_eps = max_eps, max_iter = max_iter,
-    n_threads = 1L, BPPARAM = BPPARAM)
+    geometry = data$geometry, null.tol = null.tol, max_eps = max_eps,
+    max_iter = max_iter, n_threads = 1L, BPPARAM = BPPARAM)
   evaluated <- unlist(evaluated, recursive = FALSE)
   result <- data.frame(feature_id = ids[index], statistic = NA_real_, p_value = NA_real_,
-    method_requested = calibration, method_used = calibration, fallback_used = FALSE,
+    method_requested = "davies", method_used = "davies", fallback_used = FALSE,
     fallback_reason = NA_character_, davies_ifault = NA_integer_, error_message = NA_character_,
     stringsAsFactors = FALSE)
   good <- which(!vapply(evaluated, inherits, logical(1L), what = "condition"))
   for (k in setdiff(seq_along(index), good)) {
     result$error_message[k] <- conditionMessage(evaluated[[k]])
   }
-  if (calibration == "liu" && length(good)) {
-    blocks <- split(good, ceiling(seq_along(good) / chunk_size))
-    for (block in blocks) {
-      # Powers deliberately use R arithmetic; the OpenMP kernel only sums.
-      powers <- lapply(evaluated[block], function(z) {
-        x <- z$lambda
-        cbind(x, x^2, x^3, x^4)
-      })
-      moments <- mgcvst_marginal_liu_moments_cpp(powers, as.integer(threads))
-      for (j in seq_along(block)) {
-        k <- block[j]
-        p <- tryCatch(.mgcvst_marginal_liu(evaluated[[k]]$statistic, moments[j, ]),
-                      error = function(e) e)
-        if (inherits(p, "condition")) result$error_message[k] <- conditionMessage(p) else
-          result$p_value[k] <- p
-      }
-    }
-  }
   for (k in good) {
     result$statistic[k] <- evaluated[[k]]$statistic
-    if (calibration == "davies") {
-      for (name in names(evaluated[[k]]$calibration)) {
-        result[k, name] <- evaluated[[k]]$calibration[[name]]
-      }
+    for (name in names(evaluated[[k]]$calibration)) {
+      result[k, name] <- evaluated[[k]]$calibration[[name]]
     }
     if (!is.finite(result$p_value[k]) || result$p_value[k] < 0 || result$p_value[k] > 1) {
       result$p_value[k] <- NA_real_

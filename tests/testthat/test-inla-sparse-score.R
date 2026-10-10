@@ -36,6 +36,11 @@ test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts",
     BPPARAM = BiocParallel::SerialParam(),
     control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)
   )
+  expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
+  expect_identical(fit$diagnostics$marginal_requested_method, rep("davies", 3L))
+  expect_true(all(fit$diagnostics$marginal_method %in% c("davies", "saddlepoint")))
+  expect_identical(fit$diagnostics$marginal_fallback,
+                   fit$diagnostics$marginal_method == "saddlepoint")
   pairs <- t(combn(rownames(f$Y), 2L))
   # mgcvST.test() does not accept inlaST.estimate() fits (Task E1); this
   # comparison now goes through inlaST.test(), the same exact fp16 path

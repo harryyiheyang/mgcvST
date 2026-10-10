@@ -65,10 +65,6 @@ mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coo
     .Call(`_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared)
 }
 
-mgcvst_marginal_liu_moments_cpp <- function(powers, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_marginal_liu_moments_cpp`, powers, threads)
-}
-
 mgcvst_memory_status_cpp <- function() {
     .Call(`_mgcvST_mgcvst_memory_status_cpp`)
 }

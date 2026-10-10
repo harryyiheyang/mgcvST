@@ -298,8 +298,8 @@
     ".mgcvst_null_score_test", ".mgcvst_fit_null",
     ".mgcvst_test_chunk", ".mgcvst_marginal_score", ".working_family_id",
     "taps_score_test", ".mgcvst_marginal_spectrum", ".mgcvst_marginal_working",
-    ".mgcvst_marginal_matrixsqrt", ".mgcvst_marginal_moments",
-    ".mgcvst_marginal_liu", ".mgcvst_marginal_saddlepoint", ".mgcvst_marginal_davies",
+    ".mgcvst_marginal_matrixsqrt",
+    ".mgcvst_marginal_saddlepoint", ".mgcvst_marginal_davies",
     ".gam_training_lpmatrix", ".gam_single_smooth",
     ".mgcvst_expand_penalty", ".mgcvst_model_geometry",
     ".mgcvst_geometry_signature", ".mgcvst_model_sp",
@@ -614,9 +614,13 @@
 #' the other features continue. A marginal-test error leaves the already
 #' constructed compact working model intact and only its marginal p-value
 #' unavailable.
-#' Marginal diagnostics retain the requested method, actual method, and a
-#' Davies-to-Liu fallback flag. Custom callbacks that omit method metadata
-#' leave the corresponding diagnostics as `NA`.
+#' The built-in marginal test is calibrated by Davies. When Davies errors,
+#' returns a missing or non-finite p-value, or returns a value outside
+#' (0, 1], the saddlepoint approximation (Kuonen 1999) is used instead.
+#' Marginal diagnostics retain the requested method, the method actually used
+#' (`"davies"` or `"saddlepoint"`), and a Davies-to-saddlepoint fallback flag.
+#' Custom callbacks that omit method metadata leave the corresponding
+#' diagnostics as `NA`.
 #'
 #' `source_files` supports source-first custom smooths. Each SOCK worker
 #' sources the ordered files once, before it evaluates a chunk. Multicore
@@ -660,9 +664,10 @@
 #'   during estimation is always performed; full gam objects are never retained.
 #' @param marginal_args Named list of additional marginal-score arguments.
 #'   `fit`, `test.component`, and `n_threads` are controlled by mgcvST.
-#'   Use `list(method = "liu")` for direct Liu, or the default Davies with a
-#'   saddlepoint fallback (Kuonen 1999) when Davies fails in the extreme tail.
-#'   No additional marginal call is needed.
+#'   The built-in test uses Davies with the saddlepoint fallback described in
+#'   Details, typically needed in the extreme upper tail; its `method` accepts
+#'   only `"davies"`, and `max_eps` and `max_iter` set the Davies accuracy and
+#'   integration limit. No additional marginal call is needed.
 #' @param retain_smooth Logical; retain the feature-by-coefficient smooth
 #'   coefficient matrix and one shared reduced fit basis and unscaled penalty.
 #'   This opt-in representation supports prediction and other downstream uses
@@ -729,6 +734,13 @@ mgcvST.estimate <- function(
   }
   if (any(names(marginal_args) %in% c("fit", "test.component", "n_threads"))) {
     stop("Do not supply fit, test.component or n_threads through marginal_args.")
+  }
+  if (is.null(marginal_test) && !is.null(marginal_args[["method"]]) &&
+      !identical(marginal_args[["method"]], "davies")) {
+    stop("marginal_args$method = ", paste(deparse(marginal_args[["method"]]), collapse = ""),
+         " is not available: the marginal score test is calibrated by Davies, ",
+         "with a saddlepoint approximation when Davies fails. ",
+         "Remove method from marginal_args.", call. = FALSE)
   }
   if (inherits(G, "mgcvST_model")) {
     return(.mgcvst_estimate_model(

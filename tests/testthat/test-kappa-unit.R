@@ -198,10 +198,10 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
     mgcvST:::.inlast_sparse_score_geometry(m_um), X, E, V, NULL)
   for (j in seq_len(ncol(E))) {
     expect_equal(s_um[[j]]$statistic, s_mm[[j]]$statistic, tolerance = 1e-8)
-    expect_equal(s_um[[j]]$moments, s_mm[[j]]$moments, tolerance = 1e-8)
+    expect_equal(s_um[[j]]$lambda, s_mm[[j]]$lambda, tolerance = 1e-8)
     expect_equal(
-      mgcvST:::.mgcvst_marginal_liu(s_um[[j]]$statistic, s_um[[j]]$moments),
-      mgcvST:::.mgcvst_marginal_liu(s_mm[[j]]$statistic, s_mm[[j]]$moments),
+      mgcvST:::.mgcvst_marginal_davies(s_um[[j]], 1e-8, 1e5)$p_value,
+      mgcvST:::.mgcvst_marginal_davies(s_mm[[j]], 1e-8, 1e5)$p_value,
       tolerance = 1e-8
     )
   }

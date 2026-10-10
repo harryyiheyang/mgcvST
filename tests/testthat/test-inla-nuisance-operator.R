@@ -117,16 +117,12 @@ test_that("iid nuisance marginal null keeps the nuisance covariance", {
   T <- G %*% backsolve(chol(Qp), diag(q - 1L)) / sqrt(tau)
   a <- as.numeric(crossprod(T, h))
   M <- crossprod(T, B %*% T)
-  moments <- numeric(4L)
-  Mk <- diag(nrow(M))
-  for (k in seq_len(4L)) {
-    Mk <- Mk %*% M
-    moments[k] <- sum(diag(Mk))
-  }
+  lambda <- eigen((M + t(M)) / 2, symmetric = TRUE, only.values = TRUE)$values
+  lambda <- lambda[lambda > 1e-12 * max(lambda)]
 
   expect_equal(unname(observed$expected_vp), unname(Vp), tolerance = 2e-10)
   expect_equal(observed$statistic, sum(a^2), tolerance = 2e-8)
-  expect_equal(observed$moments, moments, tolerance = 2e-7)
+  expect_equal(observed$lambda, lambda, tolerance = 2e-7)
 })
 
 test_that("zero nuisance precision preserves the old sparse score", {

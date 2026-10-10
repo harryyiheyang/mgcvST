@@ -50,8 +50,10 @@ A custom function is used only when explicitly supplied.}
 
 \item{marginal_args}{Named list of additional marginal-score arguments.
 \code{fit}, \code{test.component}, and \code{n_threads} are controlled by mgcvST.
-Use \code{list(method = "liu")} for direct Liu, or the default Davies with
-Liu fallback within mgcvST. No additional marginal call is needed.}
+The built-in test uses Davies with the saddlepoint fallback described in
+Details, typically needed in the extreme upper tail; its \code{method} accepts
+only \code{"davies"}, and \code{max_eps} and \code{max_iter} set the Davies accuracy and
+integration limit. No additional marginal call is needed.}
 
 \item{method}{Retained for API compatibility. Null and full fits use
 \code{mgcv::bam(method = "fREML", discrete = TRUE)}, except a null model with
@@ -127,9 +129,13 @@ A fitting, compaction, or marginal-test error is recorded for that feature;
 the other features continue. A marginal-test error leaves the already
 constructed compact working model intact and only its marginal p-value
 unavailable.
-Marginal diagnostics retain the requested method, actual method, and a
-Davies-to-Liu fallback flag. Custom callbacks that omit method metadata
-leave the corresponding diagnostics as \code{NA}.
+The built-in marginal test is calibrated by Davies. When Davies errors,
+returns a missing or non-finite p-value, or returns a value outside
+(0, 1], the saddlepoint approximation (Kuonen 1999) is used instead.
+Marginal diagnostics retain the requested method, the method actually used
+(\code{"davies"} or \code{"saddlepoint"}), and a Davies-to-saddlepoint fallback flag.
+Custom callbacks that omit method metadata leave the corresponding
+diagnostics as \code{NA}.
 }
 \details{
 \code{source_files} supports source-first custom smooths. Each SOCK worker

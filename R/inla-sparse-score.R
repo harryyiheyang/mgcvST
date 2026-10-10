@@ -152,7 +152,8 @@
   .inlast_iid_nuisance_precision(ncol(spec$fixed$X), width, precision, length(features))
 }
 
-# Null-model score vectors and full-space curvature trace moments.
+# Null-model score vectors and the positive eigenvalues of the full-space
+# curvature.
 .inlast_sparse_null_batch <- function(score_sparse, nuisance_design, E, V,
                                       nuisance_precision, threads = 1L) {
   score_fit <- .inlast_sparse_prepare(list(score_sparse = score_sparse))
@@ -174,15 +175,19 @@
 }
 
 # Marginal score test of each converged null fit, in chunks of null working
-# models; nothing of the null fits is retained.
+# models; nothing of the null fits is retained. The calibration is that of the
+# mgcv branch: Davies, then the saddlepoint when Davies fails.
 .inlast_null_marginal <- function(feature_id, score_sparse, nuisance_design,
                                   null_fits, null_spec, dispersion,
                                   smoothing_parameters, features,
-                                  chunk_size = 16L, threads = 1L) {
+                                  chunk_size = 16L, threads = 1L,
+                                  max_eps = 1e-8, max_iter = 1e5) {
   ans <- data.frame(feature_id = feature_id[features], statistic = NA_real_, p_value = NA_real_,
-    method_requested = "liu", method_used = "liu", fallback_used = FALSE,
+    method_requested = "davies", method_used = NA_character_, fallback_used = NA,
     fallback_reason = NA_character_, davies_ifault = NA_integer_,
     error_message = NA_character_, stringsAsFactors = FALSE)
+  calibration <- c("p_value", "method_used", "fallback_used", "fallback_reason",
+                   "davies_ifault")
   for (rows in split(seq_along(features), ceiling(seq_along(features) / chunk_size))) {
     ids <- features[rows]
     E <- do.call(cbind, lapply(null_fits[ids], `[[`, "working_error"))
@@ -199,8 +204,17 @@
         next
       }
       ans$statistic[k] <- z[[j]]$statistic
-      ans$p_value[k] <- .mgcvst_marginal_liu(z[[j]]$statistic, z[[j]]$moments)
-      if (!is.finite(ans$p_value[k])) ans$error_message[k] <- "Invalid marginal Liu p-value."
+      if (!length(z[[j]]$lambda) || !is.finite(z[[j]]$statistic) ||
+          any(!is.finite(z[[j]]$lambda))) {
+        ans$error_message[k] <- "The marginal score has no finite positive mixture spectrum."
+        next
+      }
+      result <- .mgcvst_marginal_davies(z[[j]], max_eps, max_iter)
+      for (name in calibration) ans[k, name] <- result[[name]]
+      if (!is.finite(ans$p_value[k]) || ans$p_value[k] < 0 || ans$p_value[k] > 1) {
+        ans$p_value[k] <- NA_real_
+        ans$error_message[k] <- "Invalid marginal p-value."
+      }
     }
   }
   ans

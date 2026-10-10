@@ -1,3 +1,23 @@
+# mgcvST 0.0.1.9030
+
+* Stage 1 (the marginal score test) has one calibration in both the mgcv and
+  INLA branches: Davies, then the saddlepoint approximation when Davies fails.
+  Davies fails if it errors, returns a missing or non-finite p-value, or
+  returns Qq <= 0 or Qq > 1. `ifault` is still reported but no longer
+  decides, so a Davies p-value in (0, 1] with `ifault = 1` is kept.
+* The INLA marginal test calibrates the eigenvalues of the full-space
+  curvature 0.5 (M + M') above 1e-12 times the largest, in place of Liu on
+  four trace moments. M is built as before and the run time is unchanged.
+  Diagnostics report `marginal_method = "davies"` or `"saddlepoint"` and the
+  `marginal_fallback` flag, as in the mgcv branch.
+* API change: Liu is removed from Stage 1. `mgcvST.marginal()` loses its
+  `calibration`, `fallback` and `threads` arguments, and
+  `mgcvST.estimate(marginal_args = list(method = "liu"))` is an error. The
+  marginal Liu helper and the marginal-only C++ moment kernel
+  `mgcvst_marginal_liu_moments_cpp()` were removed. Stage 2 pair tests,
+  including their Liu calibration, PCAlearning and the fp16 exact path, are
+  unchanged.
+
 # mgcvST 0.0.1.9029
 
 * The marginal saddlepoint no longer calls Liu: at the mean, where the

@@ -51,20 +51,19 @@ Marginal testing is mandatory. Wood diagnostics remain optional.
 
 ```r
 fit <- mgcvST.estimate(Y, G, BPPARAM = bp)
-fit <- mgcvST.estimate(Y, G, BPPARAM = bp,
-                      marginal_args = list(method = "liu"))
 pair <- mgcvST.test(fit, pairs = pairs)
 ```
 
-The default TAPS method is Davies with Liu fallback for numerical failures.
-Direct Liu skips Davies. The registered BiocParallel backend runs gene fits
+The TAPS p-value is calibrated by Davies. When Davies errors, returns a
+missing or non-finite p-value, or returns a value outside (0, 1], the
+saddlepoint approximation is used. The registered BiocParallel backend runs gene fits
 and their marginal tests; each worker uses one numerical thread. This inline
 path does not collect all gene spectra into a parent OpenMP batch. Pairwise
 calibration and its OpenMP implementation are unchanged.
 
 `fit$diagnostics` retains `marginal_requested_method`, `marginal_method` and
-`marginal_fallback` for each gene. The fallback flag identifies Davies-to-Liu
-changes; direct Liu is FALSE. Custom callbacks without method metadata retain
+`marginal_fallback` for each gene. The fallback flag identifies
+Davies-to-saddlepoint changes. Custom callbacks without method metadata retain
 their p-values and leave the unavailable method/fallback fields as NA.
 
 The matrix comes from the formal mgcv predictor, never directly from G$X.
@@ -74,9 +73,10 @@ initialization obtain the current gene's matrix without sharing across genes.
 Full GAM objects and transient design caches are discarded after fitting.
 
 `marginal_test` still accepts an explicitly supplied custom callback, and
-`marginal_args` selects calibration for the built-in implementation. The
-existing `retain_marginal` / `mgcvST.marginal()` API is retained for explicit
-recalibration of stored fits; it is not required by the estimation workflow.
+`marginal_args` passes the Davies settings `max_eps` and `max_iter` to the
+built-in implementation. The existing `retain_marginal` / `mgcvST.marginal()`
+API is retained for explicit recalibration of stored fits; it is not required
+by the estimation workflow.
 No additional score-test interface is introduced in mgcvST.
 
 For an HPC installation without INLA, sf, fmesher or mgcv.taps, prepare the boundary,

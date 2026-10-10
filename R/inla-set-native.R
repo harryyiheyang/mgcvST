@@ -376,7 +376,7 @@
 
 # Assemble the native model.  The returned object carries the very same
 # `inla_spec` contract that `.inlast_model_spec()` produces for legacy models,
-# so `inlaST.estimate()`, the sparse score kernel and the Liu marginal all run
+# so `inlaST.estimate()`, the sparse score kernel and the marginal test all run
 # unchanged. The spatial projector stays sparse. Only the bounded nuisance
 # design (fixed columns and nuisance iid blocks) is carried densely.
 .inlast_set_native <- function(formula, data, family, mesh, kappa, coordinates,

@@ -588,10 +588,17 @@ inlaST.set <- function(
 #' is reconstructed by sparse precision solves without an observation-level inverse.
 #' Cross-feature iid effects are treated as independent in pairwise calibration.
 #' Sparse downstream scores rebuild the nuisance covariance from
-#' the same expected Fisher matrix and use exact Liu trace moments;
+#' the same expected Fisher matrix;
 #' this does not establish finite-sample calibration after hyperparameter
-#' estimation. Every spatial component's constraint residual and observed
-#' spatial mean are retained in the result.
+#' estimation. The marginal score test of each null fit
+#' (`diagnostics$marginal_p_value`) is calibrated by Davies on the positive
+#' eigenvalues of the full-space expected curvature. When Davies errors,
+#' returns a missing or non-finite p-value, or returns a value outside
+#' (0, 1], the saddlepoint approximation (Kuonen 1999) is used instead;
+#' `marginal_method` reports `"davies"` or `"saddlepoint"` and
+#' `marginal_fallback` flags the fallback. Pair tests in [inlaST.test()] are
+#' calibrated by Liu moment matching. Every spatial component's constraint
+#' residual and observed spatial mean are retained in the result.
 #' The score uses the SPDE covariance conditioned on observation mean zero.
 #' The sparse score uses a matching expected-curvature nuisance adjustment.
 #' The INLA path is sparse-only: the sparse kernel is the sole score and
@@ -909,9 +916,9 @@ inlaST.estimate <- function(
   if (!is.null(marginal)) {
     valid <- match(marginal$feature_id, feature_id)
     ans$diagnostics$marginal_p_value[valid] <- marginal$p_value
-    ans$diagnostics$marginal_requested_method[valid] <- "liu"
-    ans$diagnostics$marginal_method[valid] <- "liu"
-    ans$diagnostics$marginal_fallback[valid] <- FALSE
+    ans$diagnostics$marginal_requested_method[valid] <- marginal$method_requested
+    ans$diagnostics$marginal_method[valid] <- marginal$method_used
+    ans$diagnostics$marginal_fallback[valid] <- marginal$fallback_used
     failed_score <- !is.na(marginal$error_message) & nzchar(marginal$error_message)
     if (any(failed_score)) {
       failed <- valid[failed_score]

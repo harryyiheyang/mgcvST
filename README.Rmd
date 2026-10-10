@@ -117,11 +117,10 @@ model <- inlaST.set(
   control = list(control.inla = list(tolerance = 1e-4))
 )
 Y <- t(as.matrix(MISO_E13$expression))
-fit <- inlaST.estimate(Y, model, retain_marginal = TRUE,
-                       marginal_args = list(method = "liu"))
+fit <- inlaST.estimate(Y, model)
+marginal <- fit$diagnostics[c("feature_id", "marginal_p_value", "marginal_method")]
 pairs <- t(combn(rownames(Y), 2L))
 result <- inlaST.test(fit, pairs = pairs)
-marginal <- inlaST.marginal(fit, calibration = "liu")
 ```
 
 The backend uses fixed `kappa`, full SPDE bases and INLA empirical-Bayes

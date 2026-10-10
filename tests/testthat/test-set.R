@@ -41,7 +41,7 @@ test_that("set expands factor interactions once for shared BAM null and full des
           k$poisson_screen_phi <- 0
           k
         }),
-        marginal_args = list(method = "liu"), retain_marginal = TRUE),
+        retain_marginal = TRUE),
       .gam_training_lpmatrix = function(...) stop("L rebuilt during estimate"),
       .package = "mgcvST"
     )
@@ -71,10 +71,10 @@ test_that("set expands factor interactions once for shared BAM null and full des
         list(formula = model$null_formula, data = model$null_data,
              response = model$null_response, X0 = model$null_X)
       )
-      p <- mgcvST:::.mgcvst_null_score_test(null_fit, setup, method = "liu")
+      p <- mgcvST:::.mgcvst_null_score_test(null_fit, setup)
       expect_equal(unname(fit$diagnostics$marginal_p_value[i]), p$smooth.pvalue, tolerance = 1e-7)
     }
-    retained <- mgcvST.marginal(fit, calibration = "liu", BPPARAM = BiocParallel::SerialParam())
+    retained <- mgcvST.marginal(fit, BPPARAM = BiocParallel::SerialParam())
     expect_equal(retained$p_value, fit$diagnostics$marginal_p_value, tolerance = 1e-7)
     pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L), calibration = "liu")
     expect_true(all(is.finite(pair$results$p_two_sided)))
@@ -135,14 +135,14 @@ test_that("set shares L with SOCK workers and gene offsets", {
   model <- mgcvST.set(G = f$G)
   offset <- matrix(seq(-.1, .1, length.out = length(f$Y)), nrow(f$Y))
   a <- mgcvST.estimate(f$Y, model, offset = offset,
-    marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SerialParam())
+    BPPARAM = BiocParallel::SerialParam())
   b <- mgcvST.estimate(f$Y, model, offset = offset,
-    marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SnowParam(2L, type = "SOCK"))
+    BPPARAM = BiocParallel::SnowParam(2L, type = "SOCK"))
   expect_equal(a$working_error, b$working_error, tolerance = 1e-12)
   expect_equal(a$nuisance_covariance, b$nuisance_covariance, tolerance = 1e-12)
   expect_equal(a$diagnostics$marginal_p_value, b$diagnostics$marginal_p_value, tolerance = 1e-12)
   restored <- unserialize(serialize(model, NULL))
   c <- mgcvST.estimate(f$Y, restored, offset = offset,
-    marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SerialParam())
+    BPPARAM = BiocParallel::SerialParam())
   expect_equal(a$working_error, c$working_error, tolerance = 1e-12)
 })

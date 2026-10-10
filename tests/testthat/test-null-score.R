@@ -2,11 +2,11 @@ test_that("null-first BAM score retains a calibration cache", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y[1L, , drop = FALSE], f$model, retain_marginal = TRUE,
-    marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam()
   )
   expect_true(is.finite(fit$diagnostics$marginal_p_value[1L]))
   expect_identical(fit$marginal_data$version, 2L)
-  out <- mgcvST.marginal(fit, calibration = "liu")
+  out <- mgcvST.marginal(fit)
   expect_true(is.finite(out$p_value[1L]))
 })
 
@@ -14,7 +14,7 @@ test_that("external GAM setup uses its fixed null design", {
   f <- st_fixture()
   fit <- mgcvST.estimate(
     f$Y[1L, , drop = FALSE], f$G,
-    marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam()
   )
   expect_true(is.finite(fit$diagnostics$marginal_p_value[1L]))
   expect_null(fit$gam)
@@ -27,7 +27,6 @@ test_that("Poisson prescreen routes independent null and full BAM fits", {
   for (setup in list(f$G, f$model)) {
     fit <- mgcvST.estimate(
       f$Y[1L, , drop = FALSE], setup, control = control,
-      marginal_args = list(method = "liu"),
       BPPARAM = BiocParallel::SerialParam()
     )
     expect_identical(fit$diagnostics$family_used, "quasipoisson")
@@ -48,7 +47,7 @@ test_that("model-set null BAM includes a feature offset", {
   control$poisson_screen_phi <- 0
   fit <- mgcvST.estimate(
     f$Y[1L, , drop = FALSE], model, offset = extra_offset,
-    control = control, marginal_args = list(method = "liu"),
+    control = control,
     BPPARAM = BiocParallel::SerialParam()
   )
   data <- model$null_data
@@ -66,7 +65,7 @@ test_that("model-set null BAM includes a feature offset", {
     G$smooth, function(s) identical(s$score.component, "global"), logical(1L)
   ))
   setup <- mgcvST:::.mgcvst_null_score_setup(G, target, attr(G, "null_spec"))
-  expected <- mgcvST:::.mgcvst_null_score_test(null_fit, setup, method = "liu")
+  expected <- mgcvST:::.mgcvst_null_score_test(null_fit, setup)
   expect_equal(fit$diagnostics$marginal_p_value, expected$smooth.pvalue,
                tolerance = 1e-8)
 })
@@ -90,17 +89,17 @@ test_that("single-coefficient null scores agree with direct GAM fits", {
       formula = model$null_formula, data = model$null_data,
       response = model$null_response, X0 = model$null_X
     ))
-    expected <- mgcvST:::.mgcvst_null_score_test(direct, setup, method = "liu")
+    expected <- mgcvST:::.mgcvst_null_score_test(direct, setup)
     for (G in list(model, model$G)) {
       fit <- mgcvST.estimate(
         f$Y[1L, , drop = FALSE], G, control = control, retain_marginal = TRUE,
-        marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SerialParam()
+        BPPARAM = BiocParallel::SerialParam()
       )
       expect_true(is.finite(fit$diagnostics$marginal_p_value))
       expect_true(all(is.na(fit$diagnostics$error_message)))
       expect_equal(fit$diagnostics$marginal_p_value, expected$smooth.pvalue,
                    tolerance = 1e-8)
-      retained <- mgcvST.marginal(fit, calibration = "liu")
+      retained <- mgcvST.marginal(fit)
       expect_equal(retained$p_value, expected$smooth.pvalue, tolerance = 1e-8)
     }
   }
@@ -119,7 +118,7 @@ test_that("one slope without an intercept retains per-feature null offsets", {
   control$poisson_screen_phi <- 0
   fit <- mgcvST.estimate(
     Y, model, offset = offset, control = control,
-    marginal_args = list(method = "liu"), BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam()
   )
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   setup <- mgcvST:::.mgcvst_null_score_setup(model$G, 1L, list(
@@ -132,7 +131,7 @@ test_that("one slope without an intercept retains per-feature null offsets", {
     direct <- mgcv::gam(model$null_formula, data = data, family = mgcv::nb(),
                         offset = offset[j, ], method = "REML",
                         control = mgcv::gam.control(nthreads = 1L))
-    expected <- mgcvST:::.mgcvst_null_score_test(direct, setup, method = "liu")
+    expected <- mgcvST:::.mgcvst_null_score_test(direct, setup)
     expect_equal(fit$diagnostics$marginal_p_value[j], expected$smooth.pvalue,
                  tolerance = 1e-8)
   }
@@ -147,11 +146,11 @@ test_that("single-coefficient null fitting is available on SOCK workers", {
     f$data, family = mgcv::nb()
   )
   Y <- f$Y[1:2, , drop = FALSE]
-  serial <- mgcvST.estimate(Y, model$G, marginal_args = list(method = "liu"),
+  serial <- mgcvST.estimate(Y, model$G,
                             BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L)
   workers <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
   on.exit(BiocParallel::bpstop(workers), add = TRUE)
-  parallel <- mgcvST.estimate(Y, model$G, marginal_args = list(method = "liu"),
+  parallel <- mgcvST.estimate(Y, model$G,
                               BPPARAM = workers, chunk_size = 1L)
   expect_true(all(is.finite(parallel$diagnostics$marginal_p_value)))
   expect_true(all(is.na(parallel$diagnostics$error_message)))

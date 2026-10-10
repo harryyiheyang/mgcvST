@@ -7,11 +7,8 @@
 mgcvST.marginal(
   fitmgcvST,
   features = NULL,
-  calibration = c("davies", "liu"),
-  fallback = c("none", "liu"),
   BPPARAM = BiocParallel::SerialParam(),
   chunk_size = 100L,
-  threads = 1L,
   null.tol = 1e-10,
   max_eps = 1e-08,
   max_iter = 1e+05
@@ -22,15 +19,9 @@ mgcvST.marginal(
 
 \item{features}{Unique feature IDs or one-based indices; NULL selects all.}
 
-\item{calibration}{Either \code{"davies"} or \code{"liu"}.}
-
-\item{fallback}{Either \code{"none"} (default) or explicit Davies-to-Liu fallback.}
-
 \item{BPPARAM}{BiocParallel configuration; defaults to serial execution.}
 
 \item{chunk_size}{Number of features per interruptible task/block.}
-
-\item{threads}{OpenMP threads for the parent-process marginal Liu kernel.}
 
 \item{null.tol}{Upstream penalty-column null-space threshold.}
 
@@ -38,8 +29,10 @@ mgcvST.marginal(
 }
 \value{
 A data.frame in requested feature order with statistic, p-value,
-requested/actual method, fallback and numerical failure information. No
-filtering or multiple-testing correction is applied implicitly.
+requested method (\code{"davies"}), method used (\code{"davies"} or \code{"saddlepoint"}),
+fallback flag and reason, Davies \code{ifault}, and numerical failure
+information. No filtering or multiple-testing correction is applied
+implicitly.
 }
 \description{
 Evaluates null-fit conditional marginal TAPS, ported from mgcv.taps,
@@ -47,9 +40,9 @@ without refitting. This is not the pairwise covariance test. Estimate with
 \code{retain_marginal = TRUE} to retain the needed response, coefficients and
 family state. Pairwise working quantities alone are not sufficient.
 Shared design and penalties are stored once; feature spectra are computed
-through BiocParallel with one numerical thread per worker. For Liu, a
-separate marginal-only OpenMP kernel sums spectral powers across features;
-R's scalar noncentral chi-square tail calculation is retained. No nested
-OpenMP runs inside BiocParallel workers. Davies failures remain NA unless
-\code{fallback = "liu"} is explicitly requested; the actual method is reported.
+through BiocParallel with one numerical thread per worker.
+Each p-value is calibrated by Davies. When Davies fails, that is, when it
+errors, returns a missing or non-finite p-value, or returns a value outside
+(0, 1], the saddlepoint approximation (Kuonen 1999) is used instead. The
+method actually used is reported for every feature.
 }

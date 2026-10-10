@@ -13,13 +13,24 @@ using namespace mgcvst_sparse;
 
 namespace {
 
-Vec trace_powers(const Mat& value) {
-  Vec out(4);
-  const Mat square = value * value;
-  out[0] = value.trace();
-  out[1] = value.cwiseProduct(value).sum();
-  out[2] = square.cwiseProduct(value.transpose()).sum();
-  out[3] = square.cwiseProduct(square.transpose()).sum();
+// Eigenvalues of the symmetric marginal curvature, in decreasing order, that
+// exceed 1e-12 times the largest one. This drops the constraint direction and
+// the numerical null space before the Davies calibration.
+Vec positive_spectrum(const Mat& value) {
+  Eigen::SelfAdjointEigenSolver<Mat> eig(value, Eigen::EigenvaluesOnly);
+  if (eig.info() != Eigen::Success) {
+    throw std::runtime_error("The marginal curvature eigendecomposition failed.");
+  }
+  const Vec& values = eig.eigenvalues();
+  const double cutoff = 1e-12 * values.maxCoeff();
+  int kept = 0;
+  for (int j = 0; j < values.size(); ++j) {
+    if (values[j] > 0 && values[j] > cutoff) ++kept;
+  }
+  Vec out(kept);
+  for (int j = values.size() - 1, k = 0; j >= 0; --j) {
+    if (values[j] > 0 && values[j] > cutoff) out[k++] = values[j];
+  }
   return out;
 }
 
@@ -27,7 +38,7 @@ struct FeatureResult {
   Vec a;
   Mat M;
   Mat Vp;
-  Vec moments;
+  Vec lambda;
   double statistic = NA_REAL;
   double constraint_norm = NA_REAL;
   std::string error;
@@ -125,7 +136,7 @@ Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(
 // Expected-curvature score vectors for a single constrained SPDE block, in the
 // redundant whitened coordinates of dimension m (rank m - 1 after the
 // constraint). With null_target, the spatial field is absent from the working
-// model and the full-space curvature is reduced to its four trace moments.
+// model and the full-space curvature is reduced to its positive eigenvalues.
 // [[Rcpp::export]]
 Rcpp::List mgcvst_inla_sparse_batch_cpp(
     const Eigen::MappedSparseMatrix<double>& A_map,
@@ -286,7 +297,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
               project_coordinates(apply_Bt(qfactor, Y), coordinate_constraint) /
               std::sqrt(tau[f]);
           }
-          result[f].moments = trace_powers(0.5 * (M + M.transpose()));
+          result[f].lambda = positive_spectrum(0.5 * (M + M.transpose()));
         }
       } catch (const std::exception& error) {
         result[f].error = error.what();
@@ -303,7 +314,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
       features_out[f] = Rcpp::List::create(
         Rcpp::Named("a") = result[f].a,
         Rcpp::Named("statistic") = result[f].statistic,
-        Rcpp::Named("moments") = null_target ? Rcpp::wrap(result[f].moments) : R_NilValue,
+        Rcpp::Named("lambda") = null_target ? Rcpp::wrap(result[f].lambda) : R_NilValue,
         Rcpp::Named("expected_vp") = result[f].Vp,
         Rcpp::Named("width") = m,
         Rcpp::Named("normalization") = m - 1,
