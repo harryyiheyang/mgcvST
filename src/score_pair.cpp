@@ -1,7 +1,7 @@
 #define EIGEN_DONT_PARALLELIZE
 #include <RcppArmadillo.h>
 #include <RcppEigen.h>
-#include "liu_tail.h"
+#include "spa_pair.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -85,41 +85,166 @@ arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
   return out;
 }
 
-// Fused exact Liu pair kernel: score, trace powers of H_l*H_r, and the
-// log-space Liu tail, all in double precision with a full-rank H. H holds
-// one q x q symmetric state matrix per local feature (state `M`); a holds
-// one q-vector per local feature as columns (state `a`). left/right are
-// 1-based local feature indices; pairs must be pre-sorted by `left` (the R
-// caller sorts before the call and restores the original order after).
-// Work is split into runs of equal `left` chunked to grain 32 and scheduled
-// dynamically.
+// Sum of the normalized state matrices, sum_g sym(M_g) / max|M_g|, over the
+// features of a batch: the matrix whose leading eigenvectors are the shared
+// basis V of the exact route. The sum runs in feature order, so the result does
+// not depend on the thread count; a feature with a non-finite or zero matrix
+// is skipped. `init` is the running sum to continue from (NULL: zero), so that
+// a sum over many batches is the same as one sum over all features.
 // [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
 // [[Rcpp::export]]
-Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a,
-                               const Rcpp::IntegerVector& left,
-                               const Rcpp::IntegerVector& right,
-                               int threads = 1) {
+Rcpp::NumericMatrix mgcvst_pair_basis_sum_cpp(
+    const Rcpp::List& H,
+    Rcpp::Nullable<Rcpp::NumericMatrix> init = R_NilValue) {
   const int n = H.size();
   if (n < 1) Rcpp::stop("H must contain at least one matrix.");
-  const int q = a.nrow();
-  if (q < 1) Rcpp::stop("a must have at least one row.");
-  if (a.ncol() != n) Rcpp::stop("a must have one column per element of H.");
+  Rcpp::NumericMatrix first(H[0]);
+  const int q = first.nrow();
+  if (q < 1 || first.ncol() != q) Rcpp::stop("Every matrix in H must be square.");
+  Eigen::MatrixXd S = Eigen::MatrixXd::Zero(q, q);
+  if (init.isNotNull()) {
+    Rcpp::NumericMatrix start(init.get());
+    if (start.nrow() != q || start.ncol() != q) {
+      Rcpp::stop("init must be a q x q matrix.");
+    }
+    S = Eigen::Map<const Eigen::MatrixXd>(start.begin(), q, q);
+  }
+  int used = 0;
+  for (int g = 0; g < n; ++g) {
+    Rcpp::NumericMatrix current(H[g]);
+    if (current.nrow() != q || current.ncol() != q) {
+      Rcpp::stop("Every matrix in H must have the same dimension.");
+    }
+    Eigen::Map<const Eigen::MatrixXd> M(current.begin(), q, q);
+    if (!M.allFinite()) continue;
+    const double scale = M.cwiseAbs().maxCoeff();
+    if (!(scale > 0)) continue;
+    S += (0.5 / scale) * (M + M.transpose());
+    ++used;
+  }
+  Rcpp::NumericMatrix out = Rcpp::wrap(S);
+  out.attr("used") = used;
+  return out;
+}
+
+// Pair basis G_g = H_g^{1/2} V (q x k) for every feature: H_g is symmetrized
+// and normalized by max|M_g|, and H^{1/2} = E sqrt(D+) E' is the symmetric
+// square root (not the one-sided factor E sqrt(D)). With V = I and k = q the
+// compression is exact. A feature with a non-finite or zero matrix gets a
+// matrix of NA.
+// [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
+// [[Rcpp::export]]
+Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& V,
+                                 int threads = 1) {
+  const int n = H.size();
+  const int q = V.nrow(), k = V.ncol();
+  if (n < 1) Rcpp::stop("H must contain at least one matrix.");
+  if (q < 1 || k < 1 || k > q) Rcpp::stop("V must be a q x k matrix with 1 <= k <= q.");
   if (threads < 1) Rcpp::stop("threads must be a positive integer.");
 #ifndef _OPENMP
   if (threads > 1) {
     Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
   }
 #endif
-  // Normalize each feature before matrix products; retain public score units.
   std::vector<const double*> Hptr(n);
+  Rcpp::List out(n);
+  std::vector<double*> Gptr(n);
+  for (int g = 0; g < n; ++g) {
+    Rcpp::NumericMatrix current(H[g]);
+    if (current.nrow() != q || current.ncol() != q) {
+      Rcpp::stop("Every matrix in H must be square with dimension nrow(V).");
+    }
+    Hptr[g] = current.begin();
+    Rcpp::NumericMatrix G(q, k);
+    out[g] = G;
+    Gptr[g] = G.begin();
+  }
+  Eigen::Map<const Eigen::MatrixXd> Vm(V.begin(), q, k);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads)
+#endif
+  {
+    Eigen::MatrixXd Hn(q, q), W(q, k);
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver;
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+    for (int g = 0; g < n; ++g) {
+      Eigen::Map<const Eigen::MatrixXd> M(Hptr[g], q, q);
+      Eigen::Map<Eigen::MatrixXd> G(Gptr[g], q, k);
+      const double scale = M.allFinite() ? M.cwiseAbs().maxCoeff() : NA_REAL;
+      if (!(std::isfinite(scale) && scale > 0)) {
+        G.setConstant(NA_REAL);
+        continue;
+      }
+      Hn = (0.5 / scale) * (M + M.transpose());
+      solver.compute(Hn);
+      if (solver.info() != Eigen::Success) {
+        G.setConstant(NA_REAL);
+        continue;
+      }
+      W.noalias() = solver.eigenvectors().transpose() * Vm;
+      for (int i = 0; i < q; ++i) {
+        const double d = solver.eigenvalues()[i];
+        W.row(i) *= d > 0 ? std::sqrt(d) : 0.0;
+      }
+      G.noalias() = solver.eigenvectors() * W;
+    }
+  }
+  return out;
+}
+
+// Exact-moment saddlepoint pair kernel. H holds one q x q symmetric state
+// matrix per local feature (state `M`), G the matching q x k pair bases from
+// mgcvst_pair_basis_cpp(), a one q-vector per local feature as columns (state
+// `a`). left/right are 1-based local feature indices; pairs must be sorted by
+// `left`. For each pair the exact trace moments t_s = tr((H_l H_r)^s) of the
+// normalized matrices give the remainder, and the k leading singular values
+// are those of G_l' G_r. order = 4 matches four remainder moments with two
+// nodes, order = 2 uses the Satterthwaite node. `x` optionally replaces the
+// normalized score (for validation against stored scores).
+// Work is split into runs of equal `left` chunked to grain 32 and scheduled
+// dynamically. The parallel region uses only Eigen products and decompositions
+// of the pair matrices and R::pnorm.
+// [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
+// [[Rcpp::export]]
+Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
+                               const Rcpp::NumericMatrix& a,
+                               const Rcpp::IntegerVector& left,
+                               const Rcpp::IntegerVector& right,
+                               int threads = 1, int order = 4,
+                               Rcpp::Nullable<Rcpp::NumericVector> x = R_NilValue) {
+  const int n = H.size();
+  if (n < 1) Rcpp::stop("H must contain at least one matrix.");
+  const int q = a.nrow();
+  if (q < 1) Rcpp::stop("a must have at least one row.");
+  if (a.ncol() != n) Rcpp::stop("a must have one column per element of H.");
+  if (G.size() != n) Rcpp::stop("G must have one matrix per element of H.");
+  if (threads < 1) Rcpp::stop("threads must be a positive integer.");
+  if (order != 2 && order != 4) Rcpp::stop("order must be 2 or 4.");
+#ifndef _OPENMP
+  if (threads > 1) {
+    Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
+  }
+#endif
+  // Normalize each feature before matrix products; retain public score units.
+  std::vector<const double*> Hptr(n), Gptr(n);
   Eigen::VectorXd scales(n);
   Eigen::MatrixXd normalized_a(q, n);
+  int k = -1;
   for (int i = 0; i < n; ++i) {
     Rcpp::NumericMatrix current(H[i]);
     if (current.nrow() != q || current.ncol() != q) {
       Rcpp::stop("Every matrix in H must be square with dimension nrow(a).");
     }
     Hptr[i] = current.begin();
+    Rcpp::NumericMatrix basis(G[i]);
+    if (basis.nrow() != q || basis.ncol() < 1 || basis.ncol() > q) {
+      Rcpp::stop("Every matrix in G must be q x k with 1 <= k <= q.");
+    }
+    if (k < 0) k = basis.ncol();
+    if (basis.ncol() != k) Rcpp::stop("Every matrix in G must have the same width.");
+    Gptr[i] = basis.begin();
     Eigen::Map<const Eigen::MatrixXd> M(current.begin(), q, q);
     scales[i] = M.allFinite() ? M.cwiseAbs().maxCoeff() : NA_REAL;
     if (std::isfinite(scales[i]) && scales[i] > 0) {
@@ -128,49 +253,55 @@ Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a
   }
   const R_xlen_t N = left.size();
   if (right.size() != N) Rcpp::stop("left and right must have equal length.");
-  for (R_xlen_t k = 0; k < N; ++k) {
-    if (left[k] == NA_INTEGER || right[k] == NA_INTEGER ||
-        left[k] < 1 || left[k] > n || right[k] < 1 || right[k] > n) {
+  for (R_xlen_t j = 0; j < N; ++j) {
+    if (left[j] == NA_INTEGER || right[j] == NA_INTEGER ||
+        left[j] < 1 || left[j] > n || right[j] < 1 || right[j] > n) {
       Rcpp::stop("left and right must index elements of H.");
     }
-    if (k && left[k] < left[k - 1]) {
+    if (j && left[j] < left[j - 1]) {
       Rcpp::stop("left must be sorted in non-decreasing order.");
     }
   }
+  const bool explicit_x = x.isNotNull();
+  Rcpp::NumericVector xv = explicit_x ? Rcpp::NumericVector(x.get()) : Rcpp::NumericVector(0);
+  if (explicit_x && xv.size() != N) Rcpp::stop("x must have one value per pair.");
 
   struct Task { int left; R_xlen_t first, last; };
   std::vector<Task> tasks;
   const R_xlen_t grain = 32;
   {
-    R_xlen_t k = 0;
-    while (k < N) {
-      R_xlen_t end = k;
-      while (end < N && left[end] == left[k]) ++end;
-      for (R_xlen_t s = k; s < end; s += grain) {
-        tasks.push_back(Task{left[k] - 1, s, std::min(end, s + grain)});
+    R_xlen_t j = 0;
+    while (j < N) {
+      R_xlen_t end = j;
+      while (end < N && left[end] == left[j]) ++end;
+      for (R_xlen_t s = j; s < end; s += grain) {
+        tasks.push_back(Task{left[j] - 1, s, std::min(end, s + grain)});
       }
-      k = end;
+      j = end;
     }
   }
 
-  Rcpp::NumericVector score(N), information(N), effective_rank(N),
-    log_p_two_sided(N), log_p_positive(N), log_p_negative(N);
-  Rcpp::IntegerVector status(N);
+  Rcpp::NumericVector score(N), log_p_two_sided(N), log_p_positive(N),
+    log_p_negative(N);
+  Rcpp::IntegerVector remainder_kind(N), status(N);
   const int* rightp = right.begin();
   Eigen::Map<const Eigen::MatrixXd> A(a.begin(), q, n);
   double* scorep = score.begin();
-  double* infop = information.begin();
-  double* rankp = effective_rank.begin();
   double* lp2p = log_p_two_sided.begin();
   double* lp1p = log_p_positive.begin();
   double* lp0p = log_p_negative.begin();
+  int* kindp = remainder_kind.begin();
   int* statusp = status.begin();
+  const double* xp = explicit_x ? xv.begin() : nullptr;
   const long ntask = tasks.size();
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
   {
-    Eigen::MatrixXd P1(q, q), P2(q, q), Ln(q, q), Rn(q, q);
+    Eigen::MatrixXd P1(q, q), P2(q, q), Ln(q, q), Rn(q, q), Mk(k, k);
+    Eigen::BDCSVD<Eigen::MatrixXd> svd(k, k, 0);
+    mgcvst_spa::Scratch scratch;
+    scratch.reserve(k + 2);
     int current = -1;
 #ifdef _OPENMP
 #pragma omp for schedule(dynamic, 1)
@@ -179,20 +310,22 @@ Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a
       const Task& task = tasks[t];
       const int l = task.left;
       Eigen::Map<const Eigen::MatrixXd> Lm(Hptr[l], q, q);
+      Eigen::Map<const Eigen::MatrixXd> Gl(Gptr[l], q, k);
       if (current != l && std::isfinite(scales[l]) && scales[l] > 0) {
-        Ln = Lm / scales[l];
+        Ln = (0.5 / scales[l]) * (Lm + Lm.transpose());
         current = l;
       }
-      for (R_xlen_t k = task.first; k < task.last; ++k) {
-        const int r = rightp[k] - 1;
-        scorep[k] = A.col(l).dot(A.col(r));
-        infop[k] = rankp[k] = NA_REAL;
-        lp2p[k] = lp1p[k] = lp0p[k] = NA_REAL;
-        statusp[k] = 1;
+      for (R_xlen_t j = task.first; j < task.last; ++j) {
+        const int r = rightp[j] - 1;
+        scorep[j] = A.col(l).dot(A.col(r));
+        lp2p[j] = lp1p[j] = lp0p[j] = NA_REAL;
+        kindp[j] = 0;
+        statusp[j] = 1;
         if (!std::isfinite(scales[l]) || scales[l] <= 0 ||
             !std::isfinite(scales[r]) || scales[r] <= 0) continue;
         Eigen::Map<const Eigen::MatrixXd> Rm(Hptr[r], q, q);
-        Rn = Rm / scales[r];
+        Eigen::Map<const Eigen::MatrixXd> Gr(Gptr[r], q, k);
+        Rn = (0.5 / scales[r]) * (Rm + Rm.transpose());
         P1.noalias() = Ln * Rn;
         P2.noalias() = P1 * P1;
         double v[4] = {0, 0, 0, 0};
@@ -205,31 +338,39 @@ Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a
             v[3] += h * ht;
           }
         }
-        const double sc = normalized_a.col(l).dot(normalized_a.col(r));
+        const double units = std::sqrt(scales[l]) * std::sqrt(scales[r]);
+        const double sc = explicit_x ? xp[j] : normalized_a.col(l).dot(normalized_a.col(r));
+        if (explicit_x) scorep[j] = sc * units;
         const bool good = std::isfinite(sc) && std::isfinite(v[0]) &&
           std::isfinite(v[1]) && std::isfinite(v[2]) && std::isfinite(v[3]) &&
           v[0] > 0 && v[1] > 0 && v[2] > 0 && v[3] > 0;
         if (!good) continue;
-        const double units = std::sqrt(scales[l]) * std::sqrt(scales[r]);
-        infop[k] = (v[0] * units) * units;
-        rankp[k] = v[0] * v[0] / v[1];
-        double lp[3];
-        mgcvst_liu::liu_log_p(sc, v[0], v[1], v[2], v[3], lp);
-        lp2p[k] = lp[0];
-        lp1p[k] = lp[1];
-        lp0p[k] = lp[2];
-        statusp[k] = std::isfinite(lp[0]) ? 0 : 2;
+        Mk.noalias() = Gl.transpose() * Gr;
+        if (!Mk.allFinite()) continue;
+        svd.compute(Mk);
+        const Eigen::VectorXd& sv = svd.singularValues();
+        long double lead[4];
+        mgcvst_spa::leading_sums(sv.data(), k, lead);
+        const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(v, lead, order);
+        double lp[3] = {NA_REAL, NA_REAL, NA_REAL};
+        const int st = mgcvst_spa::spa_pair(sc, sv.data(), k, rem, scratch, lp);
+        statusp[j] = st;
+        if (st == 0) {
+          lp2p[j] = lp[0];
+          lp1p[j] = lp[1];
+          lp0p[j] = lp[2];
+          kindp[j] = rem.kind;
+        }
       }
     }
   }
 
   return Rcpp::List::create(
-    Rcpp::Named("score") = score, Rcpp::Named("information") = information,
-    Rcpp::Named("effective_rank") = effective_rank,
+    Rcpp::Named("score") = score,
     Rcpp::Named("log_p_two_sided") = log_p_two_sided,
     Rcpp::Named("log_p_positive") = log_p_positive,
     Rcpp::Named("log_p_negative") = log_p_negative,
+    Rcpp::Named("remainder_kind") = remainder_kind,
     Rcpp::Named("status") = status
   );
 }
-

@@ -12,12 +12,19 @@ rkhs_score_calibrate(U, H1, H2)
 \item{H1, H2}{Score covariance summaries.}
 }
 \value{
-Simultaneous two-sided, positive, and negative p-values with the
-information, effective rank, and numerical moments used to obtain them.
+Simultaneous two-sided, positive, and negative p-values and their
+natural logarithms (\code{log_p_two_sided}, \code{log_p_positive},
+\code{log_p_negative}), with the information, effective rank, trace moments
+\verb{tr((H1 H2)^j)}, \verb{j = 1, ..., 4}, and the saddlepoint record \code{spa}
+(number of singular values, \code{remainder_kind} and \code{status}).
 }
 \description{
 Under the Gaussian null, \code{U} has the distribution
 \code{sum(s * Z * W)}, equivalently a signed quadratic form with weights
-\code{c(s / 2, -s / 2)}. The calibration is Liu moment matching of the squared
-score from the first four trace moments of \verb{H1 H2}.
+\code{c(s / 2, -s / 2)}. The calibration is the Lugannani-Rice saddlepoint
+approximation of the exact distribution on the full singular spectrum \code{s}
+of the pair, computed in log space. It is the single-pair reference of the
+saddlepoint calibration that \code{\link[=mgcvST.test]{mgcvST.test()}} and \code{\link[=inlaST.test]{inlaST.test()}} apply to
+a shared basis of \code{k} leading singular values: with \code{k} equal to the
+dimension, the pair tests reproduce this value.
 }

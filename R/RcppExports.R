@@ -29,8 +29,8 @@ mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint,
     .Call(`_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp`, units, Q_map, constraint, coordinate, basis, threads, prepared)
 }
 
-mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads = 1L, prepared = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared)
+mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads = 1L, prepared = NULL, V = NULL) {
+    .Call(`_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V)
 }
 
 mgcvst_inla_working_state_cpp <- function(A, X, B, C, O, family, size, dispersion, threads = 1L) {
@@ -45,10 +45,6 @@ mgcvst_memory_status_cpp <- function() {
     .Call(`_mgcvST_mgcvst_memory_status_cpp`)
 }
 
-mgcvst_liu_logp_cpp <- function(U, t1, t2, t3, t4, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_liu_logp_cpp`, U, t1, t2, t3, t4, threads)
-}
-
 mgcvst_pca_gram_cpp <- function(packed, tau, threads = 1L, chunk = 8192L) {
     .Call(`_mgcvST_mgcvst_pca_gram_cpp`, packed, tau, threads, chunk)
 }
@@ -61,19 +57,47 @@ mgcvst_pca_tables_cpp <- function(B, q, threads = 1L, block = 32L, tile = 192L) 
     .Call(`_mgcvST_mgcvst_pca_tables_cpp`, B, q, threads, block, tile)
 }
 
-mgcvst_pca_pairs_cpp <- function(A, C, tables, i, j, threads = 1L, moments = TRUE) {
-    .Call(`_mgcvST_mgcvst_pca_pairs_cpp`, A, C, tables, i, j, threads, moments)
+mgcvst_pca_monomials_cpp <- function(C) {
+    .Call(`_mgcvST_mgcvst_pca_monomials_cpp`, C)
 }
 
-mgcvst_pca_pairs_block_cpp <- function(A, C, tables, first, last, threads = 1L, moments = TRUE, gene_block = 32L, pair_block = 1024L) {
-    .Call(`_mgcvST_mgcvst_pca_pairs_block_cpp`, A, C, tables, first, last, threads, moments, gene_block, pair_block)
+mgcvst_pca_packed_sum_cpp <- function(packed, q) {
+    .Call(`_mgcvST_mgcvst_pca_packed_sum_cpp`, packed, q)
+}
+
+mgcvst_pca_packed_project_cpp <- function(packed, V, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_pca_packed_project_cpp`, packed, V, threads)
+}
+
+mgcvst_pca_dense_cpp <- function(H, a, pca_basis, pack, V, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_pca_dense_cpp`, H, a, pca_basis, pack, V, threads)
+}
+
+mgcvst_pca_spa_pairs_cpp <- function(A, C, K2, T2, R, scale, i, j, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_pca_spa_pairs_cpp`, A, C, K2, T2, R, scale, i, j, threads)
+}
+
+mgcvst_pca_spa_block_cpp <- function(A, C, K2, T2, R, scale, first, last, threads = 1L, gene_block = 32L, pair_block = 256L) {
+    .Call(`_mgcvST_mgcvst_pca_spa_block_cpp`, A, C, K2, T2, R, scale, first, last, threads, gene_block, pair_block)
 }
 
 mgcvst_pair_trace_powers_cpp <- function(matrixList, pairs, maxPower = 4L, threads = 1L) {
     .Call(`_mgcvST_mgcvst_pair_trace_powers_cpp`, matrixList, pairs, maxPower, threads)
 }
 
-mgcvst_pair_liu_cpp <- function(H, a, left, right, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_pair_liu_cpp`, H, a, left, right, threads)
+mgcvst_pair_basis_sum_cpp <- function(H, init = NULL) {
+    .Call(`_mgcvST_mgcvst_pair_basis_sum_cpp`, H, init)
+}
+
+mgcvst_pair_basis_cpp <- function(H, V, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_pair_basis_cpp`, H, V, threads)
+}
+
+mgcvst_pair_spa_cpp <- function(H, G, a, left, right, threads = 1L, order = 4L, x = NULL) {
+    .Call(`_mgcvST_mgcvst_pair_spa_cpp`, H, G, a, left, right, threads, order, x)
+}
+
+mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
+    .Call(`_mgcvST_mgcvst_spa_cpp`, U, S, Tm, order, threads)
 }
 

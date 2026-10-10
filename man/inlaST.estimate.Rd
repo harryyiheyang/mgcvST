@@ -162,7 +162,7 @@ returns a missing or non-finite p-value, or returns a value outside
 (0, 1], the saddlepoint approximation (Kuonen 1999) is used instead;
 \code{marginal_method} reports \code{"davies"} or \code{"saddlepoint"} and
 \code{marginal_fallback} flags the fallback. Pair tests in \code{\link[=inlaST.test]{inlaST.test()}} are
-calibrated by Liu moment matching. Every spatial component's constraint
+calibrated by a saddlepoint approximation. Every spatial component's constraint
 residual and observed spatial mean are retained in the result.
 The score uses the SPDE covariance conditioned on observation mean zero.
 The sparse score uses a matching expected-curvature nuisance adjustment.

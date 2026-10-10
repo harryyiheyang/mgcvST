@@ -1,6 +1,7 @@
 #define EIGEN_DONT_PARALLELIZE
 #include <RcppEigen.h>
-#include "liu_tail.h"
+#include "pca_reduce.h"
+#include "spa_pair.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -15,7 +16,7 @@
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::plugins(openmp)]]
 
-// PCAlearning approximate Liu path.
+// PCAlearning saddlepoint path.
 //
 // Symmetric q x q matrices are stored in weighted-vech form: the upper
 // triangle in column-major order (entry (i, j), i <= j, at j (j + 1) / 2 + i)
@@ -24,30 +25,25 @@
 // form as float32 raw vectors; the basis B is returned in this form (L x r,
 // L = q (q + 1) / 2) and its columns B_k are the symmetric basis matrices.
 //
-// Trace tables: with X = sum_k x_k B_k and Y = sum_k y_k B_k,
-// tr((XY)^s) = sum kappa_s(x)' Tsym_s kappa_s(y), where kappa_s are the degree-s
-// monomials indexed by nondecreasing index tuples in lexicographic order.
-//   s = 1: Tsym1 = B'B.
+// A pair needs the first two trace moments t_s = tr((H_i H_j)^s), s = 1, 2. With
+// X = sum_k x_k B_k and Y = sum_k y_k B_k:
+//   s = 1: tr(XY) = x'y, since B is orthonormal (Tsym1 = I).
 //   s = 2: tr(XYXY) = sum tr(Y_ab Y_cd), Y_ab = B_a B_b, and tr(Y_ab Y_cd) =
-//          <Y_ba, Y_cd>: one Gram matrix of the r^2 products.
-//   s = 3: tr((XY)^3) = <XYX, YXY>. XYX has symmetric coefficients
-//          N_{m,c} = sum_{perm m} B_m1 B_c B_m2 (m a 2-multiset); Tsym3 is a
-//          scatter of the Gram matrix of the N_{m,c}.
-//   s = 4: tr((XY)^4) = tr(E^2), E = XYXY with coefficients W_{m,n}
-//          (m, n 2-multisets) satisfying W_{m,n}' = W_{n,m}, so that
-//          tr(W_u W_v) = <W_swap(u), W_v>. The W_{m,n} are formed on a y grid
-//          (y = e_b and e_b + e_c) as N^(y)_m Y and one GEMM per grid point, in
-//          row blocks restricted to the upper triangle; Tsym4 is a scatter of
-//          the resulting Gram matrix.
-// The GEMMs of levels 2-4 run in float32 with double accumulation across row
-// blocks, as in the validated experiment.
+//          <Y_ba, Y_cd>: one Gram matrix of the r^2 products. It is written as
+//          kappa_2(x)' Tsym2 kappa_2(y) with the degree-2 monomials kappa_2
+//          (nondecreasing index pairs in lexicographic order), which are formed
+//          once for all genes and reused by every block.
+// The k leading singular values of the pair spectrum come from the shared
+// basis V of the training genes: R_g = chol(V' H_g V / scale_g) and
+// svd(R_i R_j'). The remainder is a Satterthwaite node matching t_1 and t_2.
 
 namespace {
 
 using MatD = Eigen::MatrixXd;
 using MatF = Eigen::MatrixXf;
+using VecD = Eigen::VectorXd;
 using Index = Eigen::Index;
-using mgcvst_liu::liu_log_p;
+using mgcvst_pca::unpack_symmetric;
 
 double now() {
   return std::chrono::duration<double>(
@@ -98,15 +94,12 @@ Rcpp::IntegerMatrix multiset_matrix(const Multisets& m) {
   return out;
 }
 
-// Monomials kappa_s(c_g) for genes g in cols (d x |cols|).
-MatD monomials(const Multisets& m, const MatD& C, const std::vector<int>& cols) {
-  MatD K(m.d, cols.size());
-  for (size_t g = 0; g < cols.size(); ++g) {
-    for (int t = 0; t < m.d; ++t) {
-      double z = 1;
-      for (int k = 0; k < m.s; ++k) z *= C(cols[g], m.at(t, k));
-      K(t, g) = z;
-    }
+// Degree-2 monomials kappa_2(c_g) for all genes g (d2 x n).
+MatD monomials2(const Multisets& m, const MatD& C) {
+  const Index n = C.rows();
+  MatD K(m.d, n);
+  for (Index g = 0; g < n; ++g) {
+    for (int t = 0; t < m.d; ++t) K(t, g) = C(g, m.at(t, 0)) * C(g, m.at(t, 1));
   }
   return K;
 }
@@ -133,96 +126,66 @@ void symmetrize_upper(MatD& G) {
   for (Index j = 0; j < G.cols(); ++j) for (Index i = j + 1; i < G.rows(); ++i) G(i, j) = G(j, i);
 }
 
-// Symmetric q x q matrix from a full (q^2) or weighted-vech (q (q + 1) / 2) column.
-MatD unpack_symmetric(const double* x, int q, bool full) {
-  MatD M(q, q);
-  if (full) {
-    Eigen::Map<const MatD> F(x, q, q);
-    M = 0.5 * (F + F.transpose());
-    return M;
-  }
-  const double w = 1 / std::sqrt(2.0);
-  Index p = 0;
-  for (int j = 0; j < q; ++j) {
-    for (int i = 0; i < j; ++i) M(i, j) = M(j, i) = w * x[p++];
-    M(j, j) = x[p++];
-  }
-  return M;
-}
-
-struct Tables {
-  int r = 0;
-  Multisets ms[5];
-  MatD T[5];
-};
-
-Tables parse_tables(const Rcpp::List& tables) {
-  Tables t;
-  Rcpp::NumericMatrix T1 = tables["Tsym1"];
-  t.r = T1.nrow();
-  for (int s = 1; s <= 4; ++s) {
-    t.ms[s] = make_multisets(t.r, s);
-    Rcpp::NumericMatrix Ts = tables["Tsym" + std::to_string(s)];
-    t.T[s] = Eigen::Map<MatD>(Ts.begin(), Ts.nrow(), Ts.ncol());
-  }
-  return t;
-}
-
 const float* raw_float(SEXP x) { return reinterpret_cast<const float*>(RAW(x)); }
 
-Rcpp::CharacterVector pair_columns(bool moments) {
-  if (moments) return Rcpp::CharacterVector::create("U", "t1", "t2", "t3", "t4",
-    "logp_two_sided", "logp_positive", "logp_negative");
-  return Rcpp::CharacterVector::create("U", "logp_two_sided", "logp_positive", "logp_negative");
-}
+// Work space of one thread of the pair kernel.
+struct PairWork {
+  MatD Mk;
+  Eigen::BDCSVD<MatD> svd;
+  mgcvst_spa::Scratch scratch;
+  explicit PairWork(int k) : Mk(k, k), svd(k, k, 0) { scratch.reserve(k + 2); }
+};
 
-inline void write_pair(double* out, Index rows, Index row, bool moments, double U,
-                       double t1, double t2, double t3, double t4) {
-  double lp[3];
-  liu_log_p(U, t1, t2, t3, t4, lp);
+// One pair: score U, the projected trace moments t1, t2 (unnormalized), the
+// scales and the factors R_i, R_j (k x k, column-major). Writes the eight
+// output columns U, t1, t2, three log p-values, remainder kind and status.
+inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1,
+                         double t2, double scale_i, double scale_j,
+                         const double* Ri, const double* Rj, int k, PairWork& w) {
   out[row] = U;
-  int k = 1;
-  if (moments) {
-    out[row + rows] = t1;
-    out[row + 2 * rows] = t2;
-    out[row + 3 * rows] = t3;
-    out[row + 4 * rows] = t4;
-    k = 5;
+  out[row + rows] = t1;
+  out[row + 2 * rows] = t2;
+  for (int z = 3; z < 6; ++z) out[row + z * rows] = NA_REAL;
+  out[row + 6 * rows] = 0;
+  out[row + 7 * rows] = 1;
+  if (!std::isfinite(scale_i) || scale_i <= 0 || !std::isfinite(scale_j) ||
+      scale_j <= 0 || !std::isfinite(U) || !std::isfinite(t1) || !std::isfinite(t2)) {
+    return;
   }
-  for (int z = 0; z < 3; ++z) out[row + (k + z) * rows] = lp[z];
+  Eigen::Map<const MatD> Mi(Ri, k, k), Mj(Rj, k, k);
+  w.Mk.noalias() = Mi * Mj.transpose();
+  if (!w.Mk.allFinite()) return;
+  w.svd.compute(w.Mk);
+  const VecD& sv = w.svd.singularValues();
+  long double lead[4];
+  mgcvst_spa::leading_sums(sv.data(), k, lead);
+  const double units2 = scale_i * scale_j;
+  const double tn[4] = {t1 / units2, t2 / (units2 * units2), 0.0, 0.0};
+  const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(tn, lead, 2);
+  double lp[3] = {NA_REAL, NA_REAL, NA_REAL};
+  const double x = U / (std::sqrt(scale_i) * std::sqrt(scale_j));
+  const int status = mgcvst_spa::spa_pair(x, sv.data(), k, rem, w.scratch, lp);
+  out[row + 7 * rows] = status;
+  if (status == 0) {
+    out[row + 3 * rows] = lp[0];
+    out[row + 4 * rows] = lp[1];
+    out[row + 5 * rows] = lp[2];
+    out[row + 6 * rows] = rem.kind;
+  }
 }
 
-} // namespace
-
-// Natural-log Liu p-values (two-sided, positive, negative) of signed scores U
-// from trace moments t1..t4 = tr((H_i H_j)^s).
-// [[Rcpp::export]]
-Rcpp::NumericMatrix mgcvst_liu_logp_cpp(const Rcpp::NumericVector& U,
-                                        const Rcpp::NumericVector& t1,
-                                        const Rcpp::NumericVector& t2,
-                                        const Rcpp::NumericVector& t3,
-                                        const Rcpp::NumericVector& t4,
-                                        int threads = 1) {
-  const R_xlen_t n = U.size();
-  Rcpp::NumericMatrix out(n, 3);
-  double* o = out.begin();
-  const double *u = U.begin(), *a = t1.begin(), *b = t2.begin(), *c = t3.begin(), *d = t4.begin();
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(dynamic, 1024)
-#endif
-  for (R_xlen_t k = 0; k < n; ++k) {
-    double lp[3];
-    liu_log_p(u[k], a[k], b[k], c[k], d[k], lp);
-    o[k] = lp[0];
-    o[k + n] = lp[1];
-    o[k + 2 * n] = lp[2];
-  }
-  Rcpp::colnames(out) = Rcpp::CharacterVector::create("two_sided", "positive", "negative");
-  return out;
+Rcpp::CharacterVector pair_columns() {
+  return Rcpp::CharacterVector::create("U", "t1", "t2", "logp_two_sided",
+    "logp_positive", "logp_negative", "remainder_kind", "status");
 }
+
+}  // namespace
 
 // Gram matrix G_jk = tau_j tau_k <H_j, H_k>_F of packed float32 training
-// matrices, accumulated in double over row chunks.
+// matrices. The rows are cut into chunks of fixed size; each chunk gives its
+// own partial Gram matrix, and the partial matrices are added in chunk order,
+// so the result is bitwise the same for any number of threads. The partial
+// matrices need (number of chunks) x n^2 doubles.
 // [[Rcpp::export]]
 Rcpp::NumericMatrix mgcvst_pca_gram_cpp(const Rcpp::List& packed,
                                         const Rcpp::NumericVector& tau,
@@ -232,16 +195,11 @@ Rcpp::NumericMatrix mgcvst_pca_gram_cpp(const Rcpp::List& packed,
   std::vector<const float*> ptr(n);
   for (int j = 0; j < n; ++j) ptr[j] = raw_float(packed[j]);
   const Index nb = (L + chunk - 1) / chunk;
-  std::vector<MatD> acc(threads, MatD::Zero(n, n));
+  std::vector<MatD> parts(nb);
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
   {
-#ifdef _OPENMP
-    const int t = omp_get_thread_num();
-#else
-    const int t = 0;
-#endif
     MatD V(chunk, n);
 #ifdef _OPENMP
 #pragma omp for schedule(dynamic, 1)
@@ -252,11 +210,12 @@ Rcpp::NumericMatrix mgcvst_pca_gram_cpp(const Rcpp::List& packed,
         const float* x = ptr[j] + r0;
         for (Index i = 0; i < m; ++i) V(i, j) = x[i];
       }
-      acc[t].selfadjointView<Eigen::Lower>().rankUpdate(V.topRows(m).transpose());
+      parts[b] = MatD::Zero(n, n);
+      parts[b].selfadjointView<Eigen::Lower>().rankUpdate(V.topRows(m).transpose());
     }
   }
   MatD G = MatD::Zero(n, n);
-  for (auto& a : acc) G += a;
+  for (Index b = 0; b < nb; ++b) G += parts[b];
   for (int j = 0; j < n; ++j) for (int i = j; i < n; ++i) G(j, i) = G(i, j) = G(i, j) * tau[i] * tau[j];
   return Rcpp::wrap(G);
 }
@@ -296,8 +255,9 @@ Rcpp::NumericMatrix mgcvst_pca_basis_cpp(const Rcpp::List& packed,
   return out;
 }
 
-// Trace tables Tsym1..Tsym4 of a symmetric basis B given as q^2 x r (full
-// columns, symmetrized) or q (q + 1) / 2 x r (weighted vech).
+// Trace tables Tsym1 (r x r) and Tsym2 of a symmetric basis B given as q^2 x r
+// (full columns, symmetrized) or q (q + 1) / 2 x r (weighted vech). For an
+// orthonormal basis Tsym1 is the identity.
 // [[Rcpp::export]]
 Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
                                  int threads = 1, int block = 32, int tile = 192) {
@@ -305,8 +265,7 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
   const int r = B.ncol();
   const Index qq = (Index)q * q;
   const bool full = B.nrow() == qq;
-  const Multisets m1 = make_multisets(r, 1), m2 = make_multisets(r, 2),
-    m3 = make_multisets(r, 3), m4 = make_multisets(r, 4);
+  const Multisets m1 = make_multisets(r, 1), m2 = make_multisets(r, 2);
   const int d2 = m2.d;
   std::vector<double> timing;
   std::vector<std::string> tnames;
@@ -314,17 +273,13 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
   std::vector<std::string> mnames;
   auto mark = [&](const char* name, double t0) { timing.push_back(now() - t0); tnames.push_back(name); };
 
-  // B_k (double and float) and Y_ab = B_a B_b (double GEMM, stored float).
+  // B_k (double) and Y_ab = B_a B_b (double GEMM, stored float).
   double t0 = now();
   std::vector<MatD> Bd(r);
-  std::vector<MatF> Bf(r);
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
 #endif
-  for (int k = 0; k < r; ++k) {
-    Bd[k] = unpack_symmetric(&B(0, k), q, full);
-    Bf[k] = Bd[k].cast<float>();
-  }
+  for (int k = 0; k < r; ++k) Bd[k] = unpack_symmetric(&B(0, k), q, full);
   std::vector<MatF> Yf(r * r);
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
@@ -339,13 +294,14 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
   for (int a = 0; a < r; ++a) for (int b = 0; b < r; ++b) T1(a, b) = (Bd[a].array() * Bd[b].array()).sum();
   Bd.clear();
   mark("products", t0);
-  memory.push_back(4.0 * qq * (r + r * r)); mnames.push_back("B_Y");
+  memory.push_back(8.0 * qq * r + 4.0 * qq * r * r); mnames.push_back("B_Y");
 
   // Level 2: Gram of the r^2 products over column blocks of full entries.
   t0 = now();
   MatD Gy = MatD::Zero(r * r, r * r);
   {
     MatF P((Index)q * block, r * r);
+    memory.push_back(4.0 * P.size()); mnames.push_back("panel");
     for (int c0 = 0; c0 < q; c0 += block) {
       const int w = std::min(block, q - c0);
       const Index len = (Index)q * w;
@@ -361,237 +317,278 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
       T2(m2.find(x), m2.find(y)) += Gy(b1 * r + a1, a2 * r + b2);
     }
   mark("level2", t0);
-
-  // Level 3: N_{m,c} (symmetric, float), Gram over weighted upper triangles.
-  t0 = now();
-  const int nN = d2 * r;
-  std::vector<MatF> Nf(nN);
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
-#endif
-  for (int u = 0; u < nN; ++u) {
-    const int m = u / r, c = u % r, a1 = m2.at(m, 0), a2 = m2.at(m, 1);
-    MatF P = Bf[a1] * Yf[c * r + a2];
-    if (a1 == a2) Nf[u] = 0.5f * (P + P.transpose());
-    else Nf[u] = P + P.transpose();
-  }
-  Yf.clear();
-  mark("form3", t0);
-  memory.push_back(4.0 * qq * nN); mnames.push_back("N");
-  t0 = now();
-  MatD G3 = MatD::Zero(nN, nN);
-  {
-    const float sq2 = (float)std::sqrt(2.0);
-    MatF P((Index)q * block, nN);
-    for (int c0 = 0; c0 < q; c0 += block) {
-      const int w = std::min(block, q - c0), h = c0 + w;
-      const Index len = (Index)h * w;
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(static)
-#endif
-      for (int u = 0; u < nN; ++u) {
-        float* dst = P.data() + (Index)u * len;
-        for (int jj = 0; jj < w; ++jj) {
-          const int col = c0 + jj;
-          const float* src = Nf[u].data() + (Index)col * q;
-          float* o = dst + (Index)jj * h;
-          for (int i = 0; i < h; ++i) o[i] = i < col ? sq2 * src[i] : (i == col ? src[i] : 0.0f);
-        }
-      }
-      gram_accumulate(P.data(), len, nN, G3, threads, tile);
-    }
-  }
-  symmetrize_upper(G3);
-  MatD T3 = MatD::Zero(m3.d, m3.d);
-  for (int m = 0; m < d2; ++m) for (int b = 0; b < r; ++b)
-    for (int n = 0; n < d2; ++n) for (int a = 0; a < r; ++a) {
-      int x[3] = {m2.at(m, 0), m2.at(m, 1), a}, y[3] = {m2.at(n, 0), m2.at(n, 1), b};
-      T3(m3.find(x), m3.find(y)) += G3(m * r + b, n * r + a);
-    }
-  mark("gram3", t0);
-
-  // Level 4: W_{m,n} on the grid y = e_b, e_b + e_c; column u = n d2 + m.
-  t0 = now();
-  std::vector<MatF> Yg(d2);
-  for (int n = 0; n < d2; ++n) {
-    const int b = m2.at(n, 0), c = m2.at(n, 1);
-    Yg[n] = b == c ? Bf[b] : MatF(Bf[b] + Bf[c]);
-  }
-  const int nW = d2 * d2;
-  MatD Gu = MatD::Zero(nW, nW);
-  double t_form4 = 0, t_gram4 = 0;
-  {
-    MatF P((Index)block * q, nW);
-    memory.push_back(4.0 * P.size()); mnames.push_back("W_panel");
-    const float isq2 = (float)(1 / std::sqrt(2.0));
-    for (int r0 = 0; r0 < q; r0 += block) {
-      const int w = std::min(block, q - r0), cw = q - r0;
-      const Index len = (Index)w * cw;
-      double tf = now();
-#ifdef _OPENMP
-#pragma omp parallel num_threads(threads)
-#endif
-      {
-        MatF Nbuf(q, (Index)d2 * w);
-#ifdef _OPENMP
-#pragma omp for schedule(dynamic, 1)
-#endif
-        for (int n = 0; n < d2; ++n) {
-          const int b = m2.at(n, 0), c = m2.at(n, 1);
-          for (int m = 0; m < d2; ++m) {
-            if (b == c) Nbuf.middleCols((Index)m * w, w) = Nf[m * r + b].middleCols(r0, w);
-            else Nbuf.middleCols((Index)m * w, w) = Nf[m * r + b].middleCols(r0, w) + Nf[m * r + c].middleCols(r0, w);
-          }
-          Eigen::Map<MatF> dest(P.data() + (Index)n * d2 * len, cw, (Index)d2 * w);
-          dest.noalias() = Yg[n].middleCols(r0, cw).transpose() * Nbuf;
-        }
-      }
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(static)
-#endif
-      for (int u = 0; u < nW; ++u) {
-        const int n = u / d2, m = u % d2, b = m2.at(n, 0), c = m2.at(n, 1);
-        float* x = P.data() + (Index)u * len;
-        if (b != c) {
-          int bb[2] = {b, b}, cc[2] = {c, c};
-          const float* y1 = P.data() + ((Index)m2.find(bb) * d2 + m) * len;
-          const float* y2 = P.data() + ((Index)m2.find(cc) * d2 + m) * len;
-          for (Index k = 0; k < len; ++k) x[k] -= y1[k] + y2[k];
-        }
-      }
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(static)
-#endif
-      for (int u = 0; u < nW; ++u) {
-        float* x = P.data() + (Index)u * len;
-        for (int i = 0; i < w; ++i) {
-          float* row = x + (Index)i * cw;
-          for (int c = 0; c < i; ++c) row[c] = 0.0f;
-          row[i] *= isq2;
-        }
-      }
-      double tg = now();
-      t_form4 += tg - tf;
-      gram_accumulate(P.data(), len, nW, Gu, threads, tile);
-      t_gram4 += now() - tg;
-    }
-  }
-  Nf.clear();
-  symmetrize_upper(Gu);
-  MatD T4 = MatD::Zero(m4.d, m4.d);
-  std::vector<int> sum4((size_t)d2 * d2);
-  for (int a = 0; a < d2; ++a) for (int b = 0; b < d2; ++b) {
-    int x[4] = {m2.at(a, 0), m2.at(a, 1), m2.at(b, 0), m2.at(b, 1)};
-    sum4[(size_t)a * d2 + b] = m4.find(x);
-  }
-  for (int u = 0; u < nW; ++u) {
-    const int n1 = u / d2, k1 = u % d2, su = k1 * d2 + n1;
-    for (int v = 0; v < nW; ++v) {
-      const int n2 = v / d2, k2 = v % d2, sv = k2 * d2 + n2;
-      T4(sum4[(size_t)k1 * d2 + k2], sum4[(size_t)n1 * d2 + n2]) += Gu(su, v) + Gu(u, sv);
-    }
-  }
-  timing.push_back(t_form4); tnames.push_back("form4");
-  timing.push_back(t_gram4); tnames.push_back("gram4");
-  mark("level4", t0);
   mark("total", t_start);
-  memory.push_back(8.0 * nW * nW); mnames.push_back("G4");
+  memory.push_back(8.0 * (double)r * r * r * r); mnames.push_back("Gram2");
 
   Rcpp::NumericVector tv(timing.begin(), timing.end()), mv(memory.begin(), memory.end());
   tv.names() = tnames;
   mv.names() = mnames;
   return Rcpp::List::create(
     Rcpp::Named("Tsym1") = T1, Rcpp::Named("Tsym2") = T2,
-    Rcpp::Named("Tsym3") = T3, Rcpp::Named("Tsym4") = T4,
     Rcpp::Named("ms1") = multiset_matrix(m1), Rcpp::Named("ms2") = multiset_matrix(m2),
-    Rcpp::Named("ms3") = multiset_matrix(m3), Rcpp::Named("ms4") = multiset_matrix(m4),
     Rcpp::Named("r") = r, Rcpp::Named("q") = q,
     Rcpp::Named("timing") = tv, Rcpp::Named("memory") = mv);
 }
 
-// Approximate pair traces and Liu log p for listed pairs (1-based i, j):
-// U = a_i' a_j, t_s = kappa_s(c_i)' Tsym_s kappa_s(c_j) (s = 1: c_i' Tsym1 c_j).
-// Columns U, [t1..t4,] logp_two_sided, logp_positive, logp_negative.
+// Degree-2 monomials of the basis coefficients of all genes (d2 x n), formed
+// once and reused by every pair block.
 // [[Rcpp::export]]
-Rcpp::NumericMatrix mgcvst_pca_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A,
-                                         const Eigen::Map<Eigen::MatrixXd> C,
-                                         const Rcpp::List& tables,
-                                         const Rcpp::IntegerVector& i,
-                                         const Rcpp::IntegerVector& j,
-                                         int threads = 1, bool moments = true) {
-  const Tables tab = parse_tables(tables);
+Rcpp::NumericMatrix mgcvst_pca_monomials_cpp(const Eigen::Map<Eigen::MatrixXd> C) {
+  const Multisets m2 = make_multisets(C.cols(), 2);
+  return Rcpp::wrap(monomials2(m2, C));
+}
+
+// Sum of the normalized training matrices, sum_g sym(H_g) / max|H_g|, from
+// packed float32 weighted-vech vectors, added in gene order (so the result does
+// not depend on the thread count). Its leading eigenvectors are the shared
+// basis V of the PCAlearning route.
+// [[Rcpp::export]]
+Rcpp::NumericMatrix mgcvst_pca_packed_sum_cpp(const Rcpp::List& packed, int q) {
+  MatD S = MatD::Zero(q, q);
+  int used = 0;
+  for (int g = 0; g < packed.size(); ++g) {
+    if (packed[g] == R_NilValue) continue;
+    const MatD M = mgcvst_pca::unpack_float_vech(raw_float(packed[g]), q);
+    const double scale = mgcvst_pca::matrix_scale(M);
+    if (!(std::isfinite(scale) && scale > 0)) continue;
+    S += M / scale;
+    ++used;
+  }
+  Rcpp::NumericMatrix out = Rcpp::wrap(S);
+  out.attr("used") = used;
+  return out;
+}
+
+// Scale max|H| and the factor R = chol(V' H / scale V) of packed training
+// matrices. Returns R (k^2 x n), the scales and an error message per gene.
+// [[Rcpp::export]]
+Rcpp::List mgcvst_pca_packed_project_cpp(const Rcpp::List& packed,
+                                         const Eigen::Map<Eigen::MatrixXd> V,
+                                         int threads = 1) {
+  const int n = packed.size(), q = V.rows(), k = V.cols();
+  Rcpp::NumericMatrix Rout((Index)k * k, n);
+  Rcpp::NumericVector scale(n, NA_REAL);
+  std::vector<const float*> ptr(n);
+  for (int g = 0; g < n; ++g) ptr[g] = packed[g] == R_NilValue ? nullptr : raw_float(packed[g]);
+  std::vector<std::string> error(n);
+  Eigen::Map<MatD> Rall(Rout.begin(), (Index)k * k, n);
+  double* sp = scale.begin();
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
+#endif
+  for (int g = 0; g < n; ++g) {
+    Rall.col(g).setConstant(NA_REAL);
+    if (!ptr[g]) { error[g] = "No packed matrix."; continue; }
+    const MatD M = mgcvst_pca::unpack_float_vech(ptr[g], q);
+    const double s = mgcvst_pca::matrix_scale(M);
+    sp[g] = s;
+    MatD R;
+    if (!(std::isfinite(s) && s > 0)) { error[g] = "The curvature matrix is zero or not finite."; continue; }
+    if (!mgcvst_pca::project_factor(M, s, V, R)) {
+      error[g] = "The shared-basis compression is not positive definite.";
+      continue;
+    }
+    Rall.col(g) = Eigen::Map<const VecD>(R.data(), (Index)k * k);
+  }
+  Rcpp::CharacterVector error_out(n);
+  for (int g = 0; g < n; ++g) error_out[g] = error[g].empty() ? NA_STRING : Rcpp::String(error[g]);
+  return Rcpp::List::create(Rcpp::Named("R") = Rout, Rcpp::Named("scale") = scale,
+                            Rcpp::Named("error") = error_out);
+}
+
+// PCAlearning materialization of dense score states: for every state (a, M)
+// the score coordinates a, the basis coefficients c = <B_k, H>_F, ||H||_F^2,
+// the scale max|H| and, with a shared basis V, the factor R; features with
+// pack = TRUE also keep the float32 weighted-vech copy of H. The same outputs
+// as the sparse INLA materialization, for mgcv states.
+// [[Rcpp::export]]
+Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::MatrixXd> a,
+                                Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis,
+                                const Rcpp::LogicalVector& pack,
+                                Rcpp::Nullable<Rcpp::NumericMatrix> V,
+                                int threads = 1) {
+  const int n = H.size(), q = a.rows();
+  const Index L = (Index)q * (q + 1) / 2;
+  if (a.cols() != n || pack.size() != n) Rcpp::stop("H, a and pack must align.");
+  Rcpp::NumericMatrix PBr = pca_basis.isNotNull() ? Rcpp::NumericMatrix(pca_basis.get())
+                                                  : Rcpp::NumericMatrix(L, 0);
+  const Eigen::Map<MatD> PB(PBr.begin(), L, PBr.ncol());
+  const int r = PB.cols();
+  Rcpp::NumericMatrix Vr = V.isNotNull() ? Rcpp::NumericMatrix(V.get()) : Rcpp::NumericMatrix(q, 0);
+  if (Vr.nrow() != q) Rcpp::stop("V must have q rows.");
+  const Eigen::Map<MatD> Vm(Vr.begin(), q, Vr.ncol());
+  const int k = Vm.cols();
+  std::vector<const double*> Hptr(n);
+  for (int g = 0; g < n; ++g) {
+    Rcpp::NumericMatrix current(H[g]);
+    if (current.nrow() != q || current.ncol() != q) Rcpp::stop("Every state matrix must be q x q.");
+    Hptr[g] = current.begin();
+  }
+  MatD C(n, r), Aout = a;
+  VecD fro2(n);
+  Rcpp::NumericMatrix Rout((Index)k * k, n);
+  Eigen::Map<MatD> Rall(Rout.begin(), (Index)k * k, n);
+  Rcpp::NumericVector scale(n, NA_REAL);
+  double* sp = scale.begin();
+  std::vector<std::vector<float> > packed(n);
+  std::vector<std::string> error(n);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads)
+#endif
+  {
+    VecD h(L);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+    for (int g = 0; g < n; ++g) {
+      Eigen::Map<const MatD> Mraw(Hptr[g], q, q);
+      const MatD M = 0.5 * (Mraw + Mraw.transpose());
+      const double s = mgcvst_pca::matrix_scale(M);
+      sp[g] = s;
+      if (!(std::isfinite(s) && s > 0)) {
+        error[g] = "The curvature matrix is zero or not finite.";
+        Aout.col(g).setConstant(NA_REAL);
+        C.row(g).setConstant(NA_REAL);
+        fro2[g] = NA_REAL;
+        if (k) Rall.col(g).setConstant(NA_REAL);
+        continue;
+      }
+      mgcvst_pca::pack_vech(M, q, h);
+      fro2[g] = h.squaredNorm();
+      if (r) C.row(g) = (PB.transpose() * h).transpose();
+      if (pack[g]) {
+        packed[g].resize(L);
+        for (Index p = 0; p < L; ++p) packed[g][p] = (float)h[p];
+      }
+      if (k) {
+        MatD Rg;
+        if (mgcvst_pca::project_factor(M, s, Vm, Rg)) {
+          Rall.col(g) = Eigen::Map<const VecD>(Rg.data(), (Index)k * k);
+        } else {
+          error[g] = "The shared-basis compression is not positive definite.";
+          Rall.col(g).setConstant(NA_REAL);
+        }
+      }
+    }
+  }
+  Rcpp::List packed_out(n);
+  Rcpp::CharacterVector error_out(n);
+  int failed = 0;
+  for (int g = 0; g < n; ++g) {
+    error_out[g] = error[g].empty() ? NA_STRING : Rcpp::String(error[g]);
+    if (!error[g].empty()) ++failed;
+    if (!packed[g].empty()) {
+      Rcpp::RawVector x(4 * L);
+      std::memcpy(RAW(x), packed[g].data(), 4 * L);
+      packed_out[g] = x;
+      std::vector<float>().swap(packed[g]);
+    }
+  }
+  return Rcpp::List::create(
+    Rcpp::Named("a") = Rcpp::wrap(Aout), Rcpp::Named("C") = Rcpp::wrap(C),
+    Rcpp::Named("fro2") = Rcpp::wrap(fro2), Rcpp::Named("packed") = packed_out,
+    Rcpp::Named("R") = Rout, Rcpp::Named("scale") = scale,
+    Rcpp::Named("error") = error_out, Rcpp::Named("failed") = failed,
+    Rcpp::Named("width") = q);
+}
+
+// Saddlepoint pair values for listed pairs (1-based i, j): U = a_i' a_j,
+// t1 = c_i' c_j, t2 = kappa_2(c_i)' Tsym2 kappa_2(c_j) with the monomials K2
+// of all genes, and the k leading singular values of R_i R_j'. Columns U, t1,
+// t2, logp_two_sided, logp_positive, logp_negative, remainder_kind, status.
+// [[Rcpp::export]]
+Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A,
+                                             const Eigen::Map<Eigen::MatrixXd> C,
+                                             const Eigen::Map<Eigen::MatrixXd> K2,
+                                             const Eigen::Map<Eigen::MatrixXd> T2,
+                                             const Eigen::Map<Eigen::MatrixXd> R,
+                                             const Rcpp::NumericVector& scale,
+                                             const Rcpp::IntegerVector& i,
+                                             const Rcpp::IntegerVector& j,
+                                             int threads = 1) {
   const int n = C.rows();
   const R_xlen_t np = i.size();
-  const MatD Cd = C, CT = Cd * tab.T[1];
-  std::vector<int> all(n);
-  for (int g = 0; g < n; ++g) all[g] = g;
+  const int k = (int)std::lround(std::sqrt((double)R.rows()));
+  if ((Index)k * k != R.rows() || R.cols() != n || scale.size() != n ||
+      K2.cols() != n || T2.rows() != K2.rows() || A.cols() != n || j.size() != np) {
+    Rcpp::stop("The PCAlearning inputs are not aligned.");
+  }
   std::vector<char> used(n, 0);
-  for (R_xlen_t k = 0; k < np; ++k) used[i[k] - 1] = 1;
-  std::vector<int> ucols;
+  for (R_xlen_t t = 0; t < np; ++t) {
+    if (i[t] < 1 || i[t] > n || j[t] < 1 || j[t] > n) Rcpp::stop("Pair indices are out of range.");
+    used[i[t] - 1] = 1;
+  }
   std::vector<int> slot(n, -1);
+  std::vector<int> ucols;
   for (int g = 0; g < n; ++g) if (used[g]) { slot[g] = ucols.size(); ucols.push_back(g); }
-  MatD K[5], S[5];
-  for (int s = 2; s <= 4; ++s) {
-    K[s] = monomials(tab.ms[s], Cd, all);
-    MatD Ku = monomials(tab.ms[s], Cd, ucols);
-    S[s].resize(tab.ms[s].d, ucols.size());
+  MatD S2(K2.rows(), ucols.size());
+  {
+    MatD Ku(K2.rows(), ucols.size());
+    for (size_t g = 0; g < ucols.size(); ++g) Ku.col(g) = K2.col(ucols[g]);
     const Index nu = ucols.size(), cb = 64;
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
 #endif
     for (Index b = 0; b < (nu + cb - 1) / cb; ++b) {
       const Index c0 = b * cb, w = std::min(cb, nu - c0);
-      S[s].middleCols(c0, w).noalias() = tab.T[s] * Ku.middleCols(c0, w);
+      S2.middleCols(c0, w).noalias() = T2 * Ku.middleCols(c0, w);
     }
   }
-  const int ncol = moments ? 8 : 4;
-  Rcpp::NumericMatrix out(np, ncol);
+  Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
+  const double* sc = scale.begin();
 #ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(dynamic, 256)
+#pragma omp parallel num_threads(threads)
 #endif
-  for (R_xlen_t k = 0; k < np; ++k) {
-    const int a = i[k] - 1, b = j[k] - 1, sa = slot[a];
-    const double U = A.col(a).dot(A.col(b));
-    const double t1 = CT.row(a).dot(Cd.row(b));
-    const double t2 = S[2].col(sa).dot(K[2].col(b));
-    const double t3 = S[3].col(sa).dot(K[3].col(b));
-    const double t4 = S[4].col(sa).dot(K[4].col(b));
-    write_pair(o, np, k, moments, U, t1, t2, t3, t4);
+  {
+    PairWork work(k);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 64)
+#endif
+    for (R_xlen_t t = 0; t < np; ++t) {
+      const int a = i[t] - 1, b = j[t] - 1;
+      const double U = A.col(a).dot(A.col(b));
+      const double t1 = C.row(a).dot(C.row(b));
+      const double t2 = S2.col(slot[a]).dot(K2.col(b));
+      spa_pair_row(o, np, t, U, t1, t2, sc[a], sc[b], &R(0, a), &R(0, b), k, work);
+    }
   }
-  Rcpp::colnames(out) = pair_columns(moments);
+  Rcpp::colnames(out) = pair_columns();
   return out;
 }
 
 // All pairs (i, j), first <= i <= last, i < j <= n (1-based), ordered by i
-// then j. Per block of genes i, traces are GEMMs K_s(i)' Tsym_s K_s(j).
+// then j. Per block of genes i, t1 and t2 are GEMMs C_i C_j' and
+// (Tsym2 K2_i)' K2_j; the saddlepoint of each pair follows.
 // [[Rcpp::export]]
-Rcpp::NumericMatrix mgcvst_pca_pairs_block_cpp(const Eigen::Map<Eigen::MatrixXd> A,
-                                               const Eigen::Map<Eigen::MatrixXd> C,
-                                               const Rcpp::List& tables,
-                                               int first, int last,
-                                               int threads = 1, bool moments = true,
-                                               int gene_block = 32, int pair_block = 1024) {
-  const Tables tab = parse_tables(tables);
+Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A,
+                                             const Eigen::Map<Eigen::MatrixXd> C,
+                                             const Eigen::Map<Eigen::MatrixXd> K2,
+                                             const Eigen::Map<Eigen::MatrixXd> T2,
+                                             const Eigen::Map<Eigen::MatrixXd> R,
+                                             const Rcpp::NumericVector& scale,
+                                             int first, int last,
+                                             int threads = 1,
+                                             int gene_block = 32, int pair_block = 256) {
   const int n = C.rows();
+  const int k = (int)std::lround(std::sqrt((double)R.rows()));
+  if ((Index)k * k != R.rows() || R.cols() != n || scale.size() != n ||
+      K2.cols() != n || T2.rows() != K2.rows() || A.cols() != n) {
+    Rcpp::stop("The PCAlearning inputs are not aligned.");
+  }
   const int i0 = first - 1, ni = last - first + 1;
   std::vector<Index> offset(ni + 1, 0);
-  for (int k = 0; k < ni; ++k) offset[k + 1] = offset[k] + (n - 1 - (i0 + k));
+  for (int t = 0; t < ni; ++t) offset[t + 1] = offset[t] + (n - 1 - (i0 + t));
   const Index np = offset[ni];
-  const MatD Cd = C, CT = Cd * tab.T[1];
-  std::vector<int> all(n);
-  for (int g = 0; g < n; ++g) all[g] = g;
-  MatD K[5], S[5];
-  for (int s = 2; s <= 4; ++s) {
-    K[s] = monomials(tab.ms[s], Cd, all);
-    MatD Ki = K[s].middleCols(i0, ni);
-    S[s].resize(tab.ms[s].d, ni);
+  MatD S2(K2.rows(), ni);
+  {
+    const MatD Ki = K2.middleCols(i0, ni);
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
 #endif
     for (int b = 0; b < (ni + 63) / 64; ++b) {
       const int c0 = b * 64, w = std::min(64, ni - c0);
-      S[s].middleCols(c0, w).noalias() = tab.T[s] * Ki.middleCols(c0, w);
+      S2.middleCols(c0, w).noalias() = T2 * Ki.middleCols(c0, w);
     }
   }
   struct Task { int ib, nb, j0, nj; };
@@ -600,29 +597,33 @@ Rcpp::NumericMatrix mgcvst_pca_pairs_block_cpp(const Eigen::Map<Eigen::MatrixXd>
     const int nb = std::min(gene_block, ni - ib);
     for (int j0 = i0 + ib + 1; j0 < n; j0 += pair_block) tasks.push_back({ib, nb, j0, std::min(pair_block, n - j0)});
   }
-  const int ncol = moments ? 8 : 4;
-  Rcpp::NumericMatrix out(np, ncol);
+  Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
+  const double* sc = scale.begin();
 #ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
+#pragma omp parallel num_threads(threads)
 #endif
-  for (long k = 0; k < (long)tasks.size(); ++k) {
-    const Task& tk = tasks[k];
-    MatD Uab = A.middleCols(i0 + tk.ib, tk.nb).transpose() * A.middleCols(tk.j0, tk.nj);
-    MatD T1 = CT.middleRows(i0 + tk.ib, tk.nb) * Cd.middleRows(tk.j0, tk.nj).transpose();
-    MatD T2 = S[2].middleCols(tk.ib, tk.nb).transpose() * K[2].middleCols(tk.j0, tk.nj);
-    MatD T3 = S[3].middleCols(tk.ib, tk.nb).transpose() * K[3].middleCols(tk.j0, tk.nj);
-    MatD T4 = S[4].middleCols(tk.ib, tk.nb).transpose() * K[4].middleCols(tk.j0, tk.nj);
-    for (int jj = 0; jj < tk.nj; ++jj) {
-      const int jg = tk.j0 + jj;
-      for (int ii = 0; ii < tk.nb; ++ii) {
-        const int il = tk.ib + ii, ig = i0 + il;
-        if (jg <= ig) continue;
-        write_pair(o, np, offset[il] + (jg - ig - 1), moments, Uab(ii, jj),
-                   T1(ii, jj), T2(ii, jj), T3(ii, jj), T4(ii, jj));
+  {
+    PairWork work(k);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+    for (long t = 0; t < (long)tasks.size(); ++t) {
+      const Task& tk = tasks[t];
+      const MatD Uab = A.middleCols(i0 + tk.ib, tk.nb).transpose() * A.middleCols(tk.j0, tk.nj);
+      const MatD T1 = C.middleRows(i0 + tk.ib, tk.nb) * C.middleRows(tk.j0, tk.nj).transpose();
+      const MatD T2ab = S2.middleCols(tk.ib, tk.nb).transpose() * K2.middleCols(tk.j0, tk.nj);
+      for (int jj = 0; jj < tk.nj; ++jj) {
+        const int jg = tk.j0 + jj;
+        for (int ii = 0; ii < tk.nb; ++ii) {
+          const int il = tk.ib + ii, ig = i0 + il;
+          if (jg <= ig) continue;
+          spa_pair_row(o, np, offset[il] + (jg - ig - 1), Uab(ii, jj), T1(ii, jj),
+                       T2ab(ii, jj), sc[ig], sc[jg], &R(0, ig), &R(0, jg), k, work);
+        }
       }
     }
   }
-  Rcpp::colnames(out) = pair_columns(moments);
+  Rcpp::colnames(out) = pair_columns();
   return out;
 }

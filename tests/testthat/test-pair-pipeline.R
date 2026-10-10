@@ -1,57 +1,23 @@
-.pair_pipeline_fit <- function(p = 4L) {
-  ids <- paste0("g", seq_len(p))
-  list(
-    feature_id = ids, test_engine = "single_model",
-    estimator = "mgcv", score_backend = "dense",
-    working_error = matrix(0, 4L, p),
-    working_variance = matrix(1, 4L, p),
-    dispersion = rep(1, p), lambda = rep(1, p),
-    smoothing_parameters = matrix(1, p, 1L),
-    nuisance_covariance = list(),
-    geometry = list(
-      target = c(global = 1L),
-      smooth = list(list(B = matrix(c(1, 0, 0, 0, 0, 1, 0, 0), 4L, 2L)))
-    )
-  )
-}
-
-# The pipeline builds states through these three steps; the fixture replaces
-# the dense score kernel with deterministic states.
-.pair_pipeline_mocks <- function(env = parent.frame()) {
-  testthat::local_mocked_bindings(
-    .mgcvst_model_fixed_factors = function(fit) list(NULL),
-    .mgcvst_model_dense_preparation = function(fit, features) {
-      list(T0 = NULL, X = matrix(numeric(), 4L, 0L), sp_index = 1L,
-           width = c(global = 2L))
-    },
-    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
-      lapply(ids, function(i) {
-        list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
-      })
-    },
-    .package = "mgcvST", .env = env
-  )
-}
-
 test_that("bounded pair blocks stream every pair once whatever the state budget", {
   .pair_pipeline_mocks()
   fit <- .pair_pipeline_fit()
   pairs <- t(utils::combn(4L, 2L))
-  original <- mgcvST:::.mgcvst_liu_pairs
+  original <- mgcvST:::.mgcvst_spa_pairs
   seen <- list()
   testthat::local_mocked_bindings(
-    .mgcvst_liu_pairs = function(index, active, states, threads) {
+    .mgcvst_spa_pairs = function(index, active, states, G, threads, order = 4L) {
       seen[[length(seen) + 1L]] <<- c(rows = nrow(index), features = length(active))
-      original(index, active, states, threads)
+      original(index, active, states, G, threads, order)
     },
     .package = "mgcvST"
   )
   # The resident-state budget is 0.7 of the available memory less a reserve;
   # the mocked probe sets it to `cache_bytes`. The reserve repeats the formula
-  # of the pipeline for these two-column states and six pairs.
+  # of the pipeline for these two-column states, six pairs and the resident
+  # pair bases of four features (8 * 2 * 2 * 4 bytes).
   run <- function(index, cache_bytes, chunk_size = 9L) {
     reserve <- 4 * 8 * 2^2 + 2 * (8 * (2^2 + 2) + 2048) +
-      256 * min(6, chunk_size) + 64 * 1024^2
+      256 * min(6, chunk_size) + 64 * 1024^2 + 8 * 2 * 2 * 4
     testthat::local_mocked_bindings(
       .mgcvst_memory_probe = function(...) list(available = (cache_bytes + reserve) / 0.7),
       .package = "mgcvST")
@@ -126,7 +92,7 @@ test_that("shared preparation keeps dense native state contracts", {
   expect_identical(model[[1L]]$width, c(global = 2L))
 })
 
-test_that("the fused C++ Liu pair kernel matches the old trace-powers + R Liu path", {
+test_that("the fused exact pair kernel matches the trace powers and the full-spectrum saddlepoint", {
   set.seed(20260924)
   q <- 6L
   K <- 8L
@@ -143,57 +109,53 @@ test_that("the fused C++ Liu pair kernel matches the old trace-powers + R Liu pa
   left <- left[ord]
   right <- right[ord]
 
-  new <- mgcvST:::mgcvst_pair_liu_cpp(H, a, left, right, threads = 1L)
-
-  pairs <- cbind(left, right)
+  G <- mgcvST:::mgcvst_pair_basis_cpp(H, diag(q), 1L)
+  new <- mgcvST:::mgcvst_pair_spa_cpp(H, G, a, left, right, threads = 1L)
   old_score <- colSums(a[, left, drop = FALSE] * a[, right, drop = FALSE])
-  old_moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(H, pairs, maxPower = 4L, threads = 1L)
-  old_liu <- mgcvST:::.liu_squared_score_moments(
-    abs(old_score), old_moments[, 1L], old_moments[, 2L],
-    old_moments[, 3L], old_moments[, 4L]
-  )
-  old_information <- old_moments[, 1L]
-  old_effective_rank <- old_moments[, 1L]^2 / old_moments[, 2L]
-
   expect_equal(new$score, old_score, tolerance = 1e-12)
-  expect_equal(new$information, old_information, tolerance = 1e-12)
-  expect_equal(new$effective_rank, old_effective_rank, tolerance = 1e-12)
-  finite_p <- old_liu$p_value > 1e-300
-  expect_equal(
-    exp(new$log_p_two_sided)[finite_p], old_liu$p_value[finite_p],
-    tolerance = 1e-10
-  )
+  expect_true(all(new$status == 0L))
 
-  # A constructed strong pair whose old p underflows to 0 has a finite
+  # The saddlepoint of each pair from the trace powers of the product, which
+  # are the power sums of the singular spectrum.
+  pairs <- cbind(left, right)
+  moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(H, pairs, maxPower = 4L, threads = 1L)
+  spectra <- lapply(seq_along(left), function(p) {
+    svd(.spa_sqrtm(H[[left[p]]]) %*% .spa_sqrtm(H[[right[p]]]))$d
+  })
+  for (p in seq_along(left)) {
+    expect_equal(.spa_powers(spectra[[p]]), moments[p, ], tolerance = 1e-9)
+  }
+  reference <- vapply(seq_along(left), function(p) {
+    .spa_ref(abs(old_score[p]), spectra[[p]])
+  }, numeric(1L))
+  expect_equal(new$log_p_two_sided, reference, tolerance = 1e-7)
+
+  # A constructed strong pair whose p underflows to 0 has a finite
   # log_p_two_sided well below log(1e-300).
   strong_H <- lapply(1:2, function(k) diag(rep(100, q)))
-  strong_a <- cbind(rep(60, q), rep(60, q))
-  strong <- mgcvST:::mgcvst_pair_liu_cpp(
-    strong_H, strong_a, 1L, 2L, threads = 1L
-  )
-  strong_moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(
-    strong_H, matrix(c(1L, 2L), nrow = 1L), maxPower = 4L, threads = 1L
-  )
-  strong_old <- mgcvST:::.liu_squared_score_moments(
-    abs(sum(strong_a[, 1L] * strong_a[, 2L])), strong_moments[, 1L],
-    strong_moments[, 2L], strong_moments[, 3L], strong_moments[, 4L]
-  )
-  expect_equal(strong_old$p_value, 0)
+  strong_a <- cbind(rep(600, q), rep(600, q))
+  strong_G <- mgcvST:::mgcvst_pair_basis_cpp(strong_H, diag(q), 1L)
+  strong <- mgcvST:::mgcvst_pair_spa_cpp(strong_H, strong_G, strong_a, 1L, 2L,
+                                         threads = 1L)
+  expect_identical(strong$status, 0L)
   expect_true(is.finite(strong$log_p_two_sided))
   expect_lt(strong$log_p_two_sided, log(1e-300))
+  expect_equal(exp(strong$log_p_two_sided), 0)
 })
 
 test_that("an invalid exact-route p-value is missing and never enters the adjustment", {
   testthat::local_mocked_bindings(
-    mgcvst_pair_liu_cpp = function(H, avec, left, right, threads) {
+    mgcvst_pair_spa_cpp = function(H, G, avec, left, right, threads, order) {
       list(score = c(1, 2), log_p_two_sided = c(-Inf, -3),
            log_p_positive = c(-Inf, -3.7), log_p_negative = c(-Inf, -0.02),
-           status = c(2L, 0L))
+           remainder_kind = c(0L, 2L), status = c(2L, 0L))
     }, .package = "mgcvST")
   states <- lapply(1:3, function(i) list(a = c(i, 1), M = diag(2)))
-  out <- mgcvST:::.mgcvst_liu_pairs(rbind(c(1L, 2L), c(1L, 3L)), 1:3, states, 1L)
+  out <- mgcvST:::.mgcvst_spa_pairs(rbind(c(1L, 2L), c(1L, 3L)), 1:3, states,
+                                    vector("list", 3L), 1L)
   expect_identical(out$status, c(2L, 0L))
   expect_equal(out$score, c(1, 2))
+  expect_identical(out$remainder_kind, c(0L, 2L))
   expect_true(all(is.na(out[1L, c("log_p_two_sided", "log_p_positive",
                                   "log_p_negative")])))
   expect_equal(out$log_p_two_sided[2L], -3)

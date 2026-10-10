@@ -209,37 +209,53 @@ expected-likelihood working state, so its resulting operator need not satisfy
 equivalent to either the raw kernel or a separately formed
 `C %*% G_raw %*% C`.
 
-`inlaST.test()` tests each gene pair by the squared cross-gene score with
-Liu moment matching, and PCAlearning replaces the exact Liu trace
-moments by a low-rank approximation.
-Training genes are drawn by stratified sampling on the fitted spatial
-and observation variance scales, and their score covariances `H_j`,
-scaled by `sigma_e2 / sigma_g2`, define an orthonormal basis of `rank`
-symmetric matrices. Each tested gene is summarized by its basis
-coefficients `c_j`, and the four pair traces are obtained by contracting
-these coefficients with trace tables computed once. In a validation with 1,404 score
-coordinates, 300 training genes and `rank = 10`, the relative residual
-`e_j^2 / ||H_j||_F^2` had median 0.0017 and maximum 0.027 across 150
-test genes. On their 11,175 pairs, the 1% and 99% quantiles of the
-difference in `-log10(p)` between the approximate and exact tests were
--0.010 and 0.020, and the BY discoveries at `q = 0.05` were identical
-for the two-sided, positive and negative tests. On a separate 100-gene
-benchmark with 4,950 pairs, one of 2,352 exact two-sided BY discoveries
-was not recovered. Per-gene residuals are returned in
-`result$pca_learning$genes`.
+`mgcvST.test()` and `inlaST.test()` test each gene pair by the signed
+cross-gene score `U = sum(s_i x_i y_i)`, where `s_i` are the singular values of
+the product of the square roots of the two score-covariance matrices. The tail
+of `U` is a Lugannani-Rice saddlepoint approximation computed in log space on
+the `k` leading singular values of a basis shared by all genes, plus a
+remainder that matches the remaining power sums of the spectrum, so that
+p-values below the double range keep their ordering. Two routes provide the
+shared basis and the remainder, and `moments = "auto"` (the default) chooses
+between them by the score dimension `q`, the number of pairs, the threads and
+the memory, not by the estimator; `verbose = TRUE` prints the chosen route and
+the estimated pair time.
 
-`mgcvST.test()` and `inlaST.test()` share one argument list and one compact
-result. With `pairs = NULL`, every pair of the available genes is tested in
-blocks and streamed to Parquet shards. Each pair is a row of the integer
-feature indices `i < j`, `score`, the natural-log two-sided, positive and
-negative p-values, the adjusted two-sided `log_q`, `remainder_kind` and
-`status`; feature names are `result$feature_id[result$results$i]`. The
-adjustment (`adjust = "BY"`, `"BH"`, `"Sidak"` or `"none"`) is applied once to
-the two-sided family in log space, so p-values below the double range keep
-their decisions, and positive and negative discoveries are split by the sign of
-the score. A `checkpoint_dir` stores the feature score states and the pair
-shards under an algorithm contract; a directory holding pair results from
-another contract is refused.
+* `moments = "exact"` uses the `k = 20` leading eigenvectors of the summed,
+  normalized score covariances, the four exact trace moments of every pair, and
+  two moment-matched nodes as the remainder. In the 1,025-gene Visium-B
+  universe (`q = 298`), the 25,853 pairs of the shared-basis study stay within
+  0.0015 of the full-spectrum saddlepoint in `-log10(p)` down to `p = 1e-30`,
+  and `k = q` reproduces it. Its cost is cubic in `q` for every pair
+  (about 5 ms per pair and thread at `q = 298`).
+* `moments = "pcalearning"` projects every score covariance `H_j` onto an
+  orthonormal basis of `rank = 20` symmetric matrices learned from training
+  genes drawn by stratified sampling on the fitted spatial and observation
+  variance scales. Each tested gene is summarized by its basis coefficients
+  `c_j`, the two pair traces `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from
+  contractions with trace tables computed once, the shared basis holds the
+  `k = 50` leading eigenvectors of the training genes, and the remainder is one
+  node. On the 1,225 held-out pairs of the 1,404-coordinate MAGIC fit, the
+  route stays within 0.018 of the full-spectrum saddlepoint at `p = 1e-12`
+  and within 0.047 at `p = 1e-20`. Per-gene residuals
+  `e_j^2 / ||H_j||_F^2` are returned in `result$pca_learning$genes`. The Gram
+  matrix of the training genes is summed in a fixed block order, so one and
+  several threads give identical results.
+
+Both tests share one argument list and one compact result. With
+`pairs = NULL`, every pair of the available genes is tested in blocks and
+streamed to Parquet shards. Each pair is a row of the integer feature indices
+`i < j`, `score`, the natural-log two-sided, positive and negative p-values,
+the adjusted two-sided `log_q`, `remainder_kind` (0 none, 1 one node, 2 two
+nodes, 3 Gaussian) and `status`; feature names are
+`result$feature_id[result$results$i]`. The adjustment (`adjust = "BY"`,
+`"BH"`, `"Sidak"` or `"none"`) is applied once to the two-sided family in log
+space, and positive and negative discoveries are split by the sign of the
+score. A `checkpoint_dir` stores the feature score states, the shared basis
+and the pair shards under the algorithm contract `spa_v1`, which records the
+route, `k`, the remainder order and the sha of the shared basis; a directory
+holding pair results from another contract is refused, and a resumed
+`moments = "auto"` run follows the route recorded in the directory.
 
 ## Included data and observed spatial locations
 

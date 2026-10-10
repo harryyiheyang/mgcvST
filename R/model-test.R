@@ -16,15 +16,16 @@
 }
 
 .mgcvst_adjust_choices <- c("BY", "BH", "Sidak", "none")
+.mgcvst_moments_choices <- c("auto", "exact", "pcalearning")
 
 # Shared orchestration of mgcvST.test() and inlaST.test(): validate the
-# arguments, resolve the pair universe, stream the pairs of the route
-# ("exact" moments for mgcv fits, "pcalearning" for sparse INLA fits) to
-# shards, adjust the two-sided family once and assemble the result.
-.mgcvst_test_run <- function(fit, route, pairs, q.value, adjust, threads,
+# arguments, resolve the pair universe and the route, stream the pairs of the
+# route ("exact" moments or "pcalearning") to shards, adjust the two-sided
+# family once and assemble the result. `entry` is "mgcv" or "inla".
+.mgcvst_test_run <- function(fit, entry, pairs, q.value, adjust, threads,
                              chunk_size, checkpoint_dir, resume, verbose,
-                             rank = NULL, n_per_cell = NULL, seed = NULL,
-                             call = NULL) {
+                             moments = "auto", rank = NULL, n_per_cell = NULL,
+                             seed = NULL, k = NULL, call = NULL) {
   q.value <- as.numeric(q.value)
   if (length(q.value) != 1L || !is.finite(q.value) ||
       q.value <= 0 || q.value > 1) {
@@ -34,6 +35,11 @@
       !(adjust %in% .mgcvst_adjust_choices)) {
     stop("adjust must be one of ",
          paste0("\"", .mgcvst_adjust_choices, "\"", collapse = ", "), ".")
+  }
+  if (!is.character(moments) || length(moments) != 1L ||
+      !(moments %in% .mgcvst_moments_choices)) {
+    stop("moments must be one of ",
+         paste0("\"", .mgcvst_moments_choices, "\"", collapse = ", "), ".")
   }
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
     stop("verbose must be TRUE or FALSE.")
@@ -53,15 +59,12 @@
     stop("threads must be one positive integer.")
   }
   threads <- as.integer(threads)
-  if (is.null(chunk_size)) {
-    chunk_size <- if (identical(route, "pcalearning")) 1000000L else 10000L
-  }
-  if (!is.numeric(chunk_size) || length(chunk_size) != 1L ||
-      !is.finite(chunk_size) || chunk_size < 1 || chunk_size != floor(chunk_size)) {
+  if (!is.null(chunk_size) && (!is.numeric(chunk_size) ||
+      length(chunk_size) != 1L || !is.finite(chunk_size) || chunk_size < 1 ||
+      chunk_size != floor(chunk_size))) {
     stop("chunk_size must be one positive integer.")
   }
-  chunk_size <- min(chunk_size, .Machine$integer.max)
-  if (identical(route, "pcalearning")) {
+  if (identical(entry, "inla")) {
     if (!.mgcvst_inla_downstream(fit)) {
       stop("inlaST.test() requires a fit returned by inlaST.estimate().")
     }
@@ -80,10 +83,9 @@
          if (.mgcvst_inla_downstream(fit)) "inlaST" else "mgcvST",
          ".estimate_spatial().", call. = FALSE)
   }
-  if (identical(route, "pcalearning")) {
-    # Validated before the observation basis is built.
-    pca <- .mgcvst_pca_check_args(rank, n_per_cell, seed)
-  } else if (is.null(fit$geometry)) {
+  # Validated before any basis is built.
+  pca <- .mgcvst_pca_check_args(rank, n_per_cell, seed, k)
+  if (identical(entry, "mgcv") && is.null(fit$geometry)) {
     stop("fitmgcvST has no feature geometry to test.")
   }
   .mgcvst_thread_limit()
@@ -115,6 +117,8 @@
   n_tested <- if (is.null(index)) {
     sum(available) * (sum(available) - 1) / 2
   } else nrow(index)
+  n_used <- if (is.null(index)) sum(available) else
+    length(unique(as.vector(index)))
   if (verbose && !identical(adjust, "none")) {
     guard <- .mgcvst_pair_memory_guard(
       n_tested + if (is.null(extra)) 0 else nrow(extra),
@@ -127,30 +131,61 @@
     }
   }
 
-  inla_basis_elapsed <- 0
+  basis_elapsed <- 0
+  basis_rank <- NA_integer_
+  basis_kind <- NA_character_
   test_started <- proc.time()[["elapsed"]]
   routed <- NULL
+  route <- NULL
   if (n_tested > 0) {
-    if (identical(route, "pcalearning")) {
+    basis <- NULL
+    if (identical(entry, "inla")) {
       fit <- .inlast_sparse_prepare(fit)
       t_basis <- proc.time()[["elapsed"]]
       basis <- .inlast_check_basis(fit, .inlast_sparse_observation_basis(fit))
-      inla_basis_elapsed <- proc.time()[["elapsed"]] - t_basis
+      basis_elapsed <- proc.time()[["elapsed"]] - t_basis
+      basis_rank <- basis$rank
+      basis_kind <- basis$kind
+    }
+    q <- .mgcvst_state_width(fit, basis)
+    # A checkpoint directory remembers its route, so that a resumed run
+    # follows it whatever the threads or the memory of the new session.
+    stored <- if (!is.null(checkpoint_dir) && resume && identical(moments, "auto"))
+      .mgcvst_route_stored(checkpoint_dir) else NULL
+    route <- .mgcvst_route_resolve(
+      if (is.null(stored)) moments else stored$moments, q, n_used, n_tested,
+      threads, pca$rank,
+      if (is.null(pca$k)) .mgcvst_exact_defaults$k else pca$k,
+      if (is.null(pca$k)) .mgcvst_pca_defaults$k else pca$k,
+      .mgcvst_memory_probe()$available
+    )
+    if (!is.null(stored)) route$reason <- "the route of the checkpoint directory"
+    if (verbose) {
+      message("Pair test: ", if (identical(route$moments, "exact"))
+                paste0("exact moments (k = ", route$k, ")") else
+                paste0("PCAlearning (rank ", pca$rank, ", k = ", route$k, ")"),
+              " on q = ", q, ", ", format(n_tested, big.mark = ","), " pairs and ",
+              threads, " thread", if (threads > 1L) "s", "; estimated pair time ",
+              .mgcvst_format_duration(route$seconds),
+              if (!is.null(route$reason) && identical(moments, "auto"))
+                paste0(" (auto: ", route$reason, ")"), ".")
+    }
+    if (is.null(chunk_size)) {
+      chunk_size <- if (identical(route$moments, "pcalearning")) 1000000L else 10000L
+    }
+    chunk_size <- min(chunk_size, .Machine$integer.max)
+    if (identical(route$moments, "pcalearning")) {
       routed <- .mgcvst_pair_pcalearning(
         fit, index, threads, chunk_size, verbose, basis = basis,
         rank = pca$rank, n_per_cell = pca$n_per_cell, seed = pca$seed,
-        checkpoint_dir = checkpoint_dir, resume = resume
+        k = route$k, checkpoint_dir = checkpoint_dir, resume = resume,
+        route = route
       )
-      routed$metadata <- c(list(
-        q = ncol(fit$score_sparse$Q), r = basis$rank,
-        basis_kind = basis$kind,
-        basis = "constrained_observation_kernel_A_Qg_inverse_At",
-        unit_cache = "score_state_shards"
-      ), routed$metadata)
     } else {
       routed <- .mgcvst_pair_pipeline(
         fit, index, threads, chunk_size, verbose,
-        checkpoint_dir = checkpoint_dir, resume = resume
+        checkpoint_dir = checkpoint_dir, resume = resume, k = route$k,
+        basis = basis, route = route
       )
     }
   } else {
@@ -162,8 +197,7 @@
                                        error = character()),
                    elapsed = 0, metadata = list(
                      preparation_elapsed = 0, chunks = 0L,
-                     contract = .mgcvst_contract(
-                       if (identical(route, "pcalearning")) "pcalearning" else "exact")))
+                     contract = .mgcvst_contract("exact")))
   }
   finalized <- .mgcvst_pairs_finalize(
     routed$pair_dir, routed$shards, routed$rows, extra, adjust, q.value,
@@ -190,16 +224,29 @@
     pair_elapsed = elapsed - summary_elapsed,
     workers = threads, chunks = routed$metadata$chunks,
     backend = "C++ OpenMP", preparation_backend = "C++ OpenMP",
-    preparation_threads = threads
+    preparation_threads = threads,
+    test_wall_elapsed = proc.time()[["elapsed"]] - test_started
   )
+  if (identical(entry, "inla") && !is.null(route)) {
+    # The observation basis of a sparse INLA fit: q is the dimension of the
+    # field, r the number of basis directions (the score dimension).
+    timing$inla_projection <- list(
+      q = ncol(fit$score_sparse$Q), r = basis_rank, basis_kind = basis_kind,
+      basis = "constrained_observation_kernel_A_Qg_inverse_At",
+      basis_elapsed = basis_elapsed
+    )
+  }
   pca_learning <- NULL
-  if (identical(route, "pcalearning")) {
+  if (!is.null(route)) {
+    timing$route <- c(route[c("moments", "k", "q", "n_used", "n_pairs")],
+                      list(estimated_pair_seconds = route$seconds,
+                           reason = route$reason))
+  }
+  if (identical(route$moments, "pcalearning")) {
     projection <- routed$metadata
     pca_learning <- projection$pca_learning
     projection$pca_learning <- NULL
-    projection$basis_elapsed <- inla_basis_elapsed
-    projection$test_wall_elapsed <- proc.time()[["elapsed"]] - test_started
-    timing$inla_projection <- projection
+    timing$pcalearning <- projection
   } else {
     timing$pair_pipeline <- routed$metadata
   }
@@ -216,7 +263,8 @@
         "explicit_tested_pair_universe",
       test_definition = "single_global_cross_gene_covariance_at_independence",
       timing = timing,
-      calibration = "liu",
+      calibration = "saddlepoint",
+      moments = if (is.null(route)) NA_character_ else route$moments,
       contract = routed$metadata$contract,
       checkpoint_dir = if (isTRUE(routed$temporary)) NULL else
         normalizePath(checkpoint_dir, winslash = "/", mustWork = FALSE),
@@ -232,10 +280,34 @@
 #'
 #' Tests the cross-feature spatial covariance of every requested gene pair from
 #' the fixed compact summaries in a fit returned by [mgcvST.estimate()]; no GAM
-#' is refitted. Each pair is tested by the squared signed cross-gene score,
-#' calibrated by Liu moment matching of exact trace moments of the two
-#' score-covariance matrices. Sparse INLA fits from [inlaST.estimate()] are
-#' tested with [inlaST.test()], which takes the same arguments.
+#' is refitted. Each pair is tested by the signed cross-gene score
+#' `U = sum(s_i x_i y_i)`, where `s_i` are the singular values of the product
+#' of the square roots of the two score-covariance matrices. The tail of `U` is
+#' a Lugannani-Rice saddlepoint approximation computed in log space on the
+#' `k` leading singular values of a basis shared by all genes, plus a
+#' remainder that matches the remaining power sums of the spectrum. Sparse
+#' INLA fits from [inlaST.estimate()] are tested with [inlaST.test()], which
+#' takes the same arguments.
+#'
+#' Two routes supply the shared basis and the remainder. With
+#' `moments = "exact"`, the shared basis holds the `k = 20` leading
+#' eigenvectors of the summed, normalized score covariances, every pair needs
+#' the four exact trace moments `tr((H_i H_j)^s)`, `s = 1, ..., 4`, and the
+#' remainder is two moment-matched nodes (one node or a Gaussian term when
+#' the moments do not allow two nodes). With `moments = "pcalearning"`, the
+#' score covariances are projected onto a rank-`rank` basis learned from
+#' training genes (see [inlaST.test()] for the construction), the pair traces
+#' `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from a contraction of the
+#' projected coefficients, the shared basis holds the `k = 50` leading
+#' eigenvectors of the training genes, and the remainder is one node. The
+#' exact route costs time cubic in the score dimension `q` for every pair, and
+#' the PCAlearning route does not depend on `q` per pair. `moments = "auto"`
+#' (the default) takes the exact route when its estimated pair phase is at
+#' most 2 hours, its pair bases fit 30% of the available memory and its
+#' score-state store fits 64 GB on disk, and the PCAlearning route otherwise;
+#' `verbose = TRUE` prints the chosen route and the estimated time. A
+#' checkpoint directory records its route, and a resumed `"auto"` run follows
+#' the recorded route.
 #'
 #' With `pairs = NULL`, every pair of the available features is tested; the
 #' pairs are generated and scored in blocks and never held as one matrix. A
@@ -248,10 +320,10 @@
 #' two-sided, positive and negative p-values `log_p_two_sided`,
 #' `log_p_positive` and `log_p_negative`, the adjusted two-sided
 #' log q-value `log_q`, the integer `remainder_kind` of the calibration (0:
-#' Liu moment matching without remainder) and the integer `status` (0:
-#' evaluated; 1: trace moments non-finite or non-positive, reported by
-#' [mgcvST.test()] only; 2: invalid p-value; 3: a feature of the pair has no
-#' usable score state). A pair with a status other than 0 has missing log
+#' no remainder; 1: one node; 2: two nodes; 3: Gaussian term) and the integer
+#' `status` (0: evaluated; 1: trace moments non-finite or non-positive; 2:
+#' invalid p-value; 3: a feature of the pair has no usable score state). A
+#' pair with a status other than 0 has missing log
 #' p-values and is not adjusted. Rows are written as Parquet shards while the
 #' pairs are evaluated, and `$results` is the same table sorted by `(i, j)`
 #' when it fits the memory guard (56 bytes per pair, 20% of available memory),
@@ -283,30 +355,52 @@
 #' @param threads Positive number of OpenMP threads for score-state
 #'   preparation and the pair kernels. `NULL` uses one.
 #' @param chunk_size Maximum number of pairs evaluated per native block and
-#'   written per shard. `NULL` uses 10,000 for [mgcvST.test()] and 1,000,000
-#'   for [inlaST.test()].
+#'   written per shard. `NULL` uses 10,000 for the exact route and 1,000,000
+#'   for the PCAlearning route.
 #' @param checkpoint_dir Optional checkpoint directory. Reusable feature score
 #'   states and the raw pair shards are saved there, and a repeated call
 #'   resumes completed shards. Pair results are keyed by the algorithm
 #'   contract; a directory holding pair results from another contract is
 #'   refused. With `NULL`, temporary storage is used.
 #' @param resume Reuse compatible completed checkpoint entries.
-#' @param verbose Logical; report progress.
+#' @param verbose Logical; report progress, the chosen route and the
+#'   estimated pair time.
+#' @param moments `"auto"` (the default), `"exact"` or `"pcalearning"`: the
+#'   route of the pair calibration. `"auto"` chooses by the score dimension
+#'   `q`, the number of pairs, the threads and the memory, not by the
+#'   estimator.
+#' @param rank Number of PCAlearning basis matrices (default 20). Used by the
+#'   PCAlearning route.
+#' @param n_per_cell Training genes drawn per PCAlearning stratification cell
+#'   (default 3).
+#' @param seed Non-negative integer seed for PCAlearning training-gene
+#'   sampling; the caller's random-number state is restored.
+#' @param k Number of leading singular values of the shared basis. `NULL`
+#'   uses 20 on the exact route and 50 on the PCAlearning route; a value above
+#'   the score dimension `q` is reduced to `q`, and `k = q` reproduces the
+#'   full-spectrum saddlepoint of each pair.
 #' @return An object of class `mgcvST_test` with `results`, `shards`,
 #'   `feature_id`, `failed` (features without a usable score state and the
-#'   reason), `threshold`, `discoveries`, `adjustment`, `timing`,
-#'   `calibration`, `contract` and `call`. [inlaST.test()] additionally
+#'   reason), `threshold`, `discoveries`, `adjustment`, `timing`
+#'   (including the chosen route in `timing$route`), `calibration`, `moments`
+#'   (the route taken), `contract` and `call`. A PCAlearning run additionally
 #'   returns `pca_learning`.
 #' @export
 mgcvST.test <- function(
     fitmgcvST, pairs = NULL, q.value = 0.05,
     adjust = c("BY", "BH", "Sidak", "none"),
     threads = NULL, chunk_size = NULL, checkpoint_dir = NULL,
-    resume = TRUE, verbose = FALSE) {
+    resume = TRUE, verbose = FALSE,
+    moments = c("auto", "exact", "pcalearning"),
+    rank = .mgcvst_pca_defaults$rank,
+    n_per_cell = .mgcvst_pca_defaults$n_per_cell,
+    seed = .mgcvst_pca_defaults$seed, k = NULL) {
   adjust <- match.arg(adjust)
+  moments <- match.arg(moments)
   .mgcvst_test_run(
-    fitmgcvST, "exact", pairs, q.value, adjust, threads, chunk_size,
-    checkpoint_dir, resume, verbose, call = match.call()
+    fitmgcvST, "mgcv", pairs, q.value, adjust, threads, chunk_size,
+    checkpoint_dir, resume, verbose, moments = moments, rank = rank,
+    n_per_cell = n_per_cell, seed = seed, k = k, call = match.call()
   )
 }
 

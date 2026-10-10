@@ -1,3 +1,73 @@
+# mgcvST 0.0.1.9033
+
+* Stage B of the saddlepoint release: the Stage 2 pair calibration. Liu moment
+  matching is replaced by a Lugannani-Rice saddlepoint approximation in log
+  space. For a pair, the score is `U = sum(s_i x_i y_i)` with `s_i` the singular
+  values of `H_i^(1/2) H_j^(1/2)`. The tail is evaluated on the `k` leading
+  singular values of a basis `V` shared by all genes, plus a remainder that
+  matches the remaining power sums `mu_r = t_r - sum_{i <= k} s_i^(2r)` (a
+  `mu_r` below `1e-10 t_r` in absolute value is zero). The remainder is two
+  nodes from four moments, one node from two moments when two nodes are not
+  available, a Gaussian term when `mu_2 <= 0`, and none when `mu_1 <= 0`;
+  `remainder_kind` records it (0 none, 1 one node, 2 two nodes, 3 Gaussian).
+  The saddlepoint is solved on a guarded Newton-bisection root, with the
+  log-tail form (and the `r*` form when the Lugannani-Rice bracket is not
+  positive); `|w| < 1e-3` gives a two-sided p-value of 1 and one-sided values of
+  1/2, and the tail is computed at `|U|` and mirrored. One header
+  (`src/spa_pair.h`) serves both routes; `liu_tail.h` and `mgcvst_liu_logp_cpp`
+  are gone.
+* API change: `mgcvST.test()` and `inlaST.test()` take `moments = c("auto",
+  "exact", "pcalearning")` and `k` (after `verbose`), and `mgcvST.test()` also
+  takes the PCAlearning controls `rank`, `n_per_cell` and `seed`, so the two
+  tests have one argument list. `moments = "auto"` chooses the route by the score
+  dimension `q`, the number of pairs `P`, the threads and the memory, not by the
+  estimator: the exact route when `P * 5 ms * (q / 298)^3 / threads` is at most
+  2 hours, its resident pair bases take at most 30% of the available memory and
+  its score-state store at most 64 GB, or when there are no more genes than
+  `rank`; PCAlearning otherwise. `verbose = TRUE` prints the chosen route and
+  the estimated pair time, and a checkpoint directory records its route
+  (`route.rds`), so a resumed `"auto"` run follows it. The result gains
+  `moments`, `timing$route` and `calibration = "saddlepoint"`; `timing$inla_projection`
+  is now `timing$pcalearning`.
+* Exact route (`moments = "exact"`, default `k = 20`): the shared basis `V` is
+  the `k` leading eigenvectors of the sum of the symmetrized states divided by
+  their largest absolute entry, accumulated once while the states are built, in
+  feature order whatever the batching, and saved in `basis.rds` with its key and
+  sha. The pair basis of a gene is `G_g = H_g^(1/2) V` with the symmetric square
+  root, so a pair needs the singular values of the `k x k` matrix `G_i' G_j` and
+  the exact trace moments `t_1..t_4`. Sparse INLA fits use this route at small
+  `q` through the reduced observation-kernel states. The parallel region uses
+  only Eigen operations on `k x k` and `q x q` matrices and `R::pnorm`.
+* PCAlearning route (`moments = "pcalearning"`, default `rank = 20`, `k = 50`):
+  the trace tables are built for levels 1 and 2 only (`t_1 = c_i' c_j` and `t_2`
+  from the degree-2 monomials, which are built once and reused across blocks),
+  `.mgcvst_pca_table_bytes()` follows. The shared basis comes from the packed
+  training matrices, `R_g = chol(V' H_g V / max|H_g|)` is computed when a gene is
+  materialized, and the remainder is one node. The route no longer depends on
+  the estimator: an mgcv fit materializes its states with the dense score
+  kernel and takes the same path. The Gram matrix of the training genes is
+  summed per fixed row chunk in chunk order, so one and several threads give
+  bitwise identical results. The checkpoint manifest is version 3
+  (`spa_pcalearning`) and `pca-basis.rds` carries `V` and the training factors;
+  a checkpoint or pair directory of an earlier algorithm contract is refused.
+* Algorithm contract `spa_v1` (route, `k`, remainder order, sha of the shared
+  basis, kernel version) keys every pair directory. A gene whose curvature
+  matrix is zero has `status` 1 on the exact route and no usable state
+  (`status` 3) on the PCAlearning route.
+* `rkhs_score_calibrate()` is the single-pair full-spectrum saddlepoint
+  reference (`k` equal to the dimension); it returns the log p-values and a
+  `spa` record in place of `liu_parameters`, and `rkhs_covariance_score()`
+  reports `calibration = "saddlepoint"`.
+* Removed internals: `.liu_log_p()`, `.liu_squared_score_moments()`,
+  `mgcvst_pair_liu_cpp()`, `mgcvst_pca_pairs_cpp()`, `mgcvst_pca_pairs_block_cpp()`
+  and trace-table levels 3 and 4.
+* Validation (see `inst/benchmarks/spa-validation-*.R`). Visium-B, `q = 298`,
+  25,853 pairs of the shared-basis study, exact route with `k = 20`: the
+  maximum deviation of `-log10(p)` from the full-spectrum saddlepoint is 0.0015
+  for `p >= 1e-30`, and `k = q` agrees to 2e-13. MAGIC INLA, `q = 1404`, 1,225
+  held-out pairs, PCAlearning with `rank = 20` and `k = 50`: 0.0176 at
+  `p = 1e-12` and 0.0471 at `p = 1e-20`.
+
 # mgcvST 0.0.1.9032
 
 * Estimation and memory release (the estimation side of the saddlepoint

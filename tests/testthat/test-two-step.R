@@ -864,6 +864,7 @@ test_that("the observation basis is full rank and enters the pair signature", {
   # The basis is built once and is the one the test reports.
   tested <- inlaST.test(fit, rank = 3L, seed = 4L)
   expect_identical(tested$timing$inla_projection$q, d$m)
+  expect_identical(tested$timing$route$q, d$m - 1L)
   expect_identical(tested$timing$inla_projection$r, d$m - 1L)
   expect_identical(tested$timing$inla_projection$basis_kind, "full_rank")
   # WGCNA uses the same basis, and its normalizer is q - 1.

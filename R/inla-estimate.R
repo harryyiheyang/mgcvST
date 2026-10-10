@@ -321,7 +321,7 @@
 #' (0, 1], the saddlepoint approximation (Kuonen 1999) is used instead;
 #' `marginal_method` reports `"davies"` or `"saddlepoint"` and
 #' `marginal_fallback` flags the fallback. Pair tests in [inlaST.test()] are
-#' calibrated by Liu moment matching. Every spatial component's constraint
+#' calibrated by a saddlepoint approximation. Every spatial component's constraint
 #' residual and observed spatial mean are retained in the result.
 #' The score uses the SPDE covariance conditioned on observation mean zero.
 #' The sparse score uses a matching expected-curvature nuisance adjustment.

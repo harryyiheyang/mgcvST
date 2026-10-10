@@ -69,26 +69,27 @@ rkhs_score_singular_values <- function(H1, H2) {
   if (!all(dim(H1) == dim(H2)) || nrow(H1) != ncol(H1)) {
     stop("H1 and H2 must be square matrices with identical dimensions.")
   }
-  F1 <- .psd_factor(H1)
-  F2 <- .psd_factor(H2)
-  if (ncol(F1) == 0L || ncol(F2) == 0L) return(numeric(0))
-  A <- .magic_mm(F1, F2, transA = TRUE)
-  s <- as.numeric(CppMatrix::matrixSVD(A)$d)
-  if (!length(s)) return(numeric(0))
-  s[s > 0]
+  .rkhs_score_spectrum(H1, H2)
 }
 
 #' Calibrate a signed bilinear Gaussian score
 #'
 #' Under the Gaussian null, `U` has the distribution
 #' `sum(s * Z * W)`, equivalently a signed quadratic form with weights
-#' `c(s / 2, -s / 2)`. The calibration is Liu moment matching of the squared
-#' score from the first four trace moments of `H1 H2`.
+#' `c(s / 2, -s / 2)`. The calibration is the Lugannani-Rice saddlepoint
+#' approximation of the exact distribution on the full singular spectrum `s`
+#' of the pair, computed in log space. It is the single-pair reference of the
+#' saddlepoint calibration that [mgcvST.test()] and [inlaST.test()] apply to
+#' a shared basis of `k` leading singular values: with `k` equal to the
+#' dimension, the pair tests reproduce this value.
 #'
 #' @param U Observed bilinear score.
 #' @param H1,H2 Score covariance summaries.
-#' @return Simultaneous two-sided, positive, and negative p-values with the
-#'   information, effective rank, and numerical moments used to obtain them.
+#' @return Simultaneous two-sided, positive, and negative p-values and their
+#'   natural logarithms (`log_p_two_sided`, `log_p_positive`,
+#'   `log_p_negative`), with the information, effective rank, trace moments
+#'   `tr((H1 H2)^j)`, `j = 1, ..., 4`, and the saddlepoint record `spa`
+#'   (number of singular values, `remainder_kind` and `status`).
 #' @export
 rkhs_score_calibrate <- function(U, H1, H2) {
   U <- as.numeric(U)
@@ -108,34 +109,42 @@ rkhs_score_calibrate <- function(U, H1, H2) {
   # Restore units in steps, avoiding premature overflow/underflow of units^k.
   for (j in 1:4) for (k in seq_len(2L * j)) moments[j] <- moments[j] * units
   information <- moments[1L]
-  if (!all(is.finite(normalized)) || any(normalized <= 0)) {
-    return(list(
-      p_two_sided = NA_real_, p_positive = NA_real_,
-      p_negative = NA_real_, information = information,
-      effective_rank = 0, moments = moments, liu_parameters = NULL
-    ))
-  }
-  effective_rank <- normalized[1L]^2 / normalized[2L]
-  normalized_score <- U / units
-  liu <- .liu_squared_score_moments(
-    abs(normalized_score), normalized[1L], normalized[2L], normalized[3L], normalized[4L]
+  invalid <- list(
+    p_two_sided = NA_real_, p_positive = NA_real_, p_negative = NA_real_,
+    log_p_two_sided = NA_real_, log_p_positive = NA_real_,
+    log_p_negative = NA_real_, information = information, effective_rank = 0,
+    moments = moments, spa = NULL
   )
-  p.two <- liu$p_value
-  p.positive <- if (U >= 0) p.two / 2 else 1 - p.two / 2
-  p.negative <- if (U <= 0) p.two / 2 else 1 - p.two / 2
-  for (j in 1:4) for (k in seq_len(2L * j)) {
-    liu[[paste0("c", j)]] <- liu[[paste0("c", j)]] * units
-  }
-
+  if (!all(is.finite(normalized)) || any(normalized <= 0)) return(invalid)
+  s <- .rkhs_score_spectrum(H1 / scale1, H2 / scale2)
+  if (!length(s)) return(invalid)
+  spectrum_sums <- vapply(1:4, function(r) sum(s^(2 * r)), numeric(1L))
+  z <- mgcvst_spa_cpp(U / units, matrix(s, ncol = 1L),
+                      matrix(spectrum_sums, 4L, 1L), 4L, 1L)
+  if (z[1L, "status"] != 0) return(invalid)
   list(
-    p_two_sided = p.two,
-    p_positive = p.positive,
-    p_negative = p.negative,
+    p_two_sided = unname(exp(z[1L, "log_p_two_sided"])),
+    p_positive = unname(exp(z[1L, "log_p_positive"])),
+    p_negative = unname(exp(z[1L, "log_p_negative"])),
+    log_p_two_sided = unname(z[1L, "log_p_two_sided"]),
+    log_p_positive = unname(z[1L, "log_p_positive"]),
+    log_p_negative = unname(z[1L, "log_p_negative"]),
     information = information,
-    effective_rank = effective_rank,
+    effective_rank = normalized[1L]^2 / normalized[2L],
     moments = moments,
-    liu_parameters = liu
+    spa = list(k = length(s), remainder_kind = unname(z[1L, "remainder_kind"]),
+               status = unname(z[1L, "status"]))
   )
+}
+
+# Full singular spectrum of the pair (H1, H2): the singular values of
+# F1' F2 for PSD factors F1 F1' = H1 and F2 F2' = H2.
+.rkhs_score_spectrum <- function(H1, H2) {
+  F1 <- .psd_factor(H1)
+  F2 <- .psd_factor(H2)
+  if (ncol(F1) == 0L || ncol(F2) == 0L) return(numeric(0))
+  s <- as.numeric(CppMatrix::matrixSVD(.magic_mm(F1, F2, transA = TRUE))$d)
+  s[s > 0]
 }
 
 # Compute trace((H1 H2)^k), k = 1, ..., 4, without a spectral decomposition.
@@ -149,51 +158,6 @@ rkhs_score_calibrate <- function(U, H1, H2) {
     list(H1, H2), matrix(c(1L, 2L), nrow = 1L), maxPower = 4L,
     threads = 1L
   ))
-}
-
-# Natural-log Liu p-values (columns two_sided, positive, negative) of signed
-# scores U from trace moments t1..t4 = tr((H1 H2)^s); log-space tail.
-.liu_log_p <- function(U, t1, t2, t3, t4, threads = 1L) {
-  n <- max(length(U), length(t1), length(t2), length(t3), length(t4))
-  mgcvst_liu_logp_cpp(rep_len(as.numeric(U), n), rep_len(as.numeric(t1), n),
-                      rep_len(as.numeric(t2), n), rep_len(as.numeric(t3), n),
-                      rep_len(as.numeric(t4), n), as.integer(threads))
-}
-
-# Match squared-score moments using trace powers of H1 H2. p_value and log_p
-# (natural log) come from the log-space Liu kernel shared with PCAlearning.
-.liu_squared_score_moments <- function(U, A, B, C, D, threads = 1L) {
-  c1 <- A
-  c2 <- A^2 + 3 * B
-  c3 <- A^3 + 9 * A * B + 15 * C
-  c4 <- A^4 + 18 * A^2 * B + 60 * A * C + 24 * B^2 + 105 * D
-  s1 <- c3 / c2^(3 / 2)
-  s2 <- c4 / c2^2
-  tstar <- (U^2 - c1) / sqrt(2 * c2)
-
-  noncentral <- s1^2 > s2
-  a <- 1 / s1
-  delta <- rep(0, length(s1))
-  df <- 1 / s1^2
-  if (any(noncentral)) {
-    a[noncentral] <- 1 / (
-      s1[noncentral] - sqrt(s1[noncentral]^2 - s2[noncentral])
-    )
-    delta[noncentral] <- s1[noncentral] * a[noncentral]^3 -
-      a[noncentral]^2
-    df[noncentral] <- a[noncentral]^2 - 2 * delta[noncentral]
-  }
-
-  muX <- df + delta
-  sigmaX <- sqrt(2) * a
-  x <- tstar * sigmaX + muX
-  log_p <- as.vector(.liu_log_p(U, A, B, C, D, threads)[, 1L])
-  list(
-    p_value = exp(log_p), log_p = log_p,
-    c1 = c1, c2 = c2, c3 = c3, c4 = c4,
-    skewness_scale = s1, kurtosis_scale = s2,
-    scale = a, df = df, ncp = delta, transformed = x
-  )
 }
 
 #' Low-rank RKHS covariance score test
@@ -219,7 +183,7 @@ rkhs_covariance_score <- function(error1, error2, operator1, operator2,
     c(list(
       signed_score = U,
       statistic = U^2,
-      calibration = "liu",
+      calibration = "saddlepoint",
       summary1 = S1,
       summary2 = S2
     ),

@@ -4,10 +4,10 @@
 # Every pair of a test is one row of integer feature indices i < j, the signed
 # score, the natural-log two-sided, positive and negative p-values, the
 # adjusted two-sided log q-value, the kind of remainder used by the
-# calibration and a status code. Feature names are looked up from the
-# `feature_id` vector stored beside the shards; no per-pair character column
-# exists. Shards are written as the pairs are evaluated, so a run never holds
-# a per-pair table of all pairs in memory.
+# calibration (0 none, 1 one node, 2 two nodes, 3 Gaussian) and a status code.
+# Feature names are looked up from the `feature_id` vector stored beside the
+# shards; no per-pair character column exists. Shards are written as the pairs
+# are evaluated, so a run never holds a per-pair table of all pairs in memory.
 
 .mgcvst_final_columns <- c(
   "i", "j", "score", "log_p_two_sided", "log_p_positive", "log_p_negative",
@@ -20,17 +20,19 @@
 
 # Algorithm contract of the pair p-values. Every checkpoint of pair results is
 # keyed by it, and a checkpoint written under another contract is refused.
-# Stage 2 is still calibrated by Liu moment matching in this version;
-# `remainder_order`, `k` and `basis_sha` are the fields in which a calibration
-# with a basis truncation and a matched remainder records its parameters. The
-# rank `k` and the sha of the basis are known only once the basis exists, so
-# the pair directory of a run is opened (and the contract written) after the
-# basis is built; only the refusal of stale directories happens earlier.
+# Stage 2 is calibrated by a saddlepoint approximation on k leading singular
+# values of the pair spectrum plus a remainder that matches the remaining power
+# sums: four moments with two nodes on the exact route (`remainder_order` 4),
+# two moments with one node on the PCAlearning route (2). The rank `k` and the
+# sha of the shared basis are known only once the basis exists, so the pair
+# directory of a run is opened (and the contract written) after the basis is
+# built; only the refusal of stale directories happens earlier.
 .mgcvst_contract <- function(route, k = NA_integer_, basis_sha = NA_character_) {
   stopifnot(route %in% c("exact", "pcalearning"))
-  list(calibration_contract = "liu_v2", route = route, k = as.integer(k),
-       remainder_order = 0L, basis_sha = as.character(basis_sha),
-       kernel_version = 1L, schema = "compact_v1")
+  list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
+       remainder_order = if (identical(route, "exact")) 4L else 2L,
+       basis_sha = as.character(basis_sha), kernel_version = 1L,
+       schema = "compact_v1")
 }
 
 .mgcvst_pairs_frame <- function(i, j, score = NA_real_, log_p_two_sided = NA_real_,

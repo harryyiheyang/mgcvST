@@ -87,10 +87,16 @@
   })
 }
 
-# Scores and Liu log p-values of the pairs `index` (global feature indices)
-# from the score states of the features `active`, one state per feature. A
-# pair with a feature whose state failed is returned with status 3.
-.mgcvst_liu_pairs <- function(index, active, states, threads) {
+# Defaults of the exact-moment route: the number of leading singular values
+# kept from the shared basis.
+.mgcvst_exact_defaults <- list(k = 20L)
+
+# Scores and saddlepoint log p-values of the pairs `index` (global feature
+# indices) from the score states of the features `active`, one state per
+# feature, and their pair bases G (indexed by global feature). A pair with a
+# feature whose state failed is returned with status 3; a pair that is not
+# evaluated carries no p-value.
+.mgcvst_spa_pairs <- function(index, active, states, G, threads, order = 4L) {
   out <- .mgcvst_pairs_frame(index[, 1L], index[, 2L],
                              status = .mgcvst_pair_status[["feature"]])
   good <- vapply(states, function(z) is.null(z$error), logical(1L))
@@ -102,16 +108,17 @@
   H <- lapply(states[keep], `[[`, "M")
   pair <- matrix(match(local[rows, , drop = FALSE], keep), ncol = 2L)
   perm <- order(pair[, 1L])
-  res <- mgcvst_pair_liu_cpp(H, avec, pair[perm, 1L], pair[perm, 2L], threads)
+  res <- mgcvst_pair_spa_cpp(H, G[active[keep]], avec, pair[perm, 1L],
+                             pair[perm, 2L], threads, order)
   at <- rows[perm]
   out$score[at] <- res$score
   out$log_p_two_sided[at] <- res$log_p_two_sided
   out$log_p_positive[at] <- res$log_p_positive
   out$log_p_negative[at] <- res$log_p_negative
+  out$remainder_kind[at] <- res$remainder_kind
   out$status[at] <- res$status
   # A pair that is not evaluated carries no p-value, as in the PCAlearning
-  # route; a non-finite log p-value (-Inf) would otherwise enter the
-  # adjustment as p = 0 and count as a discovery.
+  # route; a non-finite log p-value would otherwise enter the adjustment.
   invalid <- which(out$status != .mgcvst_pair_status[["ok"]])
   if (length(invalid)) {
     out$log_p_two_sided[invalid] <- NA_real_
@@ -121,13 +128,122 @@
   out
 }
 
-# Evaluate the Liu-calibrated pairs of a model.set() fit from resumable
+# How the dense score state (a, M) of a feature is produced: from the working
+# model of an mgcv fit, or by reconstructing the reduced curvature of a sparse
+# INLA fit in its observation basis. `missing` are the features to build.
+.mgcvst_state_builder <- function(fit, missing, threads, basis = NULL) {
+  if (identical(fit$score_backend, "sparse")) {
+    fit <- .inlast_sparse_prepare(fit)
+    r <- basis$rank
+    m <- ncol(fit$score_sparse$Q)
+    return(list(
+      work = 8 * (6 * r^2 + 4 * m * r),
+      build = function(ids) {
+        units <- .inlast_sparse_units(fit, ids, threads = threads)
+        bad <- vapply(units, function(z) !is.null(z$error), logical(1L))
+        states <- vector("list", length(ids))
+        if (any(!bad)) {
+          z <- .inlast_sparse_materialize_reduced(fit, units[!bad], basis,
+                                                  threads = threads)
+          states[!bad] <- lapply(z, function(s) {
+            if (!is.null(s$error)) list(error = as.character(s$error)) else
+              list(a = as.numeric(s$a), M = s$M, width = r)
+          })
+        }
+        for (j in which(bad)) states[[j]] <- list(error = as.character(units[[j]]$error))
+        states
+      },
+      finish = function() invisible(NULL)
+    ))
+  }
+  fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
+  native <- .mgcvst_model_dense_preparation(fit, missing)
+  if (is.null(native)) {
+    stop("Model score states require the conditional nuisance covariance; ",
+         "re-estimate with the current mgcvST.estimate().")
+  }
+  q <- .mgcvst_state_width(fit)
+  p <- ncol(native$X)
+  if (is.null(p)) p <- 0L
+  n <- nrow(fit$working_variance)
+  list(
+    work = 8 * (8 * n * q + 4 * n * p + 8 * q^2 + 4 * q * p + 4 * p^2),
+    build = function(ids) .mgcvst_pair_build_batch(fit, ids, threads, native),
+    finish = function() invisible(NULL)
+  )
+}
+
+# Width q of the score coordinates of the states of a fit.
+.mgcvst_state_width <- function(fit, basis = NULL) {
+  if (identical(fit$score_backend, "sparse")) return(as.integer(basis$rank))
+  target <- fit$geometry$target
+  width <- if (length(target)) {
+    ncol(fit$geometry$smooth[[unname(target[[1L]])]]$B)
+  } else 1L
+  if (!is.finite(width) || width < 1L) stop("The score coordinate width is invalid.")
+  as.integer(width)
+}
+
+# Shared basis V of the exact route: the k leading eigenvectors of the sum of
+# the normalized state matrices over `used`, added in feature order whatever the
+# batching (so the basis, and its sha, are reproducible). `sum` is the running
+# sum when the states were accumulated while they were built, or NULL, in which
+# case the stored states are read in one pass. A saved basis for the same
+# feature set is reused.
+.mgcvst_exact_basis <- function(store, used, width, k, path, sum, batch_size,
+                                verbose) {
+  key <- digest::digest(list(used = used, k = k, width = width), algo = "sha256")
+  file <- if (is.null(path)) NULL else file.path(path, "basis.rds")
+  if (!is.null(file) && file.exists(file)) {
+    saved <- tryCatch(readRDS(file), error = function(e) NULL)
+    if (is.list(saved) && identical(saved$key, key) &&
+        identical(saved$sha, digest::digest(saved$V, algo = "sha256"))) {
+      if (verbose) message("Reused the shared basis (k = ", k, ").")
+      return(saved)
+    }
+  }
+  S <- sum
+  if (is.null(S)) {
+    S <- matrix(0, width, width)
+    for (first in seq.int(1L, length(used), by = batch_size)) {
+      ids <- used[first:min(length(used), first + batch_size - 1L)]
+      states <- lapply(ids, function(id) .mgcvst_store_read(store, id))
+      good <- vapply(states, function(z) is.null(z$error), logical(1L))
+      if (any(good)) {
+        S <- mgcvst_pair_basis_sum_cpp(lapply(states[good], `[[`, "M"), S)
+      }
+    }
+  }
+  if (!all(is.finite(S)) || !any(S != 0)) {
+    stop("No usable score state to build the shared basis.")
+  }
+  eg <- eigen(S, symmetric = TRUE)
+  V <- eg$vectors[, seq_len(k), drop = FALSE]
+  basis <- list(V = V, k = k, q = width, values = eg$values[seq_len(k)],
+                n_features = length(used), key = key,
+                sha = digest::digest(V, algo = "sha256"), version = 1L)
+  if (!is.null(file)) {
+    tmp <- tempfile("basis-", tmpdir = path, fileext = ".tmp")
+    on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
+    saveRDS(basis, tmp, compress = FALSE)
+    if (file.exists(file)) unlink(file)
+    if (!file.rename(tmp, file)) stop("Could not commit the shared basis.")
+  }
+  if (verbose) message("Built the shared basis (k = ", k, ") from ", length(used),
+                       " features.")
+  basis
+}
+
+# Evaluate the saddlepoint-calibrated pairs of a fit from resumable
 # feature-first score states and stream them to raw Parquet shards. `index`
 # is NULL for every pair of the available features, or a two-column matrix
 # of available feature indices i < j. The resident score states adapt to the
-# memory available to the process.
+# memory available to the process. The states are those of the working model
+# for an mgcv fit and the reduced curvature in `basis` for a sparse INLA fit.
 .mgcvst_pair_pipeline <- function(fit, index, threads, chunk_size, verbose,
-                                  checkpoint_dir = NULL, resume = TRUE) {
+                                  checkpoint_dir = NULL, resume = TRUE,
+                                  k = .mgcvst_exact_defaults$k, basis = NULL,
+                                  route = NULL) {
   if (!is.numeric(threads) || length(threads) != 1L ||
       !is.finite(threads) || threads < 1L || threads != floor(threads)) {
     stop("threads must be one positive integer.")
@@ -140,9 +256,8 @@
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
     stop("verbose must be TRUE or FALSE.")
   }
-  if (identical(fit$score_backend, "sparse")) {
-    stop("Sparse INLA fits are tested by inlaST.test().")
-  }
+  sparse <- identical(fit$score_backend, "sparse")
+  if (sparse && is.null(basis)) stop("A sparse INLA fit needs its observation basis.")
   available <- .mgcvst_feature_available(fit)
   all_pairs <- is.null(index)
   if (all_pairs) {
@@ -157,25 +272,24 @@
     }
     used <- sort(unique(as.vector(index)))
   }
-  target <- fit$geometry$target
-  width <- if (length(target)) {
-    ncol(fit$geometry$smooth[[unname(target[[1L]])]]$B)
-  } else 1L
-  if (!is.finite(width) || width < 1L) stop("The score coordinate width is invalid.")
+  width <- .mgcvst_state_width(fit, basis)
+  k <- as.integer(min(k, width))
+  if (!is.finite(k) || k < 1L) stop("k must be a positive integer.")
 
-  contract <- .mgcvst_contract("exact")
+  contract_early <- .mgcvst_contract("exact")
   signature <- if (is.null(checkpoint_dir)) {
     list(version = 2L, temporary = tempfile("mgcvst-pair-run-"))
-  } else .mgcvst_pair_signature(fit)
+  } else .mgcvst_pair_signature(fit, basis)
   store <- .mgcvst_store_open(checkpoint_dir, signature, fit$feature_id,
                               resume = resume)
   if (isTRUE(store$temporary)) on.exit(.mgcvst_store_cleanup(store), add = TRUE)
+  if (!isTRUE(store$temporary)) .mgcvst_route_save(store$path, route)
   root <- if (is.null(checkpoint_dir)) {
     tempfile("mgcvst-pairs-")
   } else store$path
   # Pair directories of another algorithm contract are refused before any
-  # work; the directory of this run is opened once its score states exist.
-  .mgcvst_pairs_refuse_stale(root, contract)
+  # work; the directory of this run is opened once the shared basis exists.
+  .mgcvst_pairs_refuse_stale(root, contract_early)
   universe <- if (all_pairs) {
     list(all = TRUE, used = used, n_feature = length(fit$feature_id))
   } else list(index = index)
@@ -183,9 +297,17 @@
   n_pairs_hint <- if (all_pairs) length(used) * (length(used) - 1) / 2 else
     nrow(index)
   state_estimate <- 8 * (width^2 + width) + 2048
+  basis_bytes <- 8 * width * k * length(used)
   probe <- .mgcvst_memory_probe()
+  if (is.finite(probe$available) && basis_bytes > 0.3 * probe$available) {
+    stop(sprintf(paste0("The pair bases of %d features need about %.1f GB, ",
+                        "above 30%% of the %.1f GB available; use ",
+                        "moments = \"pcalearning\", fewer features or a smaller k."),
+                 length(used), basis_bytes / 1024^3, probe$available / 1024^3))
+  }
   reserve <- 4 * 8 * width^2 * min(threads, chunk_size) +
-    2 * state_estimate + 256 * min(n_pairs_hint, chunk_size) + 64 * 1024^2
+    2 * state_estimate + 256 * min(n_pairs_hint, chunk_size) + 64 * 1024^2 +
+    basis_bytes
   cache_bytes <- if (is.finite(probe$available)) {
     max(0, 0.7 * probe$available - reserve)
   } else 512 * 1024^2
@@ -195,45 +317,62 @@
   missing <- used[!existing]
   builds <- 0L
   preparation_started <- proc.time()[["elapsed"]]
+  # When every state is built in this run, in feature order, the sum behind the
+  # shared basis is accumulated as they are built.
+  running <- if (identical(missing, used)) matrix(0, width, width) else NULL
   if (length(missing)) {
-    fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
-    native <- .mgcvst_model_dense_preparation(fit, missing)
-    if (is.null(native)) {
-      stop("Model score states require the conditional nuisance covariance; ",
-           "re-estimate with the current mgcvST.estimate().")
-    }
-    q <- width
-    p <- ncol(native$X)
-    if (is.null(p)) p <- 0L
-    n <- nrow(fit$working_variance)
-    feature_work <- 8 * (8 * n * q + 4 * n * p + 8 * q^2 + 4 * q * p + 4 * p^2)
+    builder <- .mgcvst_state_builder(fit, missing, threads, basis)
     first <- 1L
     while (first <= length(missing)) {
       probe <- .mgcvst_memory_probe()
       headroom <- if (!is.null(probe) && is.finite(probe$available)) {
         0.3 * probe$available
       } else max(cache_bytes, 512 * 1024^2)
-      if (headroom < feature_work) {
+      if (headroom < builder$work) {
         stop("Insufficient available memory for one score-state preparation. ",
              "Increase the job memory allocation.")
       }
-      batch_size <- as.integer(max(1L, min(32L, floor(headroom / feature_work))))
+      batch_size <- as.integer(max(1L, min(32L, floor(headroom / builder$work))))
       ids <- missing[first:min(length(missing), first + batch_size - 1L)]
-      states <- .mgcvst_pair_build_batch(fit, ids, threads, native)
+      states <- builder$build(ids)
       if (length(states) != length(ids)) {
         stop("The score-state backend returned the wrong feature count.")
       }
-      for (k in seq_along(ids)) .mgcvst_store_write(store, ids[k], states[[k]])
+      for (j in seq_along(ids)) .mgcvst_store_write(store, ids[j], states[[j]])
+      if (!is.null(running)) {
+        good <- vapply(states, function(z) is.null(z$error), logical(1L))
+        if (any(good)) {
+          running <- mgcvst_pair_basis_sum_cpp(lapply(states[good], `[[`, "M"),
+                                               running)
+        }
+      }
       builds <- builds + length(ids)
       rm(states)
       if (verbose) message("Stored score states for ", builds, " of ",
                            length(missing), " remaining features.")
       first <- first + length(ids)
     }
-    rm(native)
-    fit$.mgcvst_fixed_factors <- NULL
+    builder$finish()
+    rm(builder)
+  }
+  read_batch <- 32L
+  shared <- .mgcvst_exact_basis(store, used, width, k,
+    path = if (isTRUE(store$temporary)) NULL else store$path,
+    sum = running, batch_size = read_batch, verbose = verbose)
+  rm(running)
+  # Pair bases G_g = H_g^(1/2) V of every used feature, resident.
+  G <- vector("list", length(fit$feature_id))
+  for (first in seq.int(1L, length(used), by = read_batch)) {
+    ids <- used[first:min(length(used), first + read_batch - 1L)]
+    states <- lapply(ids, function(id) .mgcvst_store_read(store, id))
+    good <- vapply(states, function(z) is.null(z$error), logical(1L))
+    if (any(good)) {
+      G[ids[good]] <- mgcvst_pair_basis_cpp(lapply(states[good], `[[`, "M"),
+                                            shared$V, threads)
+    }
   }
   preparation_elapsed <- proc.time()[["elapsed"]] - preparation_started
+  contract <- .mgcvst_contract("exact", k = k, basis_sha = shared$sha)
   pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
 
   # Resident score states: least-recently-used eviction under `cache_bytes`.
@@ -258,14 +397,14 @@
   }
   fetch <- function(active) {
     states <- vector("list", length(active))
-    for (k in seq_along(active)) {
-      key <- as.character(active[k])
+    for (j in seq_along(active)) {
+      key <- as.character(active[j])
       if (!is.null(cache$state[[key]])) {
         cache$hits <- cache$hits + 1L
-        states[[k]] <- cache$state[[key]]
+        states[[j]] <- cache$state[[key]]
       } else {
         cache$misses <- cache$misses + 1L
-        state <- .mgcvst_store_read(store, active[k])
+        state <- .mgcvst_store_read(store, active[j])
         size <- as.numeric(object.size(state))
         state_estimate <<- max(state_estimate, size)
         while (cache$bytes + size > cache_bytes && length(cache$last)) {
@@ -275,13 +414,13 @@
           cache$state[[key]] <- state
           cache$bytes <- cache$bytes + size
         }
-        states[[k]] <- state
+        states[[j]] <- state
       }
       if (!is.null(cache$state[[key]])) {
         cache$clock <- cache$clock + 1
         cache$last[key] <- cache$clock
       }
-      if (!is.null(states[[k]]$error)) failed[key] <<- states[[k]]$error
+      if (!is.null(states[[j]]$error)) failed[key] <<- states[[j]]$error
     }
     states
   }
@@ -294,7 +433,7 @@
   evaluate <- function(window, active, id) {
     t0 <- proc.time()[["elapsed"]]
     states <- fetch(active)
-    frame <- .mgcvst_liu_pairs(window, active, states, threads)
+    frame <- .mgcvst_spa_pairs(window, active, states, G, threads, order = 4L)
     .mgcvst_write_parquet(frame, .mgcvst_shard_file(pair_dir, id))
     elapsed <<- elapsed + proc.time()[["elapsed"]] - t0
     nrow(frame)
@@ -317,7 +456,7 @@
       shard_rows <- c(shard_rows, nrow(window))
       chunks <- chunks + 1L
       if (verbose && (chunks %% 10L == 0L || b == nrow(blocks))) {
-        message("Evaluated Liu pair block ", b, " of ", nrow(blocks), ".")
+        message("Evaluated pair block ", b, " of ", nrow(blocks), ".")
       }
     }
     n_pairs <- sum(shard_rows)
@@ -361,7 +500,7 @@
       shard_rows <- c(shard_rows, nrow(window))
       chunks <- chunks + 1L
       if (verbose && (chunks %% 10L == 0L || last == n_pairs)) {
-        message("Evaluated Liu pair group ", chunks, ".")
+        message("Evaluated pair group ", chunks, ".")
       }
       first <- last + 1L
     }
@@ -379,8 +518,10 @@
     metadata = list(
       path = if (isTRUE(store$temporary)) NULL else store$path,
       pair_dir = pair_dir, builds = builds, resume_count = resume_count,
-      resumed_pairs = resumed_pairs, preparation_backend = "model_native",
-      pair_schedule = pair_schedule, chunks = chunks,
+      resumed_pairs = resumed_pairs,
+      preparation_backend = if (sparse) "sparse_reduced" else "model_native",
+      pair_schedule = pair_schedule, chunks = chunks, k = k,
+      basis_sha = shared$sha, q = width,
       cache_hits = cache$hits, cache_misses = cache$misses,
       cache_evictions = cache$evictions, cache_bytes = cache_bytes,
       resident_bytes = cache$bytes, preparation_elapsed = preparation_elapsed,

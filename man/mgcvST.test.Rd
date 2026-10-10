@@ -13,7 +13,12 @@ mgcvST.test(
   chunk_size = NULL,
   checkpoint_dir = NULL,
   resume = TRUE,
-  verbose = FALSE
+  verbose = FALSE,
+  moments = c("auto", "exact", "pcalearning"),
+  rank = .mgcvst_pca_defaults$rank,
+  n_per_cell = .mgcvst_pca_defaults$n_per_cell,
+  seed = .mgcvst_pca_defaults$seed,
+  k = NULL
 )
 }
 \arguments{
@@ -31,8 +36,8 @@ two-column matrix or data frame of feature IDs or one-based indices.}
 preparation and the pair kernels. \code{NULL} uses one.}
 
 \item{chunk_size}{Maximum number of pairs evaluated per native block and
-written per shard. \code{NULL} uses 10,000 for \code{\link[=mgcvST.test]{mgcvST.test()}} and 1,000,000
-for \code{\link[=inlaST.test]{inlaST.test()}}.}
+written per shard. \code{NULL} uses 10,000 for the exact route and 1,000,000
+for the PCAlearning route.}
 
 \item{checkpoint_dir}{Optional checkpoint directory. Reusable feature score
 states and the raw pair shards are saved there, and a repeated call
@@ -42,24 +47,69 @@ refused. With \code{NULL}, temporary storage is used.}
 
 \item{resume}{Reuse compatible completed checkpoint entries.}
 
-\item{verbose}{Logical; report progress.}
+\item{verbose}{Logical; report progress, the chosen route and the
+estimated pair time.}
+
+\item{moments}{\code{"auto"} (the default), \code{"exact"} or \code{"pcalearning"}: the
+route of the pair calibration. \code{"auto"} chooses by the score dimension
+\code{q}, the number of pairs, the threads and the memory, not by the
+estimator.}
+
+\item{rank}{Number of PCAlearning basis matrices (default 20). Used by the
+PCAlearning route.}
+
+\item{n_per_cell}{Training genes drawn per PCAlearning stratification cell
+(default 3).}
+
+\item{seed}{Non-negative integer seed for PCAlearning training-gene
+sampling; the caller's random-number state is restored.}
+
+\item{k}{Number of leading singular values of the shared basis. \code{NULL}
+uses 20 on the exact route and 50 on the PCAlearning route; a value above
+the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
+full-spectrum saddlepoint of each pair.}
 }
 \value{
 An object of class \code{mgcvST_test} with \code{results}, \code{shards},
 \code{feature_id}, \code{failed} (features without a usable score state and the
-reason), \code{threshold}, \code{discoveries}, \code{adjustment}, \code{timing},
-\code{calibration}, \code{contract} and \code{call}. \code{\link[=inlaST.test]{inlaST.test()}} additionally
+reason), \code{threshold}, \code{discoveries}, \code{adjustment}, \code{timing}
+(including the chosen route in \code{timing$route}), \code{calibration}, \code{moments}
+(the route taken), \code{contract} and \code{call}. A PCAlearning run additionally
 returns \code{pca_learning}.
 }
 \description{
 Tests the cross-feature spatial covariance of every requested gene pair from
 the fixed compact summaries in a fit returned by \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}; no GAM
-is refitted. Each pair is tested by the squared signed cross-gene score,
-calibrated by Liu moment matching of exact trace moments of the two
-score-covariance matrices. Sparse INLA fits from \code{\link[=inlaST.estimate]{inlaST.estimate()}} are
-tested with \code{\link[=inlaST.test]{inlaST.test()}}, which takes the same arguments.
+is refitted. Each pair is tested by the signed cross-gene score
+\verb{U = sum(s_i x_i y_i)}, where \code{s_i} are the singular values of the product
+of the square roots of the two score-covariance matrices. The tail of \code{U} is
+a Lugannani-Rice saddlepoint approximation computed in log space on the
+\code{k} leading singular values of a basis shared by all genes, plus a
+remainder that matches the remaining power sums of the spectrum. Sparse
+INLA fits from \code{\link[=inlaST.estimate]{inlaST.estimate()}} are tested with \code{\link[=inlaST.test]{inlaST.test()}}, which
+takes the same arguments.
 }
 \details{
+Two routes supply the shared basis and the remainder. With
+\code{moments = "exact"}, the shared basis holds the \code{k = 20} leading
+eigenvectors of the summed, normalized score covariances, every pair needs
+the four exact trace moments \verb{tr((H_i H_j)^s)}, \verb{s = 1, ..., 4}, and the
+remainder is two moment-matched nodes (one node or a Gaussian term when
+the moments do not allow two nodes). With \code{moments = "pcalearning"}, the
+score covariances are projected onto a rank-\code{rank} basis learned from
+training genes (see \code{\link[=inlaST.test]{inlaST.test()}} for the construction), the pair traces
+\verb{tr(H_i H_j)} and \verb{tr((H_i H_j)^2)} come from a contraction of the
+projected coefficients, the shared basis holds the \code{k = 50} leading
+eigenvectors of the training genes, and the remainder is one node. The
+exact route costs time cubic in the score dimension \code{q} for every pair, and
+the PCAlearning route does not depend on \code{q} per pair. \code{moments = "auto"}
+(the default) takes the exact route when its estimated pair phase is at
+most 2 hours, its pair bases fit 30\% of the available memory and its
+score-state store fits 64 GB on disk, and the PCAlearning route otherwise;
+\code{verbose = TRUE} prints the chosen route and the estimated time. A
+checkpoint directory records its route, and a resumed \code{"auto"} run follows
+the recorded route.
+
 With \code{pairs = NULL}, every pair of the available features is tested; the
 pairs are generated and scored in blocks and never held as one matrix. A
 feature whose fit failed is not available and is reported in \verb{$failed}.
@@ -71,10 +121,10 @@ The result is compact. Each pair is one row of the integer feature indices
 two-sided, positive and negative p-values \code{log_p_two_sided},
 \code{log_p_positive} and \code{log_p_negative}, the adjusted two-sided
 log q-value \code{log_q}, the integer \code{remainder_kind} of the calibration (0:
-Liu moment matching without remainder) and the integer \code{status} (0:
-evaluated; 1: trace moments non-finite or non-positive, reported by
-\code{\link[=mgcvST.test]{mgcvST.test()}} only; 2: invalid p-value; 3: a feature of the pair has no
-usable score state). A pair with a status other than 0 has missing log
+no remainder; 1: one node; 2: two nodes; 3: Gaussian term) and the integer
+\code{status} (0: evaluated; 1: trace moments non-finite or non-positive; 2:
+invalid p-value; 3: a feature of the pair has no usable score state). A
+pair with a status other than 0 has missing log
 p-values and is not adjusted. Rows are written as Parquet shards while the
 pairs are evaluated, and \verb{$results} is the same table sorted by \verb{(i, j)}
 when it fits the memory guard (56 bytes per pair, 20\% of available memory),

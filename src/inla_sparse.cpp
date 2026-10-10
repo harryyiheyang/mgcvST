@@ -1,5 +1,6 @@
 #define EIGEN_DONT_PARALLELIZE
 #include "inla_sparse.h"
+#include "pca_reduce.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -388,11 +389,13 @@ Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
 
 // PCAlearning materialization: per feature, the reduced curvature H is formed
 // in a thread-local buffer and reduced to the score coordinates a, the basis
-// coefficients c = <B_k, H>_F, ||H||_F^2 and, for features with pack = TRUE,
-// the float32 weighted-vech copy of H (upper triangle column-major, entry
-// (i, j) at j (j + 1) / 2 + i, off-diagonal weight sqrt(2); the layout of
-// src/pca_learning.cpp). pca_basis is the q (q + 1) / 2 x r weighted-vech basis
-// (NULL: no projection). H itself is never returned.
+// coefficients c = <B_k, H>_F, ||H||_F^2, the scale max|H| and, for features
+// with pack = TRUE, the float32 weighted-vech copy of H (upper triangle
+// column-major, entry (i, j) at j (j + 1) / 2 + i, off-diagonal weight sqrt(2);
+// the layout of src/pca_learning.cpp). pca_basis is the q (q + 1) / 2 x r
+// weighted-vech basis (NULL: no projection). With a shared basis V (q x k), the
+// upper Cholesky factor R of V' (H / scale) V is returned as a column of a
+// k^2 x features matrix. H itself is never returned.
 // [[Rcpp::export]]
 Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
     const Rcpp::List& units,
@@ -403,7 +406,8 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
     Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis,
     const Rcpp::LogicalVector& pack,
     int threads = 1,
-    SEXP prepared = R_NilValue) {
+    SEXP prepared = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericMatrix> V = R_NilValue) {
   const SpMat Q = Q_map;
   const int m = Q.rows();
   const int q = coordinate.cols();
@@ -416,6 +420,11 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   Rcpp::NumericMatrix PBr = pca_basis.isNotNull() ? Rcpp::NumericMatrix(pca_basis.get()) : Rcpp::NumericMatrix(L, 0);
   const Eigen::Map<Mat> PB(PBr.begin(), L, PBr.ncol());
   const int r = PB.cols();
+  Rcpp::NumericMatrix Vr = V.isNotNull() ? Rcpp::NumericMatrix(V.get())
+                                         : Rcpp::NumericMatrix(q, 0);
+  if (Vr.nrow() != q) Rcpp::stop("V must have one row per score coordinate.");
+  const Eigen::Map<Mat> Vm(Vr.begin(), q, Vr.ncol());
+  const int kv = Vm.cols();
 #ifndef _OPENMP
   if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
 #endif
@@ -432,6 +441,10 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   const Vec g = constraint;
   Mat A(q, features), C(features, r);
   Vec fro2(features), statistic(features);
+  Rcpp::NumericMatrix Rout((Eigen::Index)kv * kv, features);
+  Eigen::Map<Mat> Rall(Rout.begin(), (Eigen::Index)kv * kv, features);
+  Rcpp::NumericVector scale(features, NA_REAL);
+  double* scalep = scale.begin();
   std::vector<std::vector<float> > packed(features);
   std::vector<std::string> error(features);
   int failed = 0;
@@ -461,10 +474,21 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
           packed[f].resize(L);
           for (Eigen::Index k = 0; k < L; ++k) packed[f][k] = (float)h[k];
         }
+        const double sc = mgcvst_pca::matrix_scale(M);
+        scalep[f] = sc;
+        if (kv) {
+          Mat Rg;
+          if (std::isfinite(sc) && sc > 0 && mgcvst_pca::project_factor(M, sc, Vm, Rg)) {
+            Rall.col(f) = Eigen::Map<const Vec>(Rg.data(), (Eigen::Index)kv * kv);
+          } else {
+            throw std::runtime_error("The shared-basis compression is not positive definite.");
+          }
+        }
       } catch (const std::exception& e) {
         error[f] = e.what();
         A.col(f).setConstant(NA_REAL);
         C.row(f).setConstant(NA_REAL);
+        if (kv) Rall.col(f).setConstant(NA_REAL);
         fro2[f] = statistic[f] = NA_REAL;
         failed += 1;
       }
@@ -484,6 +508,7 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   return Rcpp::List::create(
     Rcpp::Named("a") = A, Rcpp::Named("C") = C, Rcpp::Named("fro2") = fro2,
     Rcpp::Named("statistic") = statistic, Rcpp::Named("packed") = packed_out,
+    Rcpp::Named("R") = Rout, Rcpp::Named("scale") = scale,
     Rcpp::Named("error") = error_out, Rcpp::Named("failed") = failed,
     Rcpp::Named("width") = q
   );

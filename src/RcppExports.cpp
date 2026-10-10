@@ -118,8 +118,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_inla_sparse_materialize_pca_cpp
-Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(const Rcpp::List& units, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> coordinate, const Eigen::Map<Eigen::MatrixXd> basis, Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis, const Rcpp::LogicalVector& pack, int threads, SEXP prepared);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_materialize_pca_cpp(SEXP unitsSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP coordinateSEXP, SEXP basisSEXP, SEXP pca_basisSEXP, SEXP packSEXP, SEXP threadsSEXP, SEXP preparedSEXP) {
+Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(const Rcpp::List& units, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> coordinate, const Eigen::Map<Eigen::MatrixXd> basis, Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis, const Rcpp::LogicalVector& pack, int threads, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> V);
+RcppExport SEXP _mgcvST_mgcvst_inla_sparse_materialize_pca_cpp(SEXP unitsSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP coordinateSEXP, SEXP basisSEXP, SEXP pca_basisSEXP, SEXP packSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP VSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -132,7 +132,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Rcpp::LogicalVector& >::type pack(packSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
     Rcpp::traits::input_parameter< SEXP >::type prepared(preparedSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_materialize_pca_cpp(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type V(VSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_materialize_pca_cpp(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -190,22 +191,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// mgcvst_liu_logp_cpp
-Rcpp::NumericMatrix mgcvst_liu_logp_cpp(const Rcpp::NumericVector& U, const Rcpp::NumericVector& t1, const Rcpp::NumericVector& t2, const Rcpp::NumericVector& t3, const Rcpp::NumericVector& t4, int threads);
-RcppExport SEXP _mgcvST_mgcvst_liu_logp_cpp(SEXP USEXP, SEXP t1SEXP, SEXP t2SEXP, SEXP t3SEXP, SEXP t4SEXP, SEXP threadsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type U(USEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type t1(t1SEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type t2(t2SEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type t3(t3SEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type t4(t4SEXP);
-    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_liu_logp_cpp(U, t1, t2, t3, t4, threads));
-    return rcpp_result_gen;
-END_RCPP
-}
 // mgcvst_pca_gram_cpp
 Rcpp::NumericMatrix mgcvst_pca_gram_cpp(const Rcpp::List& packed, const Rcpp::NumericVector& tau, int threads, int chunk);
 RcppExport SEXP _mgcvST_mgcvst_pca_gram_cpp(SEXP packedSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP chunkSEXP) {
@@ -250,39 +235,95 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// mgcvst_pca_pairs_cpp
-Rcpp::NumericMatrix mgcvst_pca_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A, const Eigen::Map<Eigen::MatrixXd> C, const Rcpp::List& tables, const Rcpp::IntegerVector& i, const Rcpp::IntegerVector& j, int threads, bool moments);
-RcppExport SEXP _mgcvST_mgcvst_pca_pairs_cpp(SEXP ASEXP, SEXP CSEXP, SEXP tablesSEXP, SEXP iSEXP, SEXP jSEXP, SEXP threadsSEXP, SEXP momentsSEXP) {
+// mgcvst_pca_monomials_cpp
+Rcpp::NumericMatrix mgcvst_pca_monomials_cpp(const Eigen::Map<Eigen::MatrixXd> C);
+RcppExport SEXP _mgcvST_mgcvst_pca_monomials_cpp(SEXP CSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type A(ASEXP);
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type C(CSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type tables(tablesSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type i(iSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type j(jSEXP);
-    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    Rcpp::traits::input_parameter< bool >::type moments(momentsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_pairs_cpp(A, C, tables, i, j, threads, moments));
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_monomials_cpp(C));
     return rcpp_result_gen;
 END_RCPP
 }
-// mgcvst_pca_pairs_block_cpp
-Rcpp::NumericMatrix mgcvst_pca_pairs_block_cpp(const Eigen::Map<Eigen::MatrixXd> A, const Eigen::Map<Eigen::MatrixXd> C, const Rcpp::List& tables, int first, int last, int threads, bool moments, int gene_block, int pair_block);
-RcppExport SEXP _mgcvST_mgcvst_pca_pairs_block_cpp(SEXP ASEXP, SEXP CSEXP, SEXP tablesSEXP, SEXP firstSEXP, SEXP lastSEXP, SEXP threadsSEXP, SEXP momentsSEXP, SEXP gene_blockSEXP, SEXP pair_blockSEXP) {
+// mgcvst_pca_packed_sum_cpp
+Rcpp::NumericMatrix mgcvst_pca_packed_sum_cpp(const Rcpp::List& packed, int q);
+RcppExport SEXP _mgcvST_mgcvst_pca_packed_sum_cpp(SEXP packedSEXP, SEXP qSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type packed(packedSEXP);
+    Rcpp::traits::input_parameter< int >::type q(qSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_packed_sum_cpp(packed, q));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_pca_packed_project_cpp
+Rcpp::List mgcvst_pca_packed_project_cpp(const Rcpp::List& packed, const Eigen::Map<Eigen::MatrixXd> V, int threads);
+RcppExport SEXP _mgcvST_mgcvst_pca_packed_project_cpp(SEXP packedSEXP, SEXP VSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type packed(packedSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type V(VSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_packed_project_cpp(packed, V, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_pca_dense_cpp
+Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::MatrixXd> a, Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis, const Rcpp::LogicalVector& pack, Rcpp::Nullable<Rcpp::NumericMatrix> V, int threads);
+RcppExport SEXP _mgcvST_mgcvst_pca_dense_cpp(SEXP HSEXP, SEXP aSEXP, SEXP pca_basisSEXP, SEXP packSEXP, SEXP VSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type H(HSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type a(aSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type pca_basis(pca_basisSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::LogicalVector& >::type pack(packSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type V(VSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_dense_cpp(H, a, pca_basis, pack, V, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_pca_spa_pairs_cpp
+Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A, const Eigen::Map<Eigen::MatrixXd> C, const Eigen::Map<Eigen::MatrixXd> K2, const Eigen::Map<Eigen::MatrixXd> T2, const Eigen::Map<Eigen::MatrixXd> R, const Rcpp::NumericVector& scale, const Rcpp::IntegerVector& i, const Rcpp::IntegerVector& j, int threads);
+RcppExport SEXP _mgcvST_mgcvst_pca_spa_pairs_cpp(SEXP ASEXP, SEXP CSEXP, SEXP K2SEXP, SEXP T2SEXP, SEXP RSEXP, SEXP scaleSEXP, SEXP iSEXP, SEXP jSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type A(ASEXP);
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type C(CSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type tables(tablesSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type K2(K2SEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type T2(T2SEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type R(RSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type scale(scaleSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type i(iSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type j(jSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_spa_pairs_cpp(A, C, K2, T2, R, scale, i, j, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_pca_spa_block_cpp
+Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A, const Eigen::Map<Eigen::MatrixXd> C, const Eigen::Map<Eigen::MatrixXd> K2, const Eigen::Map<Eigen::MatrixXd> T2, const Eigen::Map<Eigen::MatrixXd> R, const Rcpp::NumericVector& scale, int first, int last, int threads, int gene_block, int pair_block);
+RcppExport SEXP _mgcvST_mgcvst_pca_spa_block_cpp(SEXP ASEXP, SEXP CSEXP, SEXP K2SEXP, SEXP T2SEXP, SEXP RSEXP, SEXP scaleSEXP, SEXP firstSEXP, SEXP lastSEXP, SEXP threadsSEXP, SEXP gene_blockSEXP, SEXP pair_blockSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type A(ASEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type C(CSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type K2(K2SEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type T2(T2SEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type R(RSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type scale(scaleSEXP);
     Rcpp::traits::input_parameter< int >::type first(firstSEXP);
     Rcpp::traits::input_parameter< int >::type last(lastSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    Rcpp::traits::input_parameter< bool >::type moments(momentsSEXP);
     Rcpp::traits::input_parameter< int >::type gene_block(gene_blockSEXP);
     Rcpp::traits::input_parameter< int >::type pair_block(pair_blockSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_pairs_block_cpp(A, C, tables, first, last, threads, moments, gene_block, pair_block));
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pca_spa_block_cpp(A, C, K2, T2, R, scale, first, last, threads, gene_block, pair_block));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -300,18 +341,61 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// mgcvst_pair_liu_cpp
-Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a, const Rcpp::IntegerVector& left, const Rcpp::IntegerVector& right, int threads);
-RcppExport SEXP _mgcvST_mgcvst_pair_liu_cpp(SEXP HSEXP, SEXP aSEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP threadsSEXP) {
+// mgcvst_pair_basis_sum_cpp
+Rcpp::NumericMatrix mgcvst_pair_basis_sum_cpp(const Rcpp::List& H, Rcpp::Nullable<Rcpp::NumericMatrix> init);
+RcppExport SEXP _mgcvST_mgcvst_pair_basis_sum_cpp(SEXP HSEXP, SEXP initSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const Rcpp::List& >::type H(HSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type init(initSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_basis_sum_cpp(H, init));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_pair_basis_cpp
+Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& V, int threads);
+RcppExport SEXP _mgcvST_mgcvst_pair_basis_cpp(SEXP HSEXP, SEXP VSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type H(HSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type V(VSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_basis_cpp(H, V, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_pair_spa_cpp
+Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G, const Rcpp::NumericMatrix& a, const Rcpp::IntegerVector& left, const Rcpp::IntegerVector& right, int threads, int order, Rcpp::Nullable<Rcpp::NumericVector> x);
+RcppExport SEXP _mgcvST_mgcvst_pair_spa_cpp(SEXP HSEXP, SEXP GSEXP, SEXP aSEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP threadsSEXP, SEXP orderSEXP, SEXP xSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type H(HSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type G(GSEXP);
     Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type a(aSEXP);
     Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type left(leftSEXP);
     Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type right(rightSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_liu_cpp(H, a, left, right, threads));
+    Rcpp::traits::input_parameter< int >::type order(orderSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericVector> >::type x(xSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_spa_cpp(H, G, a, left, right, threads, order, x));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_spa_cpp
+Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U, const Rcpp::NumericMatrix& S, const Rcpp::NumericMatrix& Tm, int order, int threads);
+RcppExport SEXP _mgcvST_mgcvst_spa_cpp(SEXP USEXP, SEXP SSEXP, SEXP TmSEXP, SEXP orderSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type U(USEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type S(SSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type Tm(TmSEXP);
+    Rcpp::traits::input_parameter< int >::type order(orderSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_spa_cpp(U, S, Tm, order, threads));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -324,18 +408,24 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_inla_sparse_observation_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_observation_basis_cpp, 3},
     {"_mgcvST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_batch_cpp, 12},
     {"_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp, 7},
-    {"_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp, 9},
+    {"_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp, 10},
     {"_mgcvST_mgcvst_inla_working_state_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_working_state_cpp, 9},
     {"_mgcvST_mgcvst_inla_compact_units_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_compact_units_cpp, 15},
     {"_mgcvST_mgcvst_memory_status_cpp", (DL_FUNC) &_mgcvST_mgcvst_memory_status_cpp, 0},
-    {"_mgcvST_mgcvst_liu_logp_cpp", (DL_FUNC) &_mgcvST_mgcvst_liu_logp_cpp, 6},
     {"_mgcvST_mgcvst_pca_gram_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_gram_cpp, 4},
     {"_mgcvST_mgcvst_pca_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_basis_cpp, 5},
     {"_mgcvST_mgcvst_pca_tables_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_tables_cpp, 5},
-    {"_mgcvST_mgcvst_pca_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_pairs_cpp, 7},
-    {"_mgcvST_mgcvst_pca_pairs_block_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_pairs_block_cpp, 9},
+    {"_mgcvST_mgcvst_pca_monomials_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_monomials_cpp, 1},
+    {"_mgcvST_mgcvst_pca_packed_sum_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_packed_sum_cpp, 2},
+    {"_mgcvST_mgcvst_pca_packed_project_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_packed_project_cpp, 3},
+    {"_mgcvST_mgcvst_pca_dense_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_dense_cpp, 6},
+    {"_mgcvST_mgcvst_pca_spa_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_spa_pairs_cpp, 9},
+    {"_mgcvST_mgcvst_pca_spa_block_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_spa_block_cpp, 11},
     {"_mgcvST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_trace_powers_cpp, 4},
-    {"_mgcvST_mgcvst_pair_liu_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_liu_cpp, 5},
+    {"_mgcvST_mgcvst_pair_basis_sum_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_sum_cpp, 2},
+    {"_mgcvST_mgcvst_pair_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_cpp, 3},
+    {"_mgcvST_mgcvst_pair_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_spa_cpp, 8},
+    {"_mgcvST_mgcvst_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_spa_cpp, 5},
     {NULL, NULL, 0}
 };
 

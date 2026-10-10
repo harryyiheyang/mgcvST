@@ -86,7 +86,7 @@ test_that("pair results written under another algorithm contract are refused", {
 
   # An earlier contract, or pair blocks written before contracts existed.
   later <- contract
-  later$calibration_contract <- "spa_v1"
+  later$calibration_contract <- "spa_v2"
   expect_error(mgcvST:::.mgcvst_pairs_open(root, universe, later),
                "different algorithm contract")
   old <- file.path(root, "pairs-0123")
