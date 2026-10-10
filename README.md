@@ -60,6 +60,34 @@ install.packages(
 remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 ```
 
+## Two-step estimation
+
+`mgcvST.estimate()` and `inlaST.estimate()` estimate in two steps. Step 1 fits
+only the null model of every feature and computes its Stage 1 null-first
+p-value (Davies, with the saddlepoint approximation when Davies fails); the
+p-values are adjusted by `adjust` (`"BY"` by default) into
+`diagnostics$marginal_q_value`. Step 2 fits the spatial model of the features
+chosen by `spatial` only. The default, `spatial = "discoveries"`, selects the
+Stage 1 discoveries at `q.value = 0.05`; `"all"`, `"none"`, a vector of feature
+IDs or indices, and a logical vector are the alternatives. A null fit keeps no
+working vector, and the INLA workers compute the score vector and the mean of
+the fitted mean themselves, so the manager holds compact per-feature results
+only. Features without a spatial model are marked `spatial_fitted = FALSE` in
+the diagnostics, and `pairs = NULL` in `mgcvST.test()` and `inlaST.test()`
+tests the pairs among the features that have one.
+
+```r
+fit <- inlaST.estimate(Y, model)                    # Stage 1 discoveries
+fit <- inlaST.estimate(Y, model, spatial = "all")   # every feature
+fit <- inlaST.estimate_spatial(fit, Y, features = c("Mapt", "Map1b"))
+fit <- inlaST.estimate(Y, model, checkpoint_dir = "estimation-checkpoint")
+```
+
+With `checkpoint_dir`, each worker saves its chunk when it completes, and a
+repeated call resumes from the saved chunks. `inlaST.estimate_spatial()` and
+`mgcvST.estimate_spatial()` add spatial models after step 1; `Y` must be the
+matrix of step 1, which is checked.
+
 ## WGCNA modules from fitted score covariance
 
 `mgcvST.wgcna()` identifies modules within gene blocks selected for
@@ -116,7 +144,7 @@ model <- inlaST.set(
   control = list(control.inla = list(tolerance = 1e-4))
 )
 Y <- t(as.matrix(MISO_E13$expression))
-fit <- inlaST.estimate(Y, model)
+fit <- inlaST.estimate(Y, model, spatial = "all")
 marginal <- fit$diagnostics[c("feature_id", "marginal_p_value", "marginal_method")]
 pairs <- t(combn(rownames(Y), 2L))
 result <- inlaST.test(fit, pairs = pairs)
@@ -349,7 +377,7 @@ G_miso <- gam(
 )
 Y_miso_pair <- t(as.matrix(MISO_E13$expression[, c("Mapt", "Map1b")]))
 fit_pair_miso <- mgcvST.estimate(
-  Y_miso_pair, G_miso, BPPARAM = BiocParallel::SerialParam()
+  Y_miso_pair, G_miso, BPPARAM = BiocParallel::SerialParam(), spatial = "all"
 )
 score_miso <- mgcvST.test(
   fit_pair_miso, pairs = matrix(c("Mapt", "Map1b"), nrow = 1L),
@@ -443,7 +471,7 @@ G_visium <- gam(
 )
 Y_visium_pair <- t(as.matrix(Visium_B$expression[, c("mt_co3", "BRAFhuman")]))
 fit_pair_visium <- mgcvST.estimate(
-  Y_visium_pair, G_visium, BPPARAM = BiocParallel::SerialParam()
+  Y_visium_pair, G_visium, BPPARAM = BiocParallel::SerialParam(), spatial = "all"
 )
 score_visium <- mgcvST.test(
   fit_pair_visium, pairs = matrix(c("mt_co3", "BRAFhuman"), nrow = 1L),
@@ -535,7 +563,7 @@ Y_miso <- t(as.matrix(MISO_E13$expression[, genes_miso, drop = FALSE]))
 
 fit_batch_miso <- mgcvST.estimate(
   Y_miso, G_miso, feature_id = genes_miso,
-  BPPARAM = BiocParallel::SerialParam()
+  BPPARAM = BiocParallel::SerialParam(), spatial = "all"
 )
 test_batch_miso <- mgcvST.test(
   fit_batch_miso, pairs = t(combn(genes_miso, 2L)), threads = 1L

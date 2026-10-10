@@ -28,7 +28,7 @@ m <- inlaST.set(response ~ 1, data = d, family = gaussian(), mesh = mesh,
                 kappa = 3, coordinates = c("x", "y", "z"),
                 control = list(fixed_precision = 4, gaussian_precision = 25))
 fit <- inlaST.estimate(Y, m, BPPARAM = SerialParam(), retain_smooth = TRUE,
-                      diagnostics = TRUE, control = list(poisson_screen_phi = 0))
+                      diagnostics = TRUE, control = list(poisson_screen_phi = 0), spatial = "all")
 if (!isTRUE(fit$diagnostics$converged[1L])) {
   stop("The public native 3D demonstration did not converge.")
 }

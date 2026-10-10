@@ -27,7 +27,7 @@ for (dataset in datasets) {
   fit <- inlaST.estimate(
     Y, model, retain_smooth = TRUE,
     control = list(control.inla = list(tolerance = 1e-4)),
-    BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
   if (!all(fit$diagnostics$converged)) {
     print(fit$diagnostics)

@@ -27,7 +27,7 @@ BPPARAM <- SnowParam(
   progressbar = FALSE
 )
 BPPARAM <- bpstart(BPPARAM)
-fitmgcvST <- mgcvST.estimate(Y, G, feature_id = genes, BPPARAM = BPPARAM)
+fitmgcvST <- mgcvST.estimate(Y, G, feature_id = genes, BPPARAM = BPPARAM, spatial = "all")
 diagnostics <- fitmgcvST$diagnostics
 failed <- with(diagnostics,
   is.na(converged) | !converged |

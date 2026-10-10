@@ -102,7 +102,7 @@ for(mesh_side in mesh_sides) for(n in sizes) {
 
   if("inla"%in%backends) for(iteration in seq_len(repeats)) {
     fit<-tryCatch(timed(inlaST.estimate(Y,inla_setup$value,retain_smooth=FALSE,
-      BPPARAM=BiocParallel::SerialParam(),control=inla_control)),
+      BPPARAM=BiocParallel::SerialParam(),control=inla_control, spatial = "all")),
       error=function(e)e)
     if(inherits(fit,"condition")) {
       rows[[length(rows)+1L]]<-data.frame(n=n,mesh_side=mesh_side,iteration=iteration,

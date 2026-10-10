@@ -20,7 +20,7 @@ signal <- basis$B %*% u
 Y <- t(1 + signal + matrix(rnorm(length(signal), sd = sqrt(phi)), nrow(signal)))
 rownames(Y) <- paste0("feature", seq_len(nrow(Y)))
 fit <- inlaST.estimate(
-  Y, model, control = list(fixed_precision = tau, gaussian_precision = 1 / phi), BPPARAM = BiocParallel::SerialParam()
+  Y, model, control = list(fixed_precision = tau, gaussian_precision = 1 / phi), BPPARAM = BiocParallel::SerialParam(), spatial = "all"
 )
 stopifnot(all(fit$diagnostics$converged))
 pairs <- matrix(seq_len(2L * reps), ncol = 2L, byrow = TRUE)

@@ -31,7 +31,7 @@ for (dataset in datasets) {
   t0 <- proc.time()[["elapsed"]]
   repeat.fit <- inlaST.estimate(input$Y[jj, , drop = FALSE], model,
     feature_id = input$feature_id[jj], retain_marginal = TRUE, diagnostics = TRUE,
-    BPPARAM = SerialParam(), chunk_size = 1L, control = ctl)
+    BPPARAM = SerialParam(), chunk_size = 1L, control = ctl, spatial = "all")
   seconds <- proc.time()[["elapsed"]] - t0
   result <- list(dataset = dataset, feature_id = input$feature_id[jj],
     original_diagnostics = original$diagnostics[jj, , drop = FALSE],

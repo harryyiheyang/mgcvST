@@ -9,9 +9,9 @@ basis <- spde_basis(mesh,as.matrix(d[c("x","y")]),kappa=.7,project_intercept=TRU
 model <- inlaST.set(response~1,d,basis,family=mgcv::nb(),precision_scale="observation")
 Y <- rbind(a=rnbinom(80,mu=exp(sin(4*d$x)),size=2),
            b=rnbinom(80,mu=exp(cos(4*d$y)),size=2))
-a <- inlaST.estimate(Y,model,BPPARAM=BiocParallel::SerialParam())
+a <- inlaST.estimate(Y,model,BPPARAM=BiocParallel::SerialParam(), spatial = "all")
 bp <- BiocParallel::SnowParam(2,type="SOCK")
-b <- tryCatch(inlaST.estimate(Y,model,BPPARAM=bp,chunk_size=1),
+b <- tryCatch(inlaST.estimate(Y,model,BPPARAM=bp,chunk_size=1, spatial = "all"),
               finally=BiocParallel::bpstop(bp))
 # Estimated INLA modes vary slightly across processes; compare at 1e-5.
 print(all.equal(a$nuisance_covariance,b$nuisance_covariance,tolerance=1e-5))

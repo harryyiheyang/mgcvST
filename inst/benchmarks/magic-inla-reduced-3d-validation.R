@@ -35,7 +35,7 @@ if (file.exists(checkpoint.file)) {
   fit_source <- "existing checkpoint"
 } else {
   F <- mgcvST::inlaST.estimate(Y, S, feature_id = id, control = ctl, diagnostics = TRUE,
-    retain_smooth = TRUE, BPPARAM = SerialParam(), threads = 1L)
+    retain_smooth = TRUE, BPPARAM = SerialParam(), threads = 1L, spatial = "all")
   fit.seconds <- proc.time()[["elapsed"]] - t0
   fit_source <- "new current API fit"
   if (as.numeric(object.size(F)) > 800 * 1024^2) stop("The recoverable fit exceeds the 0.8 GiB pre-write budget.")

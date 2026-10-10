@@ -199,7 +199,7 @@ for (a in seq_len(nrow(arms))) {
       inla_fit <- timed(inlaST.estimate(
         Y, inla_model, feature_id = ids, BPPARAM = BP, chunk_size = 1L,
         retain_smooth = FALSE, diagnostics = TRUE,
-        control = list(precision_prior = flat, nb_size_prior = flat)
+        control = list(precision_prior = flat, nb_size_prior = flat), spatial = "all"
       ))
       saveRDS(inla_fit, inla.checkpoint, compress = TRUE)
     }

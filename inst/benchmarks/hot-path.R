@@ -11,7 +11,7 @@ model <- model.set(response ~ offset(offset0),MISO_E13$covariates,basis,family=m
 # Twelve feature indices, repeating the three bundled genes four times.
 Y <- t(as.matrix(MISO_E13$expression))[rep(1:3,4),]
 rownames(Y) <- paste0("feature",seq_len(nrow(Y)))
-fit <- mgcvST.estimate(Y,model)
+fit <- mgcvST.estimate(Y,model, spatial = "all")
 pairs <- t(combn(seq_len(nrow(Y)),2))
 strip <- function(z) {z$call <- z$timing <- NULL; z}
 a <- old$mgcvST.test(fit,pairs=pairs)

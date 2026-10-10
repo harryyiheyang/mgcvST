@@ -31,7 +31,7 @@ for (r in rr) {
   for (j in seq_len(p)) Y[j, ] <- rnbinom(n, mu = exp(beta + d$d$off + eta[, j]), size = 2)
   t0 <- proc.time()[["elapsed"]]
   I <- inlaST.estimate(Y, d$S, control = ctl, diagnostics = TRUE,
-    retain_marginal = TRUE)
+    retain_marginal = TRUE, spatial = "all")
   elapsed <- proc.time()[["elapsed"]] - t0
   rows <- list()
   for (cal in c("davies", "liu")) {

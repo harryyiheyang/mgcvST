@@ -64,7 +64,7 @@ if (!run.fit) quit(save = "no", status = 0L)
 
 ctl <- list(precision_prior = flat, nb_size_prior = flat, num_threads = 1L, keep_fit = FALSE)
 F <- mgcvST::inlaST.estimate(Y, S, feature_id = rownames(Y), control = ctl, diagnostics = TRUE,
-  retain_smooth = TRUE, BPPARAM = SerialParam(), threads = 1L)
+  retain_smooth = TRUE, BPPARAM = SerialParam(), threads = 1L, spatial = "all")
 if (!all(F$diagnostics$converged)) stop("At least one current MAGIC INLA fit did not converge.")
 z <- mgcvST:::.inlast_sparse_batch(F, seq_len(nrow(Y)), threads = 1L)
 bad <- vapply(z, function(x) !is.null(x$error) && length(x$error) == 1L && nzchar(x$error), logical(1L))

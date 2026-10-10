@@ -241,7 +241,7 @@ for (dataset in datasets) {
       retain_marginal = TRUE,
       diagnostics = TRUE, BPPARAM = inla.bp,
       chunk_size = if (dataset == "celltype") 1L else ceiling(length(ids) / workers),
-      control = ctl))
+      control = ctl, spatial = "all"))
     inla.fit <- I$value
     inla.seconds <- I$seconds
     saveRDS(inla.fit, inla.file, compress = FALSE)

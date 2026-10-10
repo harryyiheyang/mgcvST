@@ -89,7 +89,7 @@ for (i in seq_len(nrow(configs))) {
     t0 <- proc.time()[["elapsed"]]
     fit <- inlaST.estimate(Y, S, feature_id = ids, control = ctl,
       diagnostics = TRUE, retain_smooth = TRUE, retain_marginal = TRUE,
-      BPPARAM = BP, chunk_size = ceiling(length(ids) / workers))
+      BPPARAM = BP, chunk_size = ceiling(length(ids) / workers), spatial = "all")
     fit.seconds <- proc.time()[["elapsed"]] - t0
     saveRDS(fit, fit.file, compress = FALSE)
   }

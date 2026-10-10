@@ -13,7 +13,7 @@ ans <- lapply(c("raw","observation"), function(scale) {
   model <- inlaST.set(response ~ offset(offset0), input$data, basis,
                       family=mgcv::nb(), precision_scale=scale)
   fit <- inlaST.estimate(Y, model, diagnostics=TRUE,
-                         BPPARAM=BiocParallel::SerialParam())
+                         BPPARAM=BiocParallel::SerialParam(), spatial = "all")
   stopifnot(all(fit$diagnostics$converged),
             max(abs(fit$observation_spatial_mean)) < 1e-10,
             all(vapply(fit$nuisance_covariance,is.matrix,logical(1))),
