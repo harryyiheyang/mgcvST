@@ -22,12 +22,15 @@
 # keyed by it, and a checkpoint written under another contract is refused.
 # Stage 2 is still calibrated by Liu moment matching in this version;
 # `remainder_order`, `k` and `basis_sha` are the fields in which a calibration
-# with a basis truncation and a matched remainder records its parameters.
-.mgcvst_contract <- function(route) {
+# with a basis truncation and a matched remainder records its parameters. The
+# rank `k` and the sha of the basis are known only once the basis exists, so
+# the pair directory of a run is opened (and the contract written) after the
+# basis is built; only the refusal of stale directories happens earlier.
+.mgcvst_contract <- function(route, k = NA_integer_, basis_sha = NA_character_) {
   stopifnot(route %in% c("exact", "pcalearning"))
-  list(calibration_contract = "liu_v2", route = route, k = NA_integer_,
-       remainder_order = 0L, basis_sha = NA_character_, kernel_version = 1L,
-       schema = "compact_v1")
+  list(calibration_contract = "liu_v2", route = route, k = as.integer(k),
+       remainder_order = 0L, basis_sha = as.character(basis_sha),
+       kernel_version = 1L, schema = "compact_v1")
 }
 
 .mgcvst_pairs_frame <- function(i, j, score = NA_real_, log_p_two_sided = NA_real_,
@@ -60,8 +63,11 @@
 .mgcvst_result_bytes_per_pair <- 56
 
 # Memory guard: does `bytes_per_pair * n_pairs` stay below `fraction` of the
-# memory available to the process? Unknown memory passes.
+# memory available to the process? Unknown memory passes. Memory the run has
+# released but R has not yet returned is collected first, so that the probe
+# does not count it as used.
 .mgcvst_pair_memory_guard <- function(n_pairs, bytes_per_pair, fraction) {
+  gc(FALSE)
   available <- .mgcvst_memory_probe()$available
   need <- bytes_per_pair * as.numeric(n_pairs)
   list(ok = !is.finite(available) || need <= fraction * available,
@@ -74,11 +80,8 @@
 
 .mgcvst_read_shard <- function(file, columns = NULL) {
   # No memory map: a mapped shard cannot be replaced or deleted on Windows.
-  # The column names enter the call as literals: a variable in col_select is
-  # an external vector in a tidyselect specification.
   z <- if (is.null(columns)) arrow::read_parquet(file, mmap = FALSE) else
-    eval(bquote(arrow::read_parquet(.(file), col_select = .(columns),
-                                    mmap = FALSE)))
+    arrow::read_parquet(file, col_select = arrow::all_of(columns), mmap = FALSE)
   as.data.frame(z)
 }
 
@@ -123,8 +126,11 @@
     stop("Could not create the pair result directory.")
   }
   .mgcvst_pairs_refuse_stale(root, contract)
+  # The universe of an explicit pair list holds the full index; it is hashed in
+  # bounded pieces rather than serialised whole.
   sha <- digest::digest(list(version = 3L, contract = contract,
-                             universe = universe), algo = "sha256")
+                             universe = .mgcvst_pair_input_hash(universe)),
+                        algo = "sha256")
   dir <- file.path(root, paste0("pairs-", sha))
   record <- list(version = 3L, contract = contract, universe_sha = sha)
   if (dir.exists(dir)) {
@@ -183,6 +189,13 @@
 # were not evaluated (a gene without a usable state), written as one more
 # shard. Positive and negative discoveries are the adjusted two-sided
 # discoveries split by the sign of the score.
+#
+# When the compact table fits the memory guard it is built in one pass while
+# the pairs are written: the columns are preallocated, filled shard by shard,
+# and put in (i, j) order by a single permutation. A temporary run then holds
+# the table in memory and deletes its shards and pair directory, so that
+# nothing is left in the temporary directory; a run that does not fit keeps
+# its final shards, and so does every run with a checkpoint directory.
 .mgcvst_pairs_finalize <- function(pair_dir, shards, rows, extra, adjust,
                                    q.value, temporary, materialize = TRUE,
                                    verbose = FALSE) {
@@ -231,6 +244,24 @@
     }
   }
 
+  # The in-memory table is decided before the write loop, after the adjustment
+  # vectors are released.
+  keep <- materialize && n_pairs > 0 && n_pairs <= .Machine$integer.max &&
+    .mgcvst_pair_memory_guard(n_pairs, .mgcvst_result_bytes_per_pair, 0.2)$ok
+  columns <- NULL
+  if (keep) {
+    columns <- new.env(parent = emptyenv())
+    columns$i <- integer(n_pairs)
+    columns$j <- integer(n_pairs)
+    for (name in c("score", "log_p_two_sided", "log_p_positive",
+                   "log_p_negative", "log_q")) {
+      columns[[name]] <- numeric(n_pairs)
+    }
+    columns$remainder_kind <- integer(n_pairs)
+    columns$status <- integer(n_pairs)
+  }
+  write_files <- !(temporary && keep)
+
   threshold <- log(q.value)
   counts <- c(tested = 0, with_p = 0, discovered = 0, positive = 0, negative = 0)
   log_p_threshold <- -Inf
@@ -245,6 +276,10 @@
     } else if (is.null(log_q)) {
       rep(NA_real_, k)
     } else log_q[at + seq_len(k)]
+    if (keep) {
+      slot <- at + seq_len(k)
+      for (column in .mgcvst_final_columns) columns[[column]][slot] <- part[[column]]
+    }
     at <<- at + k
     counts[["tested"]] <<- counts[["tested"]] +
       sum(part$status != .mgcvst_pair_status[["feature"]])
@@ -259,26 +294,41 @@
         sum(found & !is.na(part$score) & part$score < 0)
       log_p_threshold <<- max(log_p_threshold, part$log_p_two_sided[found])
     }
-    file <- file.path(out_dir, name)
-    .mgcvst_write_parquet(part[, .mgcvst_final_columns, drop = FALSE], file)
-    final <<- c(final, file)
+    if (write_files) {
+      file <- file.path(out_dir, name)
+      .mgcvst_write_parquet(part[, .mgcvst_final_columns, drop = FALSE], file)
+      final <<- c(final, file)
+    }
     invisible(NULL)
   }
   if (n_extra) write_part(extra, "results-0000000000.parquet")
   for (file in shards) {
     part <- .mgcvst_read_shard(file)
     write_part(part, sub("^shard-", "results-", basename(file)))
+    if (temporary) unlink(file)
   }
   rm(log_q)
-  if (temporary && length(shards)) unlink(shards)
 
   results <- NULL
-  if (materialize && length(final)) {
-    guard <- .mgcvst_pair_memory_guard(n_pairs, .mgcvst_result_bytes_per_pair, 0.2)
-    if (guard$ok) {
-      results <- do.call(rbind, lapply(final, .mgcvst_read_shard))
-      results <- results[order(results$i, results$j), , drop = FALSE]
-      rownames(results) <- NULL
+  if (keep) {
+    perm <- order(columns$i, columns$j, method = "radix")
+    if (is.unsorted(perm)) {
+      for (column in .mgcvst_final_columns) {
+        columns[[column]] <- columns[[column]][perm]
+      }
+    }
+    rm(perm)
+    results <- stats::setNames(mget(.mgcvst_final_columns, envir = columns),
+                               .mgcvst_final_columns)
+    attr(results, "row.names") <- .set_row_names(as.integer(n_pairs))
+    class(results) <- "data.frame"
+    rm(columns)
+  }
+  if (temporary && (keep || !length(final))) {
+    parent <- dirname(pair_dir)
+    unlink(pair_dir, recursive = TRUE)
+    if (startsWith(basename(parent), "mgcvst-pairs-")) {
+      unlink(parent, recursive = TRUE)
     }
   }
   discovered <- if (adjustment$computed) {

@@ -75,11 +75,15 @@ Rcpp::List mgcvst_log_adjust_cpp(const Rcpp::NumericVector& log_p,
     for (R_xlen_t i = 0; i < n; ++i) {
       if (!usable(lp[i])) continue;
       const double x = std::min(lp[i], 0.0);
+      // Below exp(-700) the product m p is below 1e-292 for any m that fits
+      // in memory, so 1 - (1 - p)^m = m p to the working precision, whereas
+      // log(1 - p) already loses digits in the subnormal range just above.
+      if (x < -700.0) {
+        q[i] = x + std::log(static_cast<double>(m));
+        continue;
+      }
       const double a = log_one_minus_exp(x);  // log(1 - p)
-      // A p-value below the double range leaves log(1 - p) = 0, and then
-      // 1 - (1 - p)^m = m p to the working precision.
-      q[i] = (a == 0.0 && x < 0.0) ? x + std::log(static_cast<double>(m))
-                                   : log_one_minus_exp(static_cast<double>(m) * a);
+      q[i] = log_one_minus_exp(static_cast<double>(m) * a);
     }
   } else if (m > 0) {
     double log_c = 0.0;

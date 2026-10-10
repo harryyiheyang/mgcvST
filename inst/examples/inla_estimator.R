@@ -25,8 +25,7 @@ for (dataset in datasets) {
   )
   setup_seconds <- proc.time()[["elapsed"]] - t0
   fit <- inlaST.estimate(
-    Y, model, retain_smooth = TRUE, retain_marginal = TRUE,
-    marginal_args = list(method = "liu"),
+    Y, model, retain_smooth = TRUE,
     control = list(control.inla = list(tolerance = 1e-4)),
     BPPARAM = BiocParallel::SerialParam()
   )
@@ -35,15 +34,10 @@ for (dataset in datasets) {
     stop("An INLA feature did not converge for ", dataset)
   }
   pairs <- t(utils::combn(rownames(Y), 2L))
-  tested <- inlaST.test(fit, pairs = pairs, threads = 1L)
-  recalibrated <- inlaST.marginal(
-    fit, calibration = "liu", BPPARAM = BiocParallel::SerialParam()
-  )
+  tested <- inlaST.test(fit, pairs = pairs, threads = 1L,
+                        rank = min(10L, nrow(Y)))
   stopifnot(all(is.finite(tested$results$log_p_two_sided)),
-            all(is.finite(fit$diagnostics$marginal_p_value)),
-            isTRUE(all.equal(recalibrated$p_value,
-                              fit$diagnostics$marginal_p_value,
-                              check.attributes = FALSE)))
+            all(is.finite(fit$diagnostics$marginal_p_value)))
   B <- fit$geometry$smooth[[fit$geometry$target[["global"]]]]$B
   means <- as.numeric(fit$smooth_coefficients$global %*% colMeans(B))
   stopifnot(max(abs(means)) < 1e-9)

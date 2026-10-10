@@ -11,7 +11,7 @@ states and is shared by every gene. There is no gene-specific 0.995 cutoff.
 
 | Route in the baseline | Gene preparation | Pair execution | Bottleneck |
 |---|---|---|---|
-| INLA, `R/inla-test.R:.mgcvst_inla_test_pairs` | One feature on a cache miss; 512 MiB LRU eviction allows reconstruction | Singleton calls to the native pair kernel | Neither feature nor pair OpenMP receives a useful batch; repeated sparse factorization and materialization |
+| INLA, `R/pair-pcalearning.R:.mgcvst_pair_pcalearning` | One feature on a cache miss; 512 MiB LRU eviction allows reconstruction | Singleton calls to the native pair kernel | Neither feature nor pair OpenMP receives a useful batch; repeated sparse factorization and materialization |
 | Legacy mgcv Liu, `R/mgcvst-api.R:.mgcvst_liu_summaries` | Unique features in native batches | Native pair batches | All full double matrices remain resident, without an adaptive memory budget |
 | `model.set()` mgcv Liu, `R/model-test.R:.mgcvst_test_model` | Unique states written to temporary packed shards | BiocParallel groups, with serial pair kernels | No pair-level OpenMP batching; temporary shards cannot resume another call |
 

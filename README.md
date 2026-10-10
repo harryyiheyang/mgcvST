@@ -565,15 +565,6 @@ source(system.file("examples", "MISO_E13.R", package = "mgcvST"))
 source(system.file("examples", "Visium_B.R", package = "mgcvST"))
 ```
 
-## Simulation reference scripts
-
-`inst/examples/null.R` and `inst/examples/alternative.R` retain the
-original null-tail and power simulation designs for the baseline `spde`
-representation. These historical scripts use earlier score interfaces
-and require migration before running with the current release. See the
-[paired validation report](inst/notes/inla-bam-validation.md) for the
-settings and results of the newer INLA–mgcv comparisons.
-
 ## Construct a mesh from a boundary
 
 `spde_mesh()` accepts either a manually curated polygon boundary or a

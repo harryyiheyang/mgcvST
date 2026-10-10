@@ -9,14 +9,14 @@ inlaST.test(
   pairs = NULL,
   q.value = 0.05,
   adjust = c("BY", "BH", "Sidak", "none"),
-  rank = .mgcvst_pca_defaults$rank,
-  n_per_cell = .mgcvst_pca_defaults$n_per_cell,
-  seed = .mgcvst_pca_defaults$seed,
   threads = NULL,
   chunk_size = NULL,
   checkpoint_dir = NULL,
   resume = TRUE,
-  verbose = FALSE
+  verbose = FALSE,
+  rank = .mgcvst_pca_defaults$rank,
+  n_per_cell = .mgcvst_pca_defaults$n_per_cell,
+  seed = .mgcvst_pca_defaults$seed
 )
 }
 \arguments{
@@ -29,13 +29,6 @@ two-column matrix or data frame of feature IDs or one-based indices.}
 
 \item{adjust}{Multiple-testing adjustment of the two-sided family: \code{"BY"}
 (the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
-
-\item{rank}{Number of PCAlearning basis matrices.}
-
-\item{n_per_cell}{Training genes drawn per PCAlearning stratification cell.}
-
-\item{seed}{Non-negative integer seed for PCAlearning training-gene sampling;
-the caller's random-number state is restored.}
 
 \item{threads}{Positive number of OpenMP threads for score-state
 preparation and the pair kernels. \code{NULL} uses one.}
@@ -53,6 +46,13 @@ refused. With \code{NULL}, temporary storage is used.}
 \item{resume}{Reuse compatible completed checkpoint entries.}
 
 \item{verbose}{Logical; report progress.}
+
+\item{rank}{Number of PCAlearning basis matrices.}
+
+\item{n_per_cell}{Training genes drawn per PCAlearning stratification cell.}
+
+\item{seed}{Non-negative integer seed for PCAlearning training-gene sampling;
+the caller's random-number state is restored.}
 }
 \value{
 An \code{mgcvST_test} object; see \code{\link[=mgcvST.test]{mgcvST.test()}}.

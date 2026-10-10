@@ -72,12 +72,18 @@ two-sided, positive and negative p-values \code{log_p_two_sided},
 \code{log_p_positive} and \code{log_p_negative}, the adjusted two-sided
 log q-value \code{log_q}, the integer \code{remainder_kind} of the calibration (0:
 Liu moment matching without remainder) and the integer \code{status} (0:
-evaluated; 1: trace moments non-finite or non-positive; 2: invalid
-p-value; 3: a feature of the pair has no usable score state). Rows are
-written as Parquet shards while the pairs are evaluated; \verb{$shards} lists the
-files, and \verb{$results} is the same table sorted by \verb{(i, j)} when it fits the
-memory guard (56 bytes per pair, 20\% of available memory), and \code{NULL}
-otherwise.
+evaluated; 1: trace moments non-finite or non-positive, reported by
+\code{\link[=mgcvST.test]{mgcvST.test()}} only; 2: invalid p-value; 3: a feature of the pair has no
+usable score state). A pair with a status other than 0 has missing log
+p-values and is not adjusted. Rows are written as Parquet shards while the
+pairs are evaluated, and \verb{$results} is the same table sorted by \verb{(i, j)}
+when it fits the memory guard (56 bytes per pair, 20\% of available memory),
+and \code{NULL} otherwise. Without a \code{checkpoint_dir} the shards are temporary:
+they are deleted once \verb{$results} is built and \verb{$shards} is empty, and when
+\verb{$results} is \code{NULL} they stay in the session's temporary directory and are
+listed in \verb{$shards}. With a \code{checkpoint_dir}, \verb{$shards} lists the final
+files in it. Use a \code{checkpoint_dir} for runs of many millions of pairs, so
+that the shards go to a disk of the right size.
 
 The adjustment is applied once, to the two-sided family, in log space
 by the native kernel, so p-values below the double range keep their

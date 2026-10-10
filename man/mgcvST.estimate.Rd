@@ -128,7 +128,8 @@ arithmetic included in mgcvST. No external mgcv.taps installation or sourced
 score function is required. Full \code{gam} objects are never
 retained. Genes are processed in chunks through \code{BiocParallel}; the default
 uses the registered backend. On Windows, use a persistent
-\code{SnowParam(type = "SOCK")} and pass it to estimation and testing.
+\code{SnowParam(type = "SOCK")}. \code{\link[=mgcvST.test]{mgcvST.test()}} runs in the calling process with
+OpenMP \code{threads} and takes no \code{BiocParallel} backend.
 A fitting, compaction, or marginal-test error is recorded for that feature;
 the other features continue. A marginal-test error leaves the already
 constructed compact working model intact and only its marginal p-value

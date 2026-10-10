@@ -47,11 +47,11 @@
 inlaST.test <- function(
     fitinlaST, pairs = NULL, q.value = 0.05,
     adjust = c("BY", "BH", "Sidak", "none"),
+    threads = NULL, chunk_size = NULL, checkpoint_dir = NULL,
+    resume = TRUE, verbose = FALSE,
     rank = .mgcvst_pca_defaults$rank,
     n_per_cell = .mgcvst_pca_defaults$n_per_cell,
-    seed = .mgcvst_pca_defaults$seed,
-    threads = NULL, chunk_size = NULL, checkpoint_dir = NULL,
-    resume = TRUE, verbose = FALSE) {
+    seed = .mgcvst_pca_defaults$seed) {
   adjust <- match.arg(adjust)
   .mgcvst_test_run(
     fitinlaST, "pcalearning", pairs, q.value, adjust, threads, chunk_size,

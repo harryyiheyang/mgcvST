@@ -6,7 +6,7 @@
 * API change: `mgcvST.test()` and `inlaST.test()` share one argument list,
   `(fit, pairs, q.value, adjust, threads, chunk_size, checkpoint_dir, resume,
   verbose)`; `inlaST.test()` adds `rank`, `n_per_cell` and `seed` after
-  `adjust`. Removed: `BPPARAM`, `calibration`, `approximate_test`,
+  `verbose`, so that a positional call means the same in both tests. Removed: `BPPARAM`, `calibration`, `approximate_test`,
   `liu_approximation`, `cache_bytes`, `FDR`, `method`, `highlight`, and the
   `...` that reached `cache_bytes`. The fp16 exact INLA Liu path
   (`approximate_test = FALSE`) and the mgcv `calibration = "davies"` path are
@@ -20,10 +20,14 @@
   positive and negative p-values, the adjusted two-sided `log_q`,
   `remainder_kind` (0: Liu, no remainder) and `status` (0 evaluated, 1 invalid
   trace moments, 2 invalid p-value, 3 a gene without a usable score state).
-  Rows are written as Parquet shards while the pairs are evaluated and
-  `$shards` lists them. `$results` is the same table sorted by `(i, j)` when
-  it fits the memory guard (56 bytes per pair, 20% of available memory) and
-  is `NULL` otherwise. Feature names are looked up as `$feature_id[i]`. The
+  A pair with a status other than 0 has missing log p-values and is not
+  adjusted. Rows are written as Parquet shards while the pairs are evaluated.
+  `$results` is the same table sorted by `(i, j)` when it fits the memory
+  guard (56 bytes per pair, 20% of available memory) and is `NULL` otherwise.
+  Without a `checkpoint_dir` the shards are temporary: they are deleted once
+  `$results` is built and `$shards` is empty; when `$results` is `NULL` they
+  stay in `tempdir()` and `$shards` lists them. With a `checkpoint_dir`,
+  `$shards` lists the final files. Feature names are looked up as `$feature_id[i]`. The
   19-column per-pair table with character columns, `information`,
   `effective_rank`, `p_*` columns and the highlight/retained flags is gone;
   genes without a usable state are listed in `$failed`.
@@ -64,7 +68,25 @@
   `mgcvst_pca_pack_cpp()` and the seven `mgcvst_fp16_*_cpp()` exports. The
   shared INLA working-state kernels moved from `src/inla_fp16.cpp` to
   `src/inla_working_state.cpp`. `rkhs_score_calibrate()` and
-  `rkhs_covariance_score()` lose `method = "davies"`.
+  `rkhs_covariance_score()` lose `method = "davies"`. Also removed:
+  `.mgcvst_capture_marginal()`, `.mgcvst_model_sparse_constrained_solver()`,
+  `.mgcvst_inla_test_pairs()` (folded into the test driver), the test-only
+  `cache_bytes` argument of the exact pair pipeline, the stale metadata names
+  `liu_approximation` and `storage`, and the example scripts
+  `inst/examples/null.R` and `inst/examples/alternative.R`, which depended on
+  removed functions. `inst/examples/inla_estimator.R` runs on the current API.
+* Review fixes after Stage A. A PCAlearning resume follows the block schedule
+  (including `chunk_size`) stored in the pair directory, as the exact route
+  does, so a resume with another `chunk_size` reuses every completed shard. The
+  pair directory and its contract are opened after the basis exists in both
+  routes; stale directories are still refused before any work. In the exact
+  route a pair with an invalid p-value (status 2) has missing log p-values and
+  can no longer count as a discovery. `$results` is built in one pass into
+  preallocated columns and ordered by one permutation, and a temporary run
+  deletes its shards and pair directory after it. The memory guard collects
+  garbage before it probes. The universe hash of an explicit pair list is
+  computed in bounded pieces. The single-step Sidak adjustment is exact for
+  log p below -700. `threads` must be an integer.
 
 # mgcvST 0.0.1.9030
 

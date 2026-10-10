@@ -108,17 +108,25 @@
   out$log_p_positive[at] <- res$log_p_positive
   out$log_p_negative[at] <- res$log_p_negative
   out$status[at] <- res$status
+  # A pair that is not evaluated carries no p-value, as in the PCAlearning
+  # route; a non-finite log p-value (-Inf) would otherwise enter the
+  # adjustment as p = 0 and count as a discovery.
+  invalid <- which(out$status != .mgcvst_pair_status[["ok"]])
+  if (length(invalid)) {
+    out$log_p_two_sided[invalid] <- NA_real_
+    out$log_p_positive[invalid] <- NA_real_
+    out$log_p_negative[invalid] <- NA_real_
+  }
   out
 }
 
 # Evaluate the Liu-calibrated pairs of a model.set() fit from resumable
 # feature-first score states and stream them to raw Parquet shards. `index`
 # is NULL for every pair of the available features, or a two-column matrix
-# of available feature indices i < j. `cache_bytes` bounds the resident score
-# states; NULL adapts to the memory available to the process.
+# of available feature indices i < j. The resident score states adapt to the
+# memory available to the process.
 .mgcvst_pair_pipeline <- function(fit, index, threads, chunk_size, verbose,
-                                  checkpoint_dir = NULL, resume = TRUE,
-                                  cache_bytes = NULL) {
+                                  checkpoint_dir = NULL, resume = TRUE) {
   if (!is.numeric(threads) || length(threads) != 1L ||
       !is.finite(threads) || threads < 1L || threads != floor(threads)) {
     stop("threads must be one positive integer.")
@@ -130,11 +138,6 @@
   }
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
     stop("verbose must be TRUE or FALSE.")
-  }
-  if (!is.null(cache_bytes) && (!is.numeric(cache_bytes) ||
-      length(cache_bytes) != 1L || !is.finite(cache_bytes) ||
-      cache_bytes < 0)) {
-    stop("cache_bytes must be NULL or a non-negative byte count.")
   }
   if (identical(fit$score_backend, "sparse")) {
     stop("Sparse INLA fits are tested by inlaST.test().")
@@ -169,24 +172,22 @@
   root <- if (is.null(checkpoint_dir)) {
     tempfile("mgcvst-pairs-")
   } else store$path
+  # Pair directories of another algorithm contract are refused before any
+  # work; the directory of this run is opened once its score states exist.
+  .mgcvst_pairs_refuse_stale(root, contract)
   universe <- if (all_pairs) {
     list(all = TRUE, used = used, n_feature = length(fit$feature_id))
   } else list(index = index)
-  pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
 
   n_pairs_hint <- if (all_pairs) length(used) * (length(used) - 1) / 2 else
     nrow(index)
   state_estimate <- 8 * (width^2 + width) + 2048
-  automatic_cache <- is.null(cache_bytes)
-  probe <- if (automatic_cache) .mgcvst_memory_probe() else NULL
+  probe <- .mgcvst_memory_probe()
   reserve <- 4 * 8 * width^2 * min(threads, chunk_size) +
     2 * state_estimate + 256 * min(n_pairs_hint, chunk_size) + 64 * 1024^2
-  if (automatic_cache) {
-    available_memory <- probe$available
-    cache_bytes <- if (is.finite(available_memory)) {
-      max(0, 0.7 * available_memory - reserve)
-    } else 512 * 1024^2
-  }
+  cache_bytes <- if (is.finite(probe$available)) {
+    max(0, 0.7 * probe$available - reserve)
+  } else 512 * 1024^2
 
   existing <- vapply(used, function(id) .mgcvst_store_has(store, id), logical(1L))
   resume_count <- sum(existing)
@@ -232,6 +233,7 @@
     fit$.mgcvst_fixed_factors <- NULL
   }
   preparation_elapsed <- proc.time()[["elapsed"]] - preparation_started
+  pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
 
   # Resident score states: least-recently-used eviction under `cache_bytes`.
   cache <- new.env(parent = emptyenv())
@@ -336,7 +338,7 @@
         first <- first + saved
         next
       }
-      if (automatic_cache && proc.time()[["elapsed"]] - last_probe >= 2) {
+      if (proc.time()[["elapsed"]] - last_probe >= 2) {
         probe <- .mgcvst_memory_probe()
         if (is.finite(probe$available)) {
           cache_bytes <- max(0, 0.7 * (probe$available + cache$bytes) - reserve)
@@ -381,7 +383,7 @@
       cache_hits = cache$hits, cache_misses = cache$misses,
       cache_evictions = cache$evictions, cache_bytes = cache_bytes,
       resident_bytes = cache$bytes, preparation_elapsed = preparation_elapsed,
-      signature = signature, contract = contract, storage = "double"
+      signature = signature, contract = contract
     )
   )
 }

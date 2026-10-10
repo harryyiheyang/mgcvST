@@ -150,3 +150,18 @@ test_that("new switches reject non-logical values", {
   expect_error(mgcvST.estimate(NULL, NULL, diagnostics = 0), "diagnostics must")
   expect_error(mgcvST.estimate(NULL, NULL, retain_marginal = 1), "retain_marginal must")
 })
+
+test_that("a raw gam setup and the prepared model give identical estimates and tests", {
+  f <- st_fixture()
+  sp <- BiocParallel::SerialParam()
+  from_G <- suppressWarnings(mgcvST.estimate(f$Y, f$G, BPPARAM = sp))
+  from_model <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp))
+  # Only the stored setup object differs; every estimate is the same.
+  same <- function(x) {
+    x <- strip_elapsed(x)
+    x$model <- NULL
+    x
+  }
+  expect_identical(same(from_G), same(from_model))
+  expect_identical(mgcvST.test(from_G)$results, mgcvST.test(from_model)$results)
+})

@@ -38,7 +38,7 @@ design. For one feature define
 
 All applications of the constrained inverse of `H` can use one sparse
 Cholesky factor and the rank-one constraint formula already implemented in
-`.mgcvst_model_sparse_constrained_solver()`. With `S` denoting this operator,
+the C++ sparse kernel (`src/inla_sparse.cpp`). With `S` denoting this operator,
 the expected nuisance information and covariance are
 
 `J=X'WX-L'SL` and `Vp_expected=J^-1`.

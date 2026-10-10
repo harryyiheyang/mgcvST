@@ -46,9 +46,17 @@ test_that("bounded pair blocks stream every pair once whatever the state budget"
     },
     .package = "mgcvST"
   )
+  # The resident-state budget is 0.7 of the available memory less a reserve;
+  # the mocked probe sets it to `cache_bytes`. The reserve repeats the formula
+  # of the pipeline for these two-column states and six pairs.
   run <- function(index, cache_bytes, chunk_size = 9L) {
+    reserve <- 4 * 8 * 2^2 + 2 * (8 * (2^2 + 2) + 2048) +
+      256 * min(6, chunk_size) + 64 * 1024^2
+    testthat::local_mocked_bindings(
+      .mgcvst_memory_probe = function(...) list(available = (cache_bytes + reserve) / 0.7),
+      .package = "mgcvST")
     z <- mgcvST:::.mgcvst_pair_pipeline(fit, index, threads = 1L,
-      chunk_size = chunk_size, verbose = FALSE, cache_bytes = cache_bytes)
+      chunk_size = chunk_size, verbose = FALSE)
     out <- do.call(rbind, lapply(z$shards, mgcvST:::.mgcvst_read_shard))
     expect_identical(sum(z$rows), nrow(out))
     out[order(out$i, out$j), ]
@@ -173,4 +181,61 @@ test_that("the fused C++ Liu pair kernel matches the old trace-powers + R Liu pa
   expect_equal(strong_old$p_value, 0)
   expect_true(is.finite(strong$log_p_two_sided))
   expect_lt(strong$log_p_two_sided, log(1e-300))
+})
+
+test_that("an invalid exact-route p-value is missing and never enters the adjustment", {
+  testthat::local_mocked_bindings(
+    mgcvst_pair_liu_cpp = function(H, avec, left, right, threads) {
+      list(score = c(1, 2), log_p_two_sided = c(-Inf, -3),
+           log_p_positive = c(-Inf, -3.7), log_p_negative = c(-Inf, -0.02),
+           status = c(2L, 0L))
+    }, .package = "mgcvST")
+  states <- lapply(1:3, function(i) list(a = c(i, 1), M = diag(2)))
+  out <- mgcvST:::.mgcvst_liu_pairs(rbind(c(1L, 2L), c(1L, 3L)), 1:3, states, 1L)
+  expect_identical(out$status, c(2L, 0L))
+  expect_equal(out$score, c(1, 2))
+  expect_true(all(is.na(out[1L, c("log_p_two_sided", "log_p_positive",
+                                  "log_p_negative")])))
+  expect_equal(out$log_p_two_sided[2L], -3)
+  adjusted <- mgcvST:::.mgcvst_log_adjust(out$log_p_two_sided, "BY")
+  expect_equal(adjusted$n, 1)
+  expect_true(is.na(adjusted$log_q[1L]))
+})
+
+test_that("stale pair results are refused before work and the pair directory follows the states", {
+  .pair_pipeline_mocks()
+  built <- 0L
+  testthat::local_mocked_bindings(
+    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
+      built <<- built + length(ids)
+      lapply(ids, function(i) list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)),
+                                   width = 2L))
+    }, .package = "mgcvST")
+  fit <- .pair_pipeline_fit()
+  dir <- tempfile("mgcvst-pair-open-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  mgcvST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE, checkpoint_dir = dir)
+  expect_identical(built, 4L)
+  # Leave one missing state and a pair directory of another contract.
+  unlink(list.files(dir, "^pairs-", full.names = TRUE), recursive = TRUE)
+  unlink(file.path(dir, "feature-0000000004.rds"))
+  stale <- file.path(dir, "pairs-0123")
+  dir.create(stale)
+  saveRDS(list(), file.path(stale, "block-0000000001.rds"))
+  built <- 0L
+  expect_error(mgcvST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
+                                              checkpoint_dir = dir),
+               "different algorithm contract")
+  expect_identical(built, 0L)
+  expect_false(file.exists(file.path(dir, "feature-0000000004.rds")))
+  unlink(stale, recursive = TRUE)
+
+  # A run whose state preparation fails leaves no pair directory behind.
+  testthat::local_mocked_bindings(
+    .mgcvst_pair_build_batch = function(fit, ids, threads, native) stop("state failure"),
+    .package = "mgcvST")
+  expect_error(mgcvST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
+                                              checkpoint_dir = dir),
+               "state failure")
+  expect_length(list.files(dir, "^pairs-"), 0L)
 })

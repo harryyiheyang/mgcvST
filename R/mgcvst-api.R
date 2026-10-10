@@ -205,7 +205,8 @@
 #' score function is required. Full `gam` objects are never
 #' retained. Genes are processed in chunks through `BiocParallel`; the default
 #' uses the registered backend. On Windows, use a persistent
-#' `SnowParam(type = "SOCK")` and pass it to estimation and testing.
+#' `SnowParam(type = "SOCK")`. [mgcvST.test()] runs in the calling process with
+#' OpenMP `threads` and takes no `BiocParallel` backend.
 #' A fitting, compaction, or marginal-test error is recorded for that feature;
 #' the other features continue. A marginal-test error leaves the already
 #' constructed compact working model intact and only its marginal p-value

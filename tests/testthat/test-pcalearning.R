@@ -162,9 +162,11 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
   }
   shared <- c("pairs", "q.value", "adjust", "threads", "chunk_size",
               "checkpoint_dir", "resume", "verbose")
-  expect_identical(setdiff(names(formals(inlaST.test)), c("fitinlaST", "rank", "n_per_cell", "seed")),
-                   shared)
-  expect_identical(setdiff(names(formals(mgcvST.test)), "fitmgcvST"), shared)
+  # The shared arguments keep the same positions; the PCAlearning controls
+  # follow them, so a positional call means the same in both tests.
+  expect_identical(names(formals(inlaST.test)),
+                   c("fitinlaST", shared, "rank", "n_per_cell", "seed"))
+  expect_identical(names(formals(mgcvST.test)), c("fitmgcvST", shared))
   expect_equal(unlist(mgcvST:::.mgcvst_pca_defaults),
                c(rank = 10, n_per_cell = 3, seed = 1))
   expect_identical(eval(formals(inlaST.test)$rank), 10L)
@@ -214,7 +216,7 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
   all_pairs <- inlaST.test(fit, threads = 2L, rank = G, chunk_size = 5L)
   expect_identical(all_pairs$timing$inla_projection$pair_schedule,
                    "pcalearning_gene_blocks")
-  expect_gt(length(all_pairs$shards), 1L)
+  expect_gt(all_pairs$timing$inla_projection$chunks, 1L)
   expect_equal(all_pairs$results, pca$results, tolerance = 1e-12)
 
   # A pair list (reversed order, subset) uses the (i, j) kernel with equal results.
@@ -405,4 +407,70 @@ test_that("PCAlearning checks rank, n_per_cell, seed and trace-table memory", {
   local_mocked_bindings(.mgcvst_memory_probe = function(...) list(available = 1e3),
                         .package = "mgcvST")
   expect_error(run(3L), "trace tables for rank = 3 .* use a smaller rank")
+})
+
+test_that("a PCAlearning resume follows the stored schedule whatever chunk_size it is given", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  G <- length(fit$feature_id)
+  local_mocked_bindings(
+    .mgcvst_pca_training = function(scales, universe, n_per_cell, seed) {
+      list(train = universe[c(1L, 3L, 5L, 7L)], cell = rep(1L, nrow(scales)))
+    },
+    .package = "mgcvST"
+  )
+  basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
+  run <- function(index, dir, chunk_size) {
+    mgcvST:::.mgcvst_pair_pcalearning(
+      fit, index, 2L, chunk_size, FALSE, basis, rank = 3L, n_per_cell = 3L,
+      seed = 1L, checkpoint_dir = dir
+    )
+  }
+  for (index in list(NULL, t(combn(G, 2L)))) {
+    dir <- tempfile("mgcvst-pca-chunks-")
+    on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+    first <- run(index, dir, 5L)
+    expect_identical(first$metadata$resumed_pairs, 0)
+    expect_gt(first$metadata$chunks, 1L)
+    for (later in c(1000L, 2L)) {
+      again <- run(index, dir, later)
+      expect_identical(again$metadata$chunk_size, 5L)
+      expect_identical(again$metadata$chunks, first$metadata$chunks)
+      expect_identical(again$metadata$resumed_pairs, choose(G, 2))
+      expect_identical(.pca_pairs(again), .pca_pairs(first))
+    }
+  }
+  # The stored schedule is checked against the universe it was written for.
+  schedule <- file.path(first$metadata$pair_dir, "schedule.rds")
+  stored <- mgcvST:::.mgcvst_schedule_load(schedule)
+  expect_identical(stored$kind, "pcalearning")
+  stored$n <- stored$n + 1L
+  unlink(schedule)
+  mgcvST:::.mgcvst_schedule_save(schedule, stored)
+  expect_error(run(index, dir, 5L), "pair schedule is damaged or incompatible")
+})
+
+test_that("PCAlearning controls fail before the basis, and the pair directory follows the basis", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  calls <- 0L
+  observation_basis <- mgcvST:::.inlast_sparse_observation_basis
+  local_mocked_bindings(
+    .inlast_sparse_observation_basis = function(fit) {
+      calls <<- calls + 1L
+      observation_basis(fit)
+    },
+    .package = "mgcvST")
+  expect_error(inlaST.test(fit, rank = 0L), "rank must be one positive integer")
+  expect_error(inlaST.test(fit, n_per_cell = 1.5), "n_per_cell must be one positive")
+  expect_error(inlaST.test(fit, seed = -1), "seed must be one non-negative integer")
+  expect_error(inlaST.test(fit, threads = 1.5), "threads must be one positive integer")
+  expect_identical(calls, 0L)
+
+  dir <- tempfile("mgcvst-pca-order-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  local_mocked_bindings(.mgcvst_pca_basis = function(...) stop("basis failure"),
+                        .package = "mgcvST")
+  expect_error(inlaST.test(fit, rank = 3L, checkpoint_dir = dir), "basis failure")
+  expect_length(list.files(dir, "^pairs-"), 0L)
 })

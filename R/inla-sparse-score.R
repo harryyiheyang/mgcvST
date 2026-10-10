@@ -53,28 +53,6 @@
   )
 }
 
-.mgcvst_model_sparse_constrained_solver <- function(H, g) {
-  factor <- Matrix::Cholesky(
-    Matrix::forceSymmetric(H), LDL = FALSE, super = FALSE
-  )
-  solve_H <- function(rhs) {
-    rhs <- if (is.null(dim(rhs))) matrix(as.numeric(rhs), ncol = 1L) else rhs
-    as.matrix(Matrix::solve(factor, rhs))
-  }
-  Hinv_g <- as.numeric(solve_H(g))
-  denominator <- sum(g * Hinv_g)
-  if (!is.finite(denominator) || denominator <= 0) {
-    stop("The sparse score constraint has a non-positive H-inverse norm.")
-  }
-  function(rhs) {
-    vector <- is.null(dim(rhs))
-    answer <- solve_H(rhs)
-    multiplier <- as.numeric(crossprod(g, answer)) / denominator
-    answer <- answer - tcrossprod(Hinv_g, multiplier)
-    if (vector) as.numeric(answer) else answer
-  }
-}
-
 .inlast_sparse_prepare <- function(fit) {
   geometry <- fit$score_sparse
   if (!is.list(geometry) || is.null(geometry$Q)) {

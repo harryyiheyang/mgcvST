@@ -47,10 +47,12 @@
     stop("checkpoint_dir must be NULL or one directory name.")
   }
   if (is.null(threads)) threads <- 1L
-  threads <- as.integer(threads)
-  if (length(threads) != 1L || is.na(threads) || threads < 1L) {
+  if (!is.numeric(threads) || length(threads) != 1L || !is.finite(threads) ||
+      threads < 1 || threads != floor(threads) ||
+      threads > .Machine$integer.max) {
     stop("threads must be one positive integer.")
   }
+  threads <- as.integer(threads)
   if (is.null(chunk_size)) {
     chunk_size <- if (identical(route, "pcalearning")) 1000000L else 10000L
   }
@@ -64,6 +66,8 @@
       stop("inlaST.test() requires a fit returned by inlaST.estimate().")
     }
     .mgcvst_inla_require_sparse(fit)
+    # Validated before the observation basis is built.
+    pca <- .mgcvst_pca_check_args(rank, n_per_cell, seed)
   } else {
     if (.mgcvst_inla_downstream(fit)) {
       stop("mgcvST.test() does not accept inlaST.estimate() fits; use inlaST.test().")
@@ -120,11 +124,18 @@
       t_basis <- proc.time()[["elapsed"]]
       basis <- .inlast_sparse_observation_basis(fit)
       inla_basis_elapsed <- proc.time()[["elapsed"]] - t_basis
-      routed <- .mgcvst_inla_test_pairs(
-        fit, index, threads, chunk_size, verbose, basis = basis, rank = rank,
-        n_per_cell = n_per_cell, seed = seed, checkpoint_dir = checkpoint_dir,
-        resume = resume
+      routed <- .mgcvst_pair_pcalearning(
+        fit, index, threads, chunk_size, verbose, basis = basis,
+        rank = pca$rank, n_per_cell = pca$n_per_cell, seed = pca$seed,
+        checkpoint_dir = checkpoint_dir, resume = resume
       )
+      routed$metadata <- c(list(
+        q = ncol(fit$score_sparse$Q), r = basis$rank,
+        target_coverage = basis$coverage, kept_coverage = basis$kept,
+        tail = basis$tail,
+        basis = "constrained_observation_kernel_A_Qg_inverse_At",
+        unit_cache = "score_state_shards"
+      ), routed$metadata)
     } else {
       routed <- .mgcvst_pair_pipeline(
         fit, index, threads, chunk_size, verbose,
@@ -225,12 +236,18 @@
 #' `log_p_positive` and `log_p_negative`, the adjusted two-sided
 #' log q-value `log_q`, the integer `remainder_kind` of the calibration (0:
 #' Liu moment matching without remainder) and the integer `status` (0:
-#' evaluated; 1: trace moments non-finite or non-positive; 2: invalid
-#' p-value; 3: a feature of the pair has no usable score state). Rows are
-#' written as Parquet shards while the pairs are evaluated; `$shards` lists the
-#' files, and `$results` is the same table sorted by `(i, j)` when it fits the
-#' memory guard (56 bytes per pair, 20% of available memory), and `NULL`
-#' otherwise.
+#' evaluated; 1: trace moments non-finite or non-positive, reported by
+#' [mgcvST.test()] only; 2: invalid p-value; 3: a feature of the pair has no
+#' usable score state). A pair with a status other than 0 has missing log
+#' p-values and is not adjusted. Rows are written as Parquet shards while the
+#' pairs are evaluated, and `$results` is the same table sorted by `(i, j)`
+#' when it fits the memory guard (56 bytes per pair, 20% of available memory),
+#' and `NULL` otherwise. Without a `checkpoint_dir` the shards are temporary:
+#' they are deleted once `$results` is built and `$shards` is empty, and when
+#' `$results` is `NULL` they stay in the session's temporary directory and are
+#' listed in `$shards`. With a `checkpoint_dir`, `$shards` lists the final
+#' files in it. Use a `checkpoint_dir` for runs of many millions of pairs, so
+#' that the shards go to a disk of the right size.
 #'
 #' The adjustment is applied once, to the two-sided family, in log space
 #' by the native kernel, so p-values below the double range keep their

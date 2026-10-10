@@ -201,6 +201,24 @@
 # Defaults of the PCAlearning controls of inlaST.test(), in one place.
 .mgcvst_pca_defaults <- list(rank = 10L, n_per_cell = 3L, seed = 1L)
 
+# Validated PCAlearning controls as integers. inlaST.test() calls this before
+# it builds the observation basis, so a bad control fails at once.
+.mgcvst_pca_check_args <- function(rank, n_per_cell, seed) {
+  for (x in list(list("rank", rank), list("n_per_cell", n_per_cell))) {
+    v <- x[[2L]]
+    if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v < 1 ||
+        v != floor(v) || v > .Machine$integer.max) {
+      stop(x[[1L]], " must be one positive integer.", call. = FALSE)
+    }
+  }
+  if (!is.numeric(seed) || length(seed) != 1L || !is.finite(seed) ||
+      seed < 0 || seed != floor(seed) || seed > .Machine$integer.max) {
+    stop("seed must be one non-negative integer.", call. = FALSE)
+  }
+  list(rank = as.integer(rank), n_per_cell = as.integer(n_per_cell),
+       seed = as.integer(seed))
+}
+
 # Approximate Liu log p-values for the requested pairs from the PCAlearning
 # basis, streamed to raw Parquet shards. `index` is NULL for every pair of the
 # available genes (gene blocks are generated and scored on the fly) or a
@@ -211,19 +229,14 @@
                                      seed = .mgcvst_pca_defaults$seed,
                                      checkpoint_dir = NULL, resume = TRUE) {
   started <- proc.time()[["elapsed"]]
-  for (x in list(list("rank", rank), list("n_per_cell", n_per_cell),
-                 list("chunk_size", chunk_size))) {
-    v <- x[[2L]]
-    if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v < 1 ||
-        v != floor(v)) stop(x[[1L]], " must be one positive integer.")
+  controls <- .mgcvst_pca_check_args(rank, n_per_cell, seed)
+  rank <- controls$rank
+  n_per_cell <- controls$n_per_cell
+  seed <- controls$seed
+  if (!is.numeric(chunk_size) || length(chunk_size) != 1L ||
+      !is.finite(chunk_size) || chunk_size < 1 || chunk_size != floor(chunk_size)) {
+    stop("chunk_size must be one positive integer.")
   }
-  rank <- as.integer(rank)
-  n_per_cell <- as.integer(n_per_cell)
-  if (!is.numeric(seed) || length(seed) != 1L || !is.finite(seed) ||
-      seed < 0 || seed != floor(seed) || seed > .Machine$integer.max) {
-    stop("seed must be one non-negative integer.")
-  }
-  seed <- as.integer(seed)
   threads <- as.integer(threads)
   table_bytes <- .mgcvst_pca_table_bytes(basis$rank, rank)
   available_memory <- .mgcvst_memory_probe()$available
@@ -277,10 +290,12 @@
                                resume = resume)$path
   }
   root <- if (is.null(path)) tempfile("mgcvst-pairs-") else path
+  # Pair directories of another algorithm contract are refused before any
+  # work; the directory of this run is opened once the basis exists.
+  .mgcvst_pairs_refuse_stale(root, contract)
   universe <- if (all_pairs) {
     list(all = TRUE, used = used, n_feature = length(fit$feature_id))
   } else list(index = index)
-  pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
 
   basis_file <- if (is.null(path)) NULL else file.path(path, "pca-basis.rds")
   basis_resumed <- !is.null(basis_file) && file.exists(basis_file)
@@ -386,6 +401,29 @@
     frame
   }
 
+  pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
+  # The block schedule depends on chunk_size, so it is fixed when the pair
+  # directory is first used and a resumed run follows the stored one, whatever
+  # chunk_size it is given.
+  n_schedule <- if (all_pairs) length(used) else nrow(index)
+  schedule_file <- file.path(pair_dir, "schedule.rds")
+  if (file.exists(schedule_file)) {
+    stored <- .mgcvst_schedule_load(schedule_file)
+    if (!identical(stored$kind, "pcalearning") || !identical(stored$n, n_schedule) ||
+        !identical(stored$all_pairs, all_pairs)) {
+      stop("The stored pair schedule is damaged or incompatible.")
+    }
+    if (verbose && !identical(stored$chunk_size, as.integer(chunk_size))) {
+      message("Resumed with the stored chunk_size = ", stored$chunk_size, ".")
+    }
+    chunk_size <- stored$chunk_size
+  } else {
+    chunk_size <- as.integer(min(chunk_size, .Machine$integer.max))
+    .mgcvst_schedule_save(schedule_file, list(
+      kind = "pcalearning", all_pairs = all_pairs, n = n_schedule,
+      chunk_size = chunk_size))
+  }
+
   t0 <- proc.time()[["elapsed"]]
   chunks <- 0L
   resumed_pairs <- 0
@@ -464,10 +502,11 @@
     n_pairs = sum(shard_rows), temporary = is.null(path), failed = failed,
     elapsed = pair_elapsed,
     metadata = list(
-      liu_approximation = "pca_learning", preparation_backend = "sparse",
+      preparation_backend = "sparse",
       pair_schedule = if (all_pairs) "pcalearning_gene_blocks" else
         "pcalearning_pair_list",
-      chunks = chunks, resumed_pairs = resumed_pairs, pair_dir = pair_dir,
+      chunks = chunks, chunk_size = chunk_size, resumed_pairs = resumed_pairs,
+      pair_dir = pair_dir,
       preparation_elapsed = preparation_elapsed, contract = contract,
       pca_learning = list(
         rank = rank, n_per_cell = n_per_cell,

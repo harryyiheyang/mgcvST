@@ -115,26 +115,6 @@
        row_id = .mgcvst_row_id(fit, nrow(X)), test_component = test_component)
 }
 
-.mgcvst_capture_marginal <- function(fit, geometry = NULL, test_component = 1L) {
-  .working_family_id(fit$family$family)
-  if (is.null(geometry)) {
-    geometry <- .mgcvst_marginal_geometry(fit, test_component = test_component)
-    geometry$offset <- numeric(nrow(geometry$X))
-  } else {
-    current <- .mgcvst_marginal_geometry(fit, X = geometry$X,
-                                        test_component = test_component)
-    current$offset <- numeric(nrow(current$X))
-    if (!identical(current, geometry) || nrow(geometry$X) != length(fit$y)) {
-      stop("Marginal retention requires unchanged smooth geometry and rows within a chunk.")
-    }
-  }
-  state <- fit[c("linear.predictors", "y", "prior.weights", "sig2",
-                 "coefficients", "sp")]
-  state$family_raw <- serialize(fit$family, NULL)
-  state$offset <- if (is.null(fit$offset)) numeric(length(fit$y)) else as.numeric(fit$offset)
-  list(state = state, geometry = geometry)
-}
-
 .mgcvst_collect_marginal <- function(chunks, p, feature_id) {
   state <- vector("list", p)
   geometry <- list()

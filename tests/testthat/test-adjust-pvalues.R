@@ -45,6 +45,11 @@ test_that("single-step Sidak matches 1 - (1 - p)^m and keeps tiny p-values", {
   deep <- mgcvST:::.mgcvst_log_adjust(c(-5000, -1e-3, -2), "Sidak")$log_q
   expect_equal(deep[1L], -5000 + log(3), tolerance = 1e-12)
   expect_true(all(deep <= 0))
+  # Just below the double range exp(x) is subnormal and loses digits; the
+  # adjustment equals x + log(m) there, to the working precision.
+  edge <- c(-745, -720, -709, -700.5, -699, -300)
+  adjusted <- mgcvST:::.mgcvst_log_adjust(edge, "Sidak")$log_q
+  expect_equal(adjusted, edge + log(length(edge)), tolerance = 1e-13)
   expect_equal(mgcvST:::.mgcvst_log_adjust(c(0, -Inf), "Sidak")$log_q, c(0, -Inf))
 })
 
@@ -139,13 +144,85 @@ test_that("compact result shards carry one adjustment and the sign split", {
   expect_equal(out$discoveries$pairs_with_p_value, 6)
   expect_equal(out$threshold$log_p_threshold, max(lp[hit]))
 
-  # A repeated finalize rewrites the shards; a temporary run removes raw shards.
+  # A repeated finalize rewrites the shards. A temporary run that holds the
+  # table in memory deletes its raw shards, writes no final shards and removes
+  # its pair directory.
   again <- mgcvST:::.mgcvst_pairs_finalize(pair_dir, files, c(3L, 3L), extra, "BH",
                                            0.05, temporary = TRUE)
   expect_false(any(file.exists(files)))
-  expect_true(all(file.exists(again$shards)))
+  expect_length(again$shards, 0L)
+  expect_false(dir.exists(pair_dir))
   expect_equal(again$results$log_q[match(key(a), key(again$results))],
                mgcvST:::.mgcvst_log_adjust(lp, "BH")$log_q[1:3], tolerance = 1e-14)
+})
+
+test_that("the in-memory table is built in one pass and put in (i, j) order", {
+  root <- tempfile("mgcvst-pairs-")
+  on.exit(unlink(root, recursive = TRUE), add = TRUE)
+  contract <- mgcvST:::.mgcvst_contract("exact")
+  pair_dir <- mgcvST:::.mgcvst_pairs_open(root, list(test = 3L), contract)
+  make <- function(i, j) {
+    mgcvST:::.mgcvst_pairs_frame(i, j, score = i - j, log_p_two_sided = -(i + j),
+      log_p_positive = -(i + j) - 1, log_p_negative = -0.01 * (i + j))
+  }
+  first <- make(c(3L, 1L), c(4L, 2L))
+  second <- make(c(2L, 1L, 2L), c(3L, 3L, 4L))
+  files <- mgcvST:::.mgcvst_shard_file(pair_dir, 1:2)
+  mgcvST:::.mgcvst_write_parquet(first, files[1L])
+  mgcvST:::.mgcvst_write_parquet(second, files[2L])
+  kept <- mgcvST:::.mgcvst_pairs_finalize(pair_dir, files, c(2L, 3L), NULL, "BH",
+                                          0.05, temporary = FALSE)
+  r <- kept$results
+  expect_identical(paste(r$i, r$j), c("1 2", "1 3", "2 3", "2 4", "3 4"))
+  expect_identical(vapply(r, typeof, ""), c(i = "integer", j = "integer",
+    score = "double", log_p_two_sided = "double", log_p_positive = "double",
+    log_p_negative = "double", log_q = "double", remainder_kind = "integer",
+    status = "integer"))
+  expect_identical(attr(r, "row.names"), 1:5)
+  # The table is the sorted union of the final shards.
+  from_shards <- do.call(rbind, lapply(kept$shards, mgcvST:::.mgcvst_read_shard))
+  from_shards <- from_shards[order(from_shards$i, from_shards$j), ]
+  rownames(from_shards) <- NULL
+  expect_equal(r, from_shards)
+
+  # The memory guard is evaluated before the shards are written: with room for
+  # the table a temporary run keeps no files; without room it keeps its final
+  # shards and no table.
+  guard_calls <- character()
+  roomy <- TRUE
+  testthat::local_mocked_bindings(
+    .mgcvst_pair_memory_guard = function(n_pairs, bytes_per_pair, fraction) {
+      guard_calls <<- c(guard_calls, as.character(bytes_per_pair))
+      list(ok = bytes_per_pair != 56 || roomy, need = 0, available = 1e12)
+    },
+    .package = "mgcvST")
+  temp_dir <- function(universe) {
+    root <- tempfile("mgcvst-pairs-")
+    dir <- mgcvST:::.mgcvst_pairs_open(root, list(test = universe), contract)
+    f <- mgcvST:::.mgcvst_shard_file(dir, 1:2)
+    mgcvST:::.mgcvst_write_parquet(first, f[1L])
+    mgcvST:::.mgcvst_write_parquet(second, f[2L])
+    list(root = root, dir = dir, files = f)
+  }
+  a <- temp_dir(4L)
+  held <- mgcvST:::.mgcvst_pairs_finalize(a$dir, a$files, c(2L, 3L), NULL, "BY",
+                                          0.05, temporary = TRUE)
+  expect_identical(guard_calls, c("24", "56"))
+  expect_identical(nrow(held$results), 5L)
+  expect_length(held$shards, 0L)
+  expect_false(dir.exists(a$root))
+
+  roomy <- FALSE
+  b <- temp_dir(5L)
+  on.exit(unlink(b$root, recursive = TRUE), add = TRUE)
+  spilled <- mgcvST:::.mgcvst_pairs_finalize(b$dir, b$files, c(2L, 3L), NULL, "BY",
+                                             0.05, temporary = TRUE)
+  expect_null(spilled$results)
+  expect_length(spilled$shards, 2L)
+  expect_true(all(file.exists(spilled$shards)))
+  expect_false(any(file.exists(b$files)))
+  expect_identical(sum(vapply(spilled$shards, function(f)
+    nrow(mgcvST:::.mgcvst_read_shard(f)), 1L)), 5L)
 })
 
 test_that("the memory guard skips the adjustment and the in-memory table", {
