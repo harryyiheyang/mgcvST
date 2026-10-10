@@ -28,6 +28,28 @@
   }
 })
 
+.pca_pairs <- function(z) {
+  out <- do.call(rbind, lapply(z$shards, mgcvST:::.mgcvst_read_shard))
+  out[order(out$i, out$j), , drop = FALSE]
+}
+
+# Exact Liu log p-values in the reduced observation-kernel coordinates: the
+# reference that a full-rank PCAlearning basis reproduces.
+.pca_exact_reference <- function(fit, pairs) {
+  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
+  basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
+  units <- mgcvST:::.inlast_sparse_units(prepared, seq_along(fit$feature_id), threads = 1L)
+  states <- mgcvST:::.inlast_sparse_materialize_reduced(prepared, units, basis, threads = 1L)
+  local <- matrix(match(pairs, fit$feature_id), ncol = 2L)
+  moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(lapply(states, `[[`, "M"), local, 4L, 1L)
+  score <- vapply(seq_len(nrow(local)), function(j) {
+    sum(states[[local[j, 1L]]]$a * states[[local[j, 2L]]]$a)
+  }, numeric(1L))
+  liu <- mgcvST:::.liu_squared_score_moments(abs(score), moments[, 1L], moments[, 2L],
+                                             moments[, 3L], moments[, 4L])
+  list(i = local[, 1L], j = local[, 2L], score = score, log_p = liu$log_p)
+}
+
 .pca_unpack <- function(x, d) {
   M <- matrix(0, d, d)
   M[upper.tri(M, diag = TRUE)] <- x
@@ -80,43 +102,23 @@ test_that("PCAlearning training sampling reallocates sparse cells and restores R
   expect_identical(small$train, seq_len(50L))
 })
 
-test_that("approximate_test = FALSE keeps the exact INLA Liu path", {
-  skip_on_cran()
-  fit <- .pca_nb_fit()
-  pairs <- t(combn(fit$feature_id, 2L))
-  exact <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                       approximate_test = FALSE)
-  expect_named(exact$result, c("i", "j", "score", "mlog10p"))
-  expect_null(exact$pca_learning)
-  expect_identical(exact$feature_id[exact$result$i], pairs[, 1L])
-  expect_identical(exact$feature_id[exact$result$j], pairs[, 2L])
-
-  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
-  basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
-  units <- mgcvST:::.inlast_sparse_units(prepared, seq_along(fit$feature_id), threads = 1L)
-  states <- mgcvST:::.inlast_sparse_materialize_reduced(prepared, units, basis, threads = 1L)
-  local <- matrix(match(pairs, fit$feature_id), ncol = 2L)
-  moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(lapply(states, `[[`, "M"), local, 4L, 1L)
-  score <- vapply(seq_len(nrow(local)), function(j) {
-    sum(states[[local[j, 1L]]]$a * states[[local[j, 2L]]]$a)
-  }, numeric(1L))
-  liu <- mgcvST:::.liu_squared_score_moments(abs(score), moments[, 1L], moments[, 2L],
-                                             moments[, 3L], moments[, 4L])
-  expect_equal(exact$result$score, score, tolerance = 1e-10)
-  expect_equal(exact$result$mlog10p, -log10(liu$p_value), tolerance = 1e-3)
-})
-
-test_that("the default inlaST.test() call is approximate_test = TRUE", {
+test_that("the default inlaST.test() call returns the compact result with PCAlearning", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
   default <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L)
-  explicit <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L,
-                          approximate_test = TRUE)
   expect_s3_class(default, "mgcvST_test")
   expect_false(is.null(default$pca_learning))
-  expect_identical(default$results, explicit$results)
-  expect_identical(default$pca_learning$training, explicit$pca_learning$training)
+  expect_named(default$results, c("i", "j", "score", "log_p_two_sided",
+    "log_p_positive", "log_p_negative", "log_q", "remainder_kind", "status"))
+  expect_identical(default$feature_id[default$results$i], pairs[, 1L])
+  expect_identical(default$feature_id[default$results$j], pairs[, 2L])
+  expect_true(all(default$results$status == 0L))
+  expect_identical(default$timing$inla_projection$pair_schedule, "pcalearning_pair_list")
+  all_pairs <- inlaST.test(fit, threads = 2L, rank = 3L, seed = 4L)
+  expect_identical(all_pairs$timing$inla_projection$pair_schedule, "pcalearning_gene_blocks")
+  expect_equal(all_pairs$results, default$results, tolerance = 1e-12)
+  expect_identical(all_pairs$pca_learning$training, default$pca_learning$training)
 })
 
 test_that("approximate inlaST.test() builds the observation basis once", {
@@ -140,29 +142,33 @@ test_that("approximate inlaST.test() builds the observation basis once", {
   expect_identical(out$timing$inla_projection$r, r)
 })
 
-test_that("inlaST.test validates approximate_test and rejects removed arguments", {
+test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pair <- matrix(fit$feature_id[1:2], 1L)
-  for (bad in list(NA, NULL, "TRUE", 1L, c(TRUE, FALSE))) {
-    expect_error(inlaST.test(fit, pairs = pair, approximate_test = bad),
-                 "approximate_test must be TRUE or FALSE.", fixed = TRUE)
+  removed <- list(approximate_test = TRUE, pairwise_method = "conditional_cauchy",
+                  liu_approximation = "exact", conditional_precision = "float32",
+                  calibration = "liu", BPPARAM = BiocParallel::SerialParam(),
+                  FDR = TRUE, method = "BY", highlight = pair, cache_bytes = 1e9)
+  for (name in names(removed)) {
+    expect_error(do.call(inlaST.test, c(list(fit, pairs = pair, rank = 2L), removed[name])),
+                 "unused argument")
   }
-  for (flag in c(TRUE, FALSE)) {
-    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
-                             pairwise_method = "conditional_cauchy"),
-                 "pairwise_method")
-    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
-                             liu_approximation = "exact"),
-                 "liu_approximation")
-    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
-                             conditional_precision = "float32"),
-                 "conditional_precision")
-    expect_error(inlaST.test(fit, pairs = pair, approximate_test = flag,
-                             calibration = "liu"))
+  for (name in c("approximate_test", "pairwise_method", "liu_approximation",
+                 "calibration", "conditional_precision", "BPPARAM", "FDR", "method",
+                 "highlight", "cache_bytes", "...")) {
+    expect_false(name %in% names(formals(inlaST.test)))
+    expect_false(name %in% names(formals(mgcvST.test)))
   }
-  expect_false(any(c("pairwise_method", "liu_approximation", "calibration",
-                     "conditional_precision") %in% names(formals(inlaST.test))))
+  shared <- c("pairs", "q.value", "adjust", "threads", "chunk_size",
+              "checkpoint_dir", "resume", "verbose")
+  expect_identical(setdiff(names(formals(inlaST.test)), c("fitinlaST", "rank", "n_per_cell", "seed")),
+                   shared)
+  expect_identical(setdiff(names(formals(mgcvST.test)), "fitmgcvST"), shared)
+  expect_equal(unlist(mgcvST:::.mgcvst_pca_defaults),
+               c(rank = 10, n_per_cell = 3, seed = 1))
+  expect_identical(eval(formals(inlaST.test)$rank), 10L)
+  expect_error(inlaST.test(fit, pairs = pair, adjust = "holm"), "should be one of")
   expect_false(exists(".mgcvst_conditional_test", asNamespace("mgcvST"),
                       inherits = FALSE))
 })
@@ -172,25 +178,25 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
   fit <- .pca_nb_fit()
   G <- length(fit$feature_id)
   pairs <- t(combn(fit$feature_id, 2L))
-  exact <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L,
-                       approximate_test = FALSE)$result
+  exact <- .pca_exact_reference(fit, pairs)
   withr::local_seed(5L)
   before <- .Random.seed
-  pca <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L, rank = G)
+  pca <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = G)
   expect_identical(.Random.seed, before)
   z <- pca$pca_learning
   expect_identical(z$training$feature_id, fit$feature_id)
   expect_identical(dim(z$coefficients), c(G, G))
   # training matrices are stored in float32
   expect_lt(max(abs(z$genes$e2_relative)), 1e-6)
-  expect_equal(pca$results$signed_score, exact$score, tolerance = 1e-10)
-  expect_equal(-pca$results$log_p_two_sided / log(10), exact$mlog10p,
+  expect_equal(pca$results$i, exact$i)
+  expect_equal(pca$results$j, exact$j)
+  expect_equal(pca$results$score, exact$score, tolerance = 1e-10)
+  expect_equal(-pca$results$log_p_two_sided / log(10), -exact$log_p / log(10),
                tolerance = 1e-3)
-  expect_equal(exp(pca$results$log_p_two_sided), pca$results$p_two_sided)
-  expect_equal(pca$results$p_adjusted, p.adjust(pca$results$p_two_sided, "BY"),
+  expect_equal(pca$results$log_q, mgcvST:::.mgcvst_log_adjust(
+    pca$results$log_p_two_sided, "BY")$log_q, tolerance = 1e-12)
+  expect_equal(exp(pca$results$log_q), p.adjust(exp(pca$results$log_p_two_sided), "BY"),
                tolerance = 1e-12)
-  expect_equal(pca$results$p_negative_adjusted,
-               p.adjust(pca$results$p_negative, "BY"), tolerance = 1e-12)
   expect_true(all(c("sample", "gram", "tables", "pairs") %in% names(z$elapsed)))
   expect_true("total" %in% names(z$table_timing))
 
@@ -202,33 +208,31 @@ test_that("full-rank PCAlearning reproduces exact Liu p-values", {
   expect_false(anyNA(many$A))
   expect_false(any(vapply(many$packed, is.null, logical(1L))))
   expect_equal(many$A[, 33:40], many$A[, 1:8])
-  expect_identical(pca$timing$inla_projection$pair_schedule, "pcalearning_gene_blocks")
+  expect_identical(pca$timing$inla_projection$pair_schedule, "pcalearning_pair_list")
+
+  # Every pair of the available genes is streamed by gene blocks, equal to the list.
+  all_pairs <- inlaST.test(fit, threads = 2L, rank = G, chunk_size = 5L)
+  expect_identical(all_pairs$timing$inla_projection$pair_schedule,
+                   "pcalearning_gene_blocks")
+  expect_gt(length(all_pairs$shards), 1L)
+  expect_equal(all_pairs$results, pca$results, tolerance = 1e-12)
 
   # A pair list (reversed order, subset) uses the (i, j) kernel with equal results.
   sub <- c(5L, 1L, 20L, 13L)
-  listed <- inlaST.test(fit, pairs = pairs[sub, 2:1], method = "BY", threads = 2L,
+  listed <- inlaST.test(fit, pairs = pairs[sub, 2:1], adjust = "none", threads = 2L,
                         rank = G)
   expect_identical(listed$timing$inla_projection$pair_schedule, "pcalearning_pair_list")
-  expect_equal(listed$results$log_p_two_sided, pca$results$log_p_two_sided[sub],
-               tolerance = 1e-12)
-  expect_equal(listed$results$log_p_positive, pca$results$log_p_positive[sub],
-               tolerance = 1e-12)
+  by_key <- function(x) paste(x$i, x$j)
+  at <- match(by_key(pca$results[sub, ]), by_key(listed$results))
+  expect_equal(listed$results$log_p_two_sided[at],
+               pca$results$log_p_two_sided[sub], tolerance = 1e-12)
+  expect_equal(listed$results$log_p_positive[at],
+               pca$results$log_p_positive[sub], tolerance = 1e-12)
 
-  low <- inlaST.test(fit, pairs = pairs, method = "BY", threads = 2L, rank = 3L)
+  low <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L)
   expect_true(all(low$pca_learning$genes$e2_relative > -1e-12))
   expect_equal(low$pca_learning$genes$e2,
                low$pca_learning$genes$fro2 - unname(rowSums(low$pca_learning$coefficients^2)))
-})
-
-test_that("log-space BY matches p.adjust and keeps underflowing tails", {
-  withr::local_seed(9L)
-  lp <- log(runif(500)) * rexp(500, 0.2)
-  by <- mgcvST:::.mgcvst_log_by(lp)
-  expect_equal(exp(by), p.adjust(exp(lp), "BY"), tolerance = 1e-12)
-  expect_identical(by <= log(0.05), p.adjust(exp(lp), "BY") <= 0.05)
-  deep <- mgcvST:::.mgcvst_log_by(c(-3000, -2000, -1))
-  expect_true(all(is.finite(deep)))
-  expect_lt(deep[1L], deep[2L])
 })
 
 test_that("rank-10 trace tables reproduce brute-force projected traces", {
@@ -304,10 +308,11 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
   run <- function(index, dir, rank = 3L, resume = TRUE, n_per_cell = 3L) {
     mgcvST:::.mgcvst_pair_pcalearning(
-      fit, index, seq_len(nrow(index)), 2L, 1000L, FALSE, basis, rank = rank,
+      fit, index, 2L, 1000L, FALSE, basis, rank = rank,
       n_per_cell = n_per_cell, seed = 1L, checkpoint_dir = dir, resume = resume
     )
   }
+  rows <- function(x) .pca_pairs(x)
   index <- t(combn(G, 2L))
   reference <- run(index, NULL)
   expect_null(reference$metadata$pca_learning$checkpoint$path)
@@ -317,10 +322,11 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   # Interrupted run: only genes 1-6 are requested, so genes 2, 4, 6 are projected.
   part <- run(t(combn(6L, 2L)), dir)
   expect_identical(part$metadata$pca_learning$checkpoint$projected_genes, 3L)
-  expect_setequal(list.files(dir), c("manifest.rds", "pca-basis.rds",
-                                      "pca-projection-000001.rds"))
+  expect_setequal(list.files(dir, "^(manifest|pca-)"),
+                  c("manifest.rds", "pca-basis.rds", "pca-projection-000001.rds"))
+  expect_length(list.files(dir, "^pairs-"), 1L)
   same <- function(x) {
-    expect_identical(x$result, reference$result)
+    expect_identical(rows(x), rows(reference))
     expect_identical(x$metadata$pca_learning$coefficients,
                      reference$metadata$pca_learning$coefficients)
     expect_identical(x$metadata$pca_learning$genes, reference$metadata$pca_learning$genes)
@@ -330,8 +336,12 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   expect_true(z$basis_resumed)
   expect_identical(c(z$resumed_genes, z$projected_genes), c(3L, 1L))
   same(resumed)
+  expect_identical(resumed$metadata$resumed_pairs, 0)
 
-  # A lost block is recomputed into a new block.
+  # Completed pair shards are reused by a repeated run, and a lost block is
+  # recomputed into a new block.
+  repeated <- run(index, dir)
+  expect_identical(repeated$metadata$resumed_pairs, 28)
   unlink(file.path(dir, "pca-projection-000001.rds"))
   again <- run(index, dir)
   expect_identical(again$metadata$pca_learning$checkpoint$projected_genes, 3L)
@@ -344,6 +354,24 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   expect_error(run(index, dir, rank = 2L), "different fit, score basis, rank")
   expect_error(run(index, dir, resume = FALSE), "already exists")
 
+  # A manifest of the earlier algorithm contract is refused, not resumed.
+  manifest <- file.path(dir, "manifest.rds")
+  current <- readRDS(manifest)
+  earlier <- current
+  earlier$signature$version <- 1L
+  earlier$signature$contract <- NULL
+  saveRDS(earlier, manifest)
+  expect_error(run(index, dir), "earlier PCAlearning algorithm contract")
+  saveRDS(current, manifest)
+  expect_identical(rows(run(index, dir)), rows(reference))
+
+  # Pair shards of another algorithm contract are refused as well.
+  old <- file.path(dir, "pairs-0123456789")
+  dir.create(old)
+  saveRDS(list(), file.path(old, "block-0000000001.rds"))
+  expect_error(run(index, dir), "different algorithm contract")
+  unlink(old, recursive = TRUE)
+
   public <- tempfile("mgcvst-pca-public-")
   on.exit(unlink(public, recursive = TRUE), add = TRUE)
   test <- function() inlaST.test(fit, pairs = t(combn(fit$feature_id, 2L)),
@@ -351,6 +379,7 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   first <- test()
   expect_true(file.exists(file.path(public, "pca-basis.rds")))
   expect_identical(test()$results, first$results)
+  expect_identical(first$checkpoint_dir, normalizePath(public, winslash = "/"))
 })
 
 test_that("PCAlearning checks rank, n_per_cell, seed and trace-table memory", {
@@ -361,7 +390,7 @@ test_that("PCAlearning checks rank, n_per_cell, seed and trace-table memory", {
   run <- function(rank, n_per_cell = 3L, seed = 1L) {
     index <- t(combn(G, 2L))
     mgcvST:::.mgcvst_pair_pcalearning(
-      fit, index, seq_len(nrow(index)), 2L, 1000L, FALSE, basis, rank = rank,
+      fit, index, 2L, 1000L, FALSE, basis, rank = rank,
       n_per_cell = n_per_cell, seed = seed
     )
   }

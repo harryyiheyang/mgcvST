@@ -88,11 +88,11 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   W <- mgcvST.wgcna(fit, ids)
   pairs <- t(utils::combn(ids, 2L))
-  T <- mgcvST.test(fit, pairs = pairs, calibration = "liu")
-  i <- match(T$results$feature1, colnames(W$score$A))
-  j <- match(T$results$feature2, colnames(W$score$A))
+  T <- mgcvST.test(fit, pairs = pairs)
+  i <- match(T$feature_id[T$results$i], colnames(W$score$A))
+  j <- match(T$feature_id[T$results$j], colnames(W$score$A))
   G <- crossprod(W$score$A)
-  expect_equal(T$results$signed_score, G[cbind(i, j)], tolerance = 1e-10)
+  expect_equal(T$results$score, G[cbind(i, j)], tolerance = 1e-10)
 })
 
 test_that("WGCNA preserves overlapping block order", {
@@ -111,12 +111,15 @@ test_that("WGCNA preserves overlapping block order", {
   W <- mgcvST.wgcna(fit, blocks)
 
   used <- match(W$score$feature_id, ids)
-  T0 <- mgcvST:::.mgcvst_legacy_shared_score_factor(fit$geometry)
-  field_scale <- mgcvST:::.mgcvst_field_scale(fit)
+  ref_fit <- fit
+  ref_fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(ref_fit)
+  native <- mgcvST:::.mgcvst_model_dense_preparation(ref_fit, used)
+  T0 <- native$T0
   z <- mgcvST:::mgcvst_dense_score_batch_cpp(
     T0, fit$working_variance[, used, drop = FALSE],
-    fit$working_error[, used, drop = FALSE], field_scale[used],
-    fit$geometry$X, list(), 1L, score_only = TRUE
+    fit$working_error[, used, drop = FALSE],
+    fit$dispersion[used] / fit$smoothing_parameters[used, native$sp_index],
+    native$X, fit$nuisance_covariance[used], 1L, score_only = TRUE
   )
   A <- vapply(z, `[[`, numeric(ncol(T0)), "a")
   colnames(A) <- W$score$feature_id
@@ -128,43 +131,6 @@ test_that("WGCNA preserves overlapping block order", {
   expect_identical(W$score$group, "global")
   expect_identical(unname(W$score$width), ncol(T0))
   expect_equal(W$score$A, A, tolerance = 1e-10)
-})
-
-test_that("WGCNA retains legacy compact B-Q-X score semantics", {
-  skip_if_not_installed("WGCNA")
-  skip_if_not_installed("dynamicTreeCut")
-  skip_if_not_installed("fastcluster")
-
-  set.seed(811L)
-  n <- 18L
-  p <- 4L
-  B <- matrix(rnorm(n * 3L), n, 3L)
-  Q <- diag(c(1, 2, 3))
-  X <- matrix(1, n, 1L)
-  ids <- paste0("old", seq_len(p))
-  fit <- structure(list(
-    feature_id = ids,
-    working_error = matrix(rnorm(n * p), n, p),
-    working_variance = matrix(runif(n * p, 0.8, 1.3), n, p),
-    dispersion = seq(0.9, 1.2, length.out = p),
-    lambda = seq(1, 1.6, length.out = p),
-    geometry = list(B = B, Q = Q, X = X)
-  ), class = c("mgcvST_fit", "mgcvST"))
-  colnames(fit$working_error) <- colnames(fit$working_variance) <- ids
-  selected <- c("old4", "old2", "old1")
-  W <- mgcvST.wgcna(fit, selected)
-  A <- vapply(match(selected, ids), function(i) {
-    op <- rkhs_score_operator(
-      B, Q, fit$working_variance[, i], X,
-      field_scale = fit$dispersion[i] / fit$lambda[i]
-    )
-    rkhs_score_summary(fit$working_error[, i], op)$a
-  }, numeric(ncol(B)))
-  colnames(A) <- selected
-
-  expect_equal(W$score$A, A, tolerance = 1e-10)
-  expect_identical(W$score$group, "global")
-  expect_identical(W$score$width, c(global = ncol(B)))
 })
 
 test_that("inlaST.wgcna rejects an mgcv fit and names the right entry point", {
@@ -213,10 +179,10 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   expect_equal(W$score$A, A, tolerance = 1e-12)
 
   pairs <- t(utils::combn(ids, 2L))
-  T <- inlaST.test(fit, pairs = pairs, approximate_test = FALSE)
-  i <- match(fit$feature_id[T$result$i], ids)
-  j <- match(fit$feature_id[T$result$j], ids)
-  expect_equal(T$result$score,
+  T <- inlaST.test(fit, pairs = pairs, rank = 1L)
+  i <- match(fit$feature_id[T$results$i], ids)
+  j <- match(fit$feature_id[T$results$j], ids)
+  expect_equal(T$results$score,
                unname(colSums(A[, i, drop = FALSE] * A[, j, drop = FALSE])),
                tolerance = 1e-10)
 

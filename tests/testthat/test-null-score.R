@@ -75,7 +75,7 @@ test_that("single-coefficient null scores agree with direct GAM fits", {
     f <- st_fixture(n = 60L, family = family)
     basis <- f$basis
     model <- mgcvST.set(
-      response ~ offset(offset0) + s(x, y, bs = "spdePC", xt = basis),
+      response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
       f$data, family = family
     )
     control <- mgcv::gam.control(nthreads = 1L)
@@ -142,7 +142,7 @@ test_that("single-coefficient null fitting is available on SOCK workers", {
   f <- st_fixture(n = 60L)
   basis <- f$basis
   model <- mgcvST.set(
-    response ~ offset(offset0) + s(x, y, bs = "spdePC", xt = basis),
+    response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
     f$data, family = mgcv::nb()
   )
   Y <- f$Y[1:2, , drop = FALSE]

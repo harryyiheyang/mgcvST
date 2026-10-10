@@ -47,17 +47,15 @@ test_that("custom marginal callbacks do not populate the built-in spectrum cache
 
 test_that("null-first TAPS is finite and its retained calibration is stable", {
   for (fam in c("gaussian", "nb")) {
-    for (pc in c(FALSE, TRUE)) {
-      f <- st_fixture(family = if (fam == "gaussian") gaussian() else mgcv::nb(), pc = pc)
-      fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE)
-      got <- mgcvST.marginal(fit)
-      expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-      expect_equal(got$p_value, fit$diagnostics$marginal_p_value,
-                   tolerance = 1e-8)
-      expect_identical(got$method_used, fit$diagnostics$marginal_method)
-      expect_identical(got$fallback_used, fit$diagnostics$marginal_fallback)
-      expect_true(all(is.na(got$error_message)))
-    }
+    f <- st_fixture(family = if (fam == "gaussian") gaussian() else mgcv::nb())
+    fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE)
+    got <- mgcvST.marginal(fit)
+    expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
+    expect_equal(got$p_value, fit$diagnostics$marginal_p_value,
+                 tolerance = 1e-8)
+    expect_identical(got$method_used, fit$diagnostics$marginal_method)
+    expect_identical(got$fallback_used, fit$diagnostics$marginal_fallback)
+    expect_true(all(is.na(got$error_message)))
   }
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(f$Y, f$model)
@@ -220,8 +218,8 @@ test_that("Snow workers use retained state and chunk caches", {
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   pairs <- t(combn(1:3,2))
   serial <- mgcvST.test(fit,pairs=pairs)
-  snow <- mgcvST.test(fit,pairs=pairs,BPPARAM=bp,chunk_size=1)
-  expect_identical(serial$results,snow$results)
+  blocks <- mgcvST.test(fit,pairs=pairs,chunk_size=1)
+  expect_identical(serial$results,blocks$results)
   a <- mgcvST.marginal(fit)
   b <- mgcvST.marginal(fit,BPPARAM=bp,chunk_size=1)
   expect_identical(a,b)

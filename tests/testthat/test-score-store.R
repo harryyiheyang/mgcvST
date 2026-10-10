@@ -1,23 +1,22 @@
-test_that("score-state shards round-trip at both storage precisions", {
-  for (storage in c("double", "float32")) {
-    path <- tempfile("mgcvst-score-store-")
-    on.exit(unlink(path, recursive = TRUE), add = TRUE)
-    store <- mgcvST:::.mgcvst_store_open(
-      path, signature = list(fit = "example", basis_rank = 2L),
-      feature_ids = c("gene/one", "gene:two"), storage = storage
-    )
-    M <- matrix(c(0.75, 0.125, 0.125, 1.25), 2L)
-    state <- list(a = c(1.125, -0.375), M = M, width = c(global = 2L))
-    expect_false(mgcvST:::.mgcvst_store_has(store, "gene/one"))
-    mgcvST:::.mgcvst_store_write(store, "gene/one", state)
-    expect_true(mgcvST:::.mgcvst_store_has(store, 1L))
-    actual <- mgcvST:::.mgcvst_store_read(store, "gene/one")
-    expect_identical(actual$a, state$a)
-    expect_equal(actual$M, M, tolerance = if (storage == "double") 0 else 1e-7)
-    expect_identical(actual$width, state$width)
-    expect_error(mgcvST:::.mgcvst_store_write(store, 1L, state),
-                 "already exists")
-  }
+test_that("score-state shards round-trip exactly", {
+  path <- tempfile("mgcvst-score-store-")
+  on.exit(unlink(path, recursive = TRUE), add = TRUE)
+  store <- mgcvST:::.mgcvst_store_open(
+    path, signature = list(fit = "example", basis_rank = 2L),
+    feature_ids = c("gene/one", "gene:two")
+  )
+  M <- matrix(c(0.75, 0.125, 0.125, 1.25), 2L)
+  state <- list(a = c(1.125, -0.375), M = M, width = c(global = 2L))
+  expect_false(mgcvST:::.mgcvst_store_has(store, "gene/one"))
+  mgcvST:::.mgcvst_store_write(store, "gene/one", state)
+  expect_true(mgcvST:::.mgcvst_store_has(store, 1L))
+  actual <- mgcvST:::.mgcvst_store_read(store, "gene/one")
+  expect_identical(actual$a, state$a)
+  expect_equal(actual$M, M, tolerance = 0)
+  expect_identical(actual$width, state$width)
+  expect_error(mgcvST:::.mgcvst_store_write(store, 1L, state),
+               "already exists")
+  expect_false("storage" %in% names(formals(mgcvST:::.mgcvst_store_open)))
 })
 
 test_that("score-state stores resume only with identical metadata", {
@@ -40,9 +39,6 @@ test_that("score-state stores resume only with identical metadata", {
   ), "do not match")
   expect_error(mgcvST:::.mgcvst_store_open(
     path, signature = signature, feature_ids = c("b", "a")
-  ), "do not match")
-  expect_error(mgcvST:::.mgcvst_store_open(
-    path, signature = signature, feature_ids = c("a", "b"), storage = "float32"
   ), "do not match")
   expect_error(mgcvST:::.mgcvst_store_open(
     path, signature = signature, feature_ids = c("a", "b"), resume = FALSE

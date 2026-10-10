@@ -1,53 +1,93 @@
-.pair_pipeline_fit <- function() {
-  ids <- c("g1", "g2", "g3")
+.pair_pipeline_fit <- function(p = 4L) {
+  ids <- paste0("g", seq_len(p))
   list(
-    feature_id = ids, test_engine = "spde",
+    feature_id = ids, test_engine = "single_model",
     estimator = "mgcv", score_backend = "dense",
-    working_error = matrix(0, 4L, 3L),
-    working_variance = matrix(1, 4L, 3L),
-    dispersion = rep(1, 3L), lambda = rep(1, 3L),
-    smoothing_parameters = matrix(1, 3L, 1L),
+    working_error = matrix(0, 4L, p),
+    working_variance = matrix(1, 4L, p),
+    dispersion = rep(1, p), lambda = rep(1, p),
+    smoothing_parameters = matrix(1, p, 1L),
     nuisance_covariance = list(),
-    geometry = list(B = matrix(c(1, 0, 0, 0, 0, 1, 0, 0), 4L, 2L),
-                    Q = diag(2L), X = matrix(numeric(), 4L, 0L))
+    geometry = list(
+      target = c(global = 1L),
+      smooth = list(list(B = matrix(c(1, 0, 0, 0, 0, 1, 0, 0), 4L, 2L)))
+    )
   )
 }
 
-test_that("bounded pair blocks preserve self, duplicate, and reversed pairs", {
+# The pipeline builds states through these three steps; the fixture replaces
+# the dense score kernel with deterministic states.
+.pair_pipeline_mocks <- function(env = parent.frame()) {
+  testthat::local_mocked_bindings(
+    .mgcvst_model_fixed_factors = function(fit) list(NULL),
+    .mgcvst_model_dense_preparation = function(fit, features) {
+      list(T0 = NULL, X = matrix(numeric(), 4L, 0L), sp_index = 1L,
+           width = c(global = 2L))
+    },
+    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
+      lapply(ids, function(i) {
+        list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
+      })
+    },
+    .package = "mgcvST", .env = env
+  )
+}
+
+test_that("bounded pair blocks stream every pair once whatever the state budget", {
+  .pair_pipeline_mocks()
   fit <- .pair_pipeline_fit()
-  pairs <- rbind(c(1L, 1L), c(1L, 2L), c(2L, 1L), c(1L, 2L),
-                 c(2L, 2L), c(2L, 3L), c(3L, 2L), c(3L, 3L), c(1L, 3L))
+  pairs <- t(utils::combn(4L, 2L))
   original <- mgcvST:::.mgcvst_liu_pairs
   seen <- list()
   testthat::local_mocked_bindings(
-    .mgcvst_pair_build_batch = function(fit, ids, threads, mode, native = NULL,
-                                        T0 = NULL, field_scale = NULL)
-      lapply(ids, function(i) {
-        list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
-      }),
-    .mgcvst_liu_pairs = function(index, pair_index, feature_id, summaries,
-                                 threads, chunk_size, verbose) {
-      seen[[length(seen) + 1L]] <<- c(rows = nrow(index),
-                                      features = length(summaries$used))
-      original(index, pair_index, feature_id, summaries, threads,
-               chunk_size, verbose)
+    .mgcvst_liu_pairs = function(index, active, states, threads) {
+      seen[[length(seen) + 1L]] <<- c(rows = nrow(index), features = length(active))
+      original(index, active, states, threads)
     },
     .package = "mgcvST"
   )
-  full <- mgcvST:::.mgcvst_pair_pipeline(
-    fit, pairs, seq_len(nrow(pairs)), threads = 1L, chunk_size = 9L,
-    verbose = FALSE, cache_bytes = 100000
+  run <- function(index, cache_bytes, chunk_size = 9L) {
+    z <- mgcvST:::.mgcvst_pair_pipeline(fit, index, threads = 1L,
+      chunk_size = chunk_size, verbose = FALSE, cache_bytes = cache_bytes)
+    out <- do.call(rbind, lapply(z$shards, mgcvST:::.mgcvst_read_shard))
+    expect_identical(sum(z$rows), nrow(out))
+    out[order(out$i, out$j), ]
+  }
+  for (index in list(NULL, cbind(pairs[, 1L], pairs[, 2L]))) {
+    seen <- list()
+    full <- run(index, 1e5)
+    seen <- list()
+    bounded <- run(index, 4200)
+    expect_identical(nrow(bounded), nrow(pairs))
+    expect_equal(bounded, full, tolerance = 1e-12)
+    expect_identical(unname(as.matrix(bounded[, c("i", "j")])), unname(pairs))
+    expect_gt(length(seen), 1L)
+    expect_true(all(vapply(seen, `[[`, numeric(1L), "features") <= 2L))
+    expect_true(all(full$status == 0L))
+    expect_true(all(is.finite(full$log_p_two_sided)))
+  }
+  small <- run(NULL, 1e5, chunk_size = 2L)
+  expect_equal(small, run(NULL, 1e5), tolerance = 1e-12)
+  expect_true(all(vapply(seen, `[[`, numeric(1L), "rows") <= 9L))
+})
+
+test_that("a pair of a failed state is returned with status 3, never a p-value", {
+  .pair_pipeline_mocks()
+  testthat::local_mocked_bindings(
+    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
+      lapply(ids, function(i) {
+        if (i == 2L) list(error = "state failed") else
+          list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
+      })
+    }, .package = "mgcvST"
   )
-  seen <- list()
-  bounded <- mgcvST:::.mgcvst_pair_pipeline(
-    fit, pairs, seq_len(nrow(pairs)), threads = 1L, chunk_size = 9L,
-    verbose = FALSE, cache_bytes = 4200
-  )
-  expect_identical(bounded$result$pair_index, seq_len(nrow(pairs)))
-  expect_equal(bounded$result, full$result, tolerance = 1e-12)
-  expect_gt(length(seen), 1L)
-  expect_true(all(vapply(seen, `[[`, integer(1L), "features") <= 2L))
-  expect_true(all(vapply(seen, `[[`, integer(1L), "rows") <= 9L))
+  z <- mgcvST:::.mgcvst_pair_pipeline(.pair_pipeline_fit(3L), NULL, 1L, 10L, FALSE)
+  out <- mgcvST:::.mgcvst_read_shard(z$shards[1L])
+  bad <- out$i == 2L | out$j == 2L
+  expect_true(all(out$status[bad] == 3L))
+  expect_true(all(is.na(out$score[bad]) & is.na(out$log_p_two_sided[bad])))
+  expect_identical(out$status[!bad], 0L)
+  expect_identical(z$failed, data.frame(feature_id = "g2", error = "state failed"))
 })
 
 test_that("shared preparation keeps dense native state contracts", {
@@ -71,20 +111,11 @@ test_that("shared preparation keeps dense native state contracts", {
   )
   native <- list(T0 = matrix(1, 3L, 2L), X = matrix(1, 3L, 1L),
                  sp_index = 1L, width = c(global = 2L))
-  model <- mgcvST:::.mgcvst_pair_build_batch(
-    fit, 1:2, 2L, mode = "model_native", native = native
-  )
+  model <- mgcvST:::.mgcvst_pair_build_batch(fit, 1:2, 2L, native)
   expect_equal(seen$scale, c(0.5, 0.5))
   expect_identical(model[[1L]]$a, c(1, 2))
   expect_equal(model[[2L]]$M, diag(c(2, 3)))
   expect_identical(model[[1L]]$width, c(global = 2L))
-
-  legacy <- mgcvST:::.mgcvst_pair_build_batch(
-    fit, 1:2, 2L, mode = "legacy_native",
-    T0 = matrix(1, 3L, 2L), field_scale = c(0.25, 0.75)
-  )
-  expect_equal(seen$scale, c(0.25, 0.75))
-  expect_equal(legacy[[1L]]$M, diag(c(1, 2)))
 })
 
 test_that("the fused C++ Liu pair kernel matches the old trace-powers + R Liu path", {

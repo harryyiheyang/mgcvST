@@ -112,10 +112,10 @@ test_that("public native crash recovery reuses null fits without replacing p-val
     do.call(rbind, lapply(calls$null, `[[`, "smoothing_parameters")),
     1:2, chunk_size = 2L, threads = 1L)
   expect_equal(fit$diagnostics$marginal_p_value, expected$p_value, tolerance = 0)
-  pair <- inlaST.test(fit, approximate_test = FALSE, FDR = FALSE,
+  pair <- inlaST.test(fit, adjust = "none", rank = 2L,
     pairs = matrix(c("a", "b"), ncol = 2L), threads = 1L)
-  expect_true(all(is.finite(pair$result$mlog10p)))
-  expect_true(all(is.finite(pair$result$score)))
+  expect_true(all(is.finite(pair$results$log_p_two_sided)))
+  expect_true(all(is.finite(pair$results$score)))
   for (j in 1:2) {
     expected_nuisance <- c(calls$null[[j]]$fixed_mode, unlist(calls$null[[j]]$random_mode))
     expect_equal(unname(fit$nuisance_coefficients[, j]), unname(expected_nuisance), tolerance = 0)

@@ -25,7 +25,7 @@
   list(data = data, basis = basis, Y = Y, mesh = mesh)
 }
 
-test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts", {
+test_that("sparse INLA downstream takes no BiocParallel backend and agrees across OpenMP counts", {
   skip_on_cran()
   f <- .inlast_sparse_fixture(n = 64L, seed = 1711L)
   model <- inlaST.set(
@@ -42,28 +42,16 @@ test_that("sparse INLA downstream rejects SOCK and agrees across OpenMP counts",
   expect_identical(fit$diagnostics$marginal_fallback,
                    fit$diagnostics$marginal_method == "saddlepoint")
   pairs <- t(combn(rownames(f$Y), 2L))
-  # mgcvST.test() does not accept inlaST.estimate() fits (Task E1); this
-  # comparison now goes through inlaST.test(), the same exact fp16 path
-  # mgcvST.test() used to reach for INLA fits.
-  serial <- inlaST.test(
-    fit, pairs = pairs, approximate_test = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L
-  )
-  threaded <- inlaST.test(
-    fit, pairs = pairs, approximate_test = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), threads = 2L,
-    chunk_size = 1L
-  )
-  expect_identical(nrow(serial$result), nrow(pairs))
-  expect_equal(threaded$result, serial$result, tolerance = 1e-10)
+  serial <- inlaST.test(fit, pairs = pairs, rank = 1L, chunk_size = 1L)
+  threaded <- inlaST.test(fit, pairs = pairs, rank = 1L, threads = 2L,
+                          chunk_size = 1L)
+  expect_identical(nrow(serial$results), nrow(pairs))
+  expect_equal(threaded$results, serial$results, tolerance = 1e-10)
   bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
+  expect_error(inlaST.test(fit, pairs = pairs, BPPARAM = bp), "unused argument")
   expect_error(
-    inlaST.test(fit, pairs = pairs, approximate_test = FALSE, BPPARAM = bp),
-    "must be SerialParam"
-  )
-  expect_error(
-    mgcvST.test(fit, pairs = pairs, calibration = "liu"),
-    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
+    mgcvST.test(fit, pairs = pairs),
+    "does not accept inlaST.estimate() fits; use inlaST.test().", fixed = TRUE
   )
 })
 

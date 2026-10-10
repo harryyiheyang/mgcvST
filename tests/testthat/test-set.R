@@ -1,5 +1,5 @@
 test_that("set expands factor interactions once for shared BAM null and full designs", {
-  for (family in list(gaussian(), mgcv::nb())) for (pc in c(FALSE, TRUE)) {
+  for (family in list(gaussian(), mgcv::nb())) {
     f <- st_fixture(family = family)
     d <- f$data
     d$a <- factor(rep(1:3, length.out = nrow(d)))
@@ -11,9 +11,8 @@ test_that("set expands factor interactions once for shared BAM null and full des
     d$w <- runif(nrow(d))
     basis <- f$basis
     saved <- serialize(basis, NULL)
-    form <- if (pc) response ~ a * z + b + offset(offset0) + s(w, k = 5) +
-      s(x, y, bs = "spdePC", xt = basis) else
-      response ~ a * z + b + offset(offset0) + s(w, k = 5) + s(x, y, bs = "spde", xt = basis)
+    form <- response ~ a * z + b + offset(offset0) + s(w, k = 5) +
+      s(x, y, bs = "spde", xt = basis)
     model <- mgcvST.set(form, d, family)
     expect_true(model$shared_design)
     expect_identical(serialize(basis, NULL), saved)
@@ -24,10 +23,8 @@ test_that("set expands factor interactions once for shared BAM null and full des
     expect_match(paste(deparse(model$null_formula), collapse = " "), "s\\(w")
     sm <- model$G$smooth[[2L]]
     expect_true(sm$timing$basis_calls >= 1L)
-    expected <- mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")]), pc)
+    expected <- mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")]))
     expect_equal(unname(model$L[, sm$first.para:sm$last.para]), expected, tolerance = 1e-8)
-    if (pc) expect_equal(sm$score_basis,
-      mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")])) , tolerance = 1e-8)
     offset <- matrix(seq(-.15, .2, length.out = length(f$Y)), nrow(f$Y))
     fit <- testthat::with_mocked_bindings(
       mgcvST.estimate(f$Y, model, offset = offset,
@@ -76,8 +73,8 @@ test_that("set expands factor interactions once for shared BAM null and full des
     }
     retained <- mgcvST.marginal(fit, BPPARAM = BiocParallel::SerialParam())
     expect_equal(retained$p_value, fit$diagnostics$marginal_p_value, tolerance = 1e-7)
-    pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L), calibration = "liu")
-    expect_true(all(is.finite(pair$results$p_two_sided)))
+    pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L))
+    expect_true(all(is.finite(pair$results$log_p_two_sided)))
   }
 })
 
@@ -107,31 +104,28 @@ test_that("null formula keeps leading tensor nuisance smooths", {
 })
 
 test_that("both constructors and predictions evaluate every supplied coordinate set", {
-  for (pc in c(FALSE, TRUE)) {
-    f <- st_fixture(pc = pc)
-    basis <- f$basis
-    s <- mgcv::s
-    for (delta in c(0, 1e-12, 1e-6)) {
-      d <- f$data
-      d$x <- d$x + delta
-      form <- if (pc) response ~ s(x, y, bs = "spdePC", xt = basis) else
-        response ~ s(x, y, bs = "spde", xt = basis)
-      G <- mgcv::gam(form, data = d, fit = FALSE)
-      fit <- mgcv::gam(G = G)
-      L <- mgcvST:::.gam_training_lpmatrix(fit)
-      expect_equal(as.numeric(G$X), as.numeric(L), tolerance = 1e-14)
-      sm <- fit$smooth[[1L]]
-      calls <- sm$timing$prediction_calls
-      invisible(mgcv::PredictMat(sm, d))
-      expect_gt(sm$timing$prediction_calls, calls)
-      expect_gte(sm$timing$prediction_seconds, 0)
-      expect_gte(sm$timing$basis_seconds, 0)
-    }
+  f <- st_fixture()
+  basis <- f$basis
+  s <- mgcv::s
+  for (delta in c(0, 1e-12, 1e-6)) {
+    d <- f$data
+    d$x <- d$x + delta
+    form <- response ~ s(x, y, bs = "spde", xt = basis)
+    G <- mgcv::gam(form, data = d, fit = FALSE)
+    fit <- mgcv::gam(G = G)
+    L <- mgcvST:::.gam_training_lpmatrix(fit)
+    expect_equal(as.numeric(G$X), as.numeric(L), tolerance = 1e-14)
+    sm <- fit$smooth[[1L]]
+    calls <- sm$timing$prediction_calls
+    invisible(mgcv::PredictMat(sm, d))
+    expect_gt(sm$timing$prediction_calls, calls)
+    expect_gte(sm$timing$prediction_seconds, 0)
+    expect_gte(sm$timing$basis_seconds, 0)
   }
 })
 
 test_that("set shares L with SOCK workers and gene offsets", {
-  f <- st_fixture(pc = TRUE)
+  f <- st_fixture()
   model <- mgcvST.set(G = f$G)
   offset <- matrix(seq(-.1, .1, length.out = length(f$Y)), nrow(f$Y))
   a <- mgcvST.estimate(f$Y, model, offset = offset,

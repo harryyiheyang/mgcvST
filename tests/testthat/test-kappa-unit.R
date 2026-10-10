@@ -225,9 +225,8 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
                fit_mm$diagnostics$marginal_p_value, tolerance = 1e-6)
   expect_equal(fit_um$score_a, fit_mm$score_a, tolerance = 1e-6)
   pairs <- matrix(c("a", "b"), 1L)
-  t_mm <- inlaST.test(fit_mm, pairs = pairs, approximate_test = FALSE)$result
-  t_um <- inlaST.test(fit_um, pairs = pairs, approximate_test = FALSE)$result
-  # The exact pair path packs normalized states in fp16.
-  expect_equal(t_um$score, t_mm$score, tolerance = 1e-3)
-  expect_equal(t_um$mlog10p, t_mm$mlog10p, tolerance = 1e-3)
+  t_mm <- inlaST.test(fit_mm, pairs = pairs, rank = 1L)$results
+  t_um <- inlaST.test(fit_um, pairs = pairs, rank = 1L)$results
+  expect_equal(t_um$score, t_mm$score, tolerance = 1e-6)
+  expect_equal(t_um$log_p_two_sided, t_mm$log_p_two_sided, tolerance = 1e-6)
 })

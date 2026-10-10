@@ -20,16 +20,15 @@
   ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
 }
 
-test_that("mgcvST.test() rejects sparse INLA fits for every calibration and backend", {
+test_that("mgcvST.test() rejects sparse INLA fits for every pair universe", {
   fit <- .inla_openmp_fit()
-  pairs <- rbind(c(1L, 2L), c(1L, 3L), c(1L, 2L))
-  expect_error(
-    mgcvST.test(fit, pairs = pairs, calibration = "davies"),
-    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
-  )
-  snow <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
-  expect_error(
-    mgcvST.test(fit, pairs = pairs, calibration = "liu", BPPARAM = snow),
-    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
-  )
+  pairs <- rbind(c(1L, 2L), c(1L, 3L), c(1L, 4L))
+  message <- "does not accept inlaST.estimate() fits; use inlaST.test()."
+  expect_error(mgcvST.test(fit, pairs = pairs), message, fixed = TRUE)
+  expect_error(mgcvST.test(fit), message, fixed = TRUE)
+  expect_error(mgcvST.test(fit, pairs = pairs, adjust = "BH", threads = 2L),
+               message, fixed = TRUE)
+  expect_false(any(c("BPPARAM", "calibration", "...") %in% names(formals(mgcvST.test))))
+  expect_false(any(c("BPPARAM", "calibration", "approximate_test", "...") %in%
+                     names(formals(inlaST.test))))
 })

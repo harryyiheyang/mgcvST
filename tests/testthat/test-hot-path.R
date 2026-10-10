@@ -2,7 +2,7 @@ test_that("mandatory marginal preserves existing fitting outputs", {
   old <- old_st()
   f <- st_fixture()
   marginal_callback <- function(...) list(smooth.pvalue = .375)
-  for (G in list(f$G, f$model)) {
+  for (G in list(f$model)) {
     a <- old$mgcvST.estimate(f$Y, G, marginal_test = marginal_callback, retain_smooth = TRUE)
     b <- mgcvST.estimate(f$Y, G, diagnostics = TRUE,
                          marginal_test = marginal_callback, retain_smooth = TRUE)
@@ -91,27 +91,24 @@ test_that("custom worker initialization retains shared prediction geometry", {
   expect_true(all(is.finite(fit$working_error)))
 })
 
-test_that("Vp model projection is numerically equivalent with unchanged contract", {
-  old <- old_st()
+test_that("pair universes are validated and duplicated tests are rejected", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(f$Y, f$model)
-  pairs <- rbind(c(1L,2L), c(3L,1L), c(2L,3L))
-  duplicated <- rbind(pairs, c(2L,1L))
-  expect_error(old$mgcvST.test(fit,pairs=duplicated), "duplicated tests")
-  expect_error(mgcvST.test(fit,pairs=duplicated), "duplicated tests")
-  for (cal in c("liu", "davies")) {
-    if (cal == "davies") skip_if_not_installed("CompQuadForm")
-    for (chunk in c(1L, 100L)) {
-      a <- old$mgcvST.test(fit, pairs = pairs, highlight = matrix(c(1L,3L),1), calibration = cal, chunk_size = chunk)
-      b <- mgcvST.test(fit, pairs = pairs, highlight = matrix(c(1L,3L),1), calibration = cal, chunk_size = chunk)
-      expect_identical(a$call,b$call)
-      expect_numerically_equivalent_test(a, b)
-    }
+  pairs <- rbind(c(1L, 2L), c(3L, 1L), c(2L, 3L))
+  expect_error(mgcvST.test(fit, pairs = rbind(pairs, c(2L, 1L))),
+               "duplicated tests")
+  expect_error(mgcvST.test(fit, pairs = rbind(c(1L, 1L))), "two different features")
+  expect_error(mgcvST.test(fit, pairs = matrix(c("a", "b"), 1L)), "unknown feature IDs")
+  for (chunk in c(1L, 100L)) {
+    out <- mgcvST.test(fit, pairs = pairs, chunk_size = chunk)
+    expect_identical(nrow(out$results), 3L)
+    expect_true(all(out$results$i < out$results$j))
+    expect_true(all(is.finite(out$results$log_p_two_sided)))
   }
-  fit$smoothing_parameters[2,1] <- -1
-  a <- old$mgcvST.test(fit, pairs = pairs)
-  b <- mgcvST.test(fit, pairs = pairs)
-  expect_numerically_equivalent_test(a, b)
+  fit$smoothing_parameters[2, 1] <- -1
+  bad <- mgcvST.test(fit, pairs = pairs)
+  expect_true(all(bad$results$status[bad$results$i == 2L | bad$results$j == 2L] == 3L))
+  expect_identical(bad$failed$feature_id, "response2")
 })
 
 test_that("conditional nuisance state is compact and shared", {
@@ -144,17 +141,6 @@ test_that("ordinary overall low-rank smooths share the same Vp machinery", {
   )
   expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
-})
-
-test_that("ordinary Liu engine is unchanged", {
-  old <- old_st()
-  for (pc in c(FALSE, TRUE)) {
-    f <- st_fixture(pc = pc)
-    fit <- mgcvST.estimate(f$Y, f$G)
-    pairs <- t(combn(1:3,2))
-    expect_identical(strip_elapsed(mgcvST.test(fit,pairs=pairs)),
-                     strip_elapsed(old$mgcvST.test(fit,pairs=pairs)))
-  }
 })
 
 test_that("new switches reject non-logical values", {

@@ -156,10 +156,22 @@ test_that("a feature without a usable nuisance covariance fails at estimation, n
 
   pairs <- rbind(c(1L, 2L), c(2L, 3L), c(1L, 3L))
   out <- mgcvST.test(fit, pairs = pairs, threads = 1L)
-  bad <- out$results$feature1 == "response2" | out$results$feature2 == "response2"
+  r <- out$results
+  bad <- r$i == 2L | r$j == 2L
   expect_true(any(bad) && !all(bad))
-  expect_true(all(is.na(out$results$p_two_sided[bad])))
-  expect_true(all(!is.na(out$results$error_message[bad])))
-  expect_false(any(out$results$discovered[bad]))
-  expect_true(all(is.finite(out$results$p_two_sided[!bad])))
+  expect_true(all(is.na(r$log_p_two_sided[bad])))
+  expect_true(all(is.na(r$log_q[bad])))
+  expect_true(all(r$status[bad] == 3L))
+  expect_true(all(r$status[!bad] == 0L))
+  expect_true(all(is.finite(r$log_p_two_sided[!bad])))
+  expect_identical(out$failed$feature_id, "response2")
+  expect_true(grepl("nuisance covariance unavailable: rank-deficient fit",
+                    out$failed$error, fixed = TRUE))
+  expect_identical(out$discoveries$pairs_requested, 3)
+  expect_identical(out$discoveries$pairs_tested, 1)
+
+  all_pairs <- mgcvST.test(fit, threads = 1L)
+  expect_identical(nrow(all_pairs$results), 1L)
+  expect_identical(c(all_pairs$results$i, all_pairs$results$j), c(1L, 3L))
+  expect_identical(all_pairs$failed$feature_id, "response2")
 })

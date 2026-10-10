@@ -7,22 +7,19 @@ test_that("packed dense score states restore exactly", {
   expect_identical(restored, state)
 })
 
-test_that("dense pair caches are shared with local Snow workers", {
-  skip_on_cran()
+test_that("a raw gam setup and a prepared model share one estimation and test path", {
   f <- st_fixture()
-  bp <- BiocParallel::SnowParam(workers = 2L, type = "SOCK", progressbar = FALSE)
-  on.exit(BiocParallel::bpstop(bp), add = TRUE)
   pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
   for (design in list(f$G, f$model)) {
     fit <- mgcvST.estimate(f$Y, design, diagnostics = FALSE,
                           BPPARAM = BiocParallel::SerialParam())
-    for (calibration in c("liu", "davies")) {
-      serial <- mgcvST.test(fit, pairs = pairs, calibration = calibration,
-                            chunk_size = 1L, BPPARAM = BiocParallel::SerialParam())
-      parallel <- mgcvST.test(fit, pairs = pairs, calibration = calibration,
-                              chunk_size = 1L, BPPARAM = bp)
-      expect_equal(parallel$results, serial$results, tolerance = 1e-12)
-    }
+    expect_s3_class(fit, "mgcvST_model_fit")
+    expect_identical(fit$test_engine, "single_model")
+    expect_true(is.list(fit$geometry$smooth))
+    one <- mgcvST.test(fit, pairs = pairs, chunk_size = 1L)
+    block <- mgcvST.test(fit, pairs = pairs, chunk_size = 100L)
+    expect_equal(one$results, block$results, tolerance = 1e-12)
+    expect_true(all(is.finite(one$results$log_p_two_sided)))
   }
 })
 
@@ -42,10 +39,7 @@ test_that("model pair states are constructed once per unique feature", {
       original_batch(T0, variance, error, scale, X, nuisance, threads)
     }, .package = "mgcvST"
   )
-  ans <- mgcvST.test(
-    fit, pairs = pairs, calibration = "liu", chunk_size = 1L,
-    BPPARAM = BiocParallel::SerialParam()
-  )
+  ans <- mgcvST.test(fit, pairs = pairs, chunk_size = 1L)
   expect_identical(count$features, 3L)
-  expect_true(all(is.finite(ans$results$p_two_sided)))
+  expect_true(all(is.finite(ans$results$log_p_two_sided)))
 })
