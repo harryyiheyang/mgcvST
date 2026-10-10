@@ -66,17 +66,15 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_inla_sparse_observation_basis_cpp
-Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::Map<Eigen::VectorXd> constraint, double coverage, bool full_rank, SEXP prepared);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_observation_basis_cpp(SEXP A_mapSEXP, SEXP constraintSEXP, SEXP coverageSEXP, SEXP full_rankSEXP, SEXP preparedSEXP) {
+Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::Map<Eigen::VectorXd> constraint, SEXP prepared);
+RcppExport SEXP _mgcvST_mgcvst_inla_sparse_observation_basis_cpp(SEXP A_mapSEXP, SEXP constraintSEXP, SEXP preparedSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type A_map(A_mapSEXP);
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type constraint(constraintSEXP);
-    Rcpp::traits::input_parameter< double >::type coverage(coverageSEXP);
-    Rcpp::traits::input_parameter< bool >::type full_rank(full_rankSEXP);
     Rcpp::traits::input_parameter< SEXP >::type prepared(preparedSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_observation_basis_cpp(A_map, constraint, coverage, full_rank, prepared));
+    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_observation_basis_cpp(A_map, constraint, prepared));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -323,7 +321,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 8},
     {"_mgcvST_mgcvst_inla_sparse_prepare_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepare_cpp, 2},
     {"_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp, 1},
-    {"_mgcvST_mgcvst_inla_sparse_observation_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_observation_basis_cpp, 5},
+    {"_mgcvST_mgcvst_inla_sparse_observation_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_observation_basis_cpp, 3},
     {"_mgcvST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_batch_cpp, 12},
     {"_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp, 7},
     {"_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp, 9},

@@ -62,8 +62,7 @@ NULL
 # NULL, one observation-length vector, or a matrix matching Y. A feature whose
 # GLM cannot be fitted returns NA, which never routes (conservative).
 .mgcvst_prescreen_dispersion <- function(Y, X, offset = NULL) {
-  Y <- as.matrix(Y)
-  storage.mode(Y) <- "double"
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
   n <- ncol(Y)
   X <- if (is.null(X)) matrix(0, n, 0L) else as.matrix(X)
   storage.mode(X) <- "double"
@@ -74,7 +73,7 @@ NULL
   family <- stats::poisson()
   glm_control <- stats::glm.control(epsilon = 1e-8, maxit = 25L)
   vapply(seq_len(nrow(Y)), function(j) {
-    y <- Y[j, ]
+    y <- as.numeric(Y[j, ])
     off <- if (is.null(offset)) numeric(n) else
       if (is.matrix(offset)) as.numeric(offset[j, ]) else as.numeric(offset)
     if (!ncol(X)) {

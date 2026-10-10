@@ -72,23 +72,19 @@ bool mgcvst_inla_sparse_prepared_valid_cpp(SEXP prepared) {
   return TYPEOF(prepared) == EXTPTRSXP && R_ExternalPtrAddr(prepared) != NULL;
 }
 
-// Constrained observation-kernel directions.  The nonzero spectrum of
-// A Q_g^{-1} A' is that of Z' B' A' A B Z, where B' Q B = I and Z spans the
-// complement of the native constraint in B coordinates.
+// Constrained observation-kernel directions, all m - 1 of them, ordered by
+// their eigenvalue.  The nonzero spectrum of A Q_g^{-1} A' is that of
+// Z' B' A' A B Z, where B' Q B = I and Z spans the complement of the native
+// constraint in B coordinates.
 // [[Rcpp::export]]
 Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(
     const Eigen::MappedSparseMatrix<double>& A_map,
     const Eigen::Map<Eigen::VectorXd> constraint,
-    double coverage = 0.995,
-    bool full_rank = false,
     SEXP prepared = R_NilValue) {
   const SpMat A = A_map;
   const int m = A.cols();
   if (m < 2) Rcpp::stop("The constrained SPDE block must contain at least two coefficients.");
   if (constraint.size() != m) Rcpp::stop("constraint must align with A.");
-  if (!std::isfinite(coverage) || coverage <= 0 || coverage > 1) {
-    Rcpp::stop("coverage must be in (0, 1].");
-  }
   const SparsePrepared* cache = prepared_cache(prepared, m, Vec(constraint));
 
   const Vec& u = cache->coordinate_constraint;
@@ -107,29 +103,14 @@ Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(
   }
   const Vec values = eig.eigenvalues().reverse();
   const Mat vectors = eig.eigenvectors().rowwise().reverse();
-  const double total = values.sum();
-  int r = m - 1;
-  if (!full_rank && coverage < 1) {
-    double cumulative = 0;
-    for (int j = 0; j < m - 1; ++j) {
-      cumulative += values[j];
-      if (cumulative / total >= coverage) {
-        r = j + 1;
-        break;
-      }
-    }
-  }
-  const Mat R = Z * vectors.leftCols(r);
-  const Mat C = BZ * vectors.leftCols(r);
-  const double kept = values.head(r).sum() / total;
+  const int r = m - 1;
+  const Mat R = Z * vectors;
+  const Mat C = BZ * vectors;
   return Rcpp::List::create(
     Rcpp::Named("coordinate") = R,
     Rcpp::Named("basis") = C,
     Rcpp::Named("values") = values,
-    Rcpp::Named("rank") = r,
-    Rcpp::Named("coverage") = coverage,
-    Rcpp::Named("kept") = kept,
-    Rcpp::Named("tail") = 1.0 - kept
+    Rcpp::Named("rank") = r
   );
 }
 

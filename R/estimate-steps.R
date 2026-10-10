@@ -85,11 +85,59 @@
   sort(unique(as.integer(index)))
 }
 
+# The digest of one feature row of Y. It is taken over the plain double values,
+# so that neither the names nor the storage type of Y matter.
+.mgcvst_row_digest <- function(Y, j) {
+  digest::digest(as.numeric(Y[j, ]), algo = "md5")
+}
+
 # One digest per feature row of Y, so that a later step can verify that it is
 # given the responses that step 1 used.
 .mgcvst_row_digests <- function(Y) {
-  vapply(seq_len(nrow(Y)), function(j) digest::digest(Y[j, ], algo = "md5"),
-         character(1L))
+  vapply(seq_len(nrow(Y)), function(j) .mgcvst_row_digest(Y, j), character(1L))
+}
+
+# The one validation of chunk_size shared by the estimators and the add-later
+# functions: NULL, or one positive integer (not truncated).
+.mgcvst_check_chunk_size <- function(chunk_size) {
+  if (is.null(chunk_size)) return(NULL)
+  if (!is.numeric(chunk_size) || length(chunk_size) != 1L ||
+      !is.finite(chunk_size) || chunk_size < 1 || chunk_size != floor(chunk_size) ||
+      chunk_size > .Machine$integer.max) {
+    stop("chunk_size must be one positive integer.")
+  }
+  as.integer(chunk_size)
+}
+
+# Validate the response matrix in blocks of rows: finite and, for counts,
+# non-negative and integer-valued. Only block-sized temporaries are made, and
+# the matrix is returned as given (an integer matrix stays integer; its blocks
+# are converted to double when a payload is built).
+.mgcvst_check_response_matrix <- function(Y, counts = FALSE, block_elements = 4e6) {
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) ||
+      !(is.numeric(Y) || is.logical(Y))) {
+    stop("Y must be a non-empty finite numeric feature-by-observation matrix.")
+  }
+  step <- max(1L, as.integer(block_elements %/% ncol(Y)))
+  for (first in seq.int(1L, nrow(Y), by = step)) {
+    block <- Y[first:min(nrow(Y), first + step - 1L), , drop = FALSE]
+    if (anyNA(block) || (is.double(block) && any(!is.finite(block)))) {
+      stop("Y must be a non-empty finite numeric feature-by-observation matrix.")
+    }
+    if (counts && (any(block < 0) ||
+                   (is.double(block) && any(block != round(block))))) {
+      stop("Count responses must be non-negative integers.")
+    }
+  }
+  Y
+}
+
+# Rows `index` of Y as a double matrix (a copy of the block only).
+.mgcvst_double_rows <- function(Y, index) {
+  block <- Y[index, , drop = FALSE]
+  if (!is.double(block)) storage.mode(block) <- "double"
+  block
 }
 
 .mgcvst_check_responses <- function(fit, Y, index) {
@@ -100,8 +148,7 @@
   if (is.null(fit$y_digest)) {
     stop("The fit does not record the responses of step 1; re-estimate it.")
   }
-  now <- vapply(index, function(j) digest::digest(Y[j, ], algo = "md5"),
-                character(1L))
+  now <- vapply(index, function(j) .mgcvst_row_digest(Y, j), character(1L))
   bad <- index[now != fit$y_digest[index]]
   if (length(bad)) {
     stop("Y differs from the responses of step 1 for ",
@@ -144,6 +191,8 @@
       stop("The estimation checkpoint ", path, " was written for a different ",
            "model, offset or controls; use a new checkpoint_dir.")
     }
+    # Files left by an interrupted write are never part of a checkpoint.
+    unlink(list.files(path, "[.]tmp$", full.names = TRUE))
   } else {
     if (length(list.files(path, all.files = TRUE, no.. = TRUE))) {
       stop("The estimation checkpoint directory ", path,
@@ -156,9 +205,11 @@
   list(path = path, kind = kind)
 }
 
-# Key of one chunk: the step, its features and their responses.
-.mgcvst_chunk_key <- function(step, index, y_digest) {
-  substr(digest::digest(list(step, as.integer(index), y_digest[index]),
+# Key of one chunk: the step, its features, their responses and, where a
+# feature can be routed to another family (the Poisson prescreen), its routing.
+.mgcvst_chunk_key <- function(step, index, y_digest, route = NULL) {
+  substr(digest::digest(list(step, as.integer(index), y_digest[index],
+                             if (is.null(route)) NULL else route[index]),
                         algo = "sha256"), 1L, 24L)
 }
 
@@ -179,35 +230,64 @@
   invisible(NULL)
 }
 
-# Read the completed chunks of a step and run the missing ones. `FUN` is a
-# worker function receiving a payload (with chunk_file and chunk_key) and
-# `...`; a result is a list with one entry per feature of its chunk.
-.mgcvst_run_chunks <- function(payloads, step, store, y_digest, BPPARAM, FUN, ...) {
-  n <- length(payloads)
-  keys <- vapply(payloads, function(z) .mgcvst_chunk_key(step, z$index, y_digest),
-                 character(1L))
+# TRUE when a chunk result holds a failed feature (a fit error, or in the mgcv
+# null step a failed null fit); a resumed run computes such a chunk again.
+.mgcvst_chunk_has_error <- function(result) {
+  any(vapply(result, function(z) {
+    is.list(z) && (!is.null(z[["error"]]) || !is.null(z[["marginal_error"]]))
+  }, logical(1L)))
+}
+
+# Read the completed chunks of a step and run the missing ones. `groups` are
+# the feature indices of the chunks and `make_payload(index)` builds the payload
+# of one chunk; it is called only for a chunk that has to be computed, when a
+# worker is free (BiocParallel::bpiterate), so that no more than about one
+# payload per worker is alive and a resumed chunk is never copied. `FUN` is a
+# worker function receiving a payload (with chunk_file and chunk_key) and `...`;
+# a result is a list with one entry per feature of its chunk. A chunk that
+# holds a failed feature is computed again.
+.mgcvst_run_chunks <- function(groups, make_payload, step, store, y_digest,
+                               route, BPPARAM, FUN, ...) {
+  n <- length(groups)
+  # Unnamed keys: a chunk is found by its key whatever its position in the list.
+  keys <- unname(vapply(groups, function(index) {
+    .mgcvst_chunk_key(step, index, y_digest, route)
+  }, character(1L)))
   results <- vector("list", n)
   todo <- integer()
   for (k in seq_len(n)) {
     file <- .mgcvst_chunk_file(store, step, keys[k])
     if (!is.na(file) && file.exists(file)) {
       z <- tryCatch(readRDS(file), error = function(e) NULL)
-      if (!is.list(z) || !identical(z$key, keys[k]) ||
-          length(z$result) != length(payloads[[k]]$index)) {
+      if (!is.list(z) || !identical(unname(z$key), keys[k]) ||
+          length(z$result) != length(groups[[k]])) {
         stop("The estimation checkpoint chunk ", basename(file),
              " is damaged; delete it to recompute the chunk.")
       }
-      results[[k]] <- z$result
-    } else {
-      payloads[[k]]$chunk_file <- if (is.na(file)) NULL else file
-      payloads[[k]]$chunk_key <- keys[k]
-      todo <- c(todo, k)
+      if (!.mgcvst_chunk_has_error(z$result)) {
+        results[[k]] <- z$result
+        next
+      }
     }
+    todo <- c(todo, k)
   }
+  built <- 0L
   if (length(todo)) {
-    results[todo] <- BiocParallel::bplapply(payloads[todo], FUN, ..., BPPARAM = BPPARAM)
+    position <- 0L
+    iterate <- function() {
+      if (position >= length(todo)) return(NULL)
+      position <<- position + 1L
+      k <- todo[position]
+      payload <- make_payload(groups[[k]])
+      file <- .mgcvst_chunk_file(store, step, keys[k])
+      payload$chunk_file <- if (is.na(file)) NULL else file
+      payload$chunk_key <- keys[k]
+      built <<- built + 1L
+      payload
+    }
+    results[todo] <- BiocParallel::bpiterate(iterate, FUN, ..., BPPARAM = BPPARAM)
   }
-  list(results = results, resumed = n - length(todo), chunks = n)
+  list(results = results, resumed = n - length(todo), chunks = n, built = built)
 }
 
 # Contiguous feature chunks of at most `chunk_size` features. The default is

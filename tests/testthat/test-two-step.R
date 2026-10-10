@@ -32,7 +32,7 @@
   testthat::local_mocked_bindings(
     .inlast_fit_feature = function(spec, y, offset = NULL, control = list(),
                                    diagnostics = FALSE) {
-      key <- digest::digest(list(y, spec$family,
+      key <- digest::digest(list(as.numeric(y), spec$family,
         vapply(spec$random, function(z) z$name, ""), offset, control, diagnostics))
       if (is.null(.ts_memo[[key]])) {
         .ts_memo[[key]] <- real(spec, y, offset = offset, control = control,
@@ -129,30 +129,46 @@ test_that("chunk checkpoints are resumed, and refused when they do not match", {
     mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
     out
   }
-  payloads <- list(list(index = 1:2), list(index = 3:4))
+  groups <- list(1:2, 3:4)
+  make_payload <- function(index) list(index = index)
   sp <- BiocParallel::SerialParam()
-  first <- mgcvST:::.mgcvst_run_chunks(payloads, "null", store, digest, sp, work, scale = 10)
+  run <- function(step, dig, route, grp) {
+    mgcvST:::.mgcvst_run_chunks(grp, make_payload, step, store, dig, route,
+                                sp, work, scale = 10)
+  }
+  digest_a <- digest
+  groups_a <- groups
+  first <- run("null", digest_a, NULL, groups_a)
   expect_identical(first$resumed, 0L)
   expect_identical(unlist(first$results), c(10, 20, 30, 40))
   expect_identical(calls, 4L)
-  again <- mgcvST:::.mgcvst_run_chunks(payloads, "null", store, digest, sp, work, scale = 10)
+  again <- run("null", digest_a, NULL, groups_a)
   expect_identical(again$resumed, 2L)
   expect_identical(calls, 4L)
   expect_identical(again$results, first$results)
   # A chunk is keyed by its features and their response digests.
-  other <- mgcvST:::.mgcvst_run_chunks(payloads, "null", store, c("a", "b", "x", "d"),
-                                       sp, work, scale = 10)
+  other <- run("null", c("a", "b", "x", "d"), NULL, groups_a)
   expect_identical(other$resumed, 1L)
+  # ... and by the routing of its features.
+  plain <- run("null", digest_a, rep(FALSE, 4L), groups_a)
+  expect_identical(plain$resumed, 0L)
+  routed <- run("null", digest_a, c(FALSE, FALSE, TRUE, FALSE), groups_a)
+  expect_identical(routed$resumed, 1L)
+  # A chunk is found by its key whatever its position in the list.
+  moved <- run("null", digest_a, NULL, list(3:4, 1:2))
+  expect_identical(moved$resumed, 2L)
+  expect_identical(unlist(moved$results), c(30, 40, 10, 20))
   # A step has its own chunks.
-  spatial <- mgcvST:::.mgcvst_run_chunks(payloads, "spatial", store, digest, sp, work,
-                                         scale = 10)
+  spatial <- run("spatial", digest_a, NULL, groups_a)
   expect_identical(spatial$resumed, 0L)
 
   # A damaged chunk is reported, not recomputed silently.
-  files <- list.files(dir, "^null-", full.names = TRUE)
-  writeBin(as.raw(1:20), files[1L])
-  expect_error(mgcvST:::.mgcvst_run_chunks(payloads, "null", store, digest, sp, work,
-                                           scale = 10), "damaged")
+  victim <- mgcvST:::.mgcvst_chunk_file(store, "null",
+    mgcvST:::.mgcvst_chunk_key("null", groups_a[[1L]], digest_a, NULL))
+  expect_true(file.exists(victim))
+  writeBin(as.raw(1:20), victim)
+  expect_error(run("null", digest_a, NULL, groups_a), "damaged")
+  unlink(victim)
 
   # The manifest ties the directory to one estimator, format and signature.
   expect_error(mgcvST:::.mgcvst_chunk_store(dir, "mgcv", "signature-a", TRUE),
@@ -171,6 +187,13 @@ test_that("chunk checkpoints are resumed, and refused when they do not match", {
   saveRDS(record, manifest)
   expect_identical(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)$kind,
                    "inla")
+  # Files left by an interrupted write are removed when a run resumes.
+  stray <- file.path(dir, c("chunk-1a2b.tmp", "manifest-3c4d.tmp"))
+  writeLines("x", stray[1L])
+  writeLines("y", stray[2L])
+  mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)
+  expect_false(any(file.exists(stray)))
+  expect_true(file.exists(manifest))
   loose <- tempfile("mgcvst-loose-")
   dir.create(loose)
   on.exit(unlink(loose, recursive = TRUE), add = TRUE)
@@ -180,6 +203,181 @@ test_that("chunk checkpoints are resumed, and refused when they do not match", {
   expect_null(mgcvST:::.mgcvst_chunk_store(NULL, "inla", "signature-a", TRUE))
   expect_error(mgcvST:::.mgcvst_chunk_store(c("a", "b"), "inla", "s", TRUE),
                "checkpoint_dir")
+})
+
+test_that("chunk payloads are built lazily, only for the chunks that are computed", {
+  dir <- tempfile("mgcvst-lazy-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  store <- mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  digest <- letters[1:6]
+  groups <- list(1:2, 3:4, 5:6)
+  built <- integer()
+  make_payload <- function(index) {
+    built <<- c(built, index[1L])
+    list(index = index)
+  }
+  work <- function(payload, scale) {
+    out <- as.list(payload$index * scale)
+    mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    out
+  }
+  run <- function() {
+    mgcvST:::.mgcvst_run_chunks(groups, make_payload, "null", store, digest, NULL,
+                                BiocParallel::SerialParam(), work, scale = 1)
+  }
+  first <- run()
+  expect_identical(built, c(1L, 3L, 5L))
+  expect_identical(first$built, 3L)
+  # Nothing is built for chunks that are on disk.
+  built <- integer()
+  again <- run()
+  expect_length(built, 0L)
+  expect_identical(c(again$built, again$resumed), c(0L, 3L))
+  # A lost chunk builds one payload.
+  unlink(list.files(dir, "^null-", full.names = TRUE)[2L])
+  built <- integer()
+  third <- run()
+  expect_identical(third$built, 1L)
+  expect_length(built, 1L)
+  expect_identical(unlist(third$results), as.numeric(1:6))
+
+  # The payloads are made on demand when workers are free: with two workers the
+  # constructor is called in the manager, one chunk at a time.
+  skip_on_cran()
+  sink_dir <- tempfile("mgcvst-lazy-snow-")
+  on.exit(unlink(sink_dir, recursive = TRUE), add = TRUE)
+  store2 <- mgcvST:::.mgcvst_chunk_store(sink_dir, "inla", "signature", TRUE)
+  calls <- new.env()
+  calls$n <- 0L
+  make2 <- function(index) {
+    calls$n <- calls$n + 1L
+    list(index = index)
+  }
+  wide <- split(seq_len(8L), rep(1:8, each = 1L))
+  fun <- function(payload) {
+    Sys.sleep(0.1)
+    list(payload$index)
+  }
+  environment(fun) <- baseenv()
+  res <- mgcvST:::.mgcvst_run_chunks(wide, make2, "null", store2, as.character(1:8), NULL,
+    BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE), fun)
+  expect_identical(calls$n, 8L)
+  expect_identical(unlist(res$results), 1:8)
+})
+
+test_that("a chunk that holds a failed feature is computed again on resume", {
+  dir <- tempfile("mgcvst-failed-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  store <- mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  digest <- letters[1:4]
+  groups <- list(1:2, 3:4)
+  attempts <- 0L
+  work <- function(payload) {
+    attempts <<- attempts + 1L
+    out <- lapply(payload$index, function(j) {
+      if (j == 3L && attempts <= 2L) list(error = list(class = "e", message = "m", call = ""))
+      else list(value = j)
+    })
+    mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    out
+  }
+  run <- function() mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i),
+    "spatial", store, digest, NULL, BiocParallel::SerialParam(), work)
+  first <- run()
+  expect_identical(attempts, 2L)
+  expect_false(is.null(first$results[[2L]][[1L]]$error))
+  second <- run()
+  expect_identical(c(second$resumed, second$built), c(1L, 1L))
+  expect_identical(attempts, 3L)
+  expect_null(second$results[[2L]][[1L]]$error)
+  third <- run()
+  expect_identical(c(third$resumed, third$built), c(2L, 0L))
+  # The failed null step of an mgcv feature counts as a failure as well.
+  expect_true(mgcvST:::.mgcvst_chunk_has_error(list(list(marginal_error = list(message = "m")))))
+  expect_false(mgcvST:::.mgcvst_chunk_has_error(list(list(marginal_error = NULL, value = 1))))
+})
+
+test_that("the response matrix is checked in blocks and kept as given", {
+  check <- mgcvST:::.mgcvst_check_response_matrix
+  Y <- matrix(as.integer(c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)), 4L, 3L)
+  expect_identical(check(Y, counts = TRUE), Y)
+  expect_identical(typeof(check(Y)), "integer")
+  D <- Y + 0
+  expect_identical(check(D, counts = TRUE), D)
+  bad <- D
+  bad[4L, 2L] <- -1
+  expect_error(check(bad, counts = TRUE), "Count responses must be non-negative integers")
+  expect_identical(check(bad, counts = FALSE), bad)
+  bad[4L, 2L] <- 1.5
+  expect_error(check(bad, counts = TRUE), "Count responses must be non-negative integers")
+  for (value in c(NA, NaN, Inf)) {
+    bad[1L, 3L] <- value
+    expect_error(check(bad), "finite numeric feature-by-observation matrix")
+  }
+  expect_error(check(matrix(numeric(), 0L, 3L)), "non-empty")
+  expect_error(check(matrix("a", 2L, 2L)), "numeric")
+  # The last block of a multi-block pass is checked too.
+  wide <- matrix(1, 7L, 5L)
+  wide[7L, 5L] <- -2
+  expect_error(check(wide, counts = TRUE, block_elements = 10), "non-negative")
+  expect_identical(check(matrix(1, 7L, 5L), counts = TRUE, block_elements = 10), matrix(1, 7L, 5L))
+  # A block of rows is converted to double only when a payload is made.
+  block <- mgcvST:::.mgcvst_double_rows(Y, 2:3)
+  expect_identical(typeof(block), "double")
+  expect_equal(block, Y[2:3, ] + 0)
+  expect_identical(mgcvST:::.mgcvst_double_rows(D, 2:3), D[2:3, , drop = FALSE])
+  # The digest of a row does not depend on names or on the storage type.
+  named <- D
+  dimnames(named) <- list(letters[1:4], LETTERS[1:3])
+  expect_identical(mgcvST:::.mgcvst_row_digests(named), mgcvST:::.mgcvst_row_digests(D))
+  expect_identical(mgcvST:::.mgcvst_row_digests(Y), mgcvST:::.mgcvst_row_digests(D))
+})
+
+test_that("chunk_size is one positive integer in every entry point", {
+  check <- mgcvST:::.mgcvst_check_chunk_size
+  expect_null(check(NULL))
+  expect_identical(check(3), 3L)
+  expect_identical(check(3L), 3L)
+  for (bad in list(0, -1, 1.5, 2.9, NA, Inf, c(1, 2), "2", 3e10)) {
+    expect_error(check(bad), "chunk_size must be one positive integer")
+  }
+  # No truncation anywhere: the estimators and the add-later functions agree.
+  expect_identical(
+    names(formals(inlaST.estimate_spatial)),
+    c("fitinlaST", "Y", "features", "adjust", "q.value", "BPPARAM", "chunk_size",
+      "checkpoint_dir", "resume", "threads"))
+  expect_identical(
+    names(formals(mgcvST.estimate_spatial)),
+    c("fitmgcvST", "Y", "features", "adjust", "q.value", "BPPARAM", "chunk_size",
+      "checkpoint_dir", "resume"))
+  f <- st_fixture()
+  expect_error(mgcvST.estimate(f$Y, f$model, chunk_size = 1.5), "chunk_size must be one positive integer")
+  expect_error(mgcvST.estimate(f$Y, f$model, chunk_size = 0), "chunk_size must be one positive integer")
+  fit <- suppressWarnings(mgcvST.estimate(f$Y, f$model, spatial = "none",
+    BPPARAM = BiocParallel::SerialParam()))
+  expect_error(mgcvST.estimate_spatial(fit, f$Y, "all", chunk_size = 2.5),
+               "chunk_size must be one positive integer")
+  expect_error(mgcvST.estimate_spatial(fit, f$Y, "all", chunk_size = 0),
+               "chunk_size must be one positive integer")
+})
+
+test_that("step-1 chunks are the same whatever the number of workers when chunk_size is given", {
+  features <- seq_len(11L)
+  serial <- BiocParallel::SerialParam()
+  many <- BiocParallel::SnowParam(5L, type = "SOCK", progressbar = FALSE)
+  for (checkpoint in c(FALSE, TRUE)) {
+    expect_identical(mgcvST:::.mgcvst_feature_chunks(features, 3L, serial, checkpoint),
+                     mgcvST:::.mgcvst_feature_chunks(features, 3L, many, checkpoint))
+  }
+  # Without chunk_size they follow the workers, which is why a resumable run
+  # passes it explicitly.
+  expect_false(identical(mgcvST:::.mgcvst_feature_chunks(features, NULL, serial),
+                         mgcvST:::.mgcvst_feature_chunks(features, NULL, many)))
+  digest <- as.character(features)
+  key <- function(index, route = NULL) mgcvST:::.mgcvst_chunk_key("null", index, digest, route)
+  expect_identical(key(1:3), key(1:3))
+  expect_false(identical(key(1:3), key(1:4)))
+  expect_false(identical(key(1:3, rep(FALSE, 11L)), key(1:3, c(FALSE, TRUE, rep(FALSE, 9L)))))
 })
 
 test_that("a fit estimated before the two-step estimators is refused only where it lacks data", {
@@ -617,4 +815,247 @@ test_that("the observation basis is full rank and enters the pair signature", {
   fewer <- basis
   fewer$rank <- basis$rank - 1L
   expect_false(identical(signature, mgcvST:::.mgcvst_pair_signature(prepared, fewer)))
+})
+
+# ---- resume, lazy payloads and multi-process runs ----------------------------
+
+.ts_fields_mgcv <- c("working_error", "working_variance", "dispersion", "lambda",
+                     "smoothing_parameters", "nuisance_covariance", "family_parameters")
+.ts_fields_inla <- c("score_a", "target_coefficients", "nuisance_coefficients",
+                     "mu_bar", "dispersion", "lambda", "smoothing_parameters",
+                     "family_parameters", "null_state")
+
+# Replace the first feature of a saved chunk by a failure record.
+.ts_fail_chunk <- function(file) {
+  z <- readRDS(file)
+  first <- z$result[[1L]]
+  z$result[[1L]] <- list(error = list(class = "simpleError", message = "transient",
+                                      call = ""),
+                         index = first$index, feature_id = first$feature_id)
+  saveRDS(z, file)
+}
+
+test_that("mgcv: a resumed run builds no payload, repeats failed chunks and cleans strays", {
+  f <- st_fixture()
+  sp <- BiocParallel::SerialParam()
+  dir <- tempfile("mgcvst-resume-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  estimate <- function(...) suppressWarnings(mgcvST.estimate(
+    f$Y, f$model, BPPARAM = sp, spatial = "all", chunk_size = 1L,
+    checkpoint_dir = dir, ...))
+  first <- estimate()
+  expect_identical(c(first$timing$null_payloads, first$timing$spatial_payloads), c(3L, 3L))
+  stray <- file.path(dir, "chunk-dead.tmp")
+  writeLines("x", stray)
+  again <- estimate()
+  expect_false(file.exists(stray))
+  expect_identical(c(again$timing$null_payloads, again$timing$spatial_payloads), c(0L, 0L))
+  .ts_same_estimates(again, first, .ts_fields_mgcv)
+
+  # A step-2 chunk that holds a failed feature is computed again.
+  .ts_fail_chunk(list.files(dir, "^spatial-", full.names = TRUE)[2L])
+  retried <- estimate()
+  expect_identical(retried$timing$resumed_spatial_chunks, 2L)
+  expect_identical(retried$timing$spatial_payloads, 1L)
+  expect_true(all(retried$diagnostics$spatial_fitted))
+  .ts_same_estimates(retried, first, .ts_fields_mgcv)
+
+  # A step-1 chunk with a failed null fit is computed again as well.
+  file <- list.files(dir, "^null-", full.names = TRUE)[1L]
+  z <- readRDS(file)
+  z$result[[1L]]$marginal_error <- list(class = "simpleError", message = "m", call = "")
+  saveRDS(z, file)
+  null_again <- estimate()
+  expect_identical(null_again$timing$resumed_null_chunks, 2L)
+  .ts_same_estimates(null_again, first, .ts_fields_mgcv)
+})
+
+test_that("mgcv: another selection in the same directory recomputes step 2 and never mixes", {
+  f <- st_fixture()
+  sp <- BiocParallel::SerialParam()
+  all <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp, spatial = "all"))
+  dir <- tempfile("mgcvst-selection-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  estimate <- function(spatial, ...) suppressWarnings(mgcvST.estimate(
+    f$Y, f$model, BPPARAM = sp, spatial = spatial, chunk_size = 1L,
+    checkpoint_dir = dir, ...))
+  one <- estimate("response")
+  expect_identical(one$diagnostics$spatial_fitted, c(TRUE, FALSE, FALSE))
+  two <- estimate(c("response", "response3"))
+  expect_identical(two$timing$resumed_null_chunks, 3L)
+  expect_identical(two$timing$resumed_spatial_chunks, 1L)
+  expect_identical(two$timing$spatial_payloads, 1L)
+  expect_identical(two$diagnostics$spatial_fitted, c(TRUE, FALSE, TRUE))
+  expect_identical(two$working_error[, c(1L, 3L)], all$working_error[, c(1L, 3L)])
+  expect_true(all(is.na(two$working_error[, 2L])))
+  # The feature chosen by q.value: a larger q.value only adds chunks.
+  q <- all$diagnostics$marginal_q_value
+  cut <- sqrt(sort(q)[2L] * sort(q)[3L])
+  dir2 <- tempfile("mgcvst-qvalue-")
+  on.exit(unlink(dir2, recursive = TRUE), add = TRUE)
+  small <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp, q.value = cut,
+    chunk_size = 1L, checkpoint_dir = dir2))
+  large <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp, q.value = 1,
+    chunk_size = 1L, checkpoint_dir = dir2))
+  expect_identical(sum(small$diagnostics$spatial_fitted), 2L)
+  expect_true(all(large$diagnostics$spatial_fitted))
+  expect_identical(large$timing$resumed_spatial_chunks, 2L)
+  expect_identical(large$working_error, all$working_error)
+})
+
+test_that("mgcv: Y may be integer or unnamed, and the add-later digest check ignores names", {
+  f <- st_fixture()
+  sp <- BiocParallel::SerialParam()
+  reference <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp, spatial = "all"))
+  integer_Y <- f$Y
+  storage.mode(integer_Y) <- "integer"
+  from_integer <- suppressWarnings(mgcvST.estimate(integer_Y, f$model, BPPARAM = sp,
+                                                   spatial = "all"))
+  .ts_same_estimates(from_integer, reference, .ts_fields_mgcv)
+  expect_identical(typeof(integer_Y), "integer")
+  named <- f$Y
+  colnames(named) <- paste0("obs", seq_len(ncol(named)))
+  none <- suppressWarnings(mgcvST.estimate(named, f$model, BPPARAM = sp, spatial = "none"))
+  added <- suppressWarnings(mgcvST.estimate_spatial(none, unname(f$Y), "all", BPPARAM = sp))
+  .ts_same_estimates(added, reference, .ts_fields_mgcv)
+  added_integer <- suppressWarnings(mgcvST.estimate_spatial(none, integer_Y, "all",
+                                                            BPPARAM = sp))
+  .ts_same_estimates(added_integer, reference, .ts_fields_mgcv)
+})
+
+test_that("mgcv: a multi-process run with checkpoint_dir resumes under another backend", {
+  skip_on_cran()
+  f <- st_fixture()
+  dir <- tempfile("mgcvst-snow-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  snow <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
+  first <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = snow, spatial = "all",
+    chunk_size = 1L, checkpoint_dir = dir))
+  expect_length(list.files(dir, "^null-"), 3L)
+  expect_length(list.files(dir, "^spatial-"), 3L)
+  expect_length(list.files(dir, "[.]tmp$"), 0L)
+  expect_true(all(first$diagnostics$spatial_fitted))
+  again <- suppressWarnings(mgcvST.estimate(f$Y, f$model,
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all", chunk_size = 1L,
+    checkpoint_dir = dir))
+  expect_identical(c(again$timing$resumed_null_chunks, again$timing$resumed_spatial_chunks),
+                   c(3L, 3L))
+  expect_identical(c(again$timing$null_payloads, again$timing$spatial_payloads), c(0L, 0L))
+  .ts_same_estimates(again, first, .ts_fields_mgcv)
+})
+
+test_that("INLA: a resumed run builds no payload, repeats failed chunks and cleans strays", {
+  skip_on_cran()
+  d <- .ts_inla()
+  .ts_memoize_fits()
+  sp <- BiocParallel::SerialParam()
+  dir <- tempfile("mgcvst-inla-resume-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  estimate <- function(...) inlaST.estimate(d$Y, d$model, BPPARAM = sp, spatial = "all",
+                                            chunk_size = 2L, checkpoint_dir = dir, ...)
+  first <- estimate()
+  expect_identical(c(first$timing$null_payloads, first$timing$spatial_payloads), c(3L, 3L))
+  stray <- file.path(dir, "chunk-dead.tmp")
+  writeLines("x", stray)
+  again <- estimate()
+  expect_false(file.exists(stray))
+  expect_identical(c(again$timing$null_payloads, again$timing$spatial_payloads), c(0L, 0L))
+  .ts_same_estimates(again, first, .ts_fields_inla)
+
+  .ts_fail_chunk(list.files(dir, "^spatial-", full.names = TRUE)[2L])
+  retried <- estimate()
+  expect_identical(retried$timing$resumed_spatial_chunks, 2L)
+  expect_identical(retried$timing$spatial_payloads, 1L)
+  expect_true(all(retried$diagnostics$spatial_fitted))
+  .ts_same_estimates(retried, first, .ts_fields_inla)
+
+  .ts_fail_chunk(list.files(dir, "^null-", full.names = TRUE)[1L])
+  null_again <- estimate()
+  expect_identical(null_again$timing$resumed_null_chunks, 2L)
+  expect_true(all(is.finite(null_again$diagnostics$marginal_p_value)))
+  .ts_same_estimates(null_again, first, .ts_fields_inla)
+})
+
+test_that("INLA: another selection in the same directory recomputes step 2 and never mixes", {
+  skip_on_cran()
+  d <- .ts_inla()
+  .ts_memoize_fits()
+  sp <- BiocParallel::SerialParam()
+  all <- inlaST.estimate(d$Y, d$model, BPPARAM = sp, spatial = "all")
+  dir <- tempfile("mgcvst-inla-selection-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  estimate <- function(...) inlaST.estimate(d$Y, d$model, BPPARAM = sp, chunk_size = 1L,
+                                            checkpoint_dir = dir, ...)
+  one <- estimate(spatial = c("g1", "g2"))
+  expect_identical(which(one$diagnostics$spatial_fitted), 1:2)
+  two <- estimate(spatial = c("g2", "g3", "g1"))
+  expect_identical(two$timing$resumed_null_chunks, 6L)
+  expect_identical(two$timing$resumed_spatial_chunks, 2L)
+  expect_identical(two$timing$spatial_payloads, 1L)
+  expect_identical(which(two$diagnostics$spatial_fitted), 1:3)
+  expect_identical(two$score_a[, 1:3], all$score_a[, 1:3])
+  expect_true(all(is.na(two$score_a[, 4:6])))
+  q <- all$diagnostics$marginal_q_value
+  cut <- sqrt(sort(q)[2L] * sort(q)[3L])
+  dir2 <- tempfile("mgcvst-inla-qvalue-")
+  on.exit(unlink(dir2, recursive = TRUE), add = TRUE)
+  small <- inlaST.estimate(d$Y, d$model, BPPARAM = sp, q.value = cut, chunk_size = 1L,
+                           checkpoint_dir = dir2)
+  large <- inlaST.estimate(d$Y, d$model, BPPARAM = sp, q.value = 1, chunk_size = 1L,
+                           checkpoint_dir = dir2)
+  expect_identical(sum(small$diagnostics$spatial_fitted), 2L)
+  expect_true(all(large$diagnostics$spatial_fitted))
+  expect_identical(large$timing$resumed_spatial_chunks, 2L)
+  expect_identical(large$score_a, all$score_a)
+})
+
+test_that("INLA: Y may be integer or unnamed, and chunk_size is validated everywhere", {
+  skip_on_cran()
+  d <- .ts_inla()
+  .ts_memoize_fits()
+  sp <- BiocParallel::SerialParam()
+  reference <- inlaST.estimate(d$Y, d$model, BPPARAM = sp, spatial = "all")
+  integer_Y <- d$Y
+  storage.mode(integer_Y) <- "integer"
+  from_integer <- inlaST.estimate(integer_Y, d$model, BPPARAM = sp, spatial = "all")
+  .ts_same_estimates(from_integer, reference, .ts_fields_inla)
+  named <- d$Y
+  colnames(named) <- paste0("obs", seq_len(ncol(named)))
+  none <- inlaST.estimate(named, d$model, BPPARAM = sp, spatial = "none")
+  added <- inlaST.estimate_spatial(none, unname(d$Y), "all", BPPARAM = sp)
+  .ts_same_estimates(added, reference, .ts_fields_inla)
+  added_integer <- inlaST.estimate_spatial(none, integer_Y, "all", BPPARAM = sp)
+  .ts_same_estimates(added_integer, reference, .ts_fields_inla)
+  expect_error(inlaST.estimate(d$Y, d$model, chunk_size = 1.5),
+               "chunk_size must be one positive integer")
+  expect_error(inlaST.estimate_spatial(none, d$Y, "all", chunk_size = 2.5),
+               "chunk_size must be one positive integer")
+  bad <- d$Y
+  bad[2L, 3L] <- -1
+  expect_error(inlaST.estimate(bad, d$model), "Count responses must be non-negative integers")
+  bad[2L, 3L] <- 0.5
+  expect_error(inlaST.estimate(bad, d$model), "Count responses must be non-negative integers")
+  bad[2L, 3L] <- NA
+  expect_error(inlaST.estimate(bad, d$model), "finite numeric feature-by-observation matrix")
+})
+
+test_that("INLA: a multi-process run with checkpoint_dir resumes under another backend", {
+  skip_on_cran()
+  d <- .ts_inla()
+  Y <- d$Y[1:3, , drop = FALSE]
+  dir <- tempfile("mgcvst-inla-snow-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  snow <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
+  first <- inlaST.estimate(Y, d$model, BPPARAM = snow, spatial = "all", chunk_size = 1L,
+                           checkpoint_dir = dir)
+  expect_length(list.files(dir, "^null-"), 3L)
+  expect_length(list.files(dir, "^spatial-"), 3L)
+  expect_length(list.files(dir, "[.]tmp$"), 0L)
+  expect_true(all(first$diagnostics$spatial_fitted))
+  again <- inlaST.estimate(Y, d$model, BPPARAM = BiocParallel::SerialParam(),
+                           spatial = "all", chunk_size = 1L, checkpoint_dir = dir)
+  expect_identical(c(again$timing$resumed_null_chunks, again$timing$resumed_spatial_chunks),
+                   c(3L, 3L))
+  expect_identical(c(again$timing$null_payloads, again$timing$spatial_payloads), c(0L, 0L))
+  .ts_same_estimates(again, first, .ts_fields_inla)
 })

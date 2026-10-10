@@ -12,9 +12,9 @@ inlaST.estimate_spatial(
   q.value = 0.05,
   BPPARAM = BiocParallel::SerialParam(),
   chunk_size = NULL,
-  threads = 1L,
   checkpoint_dir = NULL,
-  resume = TRUE
+  resume = TRUE,
+  threads = 1L
 )
 }
 \arguments{
@@ -37,16 +37,19 @@ workers. Each worker fits its own features with INLA using
 its own thread count, which can oversubscribe BiocParallel workers.
 \code{SerialParam()} keeps everything in one process.}
 
-\item{chunk_size}{Positive number of features per task. The default creates
-one chunk per worker in each step; a smaller value makes the checkpoint
-finer.}
-
-\item{threads}{OpenMP threads per worker for the sparse marginal and score
-computations of the workers.}
+\item{chunk_size}{Positive integer number of features per task, or \code{NULL}.
+The default creates one chunk per worker in each step; a smaller value
+makes the checkpoint finer. A chunk payload is built when a worker takes
+the chunk, so at most about one chunk of \code{Y} per worker is copied.}
 
 \item{checkpoint_dir, resume}{Resumable chunk checkpoints as in
 \code{\link[=inlaST.estimate]{inlaST.estimate()}}. The directory of the original call can be reused:
-its step 2 chunks are keyed by their features and responses.}
+its step 2 chunks are keyed by their features and responses. Pass the
+same \code{chunk_size} as for the original call, or an explicit one: without it
+the chunks depend on the number of workers.}
+
+\item{threads}{OpenMP threads per worker for the sparse marginal and score
+computations of the workers.}
 }
 \value{
 The updated \code{inlaST_fit}.

@@ -251,7 +251,7 @@
 # Checkpoint signature of an mgcv estimation: the design, penalties, family,
 # offsets, controls and options that the chunk results depend on.
 .mgcvst_model_signature <- function(model, method, control, gam_args,
-                                    offset, feature_id, poisson, retain_smooth,
+                                    offset, feature_id, retain_smooth,
                                     diagnostics, retain_marginal, marginal_args,
                                     marginal_test) {
   # The family enters by name, link and fixed parameters: serialized closures
@@ -271,7 +271,7 @@
     formulas = c(paste(deparse(model$full_formula), collapse = ""),
                  paste(deparse(model$null_formula), collapse = "")),
     method = method, control = control, gam_args = gam_args,
-    extra_offset = offset, feature_id = feature_id, routing = poisson,
+    extra_offset = offset, feature_id = feature_id,
     retain_smooth = retain_smooth, diagnostics = diagnostics,
     retain_marginal = retain_marginal, marginal_args = marginal_args,
     marginal_test = if (is.null(marginal_test)) NULL else
@@ -288,14 +288,17 @@
     gam_args, call, diagnostics = TRUE, retain_marginal = FALSE, offset = NULL,
     spatial = "discoveries", adjust = "BY", q.value = 0.05,
     checkpoint_dir = NULL, resume = TRUE) {
-  Y <- as.matrix(Y)
-  storage.mode(Y) <- "double"
-  if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) || any(!is.finite(Y))) {
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y)) {
     stop("Y must be a non-empty finite numeric feature-by-observation matrix.")
   }
   if (ncol(Y) != length(model$G$y)) {
     stop("ncol(Y) must equal the number of observations in model.")
   }
+  # Checked in blocks of rows: no temporary of the size of Y, no copy of a
+  # double or integer matrix.
+  Y <- .mgcvst_check_response_matrix(Y)
+  chunk_size <- .mgcvst_check_chunk_size(chunk_size)
   frozen <- isTRUE(model$shared_design)
   if (!is.null(offset)) {
     if (!frozen) stop("Additional offsets require a model prepared by mgcvST.set().")
@@ -364,9 +367,8 @@
   t0 <- proc.time()[["elapsed"]]
   y_digest <- .mgcvst_row_digests(Y)
   signature <- .mgcvst_model_signature(
-    model, method, control, gam_args, offset, feature_id,
-    prescreen$poisson, retain_smooth, diagnostics, retain_marginal,
-    marginal_args, marginal_test
+    model, method, control, gam_args, offset, feature_id, retain_smooth,
+    diagnostics, retain_marginal, marginal_args, marginal_test
   )
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", signature, resume)
 
@@ -375,14 +377,16 @@
   null_chunk <- get(".mgcvst_null_chunk", envir = worker_bundle, inherits = FALSE)
   groups <- .mgcvst_feature_chunks(seq_len(p), chunk_size, BPPARAM,
                                    checkpoint = !is.null(store))
-  payloads <- lapply(groups, function(i) list(
-    index = i, feature_id = feature_id[i], Y = Y[i, , drop = FALSE],
+  # A payload is built only when its chunk is computed and a worker is free.
+  make_payload <- function(i) list(
+    index = i, feature_id = feature_id[i], Y = .mgcvst_double_rows(Y, i),
     offset = if (is.matrix(offset)) offset[i, , drop = FALSE] else offset,
     poisson = prescreen$poisson[i]
-  ))
+  )
   null_t0 <- proc.time()[["elapsed"]]
   step1 <- .mgcvst_run_chunks(
-    payloads, "null", store, y_digest, BPPARAM, null_chunk,
+    groups, make_payload, "null", store, y_digest, prescreen$poisson, BPPARAM,
+    null_chunk,
     G0 = structure(model$G,
       null_spec = list(formula = model$null_formula, data = model$null_data,
         response = model$null_response, X0 = model$null_X)),
@@ -392,7 +396,6 @@
     retain_marginal = retain_marginal, routed_family_raw = routed_family_raw
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
-  rm(payloads)
   nulls <- unlist(step1$results, recursive = FALSE)
   marginal_p <- vapply(nulls, `[[`, numeric(1L), "marginal_p_value")
   marginal_q <- .mgcvst_stage1_q(marginal_p, adjust)
@@ -463,8 +466,8 @@
         chunks = length(groups), chunk_size = chunk_size,
         backend = class(BPPARAM)[1L],
         workers = max(1L, min(length(groups), BiocParallel::bpworkers(BPPARAM))),
-        resumed_null_chunks = step1$resumed, spatial_chunks = 0L,
-        resumed_spatial_chunks = 0L
+        resumed_null_chunks = step1$resumed, null_payloads = step1$built,
+        spatial_chunks = 0L, resumed_spatial_chunks = 0L, spatial_payloads = 0L
       ),
       smooth_coefficients = NULL,
       retain_smooth = retain_smooth,
@@ -556,13 +559,14 @@
       !length(context$source_files) && is.null(context$worker_init))
   )
   payload_for <- function(i) list(
-    index = i, feature_id = fit$feature_id[i], Y = Y[i, , drop = FALSE],
+    index = i, feature_id = fit$feature_id[i], Y = .mgcvst_double_rows(Y, i),
     offset = if (is.matrix(offset)) offset[i, , drop = FALSE] else offset,
     poisson = context$poisson[i]
   )
-  run <- function(payloads, param, ...) {
+  run <- function(chunk_groups, param, ...) {
     do.call(.mgcvst_run_chunks, c(
-      list(payloads, "spatial", store, fit$y_digest, param, fit_chunk),
+      list(chunk_groups, payload_for, "spatial", store, fit$y_digest,
+           context$poisson, param, fit_chunk),
       fit_args, list(...)))
   }
   fit_t0 <- proc.time()[["elapsed"]]
@@ -570,12 +574,14 @@
   # fits. A failed first feature is retained; the next feature may seed the cache.
   prefix <- list()
   resumed <- 0L
+  built <- 0L
   seed <- if (frozen) list(frozen = TRUE, L = model$L, geometry = model$geometry) else NULL
   position <- 1L
   if (!frozen) repeat {
-    first <- run(list(payload_for(index[position])), BiocParallel::SerialParam())
+    first <- run(list(index[position]), BiocParallel::SerialParam())
     prefix[[length(prefix) + 1L]] <- first$results[[1L]]
     resumed <- resumed + first$resumed
+    built <- built + first$built
     seed <- attr(first$results[[1L]], "geometry_seed")
     position <- position + 1L
     if (!is.null(attr(first$results[[1L]], "model_geometry")) ||
@@ -586,8 +592,8 @@
   groups <- .mgcvst_feature_chunks(remaining, chunk_size, BPPARAM,
                                    checkpoint = !is.null(store))
   tail <- if (length(groups)) {
-    run(lapply(groups, payload_for), BPPARAM, geometry_seed = seed)
-  } else list(results = list(), resumed = 0L, chunks = 0L)
+    run(groups, BPPARAM, geometry_seed = seed)
+  } else list(results = list(), resumed = 0L, chunks = 0L, built = 0L)
   chunks <- c(prefix, tail$results)
   fit_elapsed <- proc.time()[["elapsed"]] - fit_t0
 
@@ -656,6 +662,7 @@
   fit$timing$spatial_chunks <- fit$timing$spatial_chunks + length(prefix) + tail$chunks
   fit$timing$resumed_spatial_chunks <- fit$timing$resumed_spatial_chunks +
     resumed + tail$resumed
+  fit$timing$spatial_payloads <- fit$timing$spatial_payloads + built + tail$built
   fit
 }
 
@@ -682,7 +689,9 @@
 #'   [mgcvST.estimate()].
 #' @param checkpoint_dir,resume Resumable chunk checkpoints as in
 #'   [mgcvST.estimate()]. The directory of the original call can be reused:
-#'   its step 2 chunks are keyed by their features and responses.
+#'   its step 2 chunks are keyed by their features and responses. Pass the
+#'   same `chunk_size` as for the original call, or an explicit one: without it
+#'   the chunks depend on the number of workers.
 #' @return The updated `mgcvST_model_fit`.
 #' @export
 mgcvST.estimate_spatial <- function(
@@ -706,14 +715,8 @@ mgcvST.estimate_spatial <- function(
   if (!inherits(BPPARAM, "BiocParallelParam")) {
     stop("BPPARAM must inherit from 'BiocParallelParam'.")
   }
-  if (!is.null(chunk_size)) {
-    chunk_size <- as.integer(chunk_size)
-    if (length(chunk_size) != 1L || is.na(chunk_size) || chunk_size < 1L) {
-      stop("chunk_size must be one positive integer.")
-    }
-  }
-  Y <- as.matrix(Y)
-  storage.mode(Y) <- "double"
+  chunk_size <- .mgcvst_check_chunk_size(chunk_size)
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
   marginal_q <- .mgcvst_stage1_q(fit$diagnostics$marginal_p_value, adjust)
   index <- .mgcvst_select_spatial(features, fit$feature_id, marginal_q, q.value)
   index <- setdiff(index, which(fit$diagnostics$spatial_fitted))

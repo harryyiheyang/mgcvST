@@ -37,7 +37,9 @@ logical vector with one value per feature.}
 
 \item{checkpoint_dir, resume}{Resumable chunk checkpoints as in
 \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}. The directory of the original call can be reused:
-its step 2 chunks are keyed by their features and responses.}
+its step 2 chunks are keyed by their features and responses. Pass the
+same \code{chunk_size} as for the original call, or an explicit one: without it
+the chunks depend on the number of workers.}
 }
 \value{
 The updated \code{mgcvST_model_fit}.

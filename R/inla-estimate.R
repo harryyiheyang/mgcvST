@@ -44,11 +44,6 @@
   z
 }
 
-.inlast_condition_record <- function(e) {
-  list(class = class(e)[1L], message = conditionMessage(e),
-       call = paste(deparse(conditionCall(e)), collapse = " "))
-}
-
 # Step 1 worker: null fits and Stage 1 statistics of one chunk of features, in
 # sub-blocks of `block` features so that a worker holds at most `block`
 # features' working vectors. Returns, per feature, the compact null state and
@@ -88,7 +83,7 @@
     for (kk in seq_along(rows)) {
       z <- fits[[kk]]
       out[[rows[kk]]] <- if (failed[kk]) {
-        list(error = .inlast_condition_record(z))
+        list(error = .mgcvst_condition(z))
       } else {
         list(null = .inlast_compact(z),
              marginal = if (row_of[kk]) as.list(marginal[row_of[kk], ]) else NULL)
@@ -173,7 +168,7 @@
     for (kk in seq_along(rows)) {
       z <- fits[[kk]]
       out[[rows[kk]]] <- if (failed[kk]) {
-        list(error = .inlast_condition_record(z))
+        list(error = .mgcvst_condition(z))
       } else {
         record <- .inlast_spatial_record(
           z, spec, scores$a[, kk], scores$error[kk], mean(z$mu),
@@ -189,17 +184,17 @@
   out
 }
 
-# Checkpoint signature of an INLA estimation: everything the chunk results
-# depend on. The chunking is not part of it: chunk files are keyed by their
-# features and responses, so a changed chunk_size recomputes, never mixes.
+# Checkpoint signature of an INLA estimation: the model, offset and controls
+# the chunk results depend on. The chunking and the family routing of a feature
+# are not part of it: a chunk file is keyed by its step, its features, their
+# responses and their routing, so a changed chunk_size or a feature that is
+# routed differently recomputes its chunk, and never mixes.
 .inlast_estimation_signature <- function(model, control, offset, feature_id,
-                                         prescreen_poisson, retain_smooth,
-                                         diagnostics) {
+                                         retain_smooth, diagnostics) {
   .mgcvst_pair_input_hash(list(
     format = .mgcvst_fit_format, spec = model$inla_spec, offset = model$offset,
     extra_offset = offset, control = control, feature_id = feature_id,
-    routing = prescreen_poisson, retain_smooth = retain_smooth,
-    diagnostics = diagnostics
+    retain_smooth = retain_smooth, diagnostics = diagnostics
   ))
 }
 
@@ -232,10 +227,12 @@
 #'
 #' With `checkpoint_dir`, every completed chunk of either step is saved by the
 #' worker that computed it, and a repeated call with the same arguments
-#' resumes from the saved chunks. Chunks are keyed by their features and
-#' responses, so keep `chunk_size` (and the number of workers, when
-#' `chunk_size` is `NULL`) unchanged to reuse them; chunks of other responses
-#' are recomputed, never reused. A checkpoint directory written for another
+#' resumes from the saved chunks. Chunks are keyed by their step, features,
+#' responses and family routing, so pass `chunk_size` explicitly for a
+#' resumable run: without it the chunks depend on the number of workers (and
+#' step 2 on the number of selected features), and a changed chunking
+#' recomputes rather than reuses. A chunk whose result holds a failed feature
+#' is computed again on resume. A checkpoint directory written for another
 #' model, offset, control or version is refused. Without `chunk_size`, a run
 #' with a checkpoint directory uses chunks of at most 50 features.
 #'
@@ -247,10 +244,13 @@
 #'   `control$num_threads` (default `1L`). Setting it to `NULL` lets INLA choose
 #'   its own thread count, which can oversubscribe BiocParallel workers.
 #'   `SerialParam()` keeps everything in one process.
-#' @param chunk_size Positive number of features per task. The default creates
-#'   one chunk per worker in each step; a smaller value makes the checkpoint
-#'   finer.
-#' @param offset Optional shared observation offset or matrix matching `Y`.
+#' @param chunk_size Positive integer number of features per task, or `NULL`.
+#'   The default creates one chunk per worker in each step; a smaller value
+#'   makes the checkpoint finer. A chunk payload is built when a worker takes
+#'   the chunk, so at most about one chunk of `Y` per worker is copied.
+#' @param offset Optional shared observation offset or matrix matching `Y`. A
+#'   feature-by-observation matrix is kept on the fit (`extra_offset`) for a
+#'   later step 2, in addition to the total offset.
 #' @param control Named INLA engine overrides for controls saved by
 #'   [inlaST.set()]. Omitted entries inherit model settings. Each supplied
 #'   prior list replaces the whole prior; numerical `control.inla` entries
@@ -415,22 +415,23 @@ inlaST.estimate <- function(
   t0 <- proc.time()[["elapsed"]]
   y_digest <- .mgcvst_row_digests(Y)
   signature <- .inlast_estimation_signature(
-    model, control, offset, feature_id, prescreen$poisson, retain_smooth,
-    diagnostics
+    model, control, offset, feature_id, retain_smooth, diagnostics
   )
   store <- .mgcvst_chunk_store(checkpoint_dir, "inla", signature, resume)
   groups <- .mgcvst_feature_chunks(seq_len(p), chunk_size, BPPARAM,
                                    checkpoint = !is.null(store))
-  payloads <- lapply(groups, function(index) {
+  # A payload is built only when its chunk is computed and a worker is free.
+  make_payload <- function(index) {
     extra_offset <- if (is.null(offset) || !is.matrix(offset)) offset else
       offset[index, , drop = FALSE]
     list(index = index, feature_id = feature_id[index],
-         Y = Y[index, , drop = FALSE], extra_offset = extra_offset,
+         Y = .mgcvst_double_rows(Y, index), extra_offset = extra_offset,
          poisson = if (any(prescreen$poisson)) prescreen$poisson[index] else NULL)
-  })
+  }
   null_t0 <- proc.time()[["elapsed"]]
   step1 <- .mgcvst_run_chunks(
-    payloads, "null", store, y_digest, BPPARAM, .inlast_chunk_task(),
+    groups, make_payload, "null", store, y_digest, prescreen$poisson, BPPARAM,
+    .inlast_chunk_task(),
     fun_name = ".inlast_null_chunk",
     args = list(spec = model$inla_spec, null_spec = null_spec,
                 base_offset = model$offset, null_control = null_control,
@@ -438,7 +439,6 @@ inlaST.estimate <- function(
     libpaths = .libPaths()
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
-  rm(payloads)
   nulls <- unlist(step1$results, recursive = FALSE)
 
   n_sp <- model$inla_spec$geometry_sp_length
@@ -456,7 +456,7 @@ inlaST.estimate <- function(
   for (j in seq_len(p)) {
     z <- nulls[[j]]
     if (!is.null(z$error)) {
-      null_error_class[j] <- z$error$class
+      null_error_class[j] <- sub("/.*$", "", z$error$class)
       null_error_message[j] <- z$error$message
       null_error_call[j] <- z$error$call
       next
@@ -552,7 +552,9 @@ inlaST.estimate <- function(
                   workers = max(1L, min(length(groups),
                                         BiocParallel::bpworkers(BPPARAM))),
                   resumed_null_chunks = step1$resumed,
-                  spatial_chunks = 0L, resumed_spatial_chunks = 0L),
+                  null_payloads = step1$built,
+                  spatial_chunks = 0L, resumed_spatial_chunks = 0L,
+                  spatial_payloads = 0L),
     smooth_coefficients = coefficient,
     retain_smooth = retain_smooth,
     test_engine = "single_model",
@@ -600,14 +602,16 @@ inlaST.estimate <- function(
 #' @inheritParams inlaST.estimate
 #' @param checkpoint_dir,resume Resumable chunk checkpoints as in
 #'   [inlaST.estimate()]. The directory of the original call can be reused:
-#'   its step 2 chunks are keyed by their features and responses.
+#'   its step 2 chunks are keyed by their features and responses. Pass the
+#'   same `chunk_size` as for the original call, or an explicit one: without it
+#'   the chunks depend on the number of workers.
 #' @return The updated `inlaST_fit`.
 #' @export
 inlaST.estimate_spatial <- function(
     fitinlaST, Y, features = "discoveries",
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
-    BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL, threads = 1L,
-    checkpoint_dir = NULL, resume = TRUE) {
+    BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
+    checkpoint_dir = NULL, resume = TRUE, threads = 1L) {
   if (!requireNamespace("INLA", quietly = TRUE)) {
     stop("inlaST.estimate_spatial() requires the INLA package.")
   }
@@ -623,12 +627,8 @@ inlaST.estimate_spatial <- function(
   if (!inherits(BPPARAM, "BiocParallelParam")) {
     stop("BPPARAM must inherit from 'BiocParallelParam'.")
   }
-  if (!is.null(chunk_size) && (!is.numeric(chunk_size) || length(chunk_size) != 1L ||
-      !is.finite(chunk_size) || chunk_size < 1 || chunk_size != as.integer(chunk_size))) {
-    stop("chunk_size must be one positive integer.")
-  }
-  Y <- as.matrix(Y)
-  storage.mode(Y) <- "double"
+  chunk_size <- .mgcvst_check_chunk_size(chunk_size)
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
   marginal_q <- .mgcvst_stage1_q(fit$diagnostics$marginal_p_value, adjust)
   index <- .mgcvst_select_spatial(features, fit$feature_id, marginal_q, q.value)
   index <- setdiff(index, which(fit$diagnostics$spatial_fitted))
@@ -653,16 +653,17 @@ inlaST.estimate_spatial <- function(
   poisson <- fit$routed_poisson
   groups <- .mgcvst_feature_chunks(index, chunk_size, BPPARAM,
                                    checkpoint = !is.null(store))
-  payloads <- lapply(groups, function(i) {
+  make_payload <- function(i) {
     extra_offset <- if (is.null(offset) || !is.matrix(offset)) offset else
       offset[i, , drop = FALSE]
-    list(index = i, feature_id = fit$feature_id[i], Y = Y[i, , drop = FALSE],
+    list(index = i, feature_id = fit$feature_id[i], Y = .mgcvst_double_rows(Y, i),
          extra_offset = extra_offset, null = fit$null_state[i],
          poisson = if (any(poisson)) poisson[i] else NULL)
-  })
+  }
   fit_t0 <- proc.time()[["elapsed"]]
   step2 <- .mgcvst_run_chunks(
-    payloads, "spatial", store, fit$y_digest, BPPARAM, .inlast_chunk_task(),
+    groups, make_payload, "spatial", store, fit$y_digest, poisson, BPPARAM,
+    .inlast_chunk_task(),
     fun_name = ".inlast_spatial_chunk",
     args = list(spec = spec, base_offset = model$offset, control = fit$control,
                 diagnostics = !is.null(fit$inla_diagnostics),
@@ -670,7 +671,6 @@ inlaST.estimate_spatial <- function(
     libpaths = .libPaths()
   )
   fit_elapsed <- proc.time()[["elapsed"]] - fit_t0
-  rm(payloads)
   fits <- unlist(step2$results, recursive = FALSE)
   index <- unlist(groups, use.names = FALSE)
 
@@ -679,7 +679,7 @@ inlaST.estimate_spatial <- function(
     j <- index[k]
     z <- fits[[k]]
     if (!is.null(z$error)) {
-      diag$error_class[j] <- z$error$class
+      diag$error_class[j] <- sub("/.*$", "", z$error$class)
       diag$error_message[j] <- z$error$message
       diag$error_call[j] <- z$error$call
       next
@@ -736,5 +736,6 @@ inlaST.estimate_spatial <- function(
   fit$timing$spatial_chunks <- fit$timing$spatial_chunks + step2$chunks
   fit$timing$resumed_spatial_chunks <- fit$timing$resumed_spatial_chunks +
     step2$resumed
+  fit$timing$spatial_payloads <- fit$timing$spatial_payloads + step2$built
   fit
 }

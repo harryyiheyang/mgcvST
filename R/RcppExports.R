@@ -17,8 +17,8 @@ mgcvst_inla_sparse_prepared_valid_cpp <- function(prepared) {
     .Call(`_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp`, prepared)
 }
 
-mgcvst_inla_sparse_observation_basis_cpp <- function(A_map, constraint, coverage = 0.995, full_rank = FALSE, prepared = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_observation_basis_cpp`, A_map, constraint, coverage, full_rank, prepared)
+mgcvst_inla_sparse_observation_basis_cpp <- function(A_map, constraint, prepared = NULL) {
+    .Call(`_mgcvST_mgcvst_inla_sparse_observation_basis_cpp`, A_map, constraint, prepared)
 }
 
 mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, null_target = FALSE, block_size = 32L, prepared = NULL, nuisance_precision = NULL) {

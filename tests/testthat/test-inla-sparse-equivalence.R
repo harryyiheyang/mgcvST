@@ -169,14 +169,16 @@ test_that("sparse observation basis matches an independent QR reference", {
   er <- eigen(ref, symmetric = TRUE)
   val <- er$values
   vec <- er$vectors
-  keep <- cumsum(val) / sum(val)
-  r <- which(keep >= 0.995)[1L]
+  # All q - 1 directions of the constrained field are kept.
+  r <- q - 1L
   cref <- Bp %*% vec[, seq_len(r), drop = FALSE]
 
   expect_equal(got$rank, r)
+  expect_identical(got$kind, "full_rank")
+  expect_null(got$coverage)
+  expect_null(got$tail)
   expect_equal(got$values, val, tolerance = 2e-10)
   expect_equal(tcrossprod(got$basis), tcrossprod(cref), tolerance = 2e-10)
-  expect_equal(got$tail, 1 - keep[r], tolerance = 2e-10)
   expect_equal(crossprod(got$basis, Q0 %*% got$basis), diag(r),
     tolerance = 2e-10)
 })

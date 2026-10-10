@@ -103,7 +103,7 @@
     identical(cache$observation_basis_constraint, geometry$constraint)
   if (!valid) {
     basis <- mgcvst_inla_sparse_observation_basis_cpp(
-      cache$general_A, as.numeric(geometry$constraint), 1, TRUE, cache$prepared
+      cache$general_A, as.numeric(geometry$constraint), cache$prepared
     )
     basis$kind <- "full_rank"
     cache$observation_basis <- basis

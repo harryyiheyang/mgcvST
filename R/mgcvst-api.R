@@ -213,10 +213,12 @@
 #'
 #' With `checkpoint_dir`, every completed chunk of either step is saved by the
 #' worker that computed it, and a repeated call with the same arguments resumes
-#' from the saved chunks. Chunks are keyed by their features and responses, so
-#' keep `chunk_size` (and the number of workers, when `chunk_size` is `NULL`)
-#' unchanged to reuse them; chunks of other responses are recomputed, never
-#' reused. A checkpoint directory written for another model, offset or control
+#' from the saved chunks. Chunks are keyed by their step, features, responses
+#' and family routing, so pass `chunk_size` explicitly for a resumable run:
+#' without it the chunks depend on the number of workers (and step 2 on the
+#' number of selected features), and a changed chunking recomputes rather than
+#' reuses. A chunk whose result holds a failed feature is computed again on
+#' resume. A checkpoint directory written for another model, offset or control
 #' is refused. Without `chunk_size`, a run with a checkpoint directory uses
 #' chunks of at most 50 features.
 #'
@@ -261,9 +263,10 @@
 #' @param feature_id Unique feature identifiers. Defaults to `rownames(Y)` or
 #'   sequential identifiers.
 #' @param BPPARAM A `BiocParallelParam`; defaults to the registered `bpparam()`.
-#' @param chunk_size Positive number of genes per task. The default creates at
-#'   most one chunk per worker, limiting repeated serialization on SOCK
-#'   workers.
+#' @param chunk_size Positive integer number of genes per task, or `NULL`. The
+#'   default creates at most one chunk per worker, limiting repeated
+#'   serialization on SOCK workers. A chunk payload is built when a worker takes
+#'   the chunk, so at most about one chunk of `Y` per worker is copied.
 #' @param source_files Ordered R files, or directories containing R files, to
 #'   source once per worker. Use this for sourced custom S3 smooth methods.
 #' @param worker_init Optional zero-argument initialization function run once
@@ -274,7 +277,8 @@
 #' @param offset Optional additional log/link-scale offset for a model prepared
 #'   by [mgcvST.set()] (or a `gam(fit = FALSE)` setup passed as `G`): a shared
 #'   observation-length vector or a feature-by-observation matrix in exactly
-#'   the same order as `Y`. Added to the shared formula/setup offset.
+#'   the same order as `Y`. Added to the shared formula/setup offset. A matrix
+#'   is kept on the fit (in the total offset and for a later step 2).
 #'   Covariates and smooths are fixed by `mgcvST.set()` and cannot vary by
 #'   gene.
 #' @param diagnostics Logical; compute `summary.gam()`/Wood diagnostics.

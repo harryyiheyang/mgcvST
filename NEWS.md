@@ -65,10 +65,31 @@
   all features and about 0.25 GB for 10% of them, in the final fit as well as
   in transit. A worker holds the vectors of at most 16 features at a time. On a
   200-feature case (`n = 40000`, `m = 36`) the end-to-end peak above the
-  starting memory fell from 837 MB to 583 MB; the rest is the data, the model
-  and the per-chunk copies of `Y`, which are unchanged.
+  starting memory fell from 837 MB to 583 MB; the rest is the data and the
+  model (the per-chunk copies of `Y` are made lazily, see the review fixes
+  below).
 * Examples, tests and the README call the estimators with `spatial = "all"`
   where they need spatial fits for every feature.
+* Review fixes after 9032 (the version stays 0.0.1.9032). The chunk payloads
+  of both steps are built lazily and only for the chunks that are computed
+  (`BiocParallel::bpiterate`): a resumed chunk is never copied, and about one
+  payload per worker is alive instead of a second copy of `Y`. `Y` is
+  validated in blocks of rows (finite, and for counts non-negative and
+  integer-valued) without temporaries of the size of `Y`, and an integer `Y`
+  is not converted as a whole: its row blocks become double when a payload is
+  made. The response digests are taken over `as.numeric(Y[j, ])`, so names and
+  the storage type of `Y` do not matter. A chunk is found by its key whatever
+  its position, so another selection or `q.value` in the same checkpoint
+  directory reuses the chunks it shares (a comparison that depended on the
+  position made such a resume stop with a "damaged" error). A chunk whose
+  result holds a failed feature is computed again on resume, files left by an
+  interrupted write are removed, and the family routing of a feature is part
+  of its chunk key instead of the directory signature. `inlaST.estimate_spatial()`
+  takes `threads` after `resume`, and one `chunk_size` check, which rejects
+  non-integers, serves all four estimation entry points. The dead truncation
+  path of the observation basis is gone (`coverage`, `full_rank`, `kept_coverage`,
+  `tail`). Pass `chunk_size` explicitly for a resumable run.
+
 
 # mgcvST 0.0.1.9031
 

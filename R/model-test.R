@@ -143,8 +143,7 @@
       )
       routed$metadata <- c(list(
         q = ncol(fit$score_sparse$Q), r = basis$rank,
-        basis_kind = basis$kind, kept_coverage = basis$kept,
-        tail = basis$tail,
+        basis_kind = basis$kind,
         basis = "constrained_observation_kernel_A_Qg_inverse_At",
         unit_cache = "score_state_shards"
       ), routed$metadata)

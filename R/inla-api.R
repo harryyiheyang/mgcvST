@@ -388,18 +388,17 @@ inlaST.set <- function(
       !isTRUE(model$inla_spec$mean_constraint_active)) {
     stop("The required observation mean-zero constraint is not active.")
   }
-  Y <- as.matrix(Y)
-  storage.mode(Y) <- "double"
-  if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y) || any(!is.finite(Y))) {
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y)) {
     stop("Y must be a non-empty finite numeric feature-by-observation matrix.")
   }
   if (ncol(Y) != model$inla_spec$n) {
     stop("ncol(Y) must equal the number of observations in model.")
   }
-  if (model$inla_spec$family %in% c("poisson", "negative_binomial") &&
-      (any(Y < 0) || any(Y != round(Y)))) {
-    stop("Count responses must be non-negative integers.")
-  }
+  # Checked in blocks of rows: no temporary of the size of Y, no copy of a
+  # double or integer matrix.
+  Y <- .mgcvst_check_response_matrix(
+    Y, counts = model$inla_spec$family %in% c("poisson", "negative_binomial"))
   if (is.null(feature_id)) feature_id <- rownames(Y)
   if (is.null(feature_id)) feature_id <- as.character(seq_len(nrow(Y)))
   feature_id <- as.character(feature_id)
@@ -410,10 +409,7 @@ inlaST.set <- function(
   if (!inherits(BPPARAM, "BiocParallelParam")) {
     stop("BPPARAM must inherit from 'BiocParallelParam'.")
   }
-  if (!is.null(chunk_size) && (!is.numeric(chunk_size) || length(chunk_size) != 1L ||
-      !is.finite(chunk_size) || chunk_size < 1 || chunk_size != as.integer(chunk_size))) {
-    stop("chunk_size must be one positive integer.")
-  }
+  chunk_size <- .mgcvst_check_chunk_size(chunk_size)
   if (!is.list(control)) stop("control must be a list of INLA controls.")
   for (name in c("retain_smooth", "diagnostics")) {
     value <- get(name)
@@ -429,8 +425,7 @@ inlaST.set <- function(
       stop("offset must be finite numeric: an observation-length vector or a matrix matching Y.")
     }
   }
-  list(Y = Y, feature_id = feature_id,
-       chunk_size = if (is.null(chunk_size)) NULL else as.integer(chunk_size))
+  list(Y = Y, feature_id = feature_id, chunk_size = chunk_size)
 }
 
 # `poisson` is the full-length routing vector from the Poisson prescreen,
