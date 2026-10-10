@@ -88,7 +88,11 @@
   takes `threads` after `resume`, and one `chunk_size` check, which rejects
   non-integers, serves all four estimation entry points. The dead truncation
   path of the observation basis is gone (`coverage`, `full_rank`, `kept_coverage`,
-  `tail`). Pass `chunk_size` explicitly for a resumable run.
+  `tail`). Pass `chunk_size` explicitly for a resumable run. Every dispatched
+  chunk returns the result together with its chunk key, and the results are
+  placed by key (a missing, duplicated or unknown key is an error), so the
+  outcome does not depend on whether `bpiterate` returns results in iteration
+  or in completion order.
 
 
 # mgcvST 0.0.1.9031

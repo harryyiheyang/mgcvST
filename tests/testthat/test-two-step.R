@@ -265,6 +265,80 @@ test_that("chunk payloads are built lazily, only for the chunks that are compute
   expect_identical(unlist(res$results), 1:8)
 })
 
+test_that("chunk results are placed by key, whatever the order bpiterate returns them in", {
+  groups <- split(1:8, rep(1:4, each = 2L))
+  digest <- letters[1:8]
+  work <- function(payload, scale) as.list(payload$index * scale)
+  # An old BiocParallel returned results in completion order. The mock runs
+  # the tasks and returns them reversed, which is what a fully reversed
+  # completion looks like.
+  reversed <- function(ITER, FUN, ..., BPPARAM) {
+    out <- list()
+    while (!is.null(payload <- ITER())) out[[length(out) + 1L]] <- FUN(payload, ...)
+    rev(out)
+  }
+  res <- testthat::with_mocked_bindings(
+    mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "spatial",
+                                NULL, digest, NULL, BiocParallel::SerialParam(),
+                                work, scale = 10),
+    bpiterate = reversed, .package = "BiocParallel")
+  expect_identical(unlist(res$results), as.numeric(1:8) * 10)
+  expect_identical(lapply(res$results, unlist),
+                   unname(lapply(groups, function(i) as.numeric(i) * 10)))
+
+  # Checkpointed chunks: the file of each chunk holds the result of its own
+  # features and a resumed run reads the same values back.
+  dir <- tempfile("mgcvst-keyed-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  store <- mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  saving <- function(payload, scale) {
+    out <- as.list(payload$index * scale)
+    mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    out
+  }
+  testthat::with_mocked_bindings(
+    mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "null",
+                                store, digest, NULL, BiocParallel::SerialParam(),
+                                saving, scale = 10),
+    bpiterate = reversed, .package = "BiocParallel")
+  again <- mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "null",
+                                       store, digest, NULL,
+                                       BiocParallel::SerialParam(), saving, scale = 10)
+  expect_identical(again$resumed, 4L)
+  expect_identical(unlist(again$results), as.numeric(1:8) * 10)
+
+  # A result that cannot be matched to a dispatched chunk is an error.
+  place <- mgcvST:::.mgcvst_place_by_key
+  ok <- list(list(key = "b", result = 2), list(key = "a", result = 1))
+  expect_identical(place(ok, c("a", "b")), list(1, 2))
+  expect_error(place(list(list(key = "a", result = 1)), c("a", "b")), "No result returned")
+  expect_error(place(c(ok, list(list(key = "a", result = 3))), c("a", "b")), "same key")
+  expect_error(place(list(list(key = "z", result = 1), ok[[2L]]), c("a", "b")), "unknown key")
+  expect_error(place(list(list(result = 1), ok[[2L]]), c("a", "b")), "without the key")
+  expect_error(place(list(simpleError("x"), ok[[2L]]), c("a", "b")), "without the key")
+  expect_error(
+    mgcvST:::.mgcvst_run_chunks(list(1:2, 1:2), function(i) list(index = i),
+                                "null", NULL, digest, NULL,
+                                BiocParallel::SerialParam(), work, scale = 1),
+    "distinct")
+
+  # Two workers whose chunks finish in reverse order: every feature gets its
+  # own result.
+  skip_on_cran()
+  many <- split(1:6, 1:6)
+  slow <- function(payload) {
+    Sys.sleep(0.12 * (7L - payload$index))
+    list(payload$index * 100L)
+  }
+  environment(slow) <- baseenv()
+  snow <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
+  on.exit(BiocParallel::bpstop(snow), add = TRUE)
+  res <- mgcvST:::.mgcvst_run_chunks(many, function(i) list(index = i), "null",
+                                     NULL, as.character(1:6), NULL, snow, slow)
+  expect_identical(unlist(res$results), (1:6) * 100L)
+  expect_identical(res$built, 6L)
+})
+
 test_that("a chunk that holds a failed feature is computed again on resume", {
   dir <- tempfile("mgcvst-failed-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)

@@ -238,6 +238,44 @@
   }, logical(1L)))
 }
 
+# Worker-side wrapper that returns the result of a chunk together with the key
+# of its payload. It lives in baseenv(), like the worker functions it calls, so
+# that a worker needs nothing from mgcvST to deserialize it.
+.mgcvst_keyed_task <- function() {
+  task <- function(payload, .worker, ...) {
+    list(key = payload$chunk_key, result = .worker(payload, ...))
+  }
+  environment(task) <- baseenv()
+  task
+}
+
+# Place the keyed results of bpiterate at the positions of the dispatched
+# chunks. `keys` are the keys of the chunks that were dispatched. A missing,
+# duplicated or unknown key is an error: a result must never reach the wrong
+# chunk.
+.mgcvst_place_by_key <- function(returned, keys) {
+  got <- vapply(returned, function(z) {
+    if (is.list(z) && !inherits(z, "condition") && is.character(z[["key"]]) &&
+        length(z[["key"]]) == 1L) z[["key"]] else NA_character_
+  }, character(1L))
+  if (anyNA(got)) {
+    stop("A chunk worker returned a result without the key of its chunk.")
+  }
+  if (anyDuplicated(got)) {
+    stop("Two chunk results carry the same key: ",
+         paste(unique(got[duplicated(got)]), collapse = ", "), ".")
+  }
+  unknown <- setdiff(got, keys)
+  if (length(unknown)) {
+    stop("A chunk result carries an unknown key: ", unknown[[1L]], ".")
+  }
+  missing <- setdiff(keys, got)
+  if (length(missing)) {
+    stop("No result returned for the chunk with key ", missing[[1L]], ".")
+  }
+  lapply(match(keys, got), function(i) returned[[i]][["result"]])
+}
+
 # Read the completed chunks of a step and run the missing ones. `groups` are
 # the feature indices of the chunks and `make_payload(index)` builds the payload
 # of one chunk; it is called only for a chunk that has to be computed, when a
@@ -245,7 +283,9 @@
 # payload per worker is alive and a resumed chunk is never copied. `FUN` is a
 # worker function receiving a payload (with chunk_file and chunk_key) and `...`;
 # a result is a list with one entry per feature of its chunk. A chunk that
-# holds a failed feature is computed again.
+# holds a failed feature is computed again. Every dispatched result returns
+# with the key of its chunk and is placed by that key, so the outcome does not
+# depend on whether bpiterate returns results in iteration or completion order.
 .mgcvst_run_chunks <- function(groups, make_payload, step, store, y_digest,
                                route, BPPARAM, FUN, ...) {
   n <- length(groups)
@@ -285,7 +325,12 @@
       built <<- built + 1L
       payload
     }
-    results[todo] <- BiocParallel::bpiterate(iterate, FUN, ..., BPPARAM = BPPARAM)
+    if (anyDuplicated(keys[todo])) {
+      stop("The chunks of a step must hold distinct features.")
+    }
+    returned <- BiocParallel::bpiterate(iterate, .mgcvst_keyed_task(), ...,
+                                        .worker = FUN, BPPARAM = BPPARAM)
+    results[todo] <- .mgcvst_place_by_key(returned, keys[todo])
   }
   list(results = results, resumed = n - length(todo), chunks = n, built = built)
 }
