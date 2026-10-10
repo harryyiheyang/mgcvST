@@ -66,8 +66,6 @@
       stop("inlaST.test() requires a fit returned by inlaST.estimate().")
     }
     .mgcvst_inla_require_sparse(fit)
-    # Validated before the observation basis is built.
-    pca <- .mgcvst_pca_check_args(rank, n_per_cell, seed)
   } else {
     if (.mgcvst_inla_downstream(fit)) {
       stop("mgcvST.test() does not accept inlaST.estimate() fits; use inlaST.test().")
@@ -75,9 +73,18 @@
     if (!inherits(fit, "mgcvST_model_fit")) {
       stop("mgcvST.test() requires a fit returned by mgcvST.estimate().")
     }
-    if (is.null(fit$geometry)) {
-      stop("fitmgcvST has no feature geometry to test.")
-    }
+  }
+  .mgcvst_check_fit_format(fit)
+  if (!is.null(fit$diagnostics$spatial_fitted) && !any(fit$diagnostics$spatial_fitted)) {
+    stop("The fit has no spatial model; add spatial models with ",
+         if (.mgcvst_inla_downstream(fit)) "inlaST" else "mgcvST",
+         ".estimate_spatial().", call. = FALSE)
+  }
+  if (identical(route, "pcalearning")) {
+    # Validated before the observation basis is built.
+    pca <- .mgcvst_pca_check_args(rank, n_per_cell, seed)
+  } else if (is.null(fit$geometry)) {
+    stop("fitmgcvST has no feature geometry to test.")
   }
   .mgcvst_thread_limit()
 
@@ -86,8 +93,13 @@
   if (is.null(index) && sum(available) < 2L) {
     stop("At least two available features are required to test all pairs.")
   }
+  # Features that estimation did not select for a spatial model are not
+  # failures: with pairs = NULL the test covers the features that have one.
+  not_selected <- if (is.null(fit$diagnostics$spatial_selected)) {
+    rep(FALSE, length(available))
+  } else !available & !fit$diagnostics$spatial_selected
   extra <- NULL
-  unavailable <- which(!available)
+  unavailable <- which(!available & !not_selected)
   if (!is.null(index)) {
     ok <- available[index[, 1L]] & available[index[, 2L]]
     if (!all(ok)) {
@@ -122,7 +134,7 @@
     if (identical(route, "pcalearning")) {
       fit <- .inlast_sparse_prepare(fit)
       t_basis <- proc.time()[["elapsed"]]
-      basis <- .inlast_sparse_observation_basis(fit)
+      basis <- .inlast_check_basis(fit, .inlast_sparse_observation_basis(fit))
       inla_basis_elapsed <- proc.time()[["elapsed"]] - t_basis
       routed <- .mgcvst_pair_pcalearning(
         fit, index, threads, chunk_size, verbose, basis = basis,
@@ -131,7 +143,7 @@
       )
       routed$metadata <- c(list(
         q = ncol(fit$score_sparse$Q), r = basis$rank,
-        target_coverage = basis$coverage, kept_coverage = basis$kept,
+        basis_kind = basis$kind, kept_coverage = basis$kept,
         tail = basis$tail,
         basis = "constrained_observation_kernel_A_Qg_inverse_At",
         unit_cache = "score_state_shards"
@@ -161,11 +173,13 @@
 
   failed <- routed$failed
   if (length(unavailable)) {
-    message_fit <- fit$diagnostics$error_message[unavailable]
+    reason <- fit$diagnostics$error_message[unavailable]
+    reason <- ifelse(is.na(reason), "The feature has no usable fit.", reason)
+    reason[not_selected[unavailable]] <-
+      "The feature has no spatial fit: it was not selected in step 2."
     failed <- rbind(failed, data.frame(
-      feature_id = fit$feature_id[unavailable],
-      error = ifelse(is.na(message_fit), "The feature has no usable fit.",
-                     message_fit), stringsAsFactors = FALSE))
+      feature_id = fit$feature_id[unavailable], error = reason,
+      stringsAsFactors = FALSE))
   }
   failed <- failed[!duplicated(failed$feature_id), , drop = FALSE]
   rownames(failed) <- NULL

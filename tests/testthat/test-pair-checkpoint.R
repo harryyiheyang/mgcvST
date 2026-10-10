@@ -102,7 +102,7 @@ test_that("checkpointed pair tests resume and refuse a pre-contract directory", 
   skip_on_cran()
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
-                         BPPARAM = BiocParallel::SerialParam())
+                         BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   dir <- tempfile("mgcvst-checkpoint-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
   first <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L)

@@ -78,12 +78,12 @@ test_that("public mgcv and INLA entries apply the same routing controls", {
     control <- utils::modifyList(mgcv::gam.control(), controls[[k]], keep.null = TRUE)
     for (setup in list(model, model$G)) {
       expect_error(mgcvST.estimate(Y, setup, control = control,
-        BPPARAM = BiocParallel::SerialParam()), "prescreen captured before model fitting")
+        BPPARAM = BiocParallel::SerialParam(), spatial = "all"), "prescreen captured before model fitting")
       expect_identical(captured$threshold, threshold)
       expect_identical(unname(captured$result$poisson), expected)
     }
     expect_error(inlaST.estimate(Y, model_inla, control = controls[[k]],
-      BPPARAM = BiocParallel::SerialParam()), "prescreen captured before model fitting")
+      BPPARAM = BiocParallel::SerialParam(), spatial = "all"), "prescreen captured before model fitting")
     expect_identical(captured$threshold, threshold)
     expect_identical(unname(captured$result$poisson), expected)
   }

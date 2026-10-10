@@ -15,7 +15,7 @@ test_that("WGCNA parameters and gene blocks have explicit contracts", {
   f <- st_fixture(n = 45L, family = gaussian())
   fit <- mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
   expect_error(mgcvST.wgcna(fit), "indices must explicitly")
   expect_error(mgcvST.wgcna(fit, c(1.1, 2)), "valid integer feature positions")
@@ -33,7 +33,7 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
   before <- serialize(fit, NULL)
   ids <- fit$feature_id[c(3L, 1L, 2L)]
@@ -83,7 +83,7 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   W <- mgcvST.wgcna(fit, ids)
@@ -104,7 +104,7 @@ test_that("WGCNA preserves overlapping block order", {
 
   f <- st_fixture(family = gaussian())
   fit <- mgcvST.estimate(f$Y, f$G, diagnostics = FALSE,
-                         BPPARAM = BiocParallel::SerialParam())
+                         BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   ids <- fit$feature_id
   blocks <- list(second = ids[c(3L, 1L, 2L)], first = ids[c(2L, 1L, 3L)])
 
@@ -137,7 +137,7 @@ test_that("inlaST.wgcna rejects an mgcv fit and names the right entry point", {
   skip_on_cran()
   skip_if_not_installed("geometry")
   f <- st_fixture()
-  fit <- mgcvST.estimate(f$Y, f$G)
+  fit <- mgcvST.estimate(f$Y, f$G, spatial = "all")
   expect_error(
     inlaST.wgcna(fit, rownames(f$Y)),
     "requires a fit returned by inlaST.estimate"
@@ -166,7 +166,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   model <- inlaST.set(response ~ z, data, basis, family = gaussian())
   fit <- inlaST.estimate(
     Y, model, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09)
+    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09), spatial = "all"
   )
   ids <- rownames(Y)
   used <- match(ids, fit$feature_id)

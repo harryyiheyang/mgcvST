@@ -94,7 +94,7 @@ test_that("score_only batches match the full a vector for both nuisance modes", 
 test_that("model preparation keeps the conditional nuisance covariance", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
-                         BPPARAM = BiocParallel::SerialParam())
+                         BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(fit)
   ids <- c(3L, 1L, 2L)
   native <- mgcvST:::.mgcvst_model_dense_preparation(fit, ids)
@@ -144,7 +144,7 @@ test_that("a feature without a usable nuisance covariance fails at estimation, n
     .package = "mgcvST"
   )
   fit <- mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
-                         BPPARAM = BiocParallel::SerialParam())
+                         BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   expect_identical(fit$feature_id[2L], "response2")
   expect_true(grepl(
     "nuisance covariance unavailable: rank-deficient fit",

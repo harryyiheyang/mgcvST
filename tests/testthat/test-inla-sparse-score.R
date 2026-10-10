@@ -34,7 +34,7 @@ test_that("sparse INLA downstream takes no BiocParallel backend and agrees acros
   fit <- inlaST.estimate(
     f$Y, model,
     BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)
+    control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09), spatial = "all"
   )
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   expect_identical(fit$diagnostics$marginal_requested_method, rep("davies", 3L))
@@ -95,7 +95,7 @@ test_that("parametric covariates remain fully supported on both INLA paths", {
                unname(as.matrix(legacy$inla_spec$nuisance_design)))
   fit <- inlaST.estimate(
     f$Y, legacy, diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(),
-    control = list(gaussian_precision = 1 / 0.09)
+    control = list(gaussian_precision = 1 / 0.09), spatial = "all"
   )
   expect_true(all(fit$diagnostics$converged))
   expect_identical(ncol(fit$geometry$nuisance_design), 2L)

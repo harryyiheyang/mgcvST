@@ -20,7 +20,12 @@ mgcvST.estimate(
   ...,
   diagnostics = FALSE,
   retain_marginal = FALSE,
-  offset = NULL
+  offset = NULL,
+  spatial = "discoveries",
+  adjust = c("BY", "BH", "Sidak", "none"),
+  q.value = 0.05,
+  checkpoint_dir = NULL,
+  resume = TRUE
 )
 }
 \arguments{
@@ -100,6 +105,23 @@ observation-length vector or a feature-by-observation matrix in exactly
 the same order as \code{Y}. Added to the shared formula/setup offset.
 Covariates and smooths are fixed by \code{mgcvST.set()} and cannot vary by
 gene.}
+
+\item{spatial}{Features that receive a spatial model in step 2:
+\code{"discoveries"} (the default; the features with Stage 1 q-value at most
+\code{q.value}), \code{"all"}, \code{"none"}, a vector of feature IDs or one-based
+indices, or a logical vector with one value per feature. A user-given
+vector allows, for example, a Stage 1 adjustment within a modality or a
+family of features that the user performs outside this function.}
+
+\item{adjust}{Multiple-testing adjustment of the Stage 1 p-values:
+\code{"BY"} (the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
+
+\item{q.value}{Stage 1 discovery threshold in \verb{(0, 1]}.}
+
+\item{checkpoint_dir}{Optional directory for the resumable chunk checkpoints
+of both steps.}
+
+\item{resume}{Reuse the completed chunks of a compatible checkpoint.}
 }
 \value{
 A compact object of class \code{mgcvST_model_fit} (also \code{mgcvST_fit})
@@ -111,18 +133,41 @@ shared \code{geometry$nuisance_design} and one small conditional nuisance
 block per feature in \code{nuisance_covariance} are retained; full GAM and
 \code{Vp} objects are discarded. When \code{retain_smooth = TRUE}, it also contains
 \code{smooth_coefficients}. Score methods derive the field scale as
-\code{dispersion / lambda}.
+\code{dispersion / lambda}. The diagnostics table holds \code{marginal_q_value},
+\code{spatial_selected} and \code{spatial_fitted}, and \code{y_digest} records a digest
+of each response row, which \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} checks.
 }
 \description{
 Fits each row of \code{Y} from a reusable shared design and retains the fixed
 numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. \code{G} is a model prepared by
 \code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=model.set]{model.set()}}, or a reusable
 \code{mgcv::gam(..., fit = FALSE)} setup, which is converted as by
-\code{mgcvST.set(G = G)}; both enter the same estimation and testing path. Each
-feature first fits the null model with the spatial score smooth removed;
-marginal screening uses that null PIRLS state, the prepared \code{G$X}, and the
-target penalty before the full spatial fit. Wood diagnostics are optional
-(\code{diagnostics = TRUE}).
+\code{mgcvST.set(G = G)}; both enter the same estimation and testing path.
+}
+\details{
+Estimation has two steps. Step 1 fits the null model with the spatial score
+smooth removed for every feature; the marginal screening uses that null
+PIRLS state, the prepared \code{G$X}, and the target penalty, and the Stage 1
+null-first p-values are adjusted by \code{adjust} into the Stage 1 q-values
+\code{diagnostics$marginal_q_value}. No null fit keeps a working vector. Step 2
+fits the spatial model of the features chosen by \code{spatial} only. Features
+without a spatial model are marked \code{spatial_fitted = FALSE} in the
+diagnostics, have missing working errors, variances, \code{dispersion} and
+\code{lambda}, and are unavailable to \code{\link[=mgcvST.test]{mgcvST.test()}} and \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}};
+\code{pairs = NULL} in \code{\link[=mgcvST.test]{mgcvST.test()}} means all pairs among the features with a
+spatial model. \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} adds spatial models for more
+features after step 1.
+
+With \code{checkpoint_dir}, every completed chunk of either step is saved by the
+worker that computed it, and a repeated call with the same arguments resumes
+from the saved chunks. Chunks are keyed by their features and responses, so
+keep \code{chunk_size} (and the number of workers, when \code{chunk_size} is \code{NULL})
+unchanged to reuse them; chunks of other responses are recomputed, never
+reused. A checkpoint directory written for another model, offset or control
+is refused. Without \code{chunk_size}, a run with a checkpoint directory uses
+chunks of at most 50 features.
+
+Wood diagnostics are optional (\code{diagnostics = TRUE}).
 The marginal test is the package-local \code{taps_score_test()}, using the TAPS
 arithmetic included in mgcvST. No external mgcv.taps installation or sourced
 score function is required. Full \code{gam} objects are never
@@ -141,8 +186,7 @@ Marginal diagnostics retain the requested method, the method actually used
 (\code{"davies"} or \code{"saddlepoint"}), and a Davies-to-saddlepoint fallback flag.
 Custom callbacks that omit method metadata leave the corresponding
 diagnostics as \code{NA}.
-}
-\details{
+
 \code{source_files} supports source-first custom smooths. Each SOCK worker
 sources the ordered files once, before it evaluates a chunk. Multicore
 children inherit the parent state, while the same guard remains harmless.
@@ -155,4 +199,7 @@ single-node Linux Slurm allocation, prefer \code{MulticoreParam()} when forking
 is available; do not force SOCK workers on Linux. Persistent SOCK workers
 are useful when fork is unavailable and their startup cost is amortized
 across a large scan.
+}
+\seealso{
+\code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} to add spatial models after step 1.
 }

@@ -12,7 +12,7 @@ test_that("a raw gam setup and a prepared model share one estimation and test pa
   pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
   for (design in list(f$G, f$model)) {
     fit <- mgcvST.estimate(f$Y, design, diagnostics = FALSE,
-                          BPPARAM = BiocParallel::SerialParam())
+                          BPPARAM = BiocParallel::SerialParam(), spatial = "all")
     expect_s3_class(fit, "mgcvST_model_fit")
     expect_identical(fit$test_engine, "single_model")
     expect_true(is.list(fit$geometry$smooth))
@@ -26,7 +26,7 @@ test_that("a raw gam setup and a prepared model share one estimation and test pa
 test_that("model pair states are constructed once per unique feature", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(
-    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), diagnostics = FALSE
+    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), diagnostics = FALSE, spatial = "all"
   )
   pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
   count <- new.env(parent = emptyenv())

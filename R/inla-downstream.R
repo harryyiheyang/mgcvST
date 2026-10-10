@@ -3,9 +3,12 @@
 #' Pairwise covariance test for fits returned by [inlaST.estimate()]. The
 #' sparse INLA score state stored on the fit is reused; no model is refitted.
 #' Each gene pair is tested by the squared cross-gene score with Liu moment
-#' matching, the only pair test for INLA fits. The score uses a constrained
-#' observation-kernel basis that retains at least 0.995 of its eigenvalue sum.
-#' This is a pairwise-test approximation; the fitted sparse field is unchanged.
+#' matching, the only pair test for INLA fits. The score uses the full-rank
+#' constrained observation-kernel basis (all `q - 1` directions of the
+#' constrained field, ordered by eigenvalue), the same basis that
+#' [inlaST.wgcna()] uses; no eigenvalue coverage truncation is applied. The
+#' pair traces are the PCAlearning approximation described below; the fitted
+#' sparse field is unchanged.
 #' Basis and pair-stage timings are stored in `timing$inla_projection`.
 #'
 #' The result has the compact shape described in [mgcvST.test()]: integer
@@ -18,7 +21,10 @@
 #' discoveries are split by the sign of the score.
 #'
 #' @inheritParams mgcvST.test
-#' @param fitinlaST An object returned by [inlaST.estimate()].
+#' @param fitinlaST An object returned by [inlaST.estimate()] (version 0.0.1.9032
+#'   or later). Only the features with a spatial model are tested; a feature
+#'   that step 2 of the estimation did not fit is unavailable, and `pairs = NULL`
+#'   covers the available features.
 #' @param rank Number of PCAlearning basis matrices.
 #' @param n_per_cell Training genes drawn per PCAlearning stratification cell.
 #' @param seed Non-negative integer seed for PCAlearning training-gene sampling;
@@ -28,7 +34,7 @@
 #'   from stratified training genes. Each gene receives the
 #'   variance scales `sigma_g2 = dispersion / lambda` and
 #'   `sigma_e2 = 1 + mean(mu) / theta` for negative-binomial genes (1 for
-#'   Poisson genes), with `mu` recovered from the working variance. Genes are
+#'   Poisson genes), with `mean(mu)` stored at estimation as `mu_bar`. Genes are
 #'   stratified into 10 quantile bins of `log(sigma_g2)` crossed with one
 #'   Poisson bin and 9 quantile bins of `log(sigma_e2)`, and `n_per_cell` genes
 #'   are drawn per cell, with the quota of sparse cells reallocated

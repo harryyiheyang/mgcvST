@@ -39,7 +39,8 @@ An \code{mgcvST_wgcna} object, identical in shape to the
 The sparse-kernel sibling of \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}. It takes an
 \code{\link[=inlaST.estimate]{inlaST.estimate()}} fit and builds the gene-by-gene similarity
 \eqn{S_{ij} = (R'a_i)'(R'a_j)}, where \code{R} is the observation-kernel
-coordinate basis used by \code{\link[=inlaST.test]{inlaST.test()}} (the same coverage constant), and
+coordinate basis used by \code{\link[=inlaST.test]{inlaST.test()}} (all \code{q - 1} directions of the
+constrained field), and
 \eqn{a_i} are the sparse INLA score vectors. It then runs exactly the same
 WGCNA splitting as \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}: \code{WGCNA::adjacency.fromSimilarity()},
 \code{WGCNA::TOMsimilarity()}, \code{fastcluster::hclust()},
@@ -58,7 +59,7 @@ coordinates), not \code{nrow(A)}.
 }
 \examples{
 \dontrun{
-fit <- inlaST.estimate(Y, model)
+fit <- inlaST.estimate(Y, model, spatial = "all")
 W <- inlaST.wgcna(fit, indices = genes, threads = 4L)
 W$modules
 }

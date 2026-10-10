@@ -1,3 +1,75 @@
+# mgcvST 0.0.1.9032
+
+* Estimation and memory release (the estimation side of the saddlepoint
+  roadmap). The Stage 2 pair calibration is unchanged: Liu moment matching of
+  the four trace moments.
+* API change: `mgcvST.estimate()` and `inlaST.estimate()` estimate in two
+  steps. Step 1 fits only the null model of every feature and computes its
+  Stage 1 null-first p-value (Davies, then the saddlepoint); the p-values are
+  adjusted by `adjust` (`"BY"` by default, or `"BH"`, `"Sidak"`, `"none"`)
+  into `diagnostics$marginal_q_value`. Step 2 fits the spatial model of the
+  features chosen by `spatial` only: `"discoveries"` (default; Stage 1
+  q-value at most `q.value`, default 0.05), `"all"`, `"none"`, feature IDs,
+  one-based indices or a logical vector. The new arguments are `spatial`,
+  `adjust`, `q.value`, `checkpoint_dir` and `resume`; they follow the
+  existing ones, so positional calls keep their meaning. A null fit keeps no
+  working vector.
+* API change: `mgcvST.estimate_spatial()` and `inlaST.estimate_spatial()` add
+  spatial models for more features to a step 1 fit and return the updated fit.
+  The responses are checked against per-row digests stored at step 1, the
+  controls, offset and family routing of the original call are reused, and
+  the supplied fit is not changed.
+* Features without a spatial model have `spatial_selected` or
+  `spatial_fitted` `FALSE` in the diagnostics and missing working quantities,
+  and are unavailable to the pair tests and to WGCNA. `pairs = NULL` tests
+  every pair among the spatially fitted features, and such features are not
+  reported as failures in `$failed`; an explicit pair with an unselected
+  feature gets status 3 and is explained in `$failed`. `mgcvST.test()` and
+  `inlaST.test()` stop with a clear message for a fit without any spatial
+  model.
+* Resumable estimation: with `checkpoint_dir` each worker saves its chunk of
+  either step when it completes, and a repeated call resumes from the saved
+  chunks. A chunk is keyed by its step, its features and the digests of their
+  responses; the directory manifest records the estimator, the fit format
+  and a signature of the model, offset and controls. A directory written by
+  another estimator, by a version before this one, or for another model,
+  offset or control is refused. Without `chunk_size` a run with a checkpoint
+  directory uses chunks of at most 50 features.
+* INLA memory: the workers compute the null fits, the Stage 1 p-values, the
+  score vectors `a_j` and the mean of the fitted mean `mu_bar` themselves and
+  return compact per-feature results only. The manager no longer receives or
+  holds the observation-length working vectors (`working_error`,
+  `working_variance`, `eta`, `mu`) of any fit. `mu_bar` is stored on the fit;
+  PCAlearning reads it instead of recomputing the working state.
+* The INLA observation basis is full rank: all `q - 1` directions of the
+  constrained field are kept, ordered by their observation-kernel eigenvalue,
+  and the 0.995 eigenvalue-coverage truncation is gone. `inlaST.test()` and
+  `inlaST.wgcna()` use the same basis, and the WGCNA normaliser is `q - 1`.
+  The fit records the basis kind and rank at estimation (`basis_spec`), the
+  tests refuse a different basis, and the basis kind is part of the pair
+  checkpoint signature, so pair checkpoints written with the truncated basis
+  are not reused. The test metadata reports `basis_kind` instead of
+  `target_coverage`.
+* Fits estimated before this version: an `inlaST.estimate()` fit lacks
+  `mu_bar` and the two-step bookkeeping, and `inlaST.test()`,
+  `inlaST.wgcna()` and `inlaST.estimate_spatial()` refuse it with a message
+  to re-run the estimation. An `mgcvST.estimate()` fit of the earlier format
+  holds every quantity the mgcv tests read and is still accepted.
+* Measured estimation memory (`inlaST.estimate()`, negative binomial, `n = 40000`
+  observations, `m = 144` mesh nodes): a 9031 manager held 1.27 MB of
+  observation-length vectors per null fit and per spatial fit (`4 n 8` bytes
+  each, 1.25 MB of the 1.27 MB), that is 35 GB for the MAGIC dimensions
+  (`n = 97,818`, 11,184 features). The 9032 manager receives 14.9 KB per null
+  fit and 7.0 KB per spatial fit, of which `2 m 8` bytes are the score vector
+  and the target coefficients; for MAGIC (`m = 1962`) that is about 0.6 GB for
+  all features and about 0.25 GB for 10% of them, in the final fit as well as
+  in transit. A worker holds the vectors of at most 16 features at a time. On a
+  200-feature case (`n = 40000`, `m = 36`) the end-to-end peak above the
+  starting memory fell from 837 MB to 583 MB; the rest is the data, the model
+  and the per-chunk copies of `Y`, which are unchanged.
+* Examples, tests and the README call the estimators with `spatial = "all"`
+  where they need spatial fits for every feature.
+
 # mgcvST 0.0.1.9031
 
 * Stage A of the saddlepoint release (cleanup and API). The Stage 2 pair

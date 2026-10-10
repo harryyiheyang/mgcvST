@@ -167,7 +167,8 @@
 .mgcvst_worker_bundle <- function() {
   names <- c(
     ".mgcvst_thread_limit", ".mgcvst_worker_initialize", ".mgcvst_row_id",
-    ".mgcvst_condition", ".mgcvst_model_fit_chunk", ".mgcvst_model_fit_one",
+    ".mgcvst_condition", ".mgcvst_null_chunk", ".mgcvst_spatial_chunk",
+    ".mgcvst_model_fit_one", ".mgcvst_chunk_save",
     ".mgcvst_marginal_score", ".mgcvst_marginal_geometry",
     ".mgcvst_marginal_spectrum", ".mgcvst_marginal_working",
     ".mgcvst_marginal_matrixsqrt", ".mgcvst_marginal_saddlepoint",
@@ -195,11 +196,31 @@
 #' numerical summaries needed by [mgcvST.test()]. `G` is a model prepared by
 #' [mgcvST.set()] or [model.set()], or a reusable
 #' `mgcv::gam(..., fit = FALSE)` setup, which is converted as by
-#' `mgcvST.set(G = G)`; both enter the same estimation and testing path. Each
-#' feature first fits the null model with the spatial score smooth removed;
-#' marginal screening uses that null PIRLS state, the prepared `G$X`, and the
-#' target penalty before the full spatial fit. Wood diagnostics are optional
-#' (`diagnostics = TRUE`).
+#' `mgcvST.set(G = G)`; both enter the same estimation and testing path.
+#'
+#' Estimation has two steps. Step 1 fits the null model with the spatial score
+#' smooth removed for every feature; the marginal screening uses that null
+#' PIRLS state, the prepared `G$X`, and the target penalty, and the Stage 1
+#' null-first p-values are adjusted by `adjust` into the Stage 1 q-values
+#' `diagnostics$marginal_q_value`. No null fit keeps a working vector. Step 2
+#' fits the spatial model of the features chosen by `spatial` only. Features
+#' without a spatial model are marked `spatial_fitted = FALSE` in the
+#' diagnostics, have missing working errors, variances, `dispersion` and
+#' `lambda`, and are unavailable to [mgcvST.test()] and [mgcvST.wgcna()];
+#' `pairs = NULL` in [mgcvST.test()] means all pairs among the features with a
+#' spatial model. [mgcvST.estimate_spatial()] adds spatial models for more
+#' features after step 1.
+#'
+#' With `checkpoint_dir`, every completed chunk of either step is saved by the
+#' worker that computed it, and a repeated call with the same arguments resumes
+#' from the saved chunks. Chunks are keyed by their features and responses, so
+#' keep `chunk_size` (and the number of workers, when `chunk_size` is `NULL`)
+#' unchanged to reuse them; chunks of other responses are recomputed, never
+#' reused. A checkpoint directory written for another model, offset or control
+#' is refused. Without `chunk_size`, a run with a checkpoint directory uses
+#' chunks of at most 50 features.
+#'
+#' Wood diagnostics are optional (`diagnostics = TRUE`).
 #' The marginal test is the package-local `taps_score_test()`, using the TAPS
 #' arithmetic included in mgcvST. No external mgcv.taps installation or sourced
 #' score function is required. Full `gam` objects are never
@@ -293,6 +314,18 @@
 #'   in the diagnostics, and `family_used` reads `"quasipoisson"` for a routed
 #'   gene.
 #' @param ... Additional arguments passed to `mgcv::bam()`.
+#' @param spatial Features that receive a spatial model in step 2:
+#'   `"discoveries"` (the default; the features with Stage 1 q-value at most
+#'   `q.value`), `"all"`, `"none"`, a vector of feature IDs or one-based
+#'   indices, or a logical vector with one value per feature. A user-given
+#'   vector allows, for example, a Stage 1 adjustment within a modality or a
+#'   family of features that the user performs outside this function.
+#' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
+#'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
+#' @param q.value Stage 1 discovery threshold in `(0, 1]`.
+#' @param checkpoint_dir Optional directory for the resumable chunk checkpoints
+#'   of both steps.
+#' @param resume Reuse the completed chunks of a compatible checkpoint.
 #' @return A compact object of class `mgcvST_model_fit` (also `mgcvST_fit`)
 #'   containing marginal score p-values, feature IDs, working errors and
 #'   variances, separate per-feature `dispersion` and `lambda`, shared score
@@ -302,7 +335,10 @@
 #'   block per feature in `nuisance_covariance` are retained; full GAM and
 #'   `Vp` objects are discarded. When `retain_smooth = TRUE`, it also contains
 #'   `smooth_coefficients`. Score methods derive the field scale as
-#'   `dispersion / lambda`.
+#'   `dispersion / lambda`. The diagnostics table holds `marginal_q_value`,
+#'   `spatial_selected` and `spatial_fitted`, and `y_digest` records a digest
+#'   of each response row, which [mgcvST.estimate_spatial()] checks.
+#' @seealso [mgcvST.estimate_spatial()] to add spatial models after step 1.
 #' @export
 mgcvST.estimate <- function(
     Y, G, feature_id = rownames(Y),
@@ -311,11 +347,15 @@ mgcvST.estimate <- function(
     marginal_test = NULL, marginal_args = list(), method = "REML",
     retain_smooth = FALSE,
     control = mgcv::gam.control(nthreads = 1L), ...,
-    diagnostics = FALSE, retain_marginal = FALSE, offset = NULL) {
+    diagnostics = FALSE, retain_marginal = FALSE, offset = NULL,
+    spatial = "discoveries", adjust = c("BY", "BH", "Sidak", "none"),
+    q.value = 0.05, checkpoint_dir = NULL, resume = TRUE) {
   if ("marginal" %in% names(list(...))) {
     stop("mgcvST.estimate() always runs the marginal score test; remove marginal.")
   }
   call <- match.call()
+  adjust <- match.arg(adjust)
+  q.value <- .mgcvst_check_q_value(q.value)
   for (name in c("diagnostics", "retain_marginal")) {
     value <- get(name)
     if (!is.logical(value) || length(value) != 1L || is.na(value)) {
@@ -364,7 +404,9 @@ mgcvST.estimate <- function(
     marginal_args = marginal_args, method = method,
     retain_smooth = retain_smooth, control = control,
     gam_args = list(...), call = call,
-    diagnostics = diagnostics, retain_marginal = retain_marginal, offset = offset
+    diagnostics = diagnostics, retain_marginal = retain_marginal, offset = offset,
+    spatial = spatial, adjust = adjust, q.value = q.value,
+    checkpoint_dir = checkpoint_dir, resume = resume
   )
 }
 
@@ -378,6 +420,11 @@ print.mgcvST_fit <- function(x, ...) {
   cat("Compact mgcvST feature fit\n")
   cat("  features:", length(x$feature_id), "\n")
   cat("  fitted:", sum(.mgcvst_feature_available(x)), "\n")
+  if (!is.null(x$diagnostics$spatial_selected)) {
+    cat("  spatial models:", sum(x$diagnostics$spatial_fitted), "of",
+        length(x$feature_id), "features (",
+        sum(x$diagnostics$spatial_selected), "selected )\n")
+  }
   cat("  backend:", x$timing$backend, "with", x$timing$workers, "worker(s)\n")
   if (!is.null(x$kappa_unit)) {
     cat("  kappa (unit scale, fixed):", format(x$kappa_unit), "\n")

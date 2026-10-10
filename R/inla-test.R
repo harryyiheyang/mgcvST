@@ -15,7 +15,7 @@
 .mgcvst_inla_wgcna_scores <- function(fit, used, threads, verbose) {
   group <- "global"
   fit <- .inlast_sparse_prepare(fit)
-  basis <- .inlast_sparse_observation_basis(fit)
+  basis <- .inlast_check_basis(fit, .inlast_sparse_observation_basis(fit))
   A <- crossprod(basis$coordinate, fit$score_a[, used, drop = FALSE])
   colnames(A) <- fit$feature_id[used]
   if (any(!is.finite(A))) {

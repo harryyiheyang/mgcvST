@@ -9,20 +9,20 @@
 
 # Per-gene variance scales of the first-stage fit that define training strata.
 # NB: V = 1 / mu + 1 / theta; Poisson (and other families): V = 1 / mu.
-.mgcvst_pca_scales <- function(fit, threads = 1L) {
+# mu_bar is the mean of the fitted mean, stored at estimation; a fit without it
+# was estimated before it was stored and is refused.
+.mgcvst_pca_scales <- function(fit) {
   G <- length(fit$feature_id)
   nb <- fit$diagnostics$family_used == "negative_binomial"
   theta <- vapply(fit$family_parameters, function(x) {
     if (length(x)) x[1L] else NA_real_
   }, numeric(1L))
-  mu_bar <- numeric(G)
-  for (first in seq.int(1L, G, by = 500L)) {
-    ids <- first:min(first + 499L, G)
-    it <- ifelse(nb[ids], 1 / theta[ids], 0)
-    V <- .inlast_working_state(fit, ids, threads = threads)$variance
-    D <- sweep(V, 2L, it, "-")
-    mu_bar[ids] <- colMeans(1 / D)
+  mu_bar <- fit$mu_bar
+  if (!is.numeric(mu_bar) || length(mu_bar) != G) {
+    stop("The fit does not store mu_bar, the mean of each fitted mean; re-run ",
+         "inlaST.estimate().", call. = FALSE)
   }
+  mu_bar <- as.numeric(mu_bar)
   sigma_g2 <- as.numeric(fit$dispersion) /
     as.numeric(fit$smoothing_parameters[, fit$score_sparse$sp_index])
   sigma_e2 <- ifelse(nb, 1 + mu_bar / theta, 1)
@@ -311,7 +311,7 @@
     if (verbose) message("Resumed the rank-", rank, " PCAlearning basis.")
   } else {
     universe_genes <- which(available)
-    scales <- .mgcvst_pca_scales(fit, threads = threads)
+    scales <- .mgcvst_pca_scales(fit)
     sampled <- .mgcvst_pca_training(scales, universe_genes, n_per_cell, seed)
     sampled$scales <- scales
     t_sample <- proc.time()[["elapsed"]] - started

@@ -1,6 +1,6 @@
 test_that("retained marginal data is opt-in, compact and survives serialization", {
   f <- st_fixture()
-  fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE, chunk_size = 1L)
+  fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE, chunk_size = 1L, spatial = "all")
   expect_identical(fit$marginal_data$version, 2L)
   expect_length(fit$marginal_data$state, 3L)
   expect_false(any(vapply(fit$marginal_data$state, inherits, logical(1), what = "gam")))
@@ -12,7 +12,7 @@ test_that("retained marginal data is opt-in, compact and survives serialization"
   b <- mgcvST.marginal(unserialize(serialize(fit, NULL)), features = c(3L,1L))
   expect_identical(unname(b$p_value), unname(a$p_value[c(3,1)]))
   expect_true(all(is.finite(a$p_value)))
-  expect_error(mgcvST.marginal(mgcvST.estimate(f$Y,f$G)), "retain_marginal")
+  expect_error(mgcvST.marginal(mgcvST.estimate(f$Y,f$G, spatial = "all")), "retain_marginal")
 
   calls <- 0L
   original <- mgcvST:::.mgcvst_marginal_spectrum
@@ -48,7 +48,7 @@ test_that("custom marginal callbacks do not populate the built-in spectrum cache
 test_that("null-first TAPS is finite and its retained calibration is stable", {
   for (fam in c("gaussian", "nb")) {
     f <- st_fixture(family = if (fam == "gaussian") gaussian() else mgcv::nb())
-    fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE)
+    fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE, spatial = "all")
     got <- mgcvST.marginal(fit)
     expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
     expect_equal(got$p_value, fit$diagnostics$marginal_p_value,
@@ -58,7 +58,7 @@ test_that("null-first TAPS is finite and its retained calibration is stable", {
     expect_true(all(is.na(got$error_message)))
   }
   f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(f$Y, f$model)
+  fit <- mgcvST.estimate(f$Y, f$model, spatial = "all")
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   expect_true(all(fit$diagnostics$marginal_requested_method == "davies"))
   expect_true(all(fit$diagnostics$marginal_method %in% c("davies", "saddlepoint")))
@@ -122,7 +122,7 @@ test_that("estimation and retained recalibration report the method actually used
   local({
     testthat::local_mocked_bindings(davies = function(...) list(Qq = 0.4, ifault = 1L),
                                     .package = "CompQuadForm")
-    fit <- mgcvST.estimate(f$Y, f$G, BPPARAM = BiocParallel::SerialParam())
+    fit <- mgcvST.estimate(f$Y, f$G, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
     expect_identical(unname(fit$diagnostics$marginal_p_value), rep(0.4, 3L))
     expect_identical(fit$diagnostics$marginal_method, rep("davies", 3L))
     expect_identical(fit$diagnostics$marginal_fallback, rep(FALSE, 3L))
@@ -132,7 +132,7 @@ test_that("estimation and retained recalibration report the method actually used
                                     .package = "CompQuadForm")
     for (setup in list(f$G, f$model)) {
       fit <- mgcvST.estimate(f$Y, setup, retain_marginal = TRUE,
-                             BPPARAM = BiocParallel::SerialParam())
+                             BPPARAM = BiocParallel::SerialParam(), spatial = "all")
       expect_identical(fit$diagnostics$marginal_requested_method, rep("davies", 3L))
       expect_identical(fit$diagnostics$marginal_method, rep("saddlepoint", 3L))
       expect_identical(fit$diagnostics$marginal_fallback, rep(TRUE, 3L))
@@ -154,18 +154,18 @@ test_that("estimation and retained recalibration report the method actually used
 test_that("Liu is not available for the marginal test", {
   f <- st_fixture()
   for (setup in list(f$G, f$model)) {
-    expect_error(mgcvST.estimate(f$Y, setup, marginal_args = list(method = "liu")),
+    expect_error(mgcvST.estimate(f$Y, setup, marginal_args = list(method = "liu"), spatial = "all"),
                  "method = \"liu\" is not available")
   }
   gam_fit <- mgcv::gam(G = f$G, method = "REML")
   expect_error(mgcvST:::taps_score_test(gam_fit, method = "liu"), "should be")
   expect_error(mgcvST:::.mgcvst_null_score_test(NULL, NULL, method = "liu"), "should be")
-  fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE)
+  fit <- mgcvST.estimate(f$Y, f$G, retain_marginal = TRUE, spatial = "all")
   expect_error(mgcvST.marginal(fit, calibration = "liu"), "unused argument")
   expect_error(mgcvST.marginal(fit, fallback = "saddlepoint"), "unused argument")
   expect_false(exists("mgcvst_marginal_liu_moments_cpp", asNamespace("mgcvST")))
   expect_false(exists(".mgcvst_marginal_liu", asNamespace("mgcvST")))
-  explicit <- mgcvST.estimate(f$Y, f$G, marginal_args = list(method = "davies"))
+  explicit <- mgcvST.estimate(f$Y, f$G, marginal_args = list(method = "davies"), spatial = "all")
   expect_identical(explicit$diagnostics$marginal_p_value,
                    fit$diagnostics$marginal_p_value)
 })
@@ -214,7 +214,7 @@ test_that("Snow workers use retained state and chunk caches", {
   on.exit(BiocParallel::bpstop(bp),add=TRUE)
   Y <- f$Y[rep(1:3, 2),,drop=FALSE]
   rownames(Y) <- paste0("snow", seq_len(nrow(Y)))
-  fit <- mgcvST.estimate(Y,f$model,retain_marginal=TRUE,BPPARAM=bp,chunk_size=1)
+  fit <- mgcvST.estimate(Y,f$model,retain_marginal=TRUE,BPPARAM=bp,chunk_size=1, spatial = "all")
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   pairs <- t(combn(1:3,2))
   serial <- mgcvST.test(fit,pairs=pairs)

@@ -137,7 +137,7 @@ test_that("native iid modes survive inlaST estimate compaction", {
   )
   fit <- inlaST.estimate(
     matrix(y, nrow = 1L, dimnames = list("gene", NULL)), model,
-    BPPARAM = BiocParallel::SerialParam(), control = control, threads = 1L
+    BPPARAM = BiocParallel::SerialParam(), control = control, threads = 1L, spatial = "all"
   )
   direct <- mgcvST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset, control = control

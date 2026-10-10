@@ -69,7 +69,7 @@ test_that("public NB estimates retain fixed-only null scores", {
       kappa = .7, coordinates = c("x", "y"))
     fit <- inlaST.estimate(matrix(y, nrow = 1L), model,
       offset = extra_offset, BPPARAM = BiocParallel::SerialParam(),
-      control = list(fixed_precision = 2, num_threads = 1L), threads = 1L)
+      control = list(fixed_precision = 2, num_threads = 1L), threads = 1L, spatial = "all")
     expect_true(fit$diagnostics$converged)
     expect_true(fit$diagnostics$null_converged)
     expect_true(is.na(fit$diagnostics$null_error_message))

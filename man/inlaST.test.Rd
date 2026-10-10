@@ -20,7 +20,10 @@ inlaST.test(
 )
 }
 \arguments{
-\item{fitinlaST}{An object returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}.}
+\item{fitinlaST}{An object returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}} (version 0.0.1.9032
+or later). Only the features with a spatial model are tested; a feature
+that step 2 of the estimation did not fit is unavailable, and \code{pairs = NULL}
+covers the available features.}
 
 \item{pairs}{\code{NULL} (the default) for every pair of available features, or a
 two-column matrix or data frame of feature IDs or one-based indices.}
@@ -61,9 +64,12 @@ An \code{mgcvST_test} object; see \code{\link[=mgcvST.test]{mgcvST.test()}}.
 Pairwise covariance test for fits returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}. The
 sparse INLA score state stored on the fit is reused; no model is refitted.
 Each gene pair is tested by the squared cross-gene score with Liu moment
-matching, the only pair test for INLA fits. The score uses a constrained
-observation-kernel basis that retains at least 0.995 of its eigenvalue sum.
-This is a pairwise-test approximation; the fitted sparse field is unchanged.
+matching, the only pair test for INLA fits. The score uses the full-rank
+constrained observation-kernel basis (all \code{q - 1} directions of the
+constrained field, ordered by eigenvalue), the same basis that
+\code{\link[=inlaST.wgcna]{inlaST.wgcna()}} uses; no eigenvalue coverage truncation is applied. The
+pair traces are the PCAlearning approximation described below; the fitted
+sparse field is unchanged.
 Basis and pair-stage timings are stored in \code{timing$inla_projection}.
 }
 \details{
@@ -81,7 +87,7 @@ covariance \code{H_j} is projected onto a rank-\code{rank} orthonormal basis lea
 from stratified training genes. Each gene receives the
 variance scales \code{sigma_g2 = dispersion / lambda} and
 \code{sigma_e2 = 1 + mean(mu) / theta} for negative-binomial genes (1 for
-Poisson genes), with \code{mu} recovered from the working variance. Genes are
+Poisson genes), with \code{mean(mu)} stored at estimation as \code{mu_bar}. Genes are
 stratified into 10 quantile bins of \code{log(sigma_g2)} crossed with one
 Poisson bin and 9 quantile bins of \code{log(sigma_e2)}, and \code{n_per_cell} genes
 are drawn per cell, with the quota of sparse cells reallocated

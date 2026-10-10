@@ -76,7 +76,7 @@ test_that("default Gaussian variance agrees with a restricted likelihood oracle"
   )
   fit <- inlaST.estimate(
     matrix(y, nrow = 1L, dimnames = list("gaussian_flat", NULL)), model,
-    BPPARAM = BiocParallel::SerialParam()
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
   target <- fit$geometry$target[["global"]]
   X <- fit$geometry$X

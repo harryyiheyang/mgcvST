@@ -91,7 +91,7 @@ test_that("public native crash recovery reuses null fits without replacing p-val
     z
   }, .package = "mgcvST")
   fit <- inlaST.estimate(Y, model, offset = extra, retain_smooth = TRUE,
-    diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam())
+    diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   expect_length(calls$null, 2L)
   expect_identical(calls$spatial, 2L)
   expect_true(all(fit$diagnostics$converged))
@@ -122,6 +122,6 @@ test_that("public native crash recovery reuses null fits without replacing p-val
     expect_equal(fit$smoothing_parameters[j, 2], calls$null[[j]]$smoothing_parameters[2], tolerance = 0)
     expect_equal(unname(fit$inla_diagnostics[[j]]$tau[1]), 1e8, tolerance = 0)
   }
-  expect_error(inlaST.estimate(Y + .1, model), "non-negative integers")
+  expect_error(inlaST.estimate(Y + .1, model, spatial = "all"), "non-negative integers")
   expect_identical(calls$spatial, 2L)
 })

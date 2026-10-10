@@ -144,6 +144,7 @@
     stop(caller, "() requires a compact fit returned by mgcvST.estimate() or ",
          "inlaST.estimate().")
   }
+  .mgcvst_check_fit_format(fit)
   if (missing(indices) || is.null(indices)) {
     stop("indices must explicitly select the genes to analyze.")
   }
@@ -187,6 +188,14 @@
       colSums(!is.finite(V[, used, drop = FALSE]) | V[, used, drop = FALSE] <= 0) == 0L
   }
   if (any(!valid)) {
+    unfitted <- if (is.null(fit$diagnostics$spatial_fitted)) rep(FALSE, length(used)) else
+      !fit$diagnostics$spatial_fitted[used]
+    if (any(!valid & unfitted)) {
+      stop("Selected features have no spatial fit; add one with ",
+           if (.mgcvst_inla_downstream(fit)) "inlaST" else "mgcvST",
+           ".estimate_spatial(): ",
+           paste(ids[used[!valid & unfitted]], collapse = ", "), ".")
+    }
     stop("Selected features lack valid working models: ",
          paste(ids[used[!valid]], collapse = ", "), ".")
   }
@@ -336,7 +345,8 @@ mgcvST.wgcna <- function(fitmgcvST, indices,
 #' The sparse-kernel sibling of [mgcvST.wgcna()]. It takes an
 #' [inlaST.estimate()] fit and builds the gene-by-gene similarity
 #' \eqn{S_{ij} = (R'a_i)'(R'a_j)}, where `R` is the observation-kernel
-#' coordinate basis used by [inlaST.test()] (the same coverage constant), and
+#' coordinate basis used by [inlaST.test()] (all `q - 1` directions of the
+#' constrained field), and
 #' \eqn{a_i} are the sparse INLA score vectors. It then runs exactly the same
 #' WGCNA splitting as [mgcvST.wgcna()]: `WGCNA::adjacency.fromSimilarity()`,
 #' `WGCNA::TOMsimilarity()`, `fastcluster::hclust()`,
@@ -359,7 +369,7 @@ mgcvST.wgcna <- function(fitmgcvST, indices,
 #' @seealso [mgcvST.wgcna()] for `mgcvST.estimate()` fits.
 #' @examples
 #' \dontrun{
-#' fit <- inlaST.estimate(Y, model)
+#' fit <- inlaST.estimate(Y, model, spatial = "all")
 #' W <- inlaST.wgcna(fit, indices = genes, threads = 4L)
 #' W$modules
 #' }

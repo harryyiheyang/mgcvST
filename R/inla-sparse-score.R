@@ -2,10 +2,6 @@
 # covariance retains the exact observation mean constraint and the nuisance
 # adjustment uses the expected working curvature.
 
-# Fraction of the observation-kernel eigenvalue sum retained by the
-# constrained projection basis shared by every sparse INLA pair method.
-.inlast_projection_coverage <- 0.995
-
 .inlast_sparse_score_capability <- function(model) {
   spec <- model$inla_spec
   random <- spec$random
@@ -40,7 +36,13 @@
   if (!capability$eligible) {
     stop("The sparse score backend is unavailable: ", capability$reason, ".")
   }
-  block <- model$inla_spec$random[[1L]]
+  .inlast_score_geometry_from_spec(model$inla_spec)
+}
+
+# The sparse score geometry is a function of the specification alone, so a
+# worker rebuilds it from the spec it already holds.
+.inlast_score_geometry_from_spec <- function(spec) {
+  block <- spec$random[[1L]]
   A <- methods::as(block$A, "CsparseMatrix")
   Q <- Matrix::forceSymmetric(methods::as(block$Q, "CsparseMatrix"))
   g <- as.numeric(block$constraint)
@@ -87,29 +89,44 @@
   fit
 }
 
+# The observation-kernel basis shared by every sparse INLA pair method and by
+# inlaST.wgcna(): all q = m - 1 directions of the constrained field, ordered by
+# their observation-kernel eigenvalue. No coverage truncation is applied, so the
+# projection is an orthogonal change of coordinates of the m-dimensional
+# whitened score and the WGCNA normalization is the same m - 1.
 .inlast_sparse_observation_basis <- function(fit) {
   fit <- .inlast_sparse_prepare(fit)
   geometry <- fit$score_sparse
   cache <- geometry$cache
-  coverage <- .inlast_projection_coverage
-  full_rank <- FALSE
   valid <- identical(cache$observation_basis_A, geometry$A) &&
     identical(cache$observation_basis_Q, geometry$Q) &&
-    identical(cache$observation_basis_constraint, geometry$constraint) &&
-    identical(cache$observation_basis_coverage, coverage) &&
-    identical(cache$observation_basis_full_rank, full_rank)
+    identical(cache$observation_basis_constraint, geometry$constraint)
   if (!valid) {
-    cache$observation_basis <- mgcvst_inla_sparse_observation_basis_cpp(
-      cache$general_A, as.numeric(geometry$constraint), coverage, full_rank,
-      cache$prepared
+    basis <- mgcvst_inla_sparse_observation_basis_cpp(
+      cache$general_A, as.numeric(geometry$constraint), 1, TRUE, cache$prepared
     )
+    basis$kind <- "full_rank"
+    cache$observation_basis <- basis
     cache$observation_basis_A <- geometry$A
     cache$observation_basis_Q <- geometry$Q
     cache$observation_basis_constraint <- geometry$constraint
-    cache$observation_basis_coverage <- coverage
-    cache$observation_basis_full_rank <- full_rank
   }
   cache$observation_basis
+}
+
+# The test and WGCNA must use the observation basis that the estimation
+# recorded: the fit stores its kind and rank, and a different basis is refused.
+.inlast_check_basis <- function(fit, basis) {
+  recorded <- fit$basis_spec
+  if (is.null(recorded) || !identical(recorded$kind, basis$kind) ||
+      !identical(as.integer(recorded$rank), as.integer(basis$rank))) {
+    stop("The observation basis (", basis$kind, ", rank ", basis$rank,
+         ") differs from the one recorded by the estimation (",
+         if (is.null(recorded)) "none" else paste0(recorded$kind, ", rank ",
+                                                    recorded$rank),
+         "); re-run inlaST.estimate().", call. = FALSE)
+  }
+  invisible(basis)
 }
 
 .inlast_sparse_nuisance_precision <- function(fit, features) {
