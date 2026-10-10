@@ -13,7 +13,9 @@ MISO_E13
 \description{
 MISO E13 covariates, three selected gene-expression vectors (Mapt, Map1b,
 and Hist1h2ao), and the baseline and finer SPDE meshes. Rows of \code{expression}
-align with rows of \code{covariates}. Use \code{spdePC_g999} with \code{pc_cutoff = 0.999}.
+align with rows of \code{covariates}. \code{meshes$spde} is the baseline mesh and
+\code{meshes$spdePC_g999} the finer one; build a full SPDE basis with
+\code{\link[=spde_basis]{spde_basis()}} and fit it with \code{bs = "spde"}.
 }
 \examples{
 data(MISO_E13)

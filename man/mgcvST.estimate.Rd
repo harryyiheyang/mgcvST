@@ -26,7 +26,9 @@ mgcvST.estimate(
 \arguments{
 \item{Y}{Numeric feature-by-observation matrix.}
 
-\item{G}{A reusable setup returned by \code{mgcv::gam(..., fit = FALSE)}. Its
+\item{G}{A model returned by \code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=model.set]{model.set()}}, or a reusable
+setup returned by \code{mgcv::gam(..., fit = FALSE)} with one marked SPDE
+smooth (Gaussian, negative-binomial, Poisson or quasi-Poisson family). Its
 response is replaced by each row of \code{Y}.}
 
 \item{feature_id}{Unique feature identifiers. Defaults to \code{rownames(Y)} or
@@ -61,9 +63,9 @@ one parametric coefficient and no smooths uses \code{mgcv::gam(method = "REML")}
 to avoid BAM's one-column QR dimension error.}
 
 \item{retain_smooth}{Logical; retain the feature-by-coefficient smooth
-coefficient matrix and one shared reduced fit basis and unscaled penalty.
-This opt-in representation supports prediction and other downstream uses
-without retaining full \code{gam} objects.}
+coefficient matrix of the score component. This opt-in representation
+supports prediction and other downstream uses without retaining full
+\code{gam} objects.}
 
 \item{control}{An \code{mgcv::gam.control()} object. Internal thread counts are
 always forced to one. It may additionally carry \code{poisson_screen_phi}
@@ -92,29 +94,31 @@ Basic convergence and fitting diagnostics are still retained.}
 \code{mgcvST.marginal()} recalibration call. FALSE by default. Marginal testing
 during estimation is always performed; full gam objects are never retained.}
 
-\item{offset}{Optional additional log/link-scale offset for an
-\code{\link[=mgcvST.set]{mgcvST.set()}} model: a shared observation-length vector or a
-feature-by-observation matrix in exactly the same order as \code{Y}.
-Added to the shared formula/setup offset. Covariates and smooths are fixed
-by \code{mgcvST.set()} and cannot vary by gene.}
+\item{offset}{Optional additional log/link-scale offset for a model prepared
+by \code{\link[=mgcvST.set]{mgcvST.set()}} (or a \code{gam(fit = FALSE)} setup passed as \code{G}): a shared
+observation-length vector or a feature-by-observation matrix in exactly
+the same order as \code{Y}. Added to the shared formula/setup offset.
+Covariates and smooths are fixed by \code{mgcvST.set()} and cannot vary by
+gene.}
 }
 \value{
-A compact object of class \code{mgcvST_fit} containing marginal score
-p-values, Wood audit values, feature IDs, working errors and variances,
-separate per-feature \code{dispersion} and \code{lambda}, shared score geometry,
-optimized fit criterion and its original mgcv name, exact residual degrees
-of freedom, timing, and convergence diagnostics. A validated \code{model.set()}
-fit retains one shared \code{geometry$nuisance_design} and one small conditional
-nuisance block per feature in \code{nuisance_covariance}; full GAM and \code{Vp}
-objects are discarded. When
-\code{retain_smooth = TRUE}, it also contains \code{smooth_coefficients},
-\code{fit_basis}, \code{fit_penalty}, \code{row_id}, and \code{basis_metadata}. New objects do
-not store a redundant \code{field_scale}; score methods derive it as
+A compact object of class \code{mgcvST_model_fit} (also \code{mgcvST_fit})
+containing marginal score p-values, feature IDs, working errors and
+variances, separate per-feature \code{dispersion} and \code{lambda}, shared score
+geometry, optimized fit criterion and its original mgcv name, exact
+residual degrees of freedom, timing, and convergence diagnostics. One
+shared \code{geometry$nuisance_design} and one small conditional nuisance
+block per feature in \code{nuisance_covariance} are retained; full GAM and
+\code{Vp} objects are discarded. When \code{retain_smooth = TRUE}, it also contains
+\code{smooth_coefficients}. Score methods derive the field scale as
 \code{dispersion / lambda}.
 }
 \description{
-Fits each row of \code{Y} from a reusable \code{mgcv::gam(fit = FALSE)} setup and
-retains the fixed numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. Each
+Fits each row of \code{Y} from a reusable shared design and retains the fixed
+numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. \code{G} is a model prepared by
+\code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=model.set]{model.set()}}, or a reusable
+\code{mgcv::gam(..., fit = FALSE)} setup, which is converted as by
+\code{mgcvST.set(G = G)}; both enter the same estimation and testing path. Each
 feature first fits the null model with the spatial score smooth removed;
 marginal screening uses that null PIRLS state, the prepared \code{G$X}, and the
 target penalty before the full spatial fit. Wood diagnostics are optional

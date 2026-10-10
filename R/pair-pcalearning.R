@@ -198,15 +198,21 @@
   })
 }
 
-# Approximate Liu log p-values for all requested pairs from the PCAlearning
-# basis. An all-pairs universe streams gene blocks; other pair lists are
-# evaluated by (i, j).
-.mgcvst_pair_pcalearning <- function(fit, index, pair_index, threads,
-                                     chunk_size, verbose, basis, rank = 10L,
-                                     n_per_cell = 3L, seed = 1L,
+# Defaults of the PCAlearning controls of inlaST.test(), in one place.
+.mgcvst_pca_defaults <- list(rank = 10L, n_per_cell = 3L, seed = 1L)
+
+# Approximate Liu log p-values for the requested pairs from the PCAlearning
+# basis, streamed to raw Parquet shards. `index` is NULL for every pair of the
+# available genes (gene blocks are generated and scored on the fly) or a
+# two-column matrix of available feature indices i < j, evaluated by (i, j).
+.mgcvst_pair_pcalearning <- function(fit, index, threads, chunk_size, verbose,
+                                     basis, rank = .mgcvst_pca_defaults$rank,
+                                     n_per_cell = .mgcvst_pca_defaults$n_per_cell,
+                                     seed = .mgcvst_pca_defaults$seed,
                                      checkpoint_dir = NULL, resume = TRUE) {
   started <- proc.time()[["elapsed"]]
-  for (x in list(list("rank", rank), list("n_per_cell", n_per_cell))) {
+  for (x in list(list("rank", rank), list("n_per_cell", n_per_cell),
+                 list("chunk_size", chunk_size))) {
     v <- x[[2L]]
     if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v < 1 ||
         v != floor(v)) stop(x[[1L]], " must be one positive integer.")
@@ -220,30 +226,61 @@
   seed <- as.integer(seed)
   threads <- as.integer(threads)
   table_bytes <- .mgcvst_pca_table_bytes(basis$rank, rank)
-  available <- .mgcvst_memory_probe()$available
-  if (is.finite(available) && table_bytes > available) {
+  available_memory <- .mgcvst_memory_probe()$available
+  if (is.finite(available_memory) && table_bytes > available_memory) {
     stop(sprintf(paste0("PCAlearning trace tables for rank = %d and q = %d need ",
                         "about %.1f GB, above the %.1f GB of available memory; ",
                         "use a smaller rank."),
-                 rank, basis$rank, table_bytes / 1024^3, available / 1024^3))
+                 rank, basis$rank, table_bytes / 1024^3,
+                 available_memory / 1024^3))
   }
   fit <- .inlast_sparse_prepare(fit)
 
+  available <- .mgcvst_feature_available(fit)
+  all_pairs <- is.null(index)
+  if (all_pairs) {
+    used <- which(available)
+    if (length(used) < 2L) stop("At least two available features are required.")
+  } else {
+    if (!is.matrix(index) || ncol(index) != 2L || !nrow(index) ||
+        anyNA(index) || any(index[, 1L] >= index[, 2L]) ||
+        !all(available[index])) {
+      stop("index must contain two-column indices i < j of available features.")
+    }
+    used <- sort(unique(as.vector(index)))
+  }
+
+  contract <- .mgcvst_contract("pcalearning")
   path <- NULL
   if (!is.null(checkpoint_dir)) {
-    signature <- list(version = 1L, method = "pca_learning",
+    signature <- list(version = 2L, method = "pca_learning",
+                      contract = contract,
                       fit = .mgcvst_pair_signature(fit, basis), rank = rank,
                       n_per_cell = n_per_cell, seed = seed,
                       q = basis$rank)
     manifest <- file.path(checkpoint_dir, "manifest.rds")
-    if (resume && file.exists(manifest) &&
-        !identical(readRDS(manifest)$signature, signature)) {
-      stop("The checkpoint in ", checkpoint_dir, " was written for a different ",
-           "fit, score basis, rank, n_per_cell, or seed; use a new checkpoint_dir.")
+    if (resume && file.exists(manifest)) {
+      old <- readRDS(manifest)$signature
+      if (!identical(old$version, 2L) || !identical(old$method, "pca_learning") ||
+          !identical(old$contract$calibration_contract,
+                     contract$calibration_contract)) {
+        stop("The checkpoint in ", checkpoint_dir, " was written under an ",
+             "earlier PCAlearning algorithm contract (this version writes ",
+             contract$calibration_contract, "); use a new checkpoint_dir.")
+      }
+      if (!identical(old, signature)) {
+        stop("The checkpoint in ", checkpoint_dir, " was written for a different ",
+             "fit, score basis, rank, n_per_cell, or seed; use a new checkpoint_dir.")
+      }
     }
     path <- .mgcvst_store_open(checkpoint_dir, signature, fit$feature_id,
-                               storage = "double", resume = resume)$path
+                               resume = resume)$path
   }
+  root <- if (is.null(path)) tempfile("mgcvst-pairs-") else path
+  universe <- if (all_pairs) {
+    list(all = TRUE, used = used, n_feature = length(fit$feature_id))
+  } else list(index = index)
+  pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
 
   basis_file <- if (is.null(path)) NULL else file.path(path, "pca-basis.rds")
   basis_resumed <- !is.null(basis_file) && file.exists(basis_file)
@@ -258,9 +295,9 @@
     t_sample <- 0
     if (verbose) message("Resumed the rank-", rank, " PCAlearning basis.")
   } else {
-    universe <- which(.mgcvst_feature_available(fit))
+    universe_genes <- which(available)
     scales <- .mgcvst_pca_scales(fit, threads = threads)
-    sampled <- .mgcvst_pca_training(scales, universe, n_per_cell, seed)
+    sampled <- .mgcvst_pca_training(scales, universe_genes, n_per_cell, seed)
     sampled$scales <- scales
     t_sample <- proc.time()[["elapsed"]] - started
     if (verbose) message("Sampled ", length(sampled$train),
@@ -278,7 +315,6 @@
 
   # Training genes reuse their first materialization; the others are projected
   # in checkpoint blocks of 256 genes.
-  used <- sort(unique(as.vector(index)))
   t0 <- proc.time()[["elapsed"]]
   rest <- setdiff(used, learned$train)
   blocks <- if (is.null(path)) list() else .mgcvst_pca_blocks_read(path)
@@ -330,24 +366,36 @@
   if (verbose) message("Computed PCAlearning trace tables in ",
                        round(tables$timing[["total"]], 2), " s.")
 
-  n_used <- length(used)
-  local <- matrix(match(index, used), ncol = 2L)
-  lo <- pmin(local[, 1L], local[, 2L])
-  hi <- pmax(local[, 1L], local[, 2L])
-  key <- (lo - 1) * n_used + hi
-  n <- nrow(index)
-  score <- rep(NA_real_, n)
-  log_p <- matrix(NA_real_, n, 3L)
-  columns <- c("logp_two_sided", "logp_positive", "logp_negative")
+  # Compact rows of one block of pairs: local positions (li, lj) in `used`
+  # and the kernel output matrix. A pair with a gene whose projection failed
+  # has status 3; a non-finite log p-value has status 2.
+  ok <- is.na(gene_error)
+  pair_frame <- function(li, lj, out) {
+    frame <- .mgcvst_pairs_frame(
+      used[li], used[lj], out[, "U"], out[, "logp_two_sided"],
+      out[, "logp_positive"], out[, "logp_negative"]
+    )
+    invalid <- !is.finite(frame$log_p_two_sided)
+    frame$status[invalid] <- .mgcvst_pair_status[["p_value"]]
+    frame[invalid, c("log_p_two_sided", "log_p_positive", "log_p_negative")] <-
+      NA_real_
+    bad <- !ok[li] | !ok[lj]
+    frame$status[bad] <- .mgcvst_pair_status[["feature"]]
+    frame[bad, c("score", "log_p_two_sided", "log_p_positive",
+                 "log_p_negative")] <- NA_real_
+    frame
+  }
+
   t0 <- proc.time()[["elapsed"]]
   chunks <- 0L
-  all_pairs <- n == n_used * (n_used - 1) / 2 && all(lo < hi) &&
-    !anyDuplicated(key)
+  resumed_pairs <- 0
+  shard_files <- character()
+  shard_rows <- integer()
+  n_used <- length(used)
   if (all_pairs) {
-    target <- order(key)
     per_gene <- n_used - seq_len(n_used)
-    done <- 0
     first <- 1L
+    id <- 0L
     while (first < n_used) {
       last <- first
       total <- per_gene[first]
@@ -355,39 +403,43 @@
         last <- last + 1L
         total <- total + per_gene[last]
       }
-      out <- mgcvst_pca_pairs_block_cpp(A, C, tables, first, last, threads,
-                                        moments = FALSE)
-      rows <- target[done + seq_len(nrow(out))]
-      score[rows] <- out[, "U"]
-      log_p[rows, ] <- out[, columns]
-      done <- done + nrow(out)
+      id <- id + 1L
+      left <- first:last
+      len <- n_used - left
+      li <- rep(left, len)
+      lj <- sequence(len, from = left + 1L)
+      if (.mgcvst_shard_complete(pair_dir, id, used[li], used[lj])) {
+        resumed_pairs <- resumed_pairs + length(li)
+      } else {
+        out <- mgcvst_pca_pairs_block_cpp(A, C, tables, first, last, threads,
+                                          moments = FALSE)
+        .mgcvst_write_parquet(pair_frame(li, lj, out),
+                              .mgcvst_shard_file(pair_dir, id))
+      }
+      shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, id))
+      shard_rows <- c(shard_rows, length(li))
       chunks <- chunks + 1L
       first <- last + 1L
     }
   } else {
+    local <- matrix(match(index, used), ncol = 2L)
+    n <- nrow(index)
     for (first in seq.int(1L, n, by = chunk_size)) {
       z <- first:min(n, first + chunk_size - 1L)
-      out <- mgcvst_pca_pairs_cpp(A, C, tables, local[z, 1L], local[z, 2L],
-                                  threads, moments = FALSE)
-      score[z] <- out[, "U"]
-      log_p[z, ] <- out[, columns]
+      if (.mgcvst_shard_complete(pair_dir, first, index[z, 1L], index[z, 2L])) {
+        resumed_pairs <- resumed_pairs + length(z)
+      } else {
+        out <- mgcvst_pca_pairs_cpp(A, C, tables, local[z, 1L], local[z, 2L],
+                                    threads, moments = FALSE)
+        .mgcvst_write_parquet(pair_frame(local[z, 1L], local[z, 2L], out),
+                              .mgcvst_shard_file(pair_dir, first))
+      }
+      shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, first))
+      shard_rows <- c(shard_rows, length(z))
       chunks <- chunks + 1L
     }
   }
   pair_elapsed <- proc.time()[["elapsed"]] - t0
-
-  error_message <- rep(NA_character_, n)
-  error_message[!is.finite(log_p[, 1L])] <-
-    "PCAlearning Liu calibration returned an invalid p-value."
-  ok <- is.na(gene_error)
-  for (j in which(!ok[local[, 1L]] | !ok[local[, 2L]])) {
-    k <- local[j, ][!ok[local[j, ]]]
-    error_message[j] <- paste(paste0(fit$feature_id[used[k]], ": ",
-                                     gene_error[k]), collapse = " | ")
-  }
-  bad <- !is.na(error_message)
-  score[bad] <- NA_real_
-  log_p[bad, ] <- NA_real_
 
   e2 <- fro2 - rowSums(C^2)
   genes <- data.frame(
@@ -404,20 +456,19 @@
     cell = sampled$cell[learned$train], tau = learned$tau,
     stringsAsFactors = FALSE
   )
-  result <- data.frame(
-    pair_index = pair_index, score = score, information = NA_real_,
-    effective_rank = NA_real_, p_value = exp(log_p[, 1L]),
-    log_p_two_sided = log_p[, 1L], log_p_positive = log_p[, 2L],
-    log_p_negative = log_p[, 3L], error_message = error_message,
-    stringsAsFactors = FALSE
-  )
+  failed <- genes[!is.na(genes$error_message), c("feature_id", "error_message")]
+  names(failed) <- c("feature_id", "error")
+  rownames(failed) <- NULL
   list(
-    result = result, elapsed = pair_elapsed,
+    pair_dir = pair_dir, shards = shard_files, rows = shard_rows,
+    n_pairs = sum(shard_rows), temporary = is.null(path), failed = failed,
+    elapsed = pair_elapsed,
     metadata = list(
       liu_approximation = "pca_learning", preparation_backend = "sparse",
       pair_schedule = if (all_pairs) "pcalearning_gene_blocks" else
         "pcalearning_pair_list",
-      chunks = chunks, preparation_elapsed = preparation_elapsed,
+      chunks = chunks, resumed_pairs = resumed_pairs, pair_dir = pair_dir,
+      preparation_elapsed = preparation_elapsed, contract = contract,
       pca_learning = list(
         rank = rank, n_per_cell = n_per_cell,
         seed = seed, q = basis$rank, training = training,

@@ -12,49 +12,31 @@
   invisible(NULL)
 }
 
-.mgcvst_inla_serial_backend <- function(BPPARAM) {
-  if (!inherits(BPPARAM, "SerialParam")) {
-    stop(
-      "Sparse INLA downstream tests use C++ OpenMP; BPPARAM must be SerialParam()."
-    )
-  }
-  invisible(NULL)
-}
-
-## Only inlaST.test(approximate_test = TRUE) reaches this function; the exact
-## fp16 path is served directly by .mgcvst_inla_fp16_run() and never builds
-## this legacy pair result shape.
-.mgcvst_inla_test_pairs <- function(fit, index, pair_index, threads,
-                                    chunk_size, verbose, basis = NULL,
-                                    cache_bytes = NULL, checkpoint_dir = NULL,
-                                    resume = TRUE, liu_approximation = "pca_learning",
-                                    rank = 10L, n_per_cell = 3L, seed = 1L) {
+# The pair route of inlaST.test(): PCAlearning-approximated Liu moments on the
+# constrained observation-kernel basis, streamed to raw shards.
+.mgcvst_inla_test_pairs <- function(fit, index, threads, chunk_size, verbose,
+                                    basis = NULL,
+                                    rank = .mgcvst_pca_defaults$rank,
+                                    n_per_cell = .mgcvst_pca_defaults$n_per_cell,
+                                    seed = .mgcvst_pca_defaults$seed,
+                                    checkpoint_dir = NULL, resume = TRUE) {
   fit <- .inlast_sparse_prepare(fit)
   if (is.null(basis)) basis <- .inlast_sparse_observation_basis(fit)
   evaluated <- .mgcvst_pair_pcalearning(
-    fit, index, pair_index, threads, chunk_size, verbose, basis = basis,
+    fit, index, threads, chunk_size, verbose, basis = basis,
     rank = rank, n_per_cell = n_per_cell, seed = seed,
     checkpoint_dir = checkpoint_dir, resume = resume
   )
-  out <- evaluated$result
-  names(out)[names(out) == "score"] <- "signed_score"
-  names(out)[names(out) == "p_value"] <- "p_two_sided"
-  valid <- is.finite(out$p_two_sided) & out$p_two_sided >= 0 &
-    out$p_two_sided <= 1
-  out$p_positive <- out$p_negative <- NA_real_
-  out$p_positive[valid] <- ifelse(out$signed_score[valid] >= 0,
-    out$p_two_sided[valid] / 2, 1 - out$p_two_sided[valid] / 2)
-  out$p_negative[valid] <- ifelse(out$signed_score[valid] <= 0,
-    out$p_two_sided[valid] / 2, 1 - out$p_two_sided[valid] / 2)
-  attr(out, "inla_pairwise") <- c(list(
+  evaluated$metadata <- c(list(
     q = ncol(fit$score_sparse$Q), r = basis$rank,
     target_coverage = basis$coverage, kept_coverage = basis$kept,
     tail = basis$tail,
     basis = "constrained_observation_kernel_A_Qg_inverse_At",
     unit_cache = "score_state_shards"
   ), evaluated$metadata)
-  list(result = out, elapsed = evaluated$elapsed)
+  evaluated
 }
+
 .mgcvst_inla_wgcna_scores <- function(fit, used, threads, verbose) {
   group <- "global"
   fit <- .inlast_sparse_prepare(fit)

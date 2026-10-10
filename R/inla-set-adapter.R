@@ -18,9 +18,6 @@
        identical(as.character(head[[3L]]), "s"))
     if (is_s) {
       spec <- eval(expr, envir = env)
-      if (inherits(spec, "spdePC.smooth.spec")) {
-        stop("inlaST.set() requires a full SPDE basis; bs = 'spdePC' is not supported.")
-      }
       if (inherits(spec, "spde.smooth.spec")) {
         if (length(spec$term) != 2L || !identical(spec$by, "NA") ||
             !is.null(spec$id)) {
@@ -64,8 +61,8 @@
   for (component in base$components) {
     j <- base$geometry$target[[component]]
     sm <- base$G$smooth[[j]]
-    if (!inherits(sm, "spde.smooth") || inherits(sm, "spdePC.smooth")) {
-      stop("inlaST.set(G=...) requires a full SPDE basis; spdePC is unsupported.")
+    if (!inherits(sm, "spde.smooth")) {
+      stop("inlaST.set(G=...) requires a full SPDE basis (bs = 'spde').")
     }
     if (!identical(sm$by, "NA") || !is.null(sm$id) || length(sm$term) != 2L ||
         !all(sm$term %in% names(base$G$mf))) {

@@ -1,57 +1,33 @@
-# Completed pair batches are separate from reusable per-feature score states.
-.mgcvst_pair_checkpoint <- function(store, index, pair_index, calibration = NULL) {
-  if (isTRUE(store$temporary)) return(NULL)
-  inputs <- list(version = 2L, calibration_contract = "scale_normalized",
-                 index = index, pair_index = pair_index)
-  if (!is.null(calibration)) inputs$calibration <- calibration
-  signature <- digest::digest(inputs, algo = "sha256")
-  path <- file.path(store$path, paste0("pairs-", signature))
-  if (!dir.exists(path) && !dir.create(path)) {
-    stop("Could not create the pair checkpoint directory.")
-  }
-  path
+# Pair schedules. A schedule is fixed when its pair universe is first opened
+# and stored beside the shards, so a resumed run regenerates exactly the same
+# blocks whatever the memory budget of the new session.
+
+# Atomic RDS commit with a checksum of the payload.
+.mgcvst_schedule_save <- function(path, body) {
+  body$checksum <- digest::digest(body, algo = "sha256")
+  tmp <- tempfile("schedule-", tmpdir = dirname(path), fileext = ".tmp")
+  on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
+  saveRDS(body, tmp, compress = FALSE)
+  if (!file.rename(tmp, path)) stop("Could not commit the pair schedule.")
+  invisible(body)
 }
 
-.mgcvst_pair_checkpoint_read <- function(path, first, pair_index) {
-  if (is.null(path)) return(NULL)
-  file <- file.path(path, sprintf("block-%010d.rds", first))
-  if (!file.exists(file)) return(NULL)
-  z <- readRDS(file)
-  columns <- c("pair_index", "score", "information", "effective_rank",
-               "p_value", "log_p_two_sided", "log_p_positive",
-               "log_p_negative", "error_message")
-  if (!is.list(z) || !identical(z$first, first) ||
-      length(z$last) != 1L || !is.finite(z$last) ||
-      z$last < first || z$last > length(pair_index) ||
-      z$last != floor(z$last) || !is.data.frame(z$result) ||
-      !identical(names(z$result), columns) ||
-      !identical(z$result$pair_index, unname(pair_index[seq.int(first, z$last)])) ||
-      !identical(z$checksum, digest::digest(z$result, algo = "sha256"))) {
-    stop("The pair checkpoint is damaged or incompatible: ", basename(file), ".")
+.mgcvst_schedule_load <- function(path) {
+  z <- readRDS(path)
+  checksum <- z$checksum
+  z$checksum <- NULL
+  if (!is.list(z) || !identical(checksum, digest::digest(z, algo = "sha256"))) {
+    stop("The stored pair schedule is damaged or incompatible.")
   }
   z
-}
-
-.mgcvst_pair_checkpoint_write <- function(path, first, last, result) {
-  if (is.null(path)) return(invisible(NULL))
-  file <- file.path(path, sprintf("block-%010d.rds", first))
-  if (file.exists(file)) stop("The pair checkpoint already exists.")
-  tmp <- tempfile("pair-", tmpdir = path, fileext = ".tmp")
-  on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
-  saveRDS(list(first = first, last = last, result = result,
-              checksum = digest::digest(result, algo = "sha256")),
-          tmp, compress = FALSE)
-  if (!file.rename(tmp, file)) stop("Could not commit the pair checkpoint.")
-  invisible(NULL)
 }
 
 # Reuse two resident gene blocks before loading the next pair of blocks.
 .mgcvst_pair_order <- function(index, used, capacity, path = NULL) {
   file <- if (!is.null(path)) file.path(path, "schedule.rds") else NULL
   if (!is.null(file) && file.exists(file)) {
-    z <- readRDS(file)
-    if (!is.list(z) || length(z$order) != nrow(index) ||
-        !identical(z$checksum, digest::digest(z$order, algo = "sha256")) ||
+    z <- .mgcvst_schedule_load(file)
+    if (length(z$order) != nrow(index) ||
         !identical(sort(z$order), seq_len(nrow(index)))) {
       stop("The stored pair schedule is damaged or incompatible.")
     }
@@ -62,12 +38,70 @@
   block2 <- (match(index[, 2L], used) - 1L) %/% width
   ord <- if (capacity >= length(used)) seq_len(nrow(index)) else
     order(pmin(block1, block2), pmax(block1, block2), method = "radix")
-  if (!is.null(file)) {
-    tmp <- tempfile("schedule-", tmpdir = path, fileext = ".tmp")
-    on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
-    saveRDS(list(order = ord, checksum = digest::digest(ord, algo = "sha256")),
-            tmp, compress = FALSE)
-    if (!file.rename(tmp, file)) stop("Could not commit the pair schedule.")
-  }
+  if (!is.null(file)) .mgcvst_schedule_save(file, list(order = ord))
   ord
+}
+
+# Blocks of the all-pairs universe of `n` genes (positions 1, ..., n). Genes
+# are cut into tiles of `width`; for every tile pair (a, b), a <= b, the left
+# genes of tile a are cut into sub-blocks whose partner count stays at or
+# below `chunk_size` (a single left gene may exceed it). Each row holds the
+# left position range l1:l2, the right position range r1:r2, whether the tile
+# is the diagonal one (partners v > u only) and the pair count.
+.mgcvst_all_pair_blocks <- function(n, width, chunk_size) {
+  starts <- seq.int(1L, n, by = width)
+  ends <- pmin(n, starts + width - 1L)
+  rows <- list()
+  for (a in seq_along(starts)) {
+    left <- starts[a]:ends[a]
+    for (b in a:length(starts)) {
+      diagonal <- a == b
+      partners <- if (diagonal) ends[a] - left else
+        rep(ends[b] - starts[b] + 1L, length(left))
+      cs <- cumsum(as.numeric(partners))
+      first <- 1L
+      while (first <= length(left)) {
+        base <- if (first > 1L) cs[first - 1L] else 0
+        stop_at <- max(first, findInterval(base + chunk_size, cs))
+        count <- sum(partners[first:stop_at])
+        if (count == 0) break
+        rows[[length(rows) + 1L]] <- c(l1 = left[first], l2 = left[stop_at],
+          r1 = starts[b], r2 = ends[b], diagonal = diagonal, count = count)
+        first <- stop_at + 1L
+      }
+    }
+  }
+  do.call(rbind, rows)
+}
+
+# Gene-position pairs (u < v) of one block of .mgcvst_all_pair_blocks().
+.mgcvst_block_pairs <- function(block) {
+  left <- block[["l1"]]:block[["l2"]]
+  if (block[["diagonal"]] > 0) {
+    len <- block[["r2"]] - left
+    cbind(i = rep(left, len), j = sequence(len, from = left + 1L))
+  } else {
+    right <- block[["r1"]]:block[["r2"]]
+    cbind(i = rep(left, each = length(right)),
+          j = rep(right, times = length(left)))
+  }
+}
+
+# The stored (or newly fixed) block schedule of an all-pairs universe.
+.mgcvst_all_pair_schedule <- function(path, n, capacity, chunk_size) {
+  file <- file.path(path, "schedule.rds")
+  if (file.exists(file)) {
+    z <- .mgcvst_schedule_load(file)
+    if (!identical(z$n, as.integer(n))) {
+      stop("The stored pair schedule is damaged or incompatible.")
+    }
+  } else {
+    width <- if (capacity >= n) n else max(1L, as.integer(floor(capacity / 2)))
+    z <- .mgcvst_schedule_save(file, list(
+      n = as.integer(n), width = as.integer(width),
+      chunk_size = as.integer(min(chunk_size, .Machine$integer.max))
+    ))
+  }
+  list(width = z$width, chunk_size = z$chunk_size,
+       blocks = .mgcvst_all_pair_blocks(z$n, z$width, z$chunk_size))
 }

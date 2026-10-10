@@ -2,7 +2,9 @@
 #'
 #' MISO E13 covariates, three selected gene-expression vectors (Mapt, Map1b,
 #' and Hist1h2ao), and the baseline and finer SPDE meshes. Rows of `expression`
-#' align with rows of `covariates`. Use `spdePC_g999` with `pc_cutoff = 0.999`.
+#' align with rows of `covariates`. `meshes$spde` is the baseline mesh and
+#' `meshes$spdePC_g999` the finer one; build a full SPDE basis with
+#' [spde_basis()] and fit it with `bs = "spde"`.
 #'
 #' @format A list with `covariates`, `expression`, and `meshes`.
 #' @examples
@@ -15,8 +17,9 @@
 #'
 #' Visium B covariates, three selected gene-expression vectors (mt-co3,
 #' mt-co2, and BRAFhuman), and the baseline and finer SPDE meshes. Rows of
-#' `expression` align with rows of `covariates`. Use `spdePC_g999` with
-#' `pc_cutoff = 0.999`.
+#' `expression` align with rows of `covariates`. `meshes$spde` is the baseline
+#' mesh and `meshes$spdePC_g999` the finer one; build a full SPDE basis with
+#' [spde_basis()] and fit it with `bs = "spde"`.
 #'
 #' @format A list with `covariates`, `expression`, and `meshes`.
 #' @examples

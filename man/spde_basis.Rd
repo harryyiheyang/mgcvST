@@ -5,13 +5,7 @@
 \alias{print.mgcvST_spde_basis}
 \title{Prepare an SPDE basis for mgcvST fitting}
 \usage{
-spde_basis(
-  mesh,
-  loc,
-  kappa = 0.05,
-  pc_cutoff = 0.999,
-  project_intercept = TRUE
-)
+spde_basis(mesh, loc, kappa = 0.05, project_intercept = TRUE)
 
 \method{print}{mgcvST_spde_basis}(x, ...)
 }
@@ -31,9 +25,6 @@ in unit lengths is \code{sqrt(8 * nu) / kappa}, where \code{nu = 1} in 2D and
 about 57 unit lengths in 2D and 40 in 3D, a very smooth global field.
 \code{NULL} is an error.}
 
-\item{pc_cutoff}{Cumulative covariance contribution retained by
-\code{bs = "spdePC"}. The default is \code{0.999}.}
-
 \item{project_intercept}{Whether to project the intercept from the mesh
 coefficient space.}
 
@@ -48,14 +39,12 @@ A self-contained object to pass directly as \code{xt}.
 }
 \description{
 Constructs the observation projector and the fixed-kappa SPDE precision
-once. The returned object is self-contained: fitting with \code{bs = "spde"} or
-\code{bs = "spdePC"} requires neither INLA, fmesher nor sf.
+once. The returned object is self-contained: fitting with \code{bs = "spde"}
+requires neither INLA, fmesher nor sf.
 Basis construction and prediction use geometry for barycentric interpolation
-on the saved mesh. No FEM, precision or PC decomposition is
-recomputed. Outside-mesh coordinates cause an error. Every evaluation uses
-the supplied coordinates, including training, subset and reordered rows.
-The basis also saves \verb{pc_mesh_projection = Z V} and the original
-training \verb{pc_training_basis = B V}; new PC prediction never forms \verb{A Z}.
+on the saved mesh. No FEM or precision is recomputed. Outside-mesh
+coordinates cause an error. Every evaluation uses the supplied coordinates,
+including training, subset and reordered rows.
 }
 \section{Unit-scale kappa}{
 

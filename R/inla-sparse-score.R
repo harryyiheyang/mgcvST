@@ -323,34 +323,3 @@
     basis$coordinate, basis$basis, as.integer(threads), geometry$cache$prepared
   )
 }
-
-# Hash of the compact state that determines pair tests of `features`:
-# coefficients, saved scores, family and precision parameters, offsets,
-# shared geometry and, when supplied, the common projection basis.
-.inlast_compact_signature <- function(fit, features, basis = NULL) {
-  spec <- fit$model$inla_spec
-  sparse <- fit$score_sparse
-  offset <- fit$offset
-  if (is.matrix(offset)) offset <- offset[features, , drop = FALSE]
-  .mgcvst_pair_input_hash(list(
-    version = 1L, estimator = fit$estimator, feature_id = fit$feature_id[features],
-    target = fit$target_coefficients[, features, drop = FALSE],
-    nuisance = fit$nuisance_coefficients[, features, drop = FALSE],
-    score = fit$score_a[, features, drop = FALSE],
-    family = fit$feature_family[features],
-    family_parameters = fit$family_parameters[features],
-    dispersion = fit$dispersion[features],
-    smoothing = fit$smoothing_parameters[features, , drop = FALSE],
-    offset = offset,
-    geometry = list(
-      A = sparse$A, Q = sparse$Q, constraint = sparse$constraint,
-      sp_index = sparse$sp_index, nuisance_design = fit$geometry$nuisance_design,
-      fixed_width = ncol(spec$fixed$X),
-      random = lapply(spec$random, function(z) {
-        list(target = z$target, kind = z$kind, subtype = z$subtype,
-             sp_index = z$sp_index, width = ncol(z$A))
-      })
-    ),
-    basis = if (is.null(basis)) NULL else basis[c("coordinate", "basis", "rank", "coverage")]
-  ))
-}

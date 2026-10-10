@@ -10,8 +10,7 @@ rkhs_covariance_score(
   operator1,
   operator2,
   score_factor1 = NULL,
-  score_factor2 = NULL,
-  method = c("liu", "davies")
+  score_factor2 = NULL
 )
 }
 \arguments{
@@ -21,8 +20,6 @@ rkhs_covariance_score(
 
 \item{score_factor1, score_factor2}{Optional aligned factors defining
 \code{C12 = score_factor1 \%*\% t(score_factor2)}.}
-
-\item{method}{Calibration method passed to \code{\link[=rkhs_score_calibrate]{rkhs_score_calibrate()}}.}
 }
 \value{
 An object of class \code{rkhs_covariance_score}. \code{signed_score} retains

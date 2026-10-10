@@ -32,10 +32,6 @@
   constrained$projection_rank <- 1L
   constrained$project_intercept <- TRUE
   constrained$raw_dimension <- ncol(A)
-  # Cached PCs refer to the old projection, so rebuild them if requested later.
-  constrained$pc_values <- constrained$pc_vectors <- constrained$pc_cumulative <- NULL
-  constrained$pc_training_basis <- constrained$pc_mesh_projection <- NULL
-  constrained$pc_cached_dimension <- NULL
 
   list(
     basis = constrained,

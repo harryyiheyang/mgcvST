@@ -74,27 +74,18 @@
   blocks
 }
 
-# Score-only native kernels for both mgcv backends. No per-gene R loop and no
-# eigendecomposition fallback: every feature's score vector `a` is built by
+# Score-only native kernel for the mgcv model backend. No per-gene R loop and
+# no eigendecomposition fallback: every feature's score vector `a` is built by
 # the C++ dense batch kernel with score_only = TRUE (no H, no pair-calibration
 # matrices), in batches of 256 genes.
 .mgcvst_wgcna_scores <- function(fit, used, verbose, threads = 1L) {
   group <- "global"
-  legacy <- is.null(fit$geometry$smooth)
-  native <- NULL
-  T0 <- field_scale <- NULL
-  if (legacy) {
-    T0 <- .mgcvst_legacy_shared_score_factor(fit$geometry)
-    field_scale <- .mgcvst_field_scale(fit)
-    width <- stats::setNames(ncol(T0), "global")
-  } else {
-    fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
-    native <- .mgcvst_model_dense_preparation(fit, used)
-    if (is.null(native)) {
-      stop("mgcvST.wgcna() requires a single marked-SPDE model with nuisance covariance.")
-    }
-    width <- native$width
+  fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
+  native <- .mgcvst_model_dense_preparation(fit, used)
+  if (is.null(native)) {
+    stop("mgcvST.wgcna() requires a single marked-SPDE model with nuisance covariance.")
   }
+  width <- native$width
   A <- matrix(NA_real_, unname(width), length(used),
              dimnames = list(NULL, fit$feature_id[used]))
   batch_size <- 256L
@@ -102,27 +93,19 @@
   while (first <= length(used)) {
     ids <- used[first:min(length(used), first + batch_size - 1L)]
     cols <- first:min(length(used), first + batch_size - 1L)
-    if (legacy) {
-      z <- mgcvst_dense_score_batch_cpp(
-        T0, fit$working_variance[, ids, drop = FALSE],
-        fit$working_error[, ids, drop = FALSE], field_scale[ids],
-        fit$geometry$X, list(), threads, score_only = TRUE
-      )
-    } else {
-      phi <- fit$dispersion[ids]
-      sp <- fit$smoothing_parameters[ids, , drop = FALSE]
-      bad <- !is.finite(phi) | phi <= 0 |
-        rowSums(!is.finite(sp) | sp <= 0) > 0L
-      z <- mgcvst_dense_score_batch_cpp(
-        native$T0, fit$working_variance[, ids, drop = FALSE],
-        fit$working_error[, ids, drop = FALSE],
-        phi / sp[, native$sp_index], native$X,
-        fit$nuisance_covariance[ids], threads, score_only = TRUE
-      )
-      for (k in seq_along(ids)) {
-        if (bad[k]) z[[k]] <- list(error =
-          "The feature has invalid dispersion or smoothing parameters.")
-      }
+    phi <- fit$dispersion[ids]
+    sp <- fit$smoothing_parameters[ids, , drop = FALSE]
+    bad <- !is.finite(phi) | phi <= 0 |
+      rowSums(!is.finite(sp) | sp <= 0) > 0L
+    z <- mgcvst_dense_score_batch_cpp(
+      native$T0, fit$working_variance[, ids, drop = FALSE],
+      fit$working_error[, ids, drop = FALSE],
+      phi / sp[, native$sp_index], native$X,
+      fit$nuisance_covariance[ids], threads, score_only = TRUE
+    )
+    for (k in seq_along(ids)) {
+      if (bad[k]) z[[k]] <- list(error =
+        "The feature has invalid dispersion or smoothing parameters.")
     }
     for (k in seq_along(ids)) {
       if (!is.null(z[[k]]$error)) {
@@ -181,8 +164,7 @@
   geometry <- fit$geometry
   if (is.null(geometry)) stop("The fit does not retain score geometry.")
   # One global spatial score process supplies the WGCNA coordinates.
-  available <- if (!is.null(geometry$smooth)) names(geometry$target) else "global"
-  if (!identical(available, "global")) {
+  if (!identical(names(geometry$target), "global")) {
     stop("The fit must carry exactly one score component named 'global'.")
   }
   if (.mgcvst_inla_downstream(fit)) {

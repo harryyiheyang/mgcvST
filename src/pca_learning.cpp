@@ -150,17 +150,6 @@ MatD unpack_symmetric(const double* x, int q, bool full) {
   return M;
 }
 
-template <class T>
-void pack_symmetric(const MatD& M, T* out) {
-  const double w = std::sqrt(2.0);
-  const int q = M.rows();
-  Index p = 0;
-  for (int j = 0; j < q; ++j) {
-    for (int i = 0; i < j; ++i) out[p++] = (T)(w * 0.5 * (M(i, j) + M(j, i)));
-    out[p++] = (T)M(j, j);
-  }
-}
-
 struct Tables {
   int r = 0;
   Multisets ms[5];
@@ -229,15 +218,6 @@ Rcpp::NumericMatrix mgcvst_liu_logp_cpp(const Rcpp::NumericVector& U,
     o[k + 2 * n] = lp[2];
   }
   Rcpp::colnames(out) = Rcpp::CharacterVector::create("two_sided", "positive", "negative");
-  return out;
-}
-
-// Weighted-vech float32 packing of a symmetric matrix (symmetrized first).
-// [[Rcpp::export]]
-Rcpp::RawVector mgcvst_pca_pack_cpp(const Eigen::Map<Eigen::MatrixXd> M) {
-  const Index q = M.rows(), L = q * (q + 1) / 2;
-  Rcpp::RawVector out(4 * L);
-  pack_symmetric<float>(MatD(M), reinterpret_cast<float*>(RAW(out)));
   return out;
 }
 

@@ -1,14 +1,14 @@
 # Only deterministic, supported prediction geometries may share an exact L.
 # This guard is response-free; it is temporary and never stored per feature.
 .mgcvst_geometry_signature <- function(fit) {
-  known <- c("spde.smooth", "spdePC.smooth", "tprs.smooth", "cr.smooth",
+  known <- c("spde.smooth", "tprs.smooth", "cr.smooth",
              "pspline.smooth", "cp.smooth", "tensor.smooth", "random.effect")
   if (inherits(fit$family, "general.family") || is.null(fit$model) ||
       length(fit$paraPen) || (!is.null(fit$H) && any(fit$H != 0))) return(NULL)
   for (sm in fit$smooth) {
     cl <- class(sm)[1L]
     if (!(cl %in% known)) return(NULL)
-    package <- if (cl %in% c("spde.smooth", "spdePC.smooth")) "mgcvST" else "mgcv"
+    package <- if (identical(cl, "spde.smooth")) "mgcvST" else "mgcv"
     registered <- utils::getS3method("Predict.matrix", cl, optional = TRUE,
                                     envir = asNamespace("mgcv"))
     expected <- get0(paste0("Predict.matrix.", cl), asNamespace(package))

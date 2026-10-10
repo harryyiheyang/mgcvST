@@ -1,7 +1,7 @@
 # Store one score state per feature so completed states survive interrupted tests.
 .mgcvst_store_open <- function(path = NULL, signature, feature_ids,
-                               storage = c("double", "float32"), resume = TRUE) {
-  storage <- match.arg(storage)
+                               resume = TRUE) {
+  storage <- "double"
   if (!is.list(signature)) stop("signature must be a list of stable fit identifiers.")
   if (!is.character(feature_ids) || !length(feature_ids) ||
       anyNA(feature_ids) || any(!nzchar(feature_ids)) ||
@@ -112,22 +112,7 @@
     }
     return(list(error = unit$error))
   }
-  state <- tryCatch({
-    if (identical(store$storage, "float32")) {
-      n <- unit$state$M$n
-      raw_upper <- unit$state$M$upper_raw
-      if (!is.integer(n) || length(n) != 1L || is.na(n) || n < 1L ||
-          !is.raw(raw_upper) ||
-          length(raw_upper) != 4 * (as.double(n) * (n + 1) / 2)) {
-        stop("invalid float32 matrix payload")
-      }
-      unit$state$M$upper <- readBin(raw_upper, what = "numeric",
-                                     n = n * (n + 1) / 2, size = 4L,
-                                     endian = "little")
-      unit$state$M$upper_raw <- NULL
-    }
-    .mgcvst_unpack_score_state(unit$state)
-  }, error = function(e) {
+  state <- tryCatch(.mgcvst_unpack_score_state(unit$state), error = function(e) {
     stop("The score-state shard is damaged: ", basename(path), ": ",
          conditionMessage(e))
   })
@@ -163,11 +148,6 @@
       stop("state must contain a finite score vector and aligned symmetric matrix.")
     }
     payload <- .mgcvst_pack_score_state(state)
-    if (identical(store$storage, "float32")) {
-      payload$M$upper_raw <- writeBin(payload$M$upper, raw(), size = 4L,
-                                      endian = "little")
-      payload$M$upper <- NULL
-    }
     error <- NULL
   }
   unit <- list(format = 1L, storage = store$storage,

@@ -6,83 +6,56 @@
 \usage{
 inlaST.test(
   fitinlaST,
-  approximate_test = TRUE,
-  rank = 10L,
-  n_per_cell = 3L,
-  seed = 1L,
+  pairs = NULL,
+  q.value = 0.05,
+  adjust = c("BY", "BH", "Sidak", "none"),
+  rank = .mgcvst_pca_defaults$rank,
+  n_per_cell = .mgcvst_pca_defaults$n_per_cell,
+  seed = .mgcvst_pca_defaults$seed,
+  threads = NULL,
+  chunk_size = NULL,
   checkpoint_dir = NULL,
   resume = TRUE,
-  q.value = 0.05,
-  FDR = TRUE,
-  method = "BH",
-  pairs = NULL,
-  highlight = NULL,
-  chunk_size = NULL,
-  threads = NULL,
-  verbose = FALSE,
-  BPPARAM = BiocParallel::SerialParam(),
-  ...
+  verbose = FALSE
 )
 }
 \arguments{
 \item{fitinlaST}{An object returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}.}
 
-\item{approximate_test}{\code{TRUE} (the default) evaluates the four Liu trace
-moments by PCAlearning: every score covariance \code{H_j} is projected onto a
-rank-\code{rank} orthonormal basis learned from stratified training genes; see
-Details. \code{FALSE} computes the exact Liu trace moments in the reduced
-observation-kernel coordinates with the fp16 score-state backend.}
+\item{pairs}{\code{NULL} (the default) for every pair of available features, or a
+two-column matrix or data frame of feature IDs or one-based indices.}
 
-\item{rank}{Number of PCAlearning basis matrices. Unused when
-\code{approximate_test = FALSE}.}
+\item{q.value}{Discovery threshold on the adjusted q-value, in \verb{(0, 1]}.}
 
-\item{n_per_cell}{Training genes drawn per PCAlearning stratification cell.
-Unused when \code{approximate_test = FALSE}.}
+\item{adjust}{Multiple-testing adjustment of the two-sided family: \code{"BY"}
+(the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
+
+\item{rank}{Number of PCAlearning basis matrices.}
+
+\item{n_per_cell}{Training genes drawn per PCAlearning stratification cell.}
 
 \item{seed}{Non-negative integer seed for PCAlearning training-gene sampling;
-the caller's random-number state is restored. Unused when
-\code{approximate_test = FALSE}.}
+the caller's random-number state is restored.}
 
-\item{checkpoint_dir}{Optional checkpoint directory for reusable score
-states and pair batches. With \code{NULL}, temporary storage is removed on exit.}
+\item{threads}{Positive number of OpenMP threads for score-state
+preparation and the pair kernels. \code{NULL} uses one.}
+
+\item{chunk_size}{Maximum number of pairs evaluated per native block and
+written per shard. \code{NULL} uses 10,000 for \code{\link[=mgcvST.test]{mgcvST.test()}} and 1,000,000
+for \code{\link[=inlaST.test]{inlaST.test()}}.}
+
+\item{checkpoint_dir}{Optional checkpoint directory. Reusable feature score
+states and the raw pair shards are saved there, and a repeated call
+resumes completed shards. Pair results are keyed by the algorithm
+contract; a directory holding pair results from another contract is
+refused. With \code{NULL}, temporary storage is used.}
 
 \item{resume}{Reuse compatible completed checkpoint entries.}
 
-\item{q.value}{Pair-covariance discovery threshold in \verb{(0, 1]}.}
-
-\item{FDR}{Logical; if \code{TRUE}, adjust pair p-values before applying
-\code{q.value}.}
-
-\item{method}{Multiple-testing adjustment passed to \code{\link[stats:p.adjust]{stats::p.adjust()}},
-such as \code{"BH"} or \code{"BY"}.}
-
-\item{pairs}{Required two-column tested-pair universe using feature IDs or
-one-based indices.}
-
-\item{highlight}{Optional two-column pairs that must be tested and retained.
-They may overlap \code{pairs}; non-overlapping highlights are appended.}
-
-\item{chunk_size}{Maximum number of tested pairs per native batch; the
-adaptive memory budget may reduce distinct features.}
-
-\item{threads}{Positive number of OpenMP threads for sparse INLA feature
-preparation, reduced materialization and pair batches. \code{NULL} uses one thread.}
-
-\item{verbose}{Logical; report Liu summary and block progress.}
-
-\item{BPPARAM}{Compatibility argument; only \code{SerialParam()} is accepted.}
-
-\item{...}{Reserved for future score options; currently unused arguments
-are rejected.}
+\item{verbose}{Logical; report progress.}
 }
 \value{
-With \code{approximate_test = TRUE}, an \code{mgcvST_test} object. With
-\code{approximate_test = FALSE}, a compact list with integer \code{i}, \code{j} and
-double \code{score}, \code{mlog10p} pairs (materialized in \verb{$result} for an explicit
-\code{pairs} block, or as Parquet \verb{$shards} with \code{pairs = NULL} or a
-checkpointed explicit block), plus \verb{$feature_id}, \verb{$failed} (genes whose
-fp16 state could not be built) and \verb{$bh} (BH results); see
-\code{.mgcvst_inla_fp16_run()}.
+An \code{mgcvST_test} object; see \code{\link[=mgcvST.test]{mgcvST.test()}}.
 }
 \description{
 Pairwise covariance test for fits returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}. The
@@ -94,7 +67,18 @@ This is a pairwise-test approximation; the fitted sparse field is unchanged.
 Basis and pair-stage timings are stored in \code{timing$inla_projection}.
 }
 \details{
-With \code{approximate_test = TRUE}, each gene receives the
+The result has the compact shape described in \code{\link[=mgcvST.test]{mgcvST.test()}}: integer
+feature indices \code{i < j}, the signed \code{score}, the natural-log two-sided,
+positive and negative p-values, the adjusted two-sided \code{log_q}, the
+calibration's \code{remainder_kind} and a \code{status} code, streamed to Parquet
+shards. With \code{pairs = NULL} every pair of the available genes is tested, one
+block of left genes at a time. The multiple-testing adjustment is applied
+once to the two-sided family, in log space, and positive and negative
+discoveries are split by the sign of the score.
+
+The four Liu trace moments are evaluated by PCAlearning: every score
+covariance \code{H_j} is projected onto a rank-\code{rank} orthonormal basis learned
+from stratified training genes. Each gene receives the
 variance scales \code{sigma_g2 = dispersion / lambda} and
 \code{sigma_e2 = 1 + mean(mu) / theta} for negative-binomial genes (1 for
 Poisson genes), with \code{mu} recovered from the working variance. Genes are
@@ -107,16 +91,8 @@ through the eigen decomposition of their Gram matrix. Every tested gene is
 summarized by its basis coefficients \code{c_j}, and its residual
 \verb{e_j^2 = ||H_j||_F^2 - ||c_j||^2} is reported. Pair traces
 \verb{tr((H_i H_j)^s)}, \verb{s = 1, ..., 4}, are those of the projected matrices.
-Liu p-values are computed on the log scale and returned in the result
-columns \code{log_p_two_sided}, \code{log_p_positive} and \code{log_p_negative}. With
-\code{method = "BY"}, the step-up adjustment is applied to these log p-values,
-so decisions remain defined when p-values underflow; \code{information} and
-\code{effective_rank} are not computed on this path. The result element
-\code{pca_learning} stores the training genes, the Gram eigenvalues and
-rotation defining \code{B}, the coefficients \code{c_j}, the per-gene table with
-\verb{e2_relative = e_j^2 / ||H_j||_F^2}, and the stage timings, including the
-trace-table precomputation.
-
-With \code{approximate_test = FALSE} and \code{pairs = NULL}, every available gene
-pair is tested.
+The result element \code{pca_learning} stores the training genes, the Gram
+eigenvalues and rotation defining \code{B}, the coefficients \code{c_j}, the
+per-gene table with \verb{e2_relative = e_j^2 / ||H_j||_F^2}, and the stage
+timings, including the trace-table precomputation.
 }

@@ -21,56 +21,6 @@
   X
 }
 
-# Extract one full-rank smooth basis, penalty, and smoothing parameter.
-.gam_single_smooth <- function(fit, smooth_index, L) {
-  if (length(fit$smooth) != 1L) {
-    stop(
-      "The current IRLS pair API requires exactly one penalized smooth per fit; ",
-      "additional nuisance smooth covariances are not yet implemented."
-    )
-  }
-  smooth_index <- as.integer(smooth_index)
-  if (length(smooth_index) != 1L || is.na(smooth_index) || smooth_index != 1L) {
-    stop("smooth_index must identify the fit's single smooth term.")
-  }
-  s <- fit$smooth[[smooth_index]]
-  if (length(s$S) != 1L || is.null(s$first.sp) || is.null(s$last.sp) ||
-      s$first.sp != s$last.sp) {
-    stop("The tested smooth must have exactly one full-rank penalty and one smoothing parameter.")
-  }
-  sp_values <- fit$sp
-  if (!is.null(fit$full.sp) && length(fit$full.sp) >= s$last.sp) {
-    sp_values <- fit$full.sp
-  }
-  sp <- as.numeric(sp_values[s$first.sp])
-  if (length(sp) != 1L || !is.finite(sp) || sp <= 0) {
-    stop("The tested smooth has no positive finite fitted smoothing parameter.")
-  }
-  if (inherits(s, "spdePC.smooth")) {
-    B <- s$score_basis
-    Q <- s$pc_score_Q
-    if (is.null(B) || is.null(Q)) {
-      stop("The spdePC smooth does not retain its full-coordinate score geometry.")
-    }
-    B <- .as_numeric_matrix(B, "spdePC score basis")
-    Q <- Matrix::Matrix(Q, sparse = TRUE)
-    if (nrow(B) != nrow(L) || ncol(B) != nrow(Q) || nrow(Q) != ncol(Q)) {
-      stop("The spdePC full-coordinate score geometry is incompatible with the fit.")
-    }
-    score.psd <- TRUE
-    idx <- seq.int(s$first.para, s$last.para)
-  } else {
-    idx <- seq.int(s$first.para, s$last.para)
-    B <- L[, idx, drop = FALSE]
-    Q <- Matrix::Matrix(s$S[[1L]], sparse = TRUE)
-    score.psd <- FALSE
-  }
-  list(
-    label = s$label, B = B, Q = Q, sp = sp, columns = idx,
-    score_precision_psd = score.psd
-  )
-}
-
 #' Extract the final IRLS working model from an mgcv fit
 #'
 #' Uses the generic final-PIRLS identities

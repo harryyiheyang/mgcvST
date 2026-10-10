@@ -42,7 +42,7 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
     if (smooth) smooth_index <<- smooth_index + 1L
     bs <- if (smooth) x[["bs"]] else NULL
     !(smooth && smooth_index == target_index && !is.null(bs) &&
-      as.character(bs) %in% c("spde", "spdePC"))
+      identical(as.character(bs), "spde"))
   }, .mgcvst_formula_terms(formula[[3L]]))
   .mgcvst_rebuild_formula(formula, keep)
 }
@@ -70,7 +70,7 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
 .mgcvst_mark_global <- function(G) {
   for (j in seq_along(G$smooth)) {
     sm <- G$smooth[[j]]
-    if (inherits(sm, "spde.smooth") || inherits(sm, "spdePC.smooth")) {
+    if (inherits(sm, "spde.smooth")) {
       if (is.null(sm$score.component)) sm$score.component <- sm$component
       G$smooth[[j]] <- sm
     }
@@ -99,7 +99,7 @@ mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
       stop("The response cannot also be a covariate or offset.")
     }
     if (!(G$family$family == "gaussian" ||
-          (.allow_poisson && G$family$family == "poisson") ||
+          (.allow_poisson && G$family$family %in% c("poisson", "quasipoisson")) ||
           grepl("^negative binomial", tolower(G$family$family)))) {
       stop("mgcvST.set() supports negative binomial and Gaussian families.")
     }

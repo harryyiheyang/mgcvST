@@ -92,7 +92,7 @@ arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
 // 1-based local feature indices; pairs must be pre-sorted by `left` (the R
 // caller sorts before the call and restores the original order after).
 // Work is split into runs of equal `left` chunked to grain 32 and scheduled
-// dynamically, mirroring mgcvst_fp16_pairs_cpp in inla_fp16.cpp.
+// dynamically.
 // [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
 // [[Rcpp::export]]
 Rcpp::List mgcvst_pair_liu_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& a,

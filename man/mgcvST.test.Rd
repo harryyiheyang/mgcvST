@@ -6,63 +6,88 @@
 \usage{
 mgcvST.test(
   fitmgcvST,
-  q.value = 0.05,
-  FDR = TRUE,
-  method = "BH",
-  BPPARAM = BiocParallel::SerialParam(),
-  ...,
   pairs = NULL,
-  highlight = NULL,
-  calibration = c("liu", "davies"),
-  chunk_size = NULL,
+  q.value = 0.05,
+  adjust = c("BY", "BH", "Sidak", "none"),
   threads = NULL,
-  verbose = FALSE,
+  chunk_size = NULL,
   checkpoint_dir = NULL,
-  resume = TRUE
+  resume = TRUE,
+  verbose = FALSE
 )
 }
 \arguments{
-\item{fitmgcvST}{A compact object returned by \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}.}
+\item{fitmgcvST}{A fit returned by \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}.}
 
-\item{q.value}{Pair-covariance discovery threshold in \verb{(0, 1]}.}
+\item{pairs}{\code{NULL} (the default) for every pair of available features, or a
+two-column matrix or data frame of feature IDs or one-based indices.}
 
-\item{FDR}{Logical; if \code{TRUE}, adjust pair p-values before applying
-\code{q.value}.}
+\item{q.value}{Discovery threshold on the adjusted q-value, in \verb{(0, 1]}.}
 
-\item{method}{Method passed to \code{stats::p.adjust()} when \code{FDR = TRUE}.}
+\item{adjust}{Multiple-testing adjustment of the two-sided family: \code{"BY"}
+(the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
 
-\item{BPPARAM}{A \code{BiocParallelParam}; defaults to \code{SerialParam()}.}
+\item{threads}{Positive number of OpenMP threads for score-state
+preparation and the pair kernels. \code{NULL} uses one.}
 
-\item{...}{Reserved for future score options; currently unused arguments
-are rejected.}
+\item{chunk_size}{Maximum number of pairs evaluated per native block and
+written per shard. \code{NULL} uses 10,000 for \code{\link[=mgcvST.test]{mgcvST.test()}} and 1,000,000
+for \code{\link[=inlaST.test]{inlaST.test()}}.}
 
-\item{pairs}{Required two-column tested-pair universe using feature IDs or
-one-based indices.}
-
-\item{highlight}{Optional two-column pairs that must be tested and retained.
-They may overlap \code{pairs}; non-overlapping highlights are appended.}
-
-\item{calibration}{Score calibration passed to \code{\link[=rkhs_score_calibrate]{rkhs_score_calibrate()}}.}
-
-\item{chunk_size}{Positive number of tested pairs per task or C++ block.
-Liu calibration defaults to 10,000 pairs per interruptible block.}
-
-\item{threads}{Positive number of OpenMP threads for feature score preparation
-and the Liu pair kernel. \code{NULL} uses \code{bpworkers(BPPARAM)}. Model pair tasks
-and Davies calibration use \code{BPPARAM} after preparation has completed.}
-
-\item{verbose}{Logical; report Liu summary and block progress.}
-
-\item{checkpoint_dir}{Optional checkpoint directory for Liu calibration.
-Reusable score states and completed pair batches are saved there. With
-\code{NULL}, temporary storage is used and removed on exit.}
+\item{checkpoint_dir}{Optional checkpoint directory. Reusable feature score
+states and the raw pair shards are saved there, and a repeated call
+resumes completed shards. Pair results are keyed by the algorithm
+contract; a directory holding pair results from another contract is
+refused. With \code{NULL}, temporary storage is used.}
 
 \item{resume}{Reuse compatible completed checkpoint entries.}
+
+\item{verbose}{Logical; report progress.}
+}
+\value{
+An object of class \code{mgcvST_test} with \code{results}, \code{shards},
+\code{feature_id}, \code{failed} (features without a usable score state and the
+reason), \code{threshold}, \code{discoveries}, \code{adjustment}, \code{timing},
+\code{calibration}, \code{contract} and \code{call}. \code{\link[=inlaST.test]{inlaST.test()}} additionally
+returns \code{pca_learning}.
 }
 \description{
-Dispatches a compact fit to its registered score engine. Standard one-SPDE
-fits use the SPDE score path. One-component fits constructed from
-\code{\link[=model.set]{model.set()}} use the model score path. Pair p-values use exact Liu trace
-moments (or Davies calibration when requested). Sparse INLA fits from
-\code{\link[=inlaST.estimate]{inlaST.estimate()}} must be tested with \code{\link[=inlaST.test]{inlaST.test()}} instead.
+Tests the cross-feature spatial covariance of every requested gene pair from
+the fixed compact summaries in a fit returned by \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}; no GAM
+is refitted. Each pair is tested by the squared signed cross-gene score,
+calibrated by Liu moment matching of exact trace moments of the two
+score-covariance matrices. Sparse INLA fits from \code{\link[=inlaST.estimate]{inlaST.estimate()}} are
+tested with \code{\link[=inlaST.test]{inlaST.test()}}, which takes the same arguments.
+}
+\details{
+With \code{pairs = NULL}, every pair of the available features is tested; the
+pairs are generated and scored in blocks and never held as one matrix. A
+feature whose fit failed is not available and is reported in \verb{$failed}.
+With explicit \code{pairs}, a pair that contains an unavailable feature is
+returned with status 3 and missing p-values.
+
+The result is compact. Each pair is one row of the integer feature indices
+\code{i < j} (positions in \verb{$feature_id}), the signed \code{score}, the natural-log
+two-sided, positive and negative p-values \code{log_p_two_sided},
+\code{log_p_positive} and \code{log_p_negative}, the adjusted two-sided
+log q-value \code{log_q}, the integer \code{remainder_kind} of the calibration (0:
+Liu moment matching without remainder) and the integer \code{status} (0:
+evaluated; 1: trace moments non-finite or non-positive; 2: invalid
+p-value; 3: a feature of the pair has no usable score state). Rows are
+written as Parquet shards while the pairs are evaluated; \verb{$shards} lists the
+files, and \verb{$results} is the same table sorted by \verb{(i, j)} when it fits the
+memory guard (56 bytes per pair, 20\% of available memory), and \code{NULL}
+otherwise.
+
+The adjustment is applied once, to the two-sided family, in log space
+by the native kernel, so p-values below the double range keep their
+ordering. \code{"BY"} is the Benjamini-Yekutieli procedure under arbitrary
+dependence (\code{c(m) = sum(1 / seq_len(m))}, as \code{stats::p.adjust(, "BY")}),
+\code{"BH"} the Benjamini-Hochberg step-up, \code{"Sidak"} the single-step Sidak
+correction and \code{"none"} leaves the p-values unadjusted. A pair is a
+discovery when \code{log_q <= log(q.value)}; discoveries with a positive score
+are positive and those with a negative score negative. The adjustment needs
+the two-sided log p-values and the adjusted values in memory (24 bytes per
+pair, 40\% of available memory); when that does not hold it is skipped, with
+a warning, and \code{log_q} is \code{NA}.
 }

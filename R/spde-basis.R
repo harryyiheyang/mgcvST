@@ -122,7 +122,7 @@
        kappa_internal = x$kappa_internal)
 }
 
-.spde_basis_validate <- function(x, loc = NULL, pc = FALSE) {
+.spde_basis_validate <- function(x, loc = NULL) {
   if (!inherits(x, "mgcvST_spde_basis")) {
     stop("xt must be an object returned by spde_basis().")
   }
@@ -138,17 +138,6 @@
       any(!is.finite(loc)))) {
     stop("The smooth coordinates must be a finite two-column numeric matrix.")
   }
-  if (pc) {
-    cutoff <- x$pc_cutoff
-    if (length(cutoff) != 1L || !is.finite(cutoff) ||
-        cutoff <= 0 || cutoff > 1) {
-      stop("xt$pc_cutoff must be one finite cumulative contribution in (0, 1].")
-    }
-    if (is.null(x$pc_values) || is.null(x$pc_vectors) ||
-        is.null(x$pc_cumulative)) {
-      stop("xt does not contain the prepared SPDE principal components.")
-    }
-  }
   invisible(x)
 }
 
@@ -159,25 +148,8 @@
   paste(sprintf("%a", x), sprintf("%a", y), sep = ":")
 }
 
-# Retain original training values for compatibility and precompute Z V for
-# all coordinate evaluations, avoiding a dense n_new-by-full-rank B.
-.spde_basis_pc_cache <- function(basis) {
-  .spde_basis_validate(basis, pc = TRUE)
-  q <- which(basis$pc_cumulative >= basis$pc_cutoff)[1L]
-  if (is.na(q)) stop("The PC cutoff exceeds the saved cumulative contributions.")
-  if (identical(basis$pc_cached_dimension, q) &&
-      !is.null(basis$pc_training_basis) && !is.null(basis$pc_mesh_projection)) {
-    return(basis)
-  }
-  V <- basis$pc_vectors[, seq_len(q), drop = FALSE]
-  basis$pc_training_basis <- CppMatrix::matrixMultiply(basis$B, V)
-  basis$pc_mesh_projection <- CppMatrix::matrixMultiply(basis$projection, V)
-  basis$pc_cached_dimension <- q
-  basis
-}
-
-# Evaluate a fixed prepared basis without rebuilding mesh/FEM/precision/PCs.
-.spde_basis_at <- function(basis, loc, pc = FALSE, timing = NULL,
+# Evaluate a fixed prepared basis without rebuilding mesh/FEM/precision.
+.spde_basis_at <- function(basis, loc, timing = NULL,
                            stage = "prediction") {
   t0 <- proc.time()[["elapsed"]]
   if (!is.null(timing)) on.exit({
@@ -186,12 +158,10 @@
     key <- paste0(stage, "_calls")
     timing[[key]] <- timing[[key]] + 1L
   })
-  if (!is.logical(pc) || length(pc) != 1L || is.na(pc)) stop("pc must be TRUE or FALSE.")
-  .spde_basis_validate(basis, pc = pc)
+  .spde_basis_validate(basis)
   loc <- as.matrix(loc)
   if (!is.numeric(loc) || length(dim(loc)) != 2L || ncol(loc) != 2L ||
       any(!is.finite(loc))) stop("loc must be a finite two-column numeric matrix.")
-  if (pc) basis <- .spde_basis_pc_cache(basis)
 
   transform <- basis$transform
   if (length(transform$center) != 2L || any(!is.finite(transform$center)) ||
@@ -199,7 +169,7 @@
     stop("The basis has an invalid saved coordinate transform.")
   }
   mesh <- list(xy = basis$mesh_vertices, tv = basis$mesh_triangles)
-  P <- if (pc) basis$pc_mesh_projection else basis$projection
+  P <- basis$projection
   if (is.null(mesh$xy) || is.null(mesh$tv) || is.null(P) || nrow(P) != nrow(mesh$xy)) {
     stop("The basis does not contain aligned saved mesh and projection matrices.")
   }
@@ -238,14 +208,12 @@
 #' Prepare an SPDE basis for mgcvST fitting
 #'
 #' Constructs the observation projector and the fixed-kappa SPDE precision
-#' once. The returned object is self-contained: fitting with `bs = "spde"` or
-#' `bs = "spdePC"` requires neither INLA, fmesher nor sf.
+#' once. The returned object is self-contained: fitting with `bs = "spde"`
+#' requires neither INLA, fmesher nor sf.
 #' Basis construction and prediction use geometry for barycentric interpolation
-#' on the saved mesh. No FEM, precision or PC decomposition is
-#' recomputed. Outside-mesh coordinates cause an error. Every evaluation uses
-#' the supplied coordinates, including training, subset and reordered rows.
-#' The basis also saves `pc_mesh_projection = Z V` and the original
-#' training `pc_training_basis = B V`; new PC prediction never forms `A Z`.
+#' on the saved mesh. No FEM or precision is recomputed. Outside-mesh
+#' coordinates cause an error. Every evaluation uses the supplied coordinates,
+#' including training, subset and reordered rows.
 #'
 #' @section Unit-scale kappa:
 #' `kappa` is a unit-scale value. The unit length `L` is the largest
@@ -271,24 +239,16 @@
 #'   `nu = 1/2` in 3D. The default `0.05` therefore gives a practical range of
 #'   about 57 unit lengths in 2D and 40 in 3D, a very smooth global field.
 #'   `NULL` is an error.
-#' @param pc_cutoff Cumulative covariance contribution retained by
-#'   `bs = "spdePC"`. The default is `0.999`.
 #' @param project_intercept Whether to project the intercept from the mesh
 #'   coefficient space.
 #' @return A self-contained object to pass directly as `xt`.
 #' @export
-spde_basis <- function(mesh, loc, kappa = 0.05, pc_cutoff = 0.999,
-                       project_intercept = TRUE) {
+spde_basis <- function(mesh, loc, kappa = 0.05, project_intercept = TRUE) {
   x <- .spde_basis_mesh(mesh)
   loc.raw <- .spde_xy(loc)
   loc.scaled <- sweep(loc.raw, 2L, x$transform$center, "-") /
     x$transform$scale
   kappa <- .spde_kappa_scale(kappa, loc.raw, x$transform$scale)
-  pc_cutoff <- as.numeric(pc_cutoff)
-  if (length(pc_cutoff) != 1L || !is.finite(pc_cutoff) ||
-      pc_cutoff <= 0 || pc_cutoff > 1) {
-    stop("pc_cutoff must be one finite cumulative contribution in (0, 1].")
-  }
   if (!is.logical(project_intercept) || length(project_intercept) != 1L ||
       is.na(project_intercept)) {
     stop("project_intercept must be TRUE or FALSE.")
@@ -313,24 +273,8 @@ spde_basis <- function(mesh, loc, kappa = 0.05, pc_cutoff = 0.999,
   Q <- .spde_fem_precision(fem, kappa$kappa_internal)
   Q <- CppMatrix::matrixMultiply(t(Z), CppMatrix::matrixMultiply(Q, Z))
   Q <- (Q + t(Q)) / 2
-  G <- CppMatrix::matrixSolve(Q, diag(ncol(Q)))
-  E <- CppMatrix::matrixEigen((G + t(G)) / 2)
-  ord <- order(E$values, decreasing = TRUE)
-  pc.values <- as.numeric(E$values[ord])
-  pc.vectors <- as.matrix(E$vectors[, ord, drop = FALSE])
-  tol <- sqrt(.Machine$double.eps) * max(1, max(abs(pc.values)))
-  if (min(pc.values) < -tol) {
-    stop("The projected SPDE covariance is not positive semidefinite.")
-  }
-  pc.values <- pmax(pc.values, 0)
-  if (any(pc.values <= 0) || !is.finite(sum(pc.values))) {
-    stop("The projected SPDE covariance has invalid eigenvalues.")
-  }
-  pc.cumulative <- cumsum(pc.values) / sum(pc.values)
 
   out <- c(list(B = B, Q = Q, coordinates = loc.raw), kappa, list(
-    pc_cutoff = pc_cutoff, pc_values = pc.values,
-    pc_vectors = pc.vectors, pc_cumulative = pc.cumulative,
     transform = x$transform, mesh_vertices = x$xy,
     mesh_triangles = x$tv, projection = Z,
     projection_rank = fitqr$rank, project_intercept = project_intercept,
@@ -338,7 +282,7 @@ spde_basis <- function(mesh, loc, kappa = 0.05, pc_cutoff = 0.999,
   ))
   class(out) <- "mgcvST_spde_basis"
   out$coordinate_keys <- .spde_coordinate_keys(loc.raw)
-  .spde_basis_pc_cache(out)
+  out
 }
 
 #' @rdname spde_basis
@@ -353,6 +297,5 @@ print.mgcvST_spde_basis <- function(x, ...) {
   cat("  kappa (unit scale, fixed):", format(x$kappa_unit), "\n")
   cat("  unit length L:", format(x$unit_length), "\n")
   cat("  kappa (internal mesh scale):", format(x$kappa_internal), "\n")
-  cat("  PC cumulative contribution:", x$pc_cutoff, "\n")
   invisible(x)
 }
