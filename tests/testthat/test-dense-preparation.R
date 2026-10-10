@@ -111,7 +111,7 @@ test_that("model preparation keeps the conditional nuisance covariance", {
   old$nuisance_covariance <- NULL
   expect_null(mgcvST:::.mgcvst_model_dense_preparation(old, ids))
   pairs <- rbind(c(1L, 2L), c(2L, 3L))
-  out <- mgcvST.test(fit, pairs = pairs, threads = 1L)
+  out <- mgcvST.test(fit, pairs = pairs, threads = 1L, moments = "exact")
   expect_identical(out$timing$preparation_backend, "C++ OpenMP")
   expect_identical(out$timing$preparation_threads, 1L)
   expect_gte(out$timing$summary_elapsed, 0)
@@ -155,7 +155,7 @@ test_that("a feature without a usable nuisance covariance fails at estimation, n
   expect_true(all(available[-2L]))
 
   pairs <- rbind(c(1L, 2L), c(2L, 3L), c(1L, 3L))
-  out <- mgcvST.test(fit, pairs = pairs, threads = 1L)
+  out <- mgcvST.test(fit, pairs = pairs, threads = 1L, moments = "exact")
   r <- out$results
   bad <- r$i == 2L | r$j == 2L
   expect_true(any(bad) && !all(bad))
@@ -170,7 +170,7 @@ test_that("a feature without a usable nuisance covariance fails at estimation, n
   expect_identical(out$discoveries$pairs_requested, 3)
   expect_identical(out$discoveries$pairs_tested, 1)
 
-  all_pairs <- mgcvST.test(fit, threads = 1L)
+  all_pairs <- mgcvST.test(fit, threads = 1L, moments = "exact")
   expect_identical(nrow(all_pairs$results), 1L)
   expect_identical(c(all_pairs$results$i, all_pairs$results$j), c(1L, 3L))
   expect_identical(all_pairs$failed$feature_id, "response2")

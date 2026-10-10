@@ -31,20 +31,6 @@ rkhs_score_summary <- function(error, operator, score_factor = NULL) {
   list(a = a, H = H, factor = F)
 }
 
-#' Compute low-rank Fisher information
-#'
-#' @param H1,H2 Aligned innovation-space covariance summaries.
-#' @return The scalar information `tr(H1 H2)`.
-#' @export
-rkhs_score_information <- function(H1, H2) {
-  H1 <- .as_numeric_matrix(H1, "H1")
-  H2 <- .as_numeric_matrix(H2, "H2")
-  if (!all(dim(H1) == dim(H2)) || nrow(H1) != ncol(H1)) {
-    stop("H1 and H2 must be square matrices with identical dimensions.")
-  }
-  as.numeric(sum(H1 * t(H2)))
-}
-
 # Return a numerical factor for a positive-semidefinite score matrix.
 .psd_factor <- function(H) {
   H <- (H + t(H)) / 2
@@ -56,20 +42,6 @@ rkhs_score_information <- function(H1, H2) {
   if (!any(keep)) return(matrix(numeric(0), nrow(H), 0L))
   sweep(as.matrix(E$vectors[, keep, drop = FALSE]), 2L,
         sqrt(pmax(d[keep], 0)), "*")
-}
-
-#' Singular values governing the Gaussian null score distribution
-#'
-#' @param H1,H2 Aligned innovation-space score covariance summaries.
-#' @return The positive singular values in decreasing order.
-#' @export
-rkhs_score_singular_values <- function(H1, H2) {
-  H1 <- .as_numeric_matrix(H1, "H1")
-  H2 <- .as_numeric_matrix(H2, "H2")
-  if (!all(dim(H1) == dim(H2)) || nrow(H1) != ncol(H1)) {
-    stop("H1 and H2 must be square matrices with identical dimensions.")
-  }
-  .rkhs_score_spectrum(H1, H2)
 }
 
 #' Calibrate a signed bilinear Gaussian score

@@ -257,15 +257,15 @@ test_that("the memory guard skips the adjustment and the in-memory table", {
 test_that("adjustment arguments are validated and shared by both tests", {
   f <- st_fixture()
   fit <- mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
-  expect_error(mgcvST.test(fit, adjust = "holm"), "should be one of")
-  expect_error(mgcvST.test(fit, q.value = 0), "q.value")
-  expect_error(mgcvST.test(fit, threads = 0L), "threads")
-  expect_error(mgcvST.test(fit, chunk_size = 0), "chunk_size")
-  expect_error(mgcvST.test(fit, verbose = NA), "verbose")
-  expect_error(mgcvST.test(fit, checkpoint_dir = c("a", "b")), "checkpoint_dir")
-  by <- mgcvST.test(fit)
+  expect_error(mgcvST.test(fit, adjust = "holm", moments = "exact"), "should be one of")
+  expect_error(mgcvST.test(fit, q.value = 0, moments = "exact"), "q.value")
+  expect_error(mgcvST.test(fit, threads = 0L, moments = "exact"), "threads")
+  expect_error(mgcvST.test(fit, chunk_size = 0, moments = "exact"), "chunk_size")
+  expect_error(mgcvST.test(fit, verbose = NA, moments = "exact"), "verbose")
+  expect_error(mgcvST.test(fit, checkpoint_dir = c("a", "b"), moments = "exact"), "checkpoint_dir")
+  by <- mgcvST.test(fit, moments = "exact")
   for (adjust in c("BH", "Sidak", "none")) {
-    x <- mgcvST.test(fit, adjust = adjust)
+    x <- mgcvST.test(fit, adjust = adjust, moments = "exact")
     expect_equal(x$results$log_p_two_sided, by$results$log_p_two_sided)
     expect_identical(x$threshold$adjust, adjust)
     expect_equal(x$results$log_q, mgcvST:::.mgcvst_log_adjust(x$results$log_p_two_sided,

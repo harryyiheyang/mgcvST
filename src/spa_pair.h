@@ -84,7 +84,7 @@ inline Remainder make_remainder(const double* t, const long double* lead, int or
     const long double A1 = -(mu[0] * mu[3] - mu[1] * mu[2]);
     const long double A0 = mu[1] * mu[3] - mu[2] * mu[2];
     const long double disc = A1 * A1 - 4.0L * det * A0;
-    if (det > 0 && disc > 0) {
+    if (det > 0 && disc >= 0) {
       const long double sq = std::sqrt(disc);
       const long double qv = -0.5L * (A1 + (A1 >= 0 ? sq : -sq));
       if (qv != 0) {
@@ -116,6 +116,14 @@ inline Remainder make_remainder(const double* t, const long double* lead, int or
   R.kind = REM_GAUSS;
   R.g = static_cast<double>(mu[0]);
   return R;
+}
+
+// TRUE when a remainder node lies above the largest leading value, u > s_1^2:
+// the compression has then not captured the top of the spectrum. The kernels
+// count such pairs as a diagnostic.
+inline bool node_above_leading(const Remainder& R, double s1) {
+  for (int n = 0; n < R.nodes; ++n) if (R.u[n] > s1 * s1) return true;
+  return false;
 }
 
 // Per-thread scratch for the normalized spectrum.
@@ -224,9 +232,16 @@ inline bool spa_log_tail(double x, const double* s, int k, const Remainder& R,
     }
     eps = 1.0 - tau;
   } else {
-    // tau in (0.5, 1): iterate on eps = 1 - tau. K' >= tau / (eps (2 - eps))
-    // gives the lower bracket eps_L = 2 / (2 x' + 1 + sqrt(4 x'^2 + 1)).
-    double lo = 2.0 / (2.0 * xp + 1.0 + std::sqrt(4.0 * xp * xp + 1.0)), hi = 0.5;
+    // tau in (0.5, 1): iterate on eps = 1 - tau. The terms that attain the
+    // largest squared value (a = 1, total multiplicity m*) give
+    // K' >= m* tau / (eps (2 - eps)), hence the lower bracket
+    // eps_L = 2 m* / (2 x' + m* + sqrt(4 x'^2 + m*^2)). A remainder node with
+    // a multiplicity below 1 can be the only term with a = 1.
+    double mstar = 0.0;
+    for (int i = 0; i < n; ++i) if (a[i] == 1.0) mstar += mult[i];
+    if (!(mstar > 0)) mstar = 1.0;
+    double lo = 2.0 * mstar / (2.0 * xp + mstar + std::sqrt(4.0 * xp * xp + mstar * mstar)),
+           hi = 0.5;
     if (!(lo > 0)) return false;
     eps = lo;
     for (int it = 0; it < 200; ++it) {
@@ -241,6 +256,9 @@ inline bool spa_log_tail(double x, const double* s, int k, const Remainder& R,
     tau = 1.0 - eps;
   }
   eval_point(a, d, mult, n, gp, xp, tau, eps, true, e);
+  // The root must satisfy the saddlepoint equation: a bracket or iteration
+  // that failed returns status 2 rather than a wrong p-value.
+  if (!(std::fabs(e.f) <= 1e-10 * xp)) return false;
   const double w2 = 2.0 * (tau * xp - e.K);
   const double w = w2 > 0 ? std::sqrt(w2) : 0.0;
   if (!(e.K2 > 0) || !std::isfinite(e.K2) || !std::isfinite(w)) return false;

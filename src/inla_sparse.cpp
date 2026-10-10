@@ -418,12 +418,12 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   }
   const int features = units.size();
   Rcpp::NumericMatrix PBr = pca_basis.isNotNull() ? Rcpp::NumericMatrix(pca_basis.get()) : Rcpp::NumericMatrix(L, 0);
-  const Eigen::Map<Mat> PB(PBr.begin(), L, PBr.ncol());
+  const Eigen::Map<const Mat> PB(PBr.begin(), L, PBr.ncol());
   const int r = PB.cols();
   Rcpp::NumericMatrix Vr = V.isNotNull() ? Rcpp::NumericMatrix(V.get())
                                          : Rcpp::NumericMatrix(q, 0);
   if (Vr.nrow() != q) Rcpp::stop("V must have one row per score coordinate.");
-  const Eigen::Map<Mat> Vm(Vr.begin(), q, Vr.ncol());
+  const Eigen::Map<const Mat> Vm(Vr.begin(), q, Vr.ncol());
   const int kv = Vm.cols();
 #ifndef _OPENMP
   if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
@@ -448,41 +448,32 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   std::vector<std::vector<float> > packed(features);
   std::vector<std::string> error(features);
   int failed = 0;
-  const double w = std::sqrt(2.0);
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads) reduction(+:failed)
 #endif
   {
-    Vec h(L);
+    Vec h(L), ccol(r), rcol((Eigen::Index)kv * kv);
 #ifdef _OPENMP
 #pragma omp for schedule(dynamic, 1)
 #endif
     for (int f = 0; f < features; ++f) {
       try {
         const ReconstructionUnit& unit = parsed[f];
-        const Mat M = reduced_curvature(unit, basis, g);
-        Eigen::Index p = 0;
-        for (int j = 0; j < q; ++j) {
-          for (int i = 0; i < j; ++i) h[p++] = w * M(i, j);
-          h[p++] = M(j, j);
-        }
+        const Mat Mraw = reduced_curvature(unit, basis, g);
+        const Mat M = 0.5 * (Mraw + Mraw.transpose());
         A.col(f) = coordinate.transpose() * unit.a;
         statistic[f] = A.col(f).squaredNorm();
-        fro2[f] = h.squaredNorm();
-        if (r) C.row(f) = (PB.transpose() * h).transpose();
-        if (pack[f]) {
-          packed[f].resize(L);
-          for (Eigen::Index k = 0; k < L; ++k) packed[f][k] = (float)h[k];
-        }
-        const double sc = mgcvst_pca::matrix_scale(M);
+        double sc = NA_REAL, f2 = NA_REAL;
+        error[f] = mgcvst_pca::reduce_feature(M, q, PB, Vm, pack[f] != 0, h, sc, f2,
+                                              ccol, packed[f], rcol);
         scalep[f] = sc;
-        if (kv) {
-          Mat Rg;
-          if (std::isfinite(sc) && sc > 0 && mgcvst_pca::project_factor(M, sc, Vm, Rg)) {
-            Rall.col(f) = Eigen::Map<const Vec>(Rg.data(), (Eigen::Index)kv * kv);
-          } else {
-            throw std::runtime_error("The shared-basis compression is not positive definite.");
-          }
+        fro2[f] = f2;
+        C.row(f) = ccol.transpose();
+        if (kv) Rall.col(f) = rcol;
+        if (!error[f].empty()) {
+          A.col(f).setConstant(NA_REAL);
+          statistic[f] = NA_REAL;
+          failed += 1;
         }
       } catch (const std::exception& e) {
         error[f] = e.what();
@@ -494,16 +485,10 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
       }
     }
   }
-  Rcpp::List packed_out(features);
+  Rcpp::List packed_out = mgcvst_pca::packed_to_raw(packed, L);
   Rcpp::CharacterVector error_out(features);
   for (int f = 0; f < features; ++f) {
     error_out[f] = error[f].empty() ? NA_STRING : Rcpp::String(error[f]);
-    if (!packed[f].empty()) {
-      Rcpp::RawVector x(4 * L);
-      std::memcpy(RAW(x), packed[f].data(), 4 * L);
-      packed_out[f] = x;
-      std::vector<float>().swap(packed[f]);
-    }
   }
   return Rcpp::List::create(
     Rcpp::Named("a") = A, Rcpp::Named("C") = C, Rcpp::Named("fro2") = fro2,

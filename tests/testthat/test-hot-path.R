@@ -95,18 +95,18 @@ test_that("pair universes are validated and duplicated tests are rejected", {
   f <- st_fixture(nuisance = TRUE)
   fit <- mgcvST.estimate(f$Y, f$model, spatial = "all")
   pairs <- rbind(c(1L, 2L), c(3L, 1L), c(2L, 3L))
-  expect_error(mgcvST.test(fit, pairs = rbind(pairs, c(2L, 1L))),
+  expect_error(mgcvST.test(fit, pairs = rbind(pairs, c(2L, 1L)), moments = "exact"),
                "duplicated tests")
-  expect_error(mgcvST.test(fit, pairs = rbind(c(1L, 1L))), "two different features")
-  expect_error(mgcvST.test(fit, pairs = matrix(c("a", "b"), 1L)), "unknown feature IDs")
+  expect_error(mgcvST.test(fit, pairs = rbind(c(1L, 1L)), moments = "exact"), "two different features")
+  expect_error(mgcvST.test(fit, pairs = matrix(c("a", "b"), 1L), moments = "exact"), "unknown feature IDs")
   for (chunk in c(1L, 100L)) {
-    out <- mgcvST.test(fit, pairs = pairs, chunk_size = chunk)
+    out <- mgcvST.test(fit, pairs = pairs, chunk_size = chunk, moments = "exact")
     expect_identical(nrow(out$results), 3L)
     expect_true(all(out$results$i < out$results$j))
     expect_true(all(is.finite(out$results$log_p_two_sided)))
   }
   fit$smoothing_parameters[2, 1] <- -1
-  bad <- mgcvST.test(fit, pairs = pairs)
+  bad <- mgcvST.test(fit, pairs = pairs, moments = "exact")
   expect_true(all(bad$results$status[bad$results$i == 2L | bad$results$j == 2L] == 3L))
   expect_identical(bad$failed$feature_id, "response2")
 })
@@ -164,5 +164,5 @@ test_that("a raw gam setup and the prepared model give identical estimates and t
     x
   }
   expect_identical(same(from_G), same(from_model))
-  expect_identical(mgcvST.test(from_G)$results, mgcvST.test(from_model)$results)
+  expect_identical(mgcvST.test(from_G, moments = "exact")$results, mgcvST.test(from_model, moments = "exact")$results)
 })

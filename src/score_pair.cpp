@@ -1,5 +1,4 @@
 #define EIGEN_DONT_PARALLELIZE
-#include <RcppArmadillo.h>
 #include <RcppEigen.h>
 #include "spa_pair.h"
 
@@ -7,12 +6,12 @@
 #include <omp.h>
 #endif
 
-// [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
+// [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::export]]
-arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
-                                       const Rcpp::IntegerMatrix& pairs,
-                                       int maxPower = 4,
-                                       int threads = 1) {
+Rcpp::NumericMatrix mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
+                                                 const Rcpp::IntegerMatrix& pairs,
+                                                 int maxPower = 4,
+                                                 int threads = 1) {
   int n = matrixList.size();
   if (n < 1) {
     Rcpp::stop("matrixList must contain at least one matrix.");
@@ -54,7 +53,9 @@ arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
     }
   }
 
-  arma::mat out(pairs.nrow(), maxPower, arma::fill::none);
+  const R_xlen_t np = pairs.nrow();
+  Rcpp::NumericMatrix out(pairs.nrow(), maxPower);
+  double* outp = out.begin();
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(threads) schedule(static)
 #endif
@@ -66,16 +67,16 @@ arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
     Eigen::Map<const Eigen::MatrixXd> left(matrixPointers[i], q, q);
     Eigen::Map<const Eigen::MatrixXd> right(matrixPointers[j], q, q);
     Eigen::MatrixXd product = left * right;
-    out(k, 0) = product.trace();
+    outp[k] = product.trace();
 
     if (maxPower >= 2) {
-      out(k, 1) = (product.array() * product.transpose().array()).sum();
+      outp[k + np] = (product.array() * product.transpose().array()).sum();
       if (maxPower >= 3) {
         Eigen::MatrixXd product2 = product * product;
-        out(k, 2) =
+        outp[k + 2 * np] =
           (product2.array() * product.transpose().array()).sum();
         if (maxPower >= 4) {
-          out(k, 3) =
+          outp[k + 3 * np] =
             (product2.array() * product2.transpose().array()).sum();
         }
       }
@@ -91,7 +92,7 @@ arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
 // not depend on the thread count; a feature with a non-finite or zero matrix
 // is skipped. `init` is the running sum to continue from (NULL: zero), so that
 // a sum over many batches is the same as one sum over all features.
-// [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
+// [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::export]]
 Rcpp::NumericMatrix mgcvst_pair_basis_sum_cpp(
     const Rcpp::List& H,
@@ -132,7 +133,7 @@ Rcpp::NumericMatrix mgcvst_pair_basis_sum_cpp(
 // square root (not the one-sided factor E sqrt(D)). With V = I and k = q the
 // compression is exact. A feature with a non-finite or zero matrix gets a
 // matrix of NA.
-// [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
+// [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::export]]
 Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& V,
                                  int threads = 1) {
@@ -205,8 +206,10 @@ Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix&
 // normalized score (for validation against stored scores).
 // Work is split into runs of equal `left` chunked to grain 32 and scheduled
 // dynamically. The parallel region uses only Eigen products and decompositions
-// of the pair matrices and R::pnorm.
-// [[Rcpp::depends(RcppArmadillo, RcppEigen)]]
+// of the pair matrices and R::pnorm. The result also holds the number of pairs
+// whose remainder has a node above the largest leading value (u > s_1^2), a
+// diagnostic of the compression.
+// [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::export]]
 Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
                                const Rcpp::NumericMatrix& a,
@@ -294,10 +297,12 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
   int* statusp = status.begin();
   const double* xp = explicit_x ? xv.begin() : nullptr;
   const long ntask = tasks.size();
+  long nodes_above = 0;
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
   {
+    long above = 0;
     Eigen::MatrixXd P1(q, q), P2(q, q), Ln(q, q), Rn(q, q), Mk(k, k);
     Eigen::BDCSVD<Eigen::MatrixXd> svd(k, k, 0);
     mgcvst_spa::Scratch scratch;
@@ -360,9 +365,14 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
           lp1p[j] = lp[1];
           lp0p[j] = lp[2];
           kindp[j] = rem.kind;
+          if (mgcvst_spa::node_above_leading(rem, sv[0])) ++above;
         }
       }
     }
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    nodes_above += above;
   }
 
   return Rcpp::List::create(
@@ -371,6 +381,7 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
     Rcpp::Named("log_p_positive") = log_p_positive,
     Rcpp::Named("log_p_negative") = log_p_negative,
     Rcpp::Named("remainder_kind") = remainder_kind,
-    Rcpp::Named("status") = status
+    Rcpp::Named("status") = status,
+    Rcpp::Named("nodes_above_leading") = (double)nodes_above
   );
 }

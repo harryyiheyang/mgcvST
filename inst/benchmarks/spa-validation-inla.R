@@ -27,12 +27,13 @@ pairs <- cbind(SP$test[SP$pairs[, 1L]], SP$test[SP$pairs[, 2L]])
 stopifnot(all(pairs[, 1L] < pairs[, 2L]))
 
 t0 <- proc.time()[["elapsed"]]
-prep <- mgcvST:::.mgcvst_pair_pcalearning(
-  fit, pairs, threads = threads, chunk_size = 1e6, verbose = TRUE,
-  basis = old$basis, rank = 20L, n_per_cell = 3L, seed = 1L, k = 50L,
-  .prepared_only = TRUE)
-cat("prepared in", round(proc.time()[["elapsed"]] - t0), "s; max |Tsym1 - I| =",
-    format(max(abs(prep$Tsym1 - diag(nrow(prep$Tsym1)))), digits = 3), "\n")
+fit <- mgcvST:::.inlast_sparse_prepare(fit)
+used <- sort(unique(as.vector(pairs)))
+prep <- mgcvST:::.mgcvst_pca_prepare(
+  fit, used, old$basis, q = old$basis$rank, rank = 20L, n_per_cell = 3L, seed = 1L,
+  k = 50L, threads = threads, verbose = TRUE)
+cat("prepared in", round(proc.time()[["elapsed"]] - t0), "s; max |B'B - I| =",
+    format(prep$basis_check, digits = 3), "\n")
 
 # Reference: the full-spectrum saddlepoint of the exact spectrum, from the
 # shared kernel (S = the whole spectrum, no remainder).
@@ -56,7 +57,6 @@ for (p in seq_len(nrow(pairs))) {
   s <- s[s > 0]
   i <- loc[p, 1L]
   j <- loc[p, 2L]
-  units <- sqrt(prep$scale[i] * prep$scale[j])
   for (level in levels) {
     x <- level_x(s, level)
     # a_i = a_j = sqrt(x) e_1 gives the raw score U = x.

@@ -14,7 +14,7 @@ inlaST.test(
   checkpoint_dir = NULL,
   resume = TRUE,
   verbose = FALSE,
-  moments = c("auto", "exact", "pcalearning"),
+  moments,
   rank = .mgcvst_pca_defaults$rank,
   n_per_cell = .mgcvst_pca_defaults$n_per_cell,
   seed = .mgcvst_pca_defaults$seed,
@@ -50,13 +50,11 @@ refused. With \code{NULL}, temporary storage is used.}
 
 \item{resume}{Reuse compatible completed checkpoint entries.}
 
-\item{verbose}{Logical; report progress, the chosen route and the
-estimated pair time.}
+\item{verbose}{Logical; report progress and the route.}
 
-\item{moments}{\code{"auto"} (the default), \code{"exact"} or \code{"pcalearning"}: the
-route of the pair calibration. \code{"auto"} chooses by the score dimension
-\code{q}, the number of pairs, the threads and the memory, not by the
-estimator.}
+\item{moments}{\code{"exact"} or \code{"pcalearning"}, the route of the pair
+calibration. Required: there is no default, and a call without it stops.
+Both routes serve both estimators.}
 
 \item{rank}{Number of PCAlearning basis matrices (default 20). Used by the
 PCAlearning route.}
@@ -80,14 +78,16 @@ Pairwise covariance test for fits returned by \code{\link[=inlaST.estimate]{inla
 sparse INLA score state stored on the fit is reused; no model is refitted.
 Each gene pair is tested by the signed cross-gene score, calibrated by the
 saddlepoint approximation described in \code{\link[=mgcvST.test]{mgcvST.test()}}, which also
-describes the exact and PCAlearning routes and the choice between them. The
+describes the exact and PCAlearning routes; \code{moments} selects the route. The
 score uses the full-rank constrained observation-kernel basis (all \code{q - 1}
 directions of the constrained field, ordered by eigenvalue), the same basis
 that \code{\link[=inlaST.wgcna]{inlaST.wgcna()}} uses; no eigenvalue coverage truncation is applied.
-The exact route reconstructs each gene's reduced curvature in that basis
-and takes \code{q} small enough for its cubic pair cost; the PCAlearning route
-serves large \code{q}. The fitted sparse field is unchanged. Basis and
-pair-stage timings are stored in \code{timing}, with the chosen route in
+The exact route reconstructs each gene's reduced curvature in that basis; its
+pair cost is cubic in \code{q}, and the PCAlearning route does not depend on \code{q}
+per pair. The fitted sparse field is unchanged. The dimension of the
+field, the number of basis directions and the basis time are stored in
+\code{timing$inla_projection}, the pair-stage timings in \code{timing$pair_pipeline}
+(exact route) or \code{timing$pcalearning}, and the chosen route in
 \code{timing$route}.
 }
 \details{

@@ -37,14 +37,14 @@ test_that("R saddlepoint calibration is invariant to covariance units", {
   # The calibration is the saddlepoint of the full singular spectrum.
   expect_identical(ref$spa$k, 3L)
   expect_identical(ref$spa$remainder_kind, 0)
-  s <- rkhs_score_singular_values(f$H[[1L]], f$H[[2L]])
+  s <- mgcvST:::.rkhs_score_spectrum(f$H[[1L]], f$H[[2L]])
   expect_equal(ref$log_p_two_sided, .spa_ref(abs(U), s), tolerance = 1e-8)
 })
 
 test_that("public moments, cumulants and singular values retain input units", {
   f <- .score_scale_fixture()
   U <- sum(f$a[, 1L] * f$a[, 2L])
-  base <- rkhs_score_singular_values(f$H[[1L]], f$H[[2L]])
+  base <- mgcvST:::.rkhs_score_spectrum(f$H[[1L]], f$H[[2L]])
   ref <- rkhs_score_calibrate(U, f$H[[1L]], f$H[[2L]])
   for (s in c(1e-20, 1, 1e20)) {
     H <- lapply(f$H, function(z) z * s)
@@ -53,7 +53,7 @@ test_that("public moments, cumulants and singular values retain input units", {
     expect_equal(x$moments / moments, rep(1, 4L), tolerance = 1e-12)
     expect_equal(x$information / moments[1L], 1, tolerance = 1e-12)
     expect_equal(x$p_two_sided, ref$p_two_sided, tolerance = 1e-10)
-    expect_equal(rkhs_score_singular_values(H[[1L]], H[[2L]]) / base,
+    expect_equal(mgcvST:::.rkhs_score_spectrum(H[[1L]], H[[2L]]) / base,
                  rep(s, length(base)), tolerance = 1e-12)
   }
   # The trace moments are those of the singular spectrum.
@@ -65,9 +65,9 @@ test_that("the PSD tolerance and zero-state contract are unchanged", {
   accepted <- diag(c(-1e-11, 1e-5))
   other <- diag(c(1e-4, 1e-4))
   expect_silent(mgcvST:::.psd_factor(accepted))
-  expect_true(length(rkhs_score_singular_values(accepted, other)) > 0L)
+  expect_true(length(mgcvST:::.rkhs_score_spectrum(accepted, other)) > 0L)
   rejected <- diag(c(-1e-9, 1e-5))
-  expect_error(rkhs_score_singular_values(rejected, other), "not positive semidefinite")
+  expect_error(mgcvST:::.rkhs_score_spectrum(rejected, other), "not positive semidefinite")
   zero <- rkhs_score_calibrate(0, matrix(0, 2L, 2L), other)
   expect_true(is.na(zero$p_two_sided))
   expect_equal(zero$information, 0)

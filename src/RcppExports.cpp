@@ -328,7 +328,7 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_pair_trace_powers_cpp
-arma::mat mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList, const Rcpp::IntegerMatrix& pairs, int maxPower, int threads);
+Rcpp::NumericMatrix mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList, const Rcpp::IntegerMatrix& pairs, int maxPower, int threads);
 RcppExport SEXP _mgcvST_mgcvst_pair_trace_powers_cpp(SEXP matrixListSEXP, SEXP pairsSEXP, SEXP maxPowerSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;

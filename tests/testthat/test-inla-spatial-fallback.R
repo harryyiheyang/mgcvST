@@ -113,7 +113,7 @@ test_that("public native crash recovery reuses null fits without replacing p-val
     1:2, chunk_size = 2L, threads = 1L)
   expect_equal(fit$diagnostics$marginal_p_value, expected$p_value, tolerance = 0)
   pair <- inlaST.test(fit, adjust = "none", rank = 2L,
-    pairs = matrix(c("a", "b"), ncol = 2L), threads = 1L)
+    pairs = matrix(c("a", "b"), ncol = 2L), threads = 1L, moments = "exact")
   expect_true(all(is.finite(pair$results$log_p_two_sided)))
   expect_true(all(is.finite(pair$results$score)))
   for (j in 1:2) {

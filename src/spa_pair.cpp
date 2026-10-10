@@ -30,6 +30,7 @@ Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U,
 #endif
   Rcpp::NumericMatrix out(N, 5);
   double* o = out.begin();
+  long nodes_above = 0;
   const double* sp = S.begin();
   const double* tp = Tm.begin();
   const bool s_common = S.ncol() == 1, t_common = Tm.ncol() == 1;
@@ -39,6 +40,7 @@ Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U,
   {
     mgcvst_spa::Scratch scratch;
     scratch.reserve(k + 2);
+    long above = 0;
 #ifdef _OPENMP
 #pragma omp for schedule(static)
 #endif
@@ -54,7 +56,12 @@ Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U,
         mgcvst_spa::leading_sums(s, k, lead);
         const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(t, lead, order);
         status = mgcvst_spa::spa_pair(U[j], s, k, rem, scratch, lp);
-        if (status == 0) kind = rem.kind;
+        if (status == 0) {
+          kind = rem.kind;
+          double s1 = 0;
+          for (int i = 0; i < k; ++i) s1 = std::max(s1, s[i]);
+          if (mgcvst_spa::node_above_leading(rem, s1)) ++above;
+        }
       }
       o[j] = lp[0];
       o[j + N] = lp[1];
@@ -62,7 +69,12 @@ Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U,
       o[j + 3 * N] = kind;
       o[j + 4 * N] = status;
     }
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    nodes_above += above;
   }
+  out.attr("nodes_above_leading") = (double)nodes_above;
   Rcpp::colnames(out) = Rcpp::CharacterVector::create(
     "log_p_two_sided", "log_p_positive", "log_p_negative", "remainder_kind", "status");
   return out;

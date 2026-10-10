@@ -14,7 +14,7 @@ mgcvST.test(
   checkpoint_dir = NULL,
   resume = TRUE,
   verbose = FALSE,
-  moments = c("auto", "exact", "pcalearning"),
+  moments,
   rank = .mgcvst_pca_defaults$rank,
   n_per_cell = .mgcvst_pca_defaults$n_per_cell,
   seed = .mgcvst_pca_defaults$seed,
@@ -47,13 +47,11 @@ refused. With \code{NULL}, temporary storage is used.}
 
 \item{resume}{Reuse compatible completed checkpoint entries.}
 
-\item{verbose}{Logical; report progress, the chosen route and the
-estimated pair time.}
+\item{verbose}{Logical; report progress and the route.}
 
-\item{moments}{\code{"auto"} (the default), \code{"exact"} or \code{"pcalearning"}: the
-route of the pair calibration. \code{"auto"} chooses by the score dimension
-\code{q}, the number of pairs, the threads and the memory, not by the
-estimator.}
+\item{moments}{\code{"exact"} or \code{"pcalearning"}, the route of the pair
+calibration. Required: there is no default, and a call without it stops.
+Both routes serve both estimators.}
 
 \item{rank}{Number of PCAlearning basis matrices (default 20). Used by the
 PCAlearning route.}
@@ -73,9 +71,9 @@ full-spectrum saddlepoint of each pair.}
 An object of class \code{mgcvST_test} with \code{results}, \code{shards},
 \code{feature_id}, \code{failed} (features without a usable score state and the
 reason), \code{threshold}, \code{discoveries}, \code{adjustment}, \code{timing}
-(including the chosen route in \code{timing$route}), \code{calibration}, \code{moments}
-(the route taken), \code{contract} and \code{call}. A PCAlearning run additionally
-returns \code{pca_learning}.
+(\code{timing$route} holds the route, \code{k} and the score dimension \code{q}),
+\code{calibration}, \code{moments} (the route), \code{contract} and \code{call}. A PCAlearning
+run additionally returns \code{pca_learning}.
 }
 \description{
 Tests the cross-feature spatial covariance of every requested gene pair from
@@ -90,25 +88,22 @@ INLA fits from \code{\link[=inlaST.estimate]{inlaST.estimate()}} are tested with
 takes the same arguments.
 }
 \details{
-Two routes supply the shared basis and the remainder. With
-\code{moments = "exact"}, the shared basis holds the \code{k = 20} leading
-eigenvectors of the summed, normalized score covariances, every pair needs
-the four exact trace moments \verb{tr((H_i H_j)^s)}, \verb{s = 1, ..., 4}, and the
-remainder is two moment-matched nodes (one node or a Gaussian term when
-the moments do not allow two nodes). With \code{moments = "pcalearning"}, the
-score covariances are projected onto a rank-\code{rank} basis learned from
-training genes (see \code{\link[=inlaST.test]{inlaST.test()}} for the construction), the pair traces
-\verb{tr(H_i H_j)} and \verb{tr((H_i H_j)^2)} come from a contraction of the
-projected coefficients, the shared basis holds the \code{k = 50} leading
-eigenvectors of the training genes, and the remainder is one node. The
-exact route costs time cubic in the score dimension \code{q} for every pair, and
-the PCAlearning route does not depend on \code{q} per pair. \code{moments = "auto"}
-(the default) takes the exact route when its estimated pair phase is at
-most 2 hours, its pair bases fit 30\% of the available memory and its
-score-state store fits 64 GB on disk, and the PCAlearning route otherwise;
-\code{verbose = TRUE} prints the chosen route and the estimated time. A
-checkpoint directory records its route, and a resumed \code{"auto"} run follows
-the recorded route.
+The argument \code{moments} selects the route that supplies the shared basis and
+the remainder; it has no default. With \code{moments = "exact"}, the shared basis
+holds the \code{k = 20} leading eigenvectors of the summed, normalized score
+covariances, every pair needs the four exact trace moments
+\verb{tr((H_i H_j)^s)}, \verb{s = 1, ..., 4}, and the remainder is two moment-matched
+nodes (one node or a Gaussian term when the moments do not allow two nodes).
+With \code{moments = "pcalearning"}, the score covariances are projected onto a
+rank-\code{rank} basis learned from training genes (see \code{\link[=inlaST.test]{inlaST.test()}} for the
+construction), the pair traces \verb{tr(H_i H_j)} and \verb{tr((H_i H_j)^2)} come from
+a contraction of the projected coefficients, the shared basis holds the
+\code{k = 50} leading eigenvectors of the training genes, and the remainder is
+one node. The exact route costs time cubic in the score dimension \code{q} for
+every pair, and the PCAlearning route does not depend on \code{q} per pair; the
+PCAlearning route needs more genes than \code{rank}. \code{verbose = TRUE} prints the
+route and \code{k}. A checkpoint directory records its route, and a resumed call
+with another \code{moments} stops with a message.
 
 With \code{pairs = NULL}, every pair of the available features is tested; the
 pairs are generated and scored in blocks and never held as one matrix. A

@@ -42,15 +42,15 @@ test_that("sparse INLA downstream takes no BiocParallel backend and agrees acros
   expect_identical(fit$diagnostics$marginal_fallback,
                    fit$diagnostics$marginal_method == "saddlepoint")
   pairs <- t(combn(rownames(f$Y), 2L))
-  serial <- inlaST.test(fit, pairs = pairs, rank = 1L, chunk_size = 1L)
+  serial <- inlaST.test(fit, pairs = pairs, rank = 1L, chunk_size = 1L, moments = "exact")
   threaded <- inlaST.test(fit, pairs = pairs, rank = 1L, threads = 2L,
-                          chunk_size = 1L)
+                          chunk_size = 1L, moments = "exact")
   expect_identical(nrow(serial$results), nrow(pairs))
   expect_equal(threaded$results, serial$results, tolerance = 1e-10)
   bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
-  expect_error(inlaST.test(fit, pairs = pairs, BPPARAM = bp), "unused argument")
+  expect_error(inlaST.test(fit, pairs = pairs, BPPARAM = bp, moments = "exact"), "unused argument")
   expect_error(
-    mgcvST.test(fit, pairs = pairs),
+    mgcvST.test(fit, pairs = pairs, moments = "exact"),
     "does not accept inlaST.estimate() fits; use inlaST.test().", fixed = TRUE
   )
 })

@@ -4,13 +4,13 @@
 #' sparse INLA score state stored on the fit is reused; no model is refitted.
 #' Each gene pair is tested by the signed cross-gene score, calibrated by the
 #' saddlepoint approximation described in [mgcvST.test()], which also
-#' describes the exact and PCAlearning routes and the choice between them. The
+#' describes the exact and PCAlearning routes; `moments` selects the route. The
 #' score uses the full-rank constrained observation-kernel basis (all `q - 1`
 #' directions of the constrained field, ordered by eigenvalue), the same basis
 #' that [inlaST.wgcna()] uses; no eigenvalue coverage truncation is applied.
-#' The exact route reconstructs each gene's reduced curvature in that basis
-#' and takes `q` small enough for its cubic pair cost; the PCAlearning route
-#' serves large `q`. The fitted sparse field is unchanged. The dimension of the
+#' The exact route reconstructs each gene's reduced curvature in that basis; its
+#' pair cost is cubic in `q`, and the PCAlearning route does not depend on `q`
+#' per pair. The fitted sparse field is unchanged. The dimension of the
 #' field, the number of basis directions and the basis time are stored in
 #' `timing$inla_projection`, the pair-stage timings in `timing$pair_pipeline`
 #' (exact route) or `timing$pcalearning`, and the chosen route in
@@ -62,13 +62,12 @@ inlaST.test <- function(
     fitinlaST, pairs = NULL, q.value = 0.05,
     adjust = c("BY", "BH", "Sidak", "none"),
     threads = NULL, chunk_size = NULL, checkpoint_dir = NULL,
-    resume = TRUE, verbose = FALSE,
-    moments = c("auto", "exact", "pcalearning"),
+    resume = TRUE, verbose = FALSE, moments,
     rank = .mgcvst_pca_defaults$rank,
     n_per_cell = .mgcvst_pca_defaults$n_per_cell,
     seed = .mgcvst_pca_defaults$seed, k = NULL) {
+  if (missing(moments)) .mgcvst_moments_missing()
   adjust <- match.arg(adjust)
-  moments <- match.arg(moments)
   .mgcvst_test_run(
     fitinlaST, "inla", pairs, q.value, adjust, threads, chunk_size,
     checkpoint_dir, resume, verbose, moments = moments, rank = rank,

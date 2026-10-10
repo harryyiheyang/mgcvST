@@ -88,7 +88,7 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   W <- mgcvST.wgcna(fit, ids)
   pairs <- t(utils::combn(ids, 2L))
-  T <- mgcvST.test(fit, pairs = pairs)
+  T <- mgcvST.test(fit, pairs = pairs, moments = "exact")
   i <- match(T$feature_id[T$results$i], colnames(W$score$A))
   j <- match(T$feature_id[T$results$j], colnames(W$score$A))
   G <- crossprod(W$score$A)
@@ -179,7 +179,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   expect_equal(W$score$A, A, tolerance = 1e-12)
 
   pairs <- t(utils::combn(ids, 2L))
-  T <- inlaST.test(fit, pairs = pairs, rank = 1L)
+  T <- inlaST.test(fit, pairs = pairs, rank = 1L, moments = "exact")
   i <- match(fit$feature_id[T$results$i], ids)
   j <- match(fit$feature_id[T$results$j], ids)
   expect_equal(T$results$score,
@@ -187,7 +187,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
                tolerance = 1e-10)
 
   expect_error(
-    mgcvST.test(fit),
+    mgcvST.test(fit, moments = "exact"),
     "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
   )
   expect_error(

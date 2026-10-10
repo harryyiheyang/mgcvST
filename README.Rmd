@@ -143,7 +143,7 @@ Y <- t(as.matrix(MISO_E13$expression))
 fit <- inlaST.estimate(Y, model, spatial = "all")
 marginal <- fit$diagnostics[c("feature_id", "marginal_p_value", "marginal_method")]
 pairs <- t(combn(rownames(Y), 2L))
-result <- inlaST.test(fit, pairs = pairs)
+result <- inlaST.test(fit, pairs = pairs, moments = "exact")
 ```
 
 The backend uses fixed `kappa`, full SPDE bases and INLA empirical-Bayes
@@ -154,9 +154,8 @@ remains Gaussian. Each prior can be replaced explicitly with a validated INLA
 prior. INLA and mgcv REML use distinct estimation procedures. Feature estimation uses
 raw sparse precision matrices. The default score backend also uses sparse
 precision solves for a single global SPDE; shared model setup and marginal
-testing retain dense geometry. See [implementation and statistical details](inst/notes/inla-estimator.md),
-the [runnable data example](inst/examples/inla_estimator.R), and the
-[benchmark script](inst/benchmarks/inla-estimator.R).
+testing retain dense geometry. See [implementation and statistical details](inst/notes/inla-estimator.md)
+and the [runnable data example](inst/examples/inla_estimator.R).
 
 The nuisance `Vp` now comes directly from INLA's constrained conditional
 posterior covariance; the previous expected-Fisher reconstruction is retained
@@ -216,10 +215,12 @@ of `U` is a Lugannani-Rice saddlepoint approximation computed in log space on
 the `k` leading singular values of a basis shared by all genes, plus a
 remainder that matches the remaining power sums of the spectrum, so that
 p-values below the double range keep their ordering. Two routes provide the
-shared basis and the remainder, and `moments = "auto"` (the default) chooses
-between them by the score dimension `q`, the number of pairs, the threads and
-the memory, not by the estimator; `verbose = TRUE` prints the chosen route and
-the estimated pair time.
+shared basis and the remainder, and the
+argument `moments` selects one of them: `"exact"` or `"pcalearning"`. It has no
+default, and both routes serve both estimators (an INLA fit takes the exact
+route through its reduced observation-kernel states, and an mgcv fit takes the
+PCAlearning route through the dense score kernel); `verbose = TRUE` prints the
+route and `k`.
 
 * `moments = "exact"` uses the `k = 20` leading eigenvectors of the summed,
   normalized score covariances, the four exact trace moments of every pair, and
@@ -254,8 +255,8 @@ space, and positive and negative discoveries are split by the sign of the
 score. A `checkpoint_dir` stores the feature score states, the shared basis
 and the pair shards under the algorithm contract `spa_v1`, which records the
 route, `k`, the remainder order and the sha of the shared basis; a directory
-holding pair results from another contract is refused, and a resumed
-`moments = "auto"` run follows the route recorded in the directory.
+holding pair results from another contract is refused. The directory records
+its route, and a resume with another `moments` stops with a message.
 
 ## Included data and observed spatial locations
 
@@ -369,7 +370,8 @@ fit_pair_miso <- mgcvST.estimate(
 )
 score_miso <- mgcvST.test(
   fit_pair_miso, pairs = matrix(c("Mapt", "Map1b"), nrow = 1L),
-  adjust = "none", threads = 1L
+  adjust = "none", threads = 1L,
+  moments = "exact"
 )
 data.frame(
   pair = "Mapt--Map1b",
@@ -468,7 +470,8 @@ fit_pair_visium <- mgcvST.estimate(
 )
 score_visium <- mgcvST.test(
   fit_pair_visium, pairs = matrix(c("mt_co3", "BRAFhuman"), nrow = 1L),
-  adjust = "none", threads = 1L
+  adjust = "none", threads = 1L,
+  moments = "exact"
 )
 data.frame(
   pair = "mt_co3--BRAFhuman",
@@ -567,7 +570,8 @@ fit_batch_miso <- mgcvST.estimate(
   BPPARAM = BiocParallel::SerialParam(), spatial = "all"
 )
 test_batch_miso <- mgcvST.test(
-  fit_batch_miso, pairs = t(combn(genes_miso, 2L)), threads = 1L
+  fit_batch_miso, pairs = t(combn(genes_miso, 2L)), threads = 1L,
+  moments = "exact"
 )
 cbind(
   feature1 = test_batch_miso$feature_id[test_batch_miso$results$i],

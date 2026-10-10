@@ -16,15 +16,21 @@
 }
 
 .mgcvst_adjust_choices <- c("BY", "BH", "Sidak", "none")
-.mgcvst_moments_choices <- c("auto", "exact", "pcalearning")
+.mgcvst_moments_choices <- c("exact", "pcalearning")
+
+.mgcvst_moments_missing <- function() {
+  stop("moments must be given: \"exact\" (the four exact trace moments of every ",
+       "pair, k = 20 leading singular values) or \"pcalearning\" (low-rank trace ",
+       "moments, k = 50). There is no default.", call. = FALSE)
+}
 
 # Shared orchestration of mgcvST.test() and inlaST.test(): validate the
-# arguments, resolve the pair universe and the route, stream the pairs of the
-# route ("exact" moments or "pcalearning") to shards, adjust the two-sided
+# arguments, resolve the pair universe, stream the pairs of the route the user
+# chose ("exact" moments or "pcalearning") to shards, adjust the two-sided
 # family once and assemble the result. `entry` is "mgcv" or "inla".
 .mgcvst_test_run <- function(fit, entry, pairs, q.value, adjust, threads,
                              chunk_size, checkpoint_dir, resume, verbose,
-                             moments = "auto", rank = NULL, n_per_cell = NULL,
+                             moments, rank = NULL, n_per_cell = NULL,
                              seed = NULL, k = NULL, call = NULL) {
   q.value <- as.numeric(q.value)
   if (length(q.value) != 1L || !is.finite(q.value) ||
@@ -85,6 +91,8 @@
   }
   # Validated before any basis is built.
   pca <- .mgcvst_pca_check_args(rank, n_per_cell, seed, k)
+  # A resumed run follows the route of its checkpoint directory.
+  .mgcvst_route_check(checkpoint_dir, resume, moments)
   if (identical(entry, "mgcv") && is.null(fit$geometry)) {
     stop("fitmgcvST has no feature geometry to test.")
   }
@@ -148,30 +156,19 @@
       basis_kind <- basis$kind
     }
     q <- .mgcvst_state_width(fit, basis)
-    # A checkpoint directory remembers its route, so that a resumed run
-    # follows it whatever the threads or the memory of the new session.
-    stored <- if (!is.null(checkpoint_dir) && resume && identical(moments, "auto"))
-      .mgcvst_route_stored(checkpoint_dir) else NULL
-    route <- .mgcvst_route_resolve(
-      if (is.null(stored)) moments else stored$moments, q, n_used, n_tested,
-      threads, pca$rank,
-      if (is.null(pca$k)) .mgcvst_exact_defaults$k else pca$k,
-      if (is.null(pca$k)) .mgcvst_pca_defaults$k else pca$k,
-      .mgcvst_memory_probe()$available
-    )
-    if (!is.null(stored)) route$reason <- "the route of the checkpoint directory"
+    k_route <- if (is.null(pca$k)) {
+      if (identical(moments, "exact")) .mgcvst_exact_defaults$k else .mgcvst_pca_defaults$k
+    } else pca$k
+    route <- list(moments = moments, k = as.integer(min(k_route, q)), q = q)
     if (verbose) {
-      message("Pair test: ", if (identical(route$moments, "exact"))
+      message("Pair test: ", if (identical(moments, "exact"))
                 paste0("exact moments (k = ", route$k, ")") else
                 paste0("PCAlearning (rank ", pca$rank, ", k = ", route$k, ")"),
               " on q = ", q, ", ", format(n_tested, big.mark = ","), " pairs and ",
-              threads, " thread", if (threads > 1L) "s", "; estimated pair time ",
-              .mgcvst_format_duration(route$seconds),
-              if (!is.null(route$reason) && identical(moments, "auto"))
-                paste0(" (auto: ", route$reason, ")"), ".")
+              threads, " thread", if (threads > 1L) "s", ".")
     }
     if (is.null(chunk_size)) {
-      chunk_size <- if (identical(route$moments, "pcalearning")) 1000000L else 10000L
+      chunk_size <- if (identical(moments, "pcalearning")) 1000000L else 10000L
     }
     chunk_size <- min(chunk_size, .Machine$integer.max)
     if (identical(route$moments, "pcalearning")) {
@@ -237,11 +234,7 @@
     )
   }
   pca_learning <- NULL
-  if (!is.null(route)) {
-    timing$route <- c(route[c("moments", "k", "q", "n_used", "n_pairs")],
-                      list(estimated_pair_seconds = route$seconds,
-                           reason = route$reason))
-  }
+  if (!is.null(route)) timing$route <- route
   if (identical(route$moments, "pcalearning")) {
     projection <- routed$metadata
     pca_learning <- projection$pca_learning
@@ -289,25 +282,22 @@
 #' INLA fits from [inlaST.estimate()] are tested with [inlaST.test()], which
 #' takes the same arguments.
 #'
-#' Two routes supply the shared basis and the remainder. With
-#' `moments = "exact"`, the shared basis holds the `k = 20` leading
-#' eigenvectors of the summed, normalized score covariances, every pair needs
-#' the four exact trace moments `tr((H_i H_j)^s)`, `s = 1, ..., 4`, and the
-#' remainder is two moment-matched nodes (one node or a Gaussian term when
-#' the moments do not allow two nodes). With `moments = "pcalearning"`, the
-#' score covariances are projected onto a rank-`rank` basis learned from
-#' training genes (see [inlaST.test()] for the construction), the pair traces
-#' `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from a contraction of the
-#' projected coefficients, the shared basis holds the `k = 50` leading
-#' eigenvectors of the training genes, and the remainder is one node. The
-#' exact route costs time cubic in the score dimension `q` for every pair, and
-#' the PCAlearning route does not depend on `q` per pair. `moments = "auto"`
-#' (the default) takes the exact route when its estimated pair phase is at
-#' most 2 hours, its pair bases fit 30% of the available memory and its
-#' score-state store fits 64 GB on disk, and the PCAlearning route otherwise;
-#' `verbose = TRUE` prints the chosen route and the estimated time. A
-#' checkpoint directory records its route, and a resumed `"auto"` run follows
-#' the recorded route.
+#' The argument `moments` selects the route that supplies the shared basis and
+#' the remainder; it has no default. With `moments = "exact"`, the shared basis
+#' holds the `k = 20` leading eigenvectors of the summed, normalized score
+#' covariances, every pair needs the four exact trace moments
+#' `tr((H_i H_j)^s)`, `s = 1, ..., 4`, and the remainder is two moment-matched
+#' nodes (one node or a Gaussian term when the moments do not allow two nodes).
+#' With `moments = "pcalearning"`, the score covariances are projected onto a
+#' rank-`rank` basis learned from training genes (see [inlaST.test()] for the
+#' construction), the pair traces `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from
+#' a contraction of the projected coefficients, the shared basis holds the
+#' `k = 50` leading eigenvectors of the training genes, and the remainder is
+#' one node. The exact route costs time cubic in the score dimension `q` for
+#' every pair, and the PCAlearning route does not depend on `q` per pair; the
+#' PCAlearning route needs more genes than `rank`. `verbose = TRUE` prints the
+#' route and `k`. A checkpoint directory records its route, and a resumed call
+#' with another `moments` stops with a message.
 #'
 #' With `pairs = NULL`, every pair of the available features is tested; the
 #' pairs are generated and scored in blocks and never held as one matrix. A
@@ -363,12 +353,10 @@
 #'   contract; a directory holding pair results from another contract is
 #'   refused. With `NULL`, temporary storage is used.
 #' @param resume Reuse compatible completed checkpoint entries.
-#' @param verbose Logical; report progress, the chosen route and the
-#'   estimated pair time.
-#' @param moments `"auto"` (the default), `"exact"` or `"pcalearning"`: the
-#'   route of the pair calibration. `"auto"` chooses by the score dimension
-#'   `q`, the number of pairs, the threads and the memory, not by the
-#'   estimator.
+#' @param verbose Logical; report progress and the route.
+#' @param moments `"exact"` or `"pcalearning"`, the route of the pair
+#'   calibration. Required: there is no default, and a call without it stops.
+#'   Both routes serve both estimators.
 #' @param rank Number of PCAlearning basis matrices (default 20). Used by the
 #'   PCAlearning route.
 #' @param n_per_cell Training genes drawn per PCAlearning stratification cell
@@ -382,21 +370,20 @@
 #' @return An object of class `mgcvST_test` with `results`, `shards`,
 #'   `feature_id`, `failed` (features without a usable score state and the
 #'   reason), `threshold`, `discoveries`, `adjustment`, `timing`
-#'   (including the chosen route in `timing$route`), `calibration`, `moments`
-#'   (the route taken), `contract` and `call`. A PCAlearning run additionally
-#'   returns `pca_learning`.
+#'   (`timing$route` holds the route, `k` and the score dimension `q`),
+#'   `calibration`, `moments` (the route), `contract` and `call`. A PCAlearning
+#'   run additionally returns `pca_learning`.
 #' @export
 mgcvST.test <- function(
     fitmgcvST, pairs = NULL, q.value = 0.05,
     adjust = c("BY", "BH", "Sidak", "none"),
     threads = NULL, chunk_size = NULL, checkpoint_dir = NULL,
-    resume = TRUE, verbose = FALSE,
-    moments = c("auto", "exact", "pcalearning"),
+    resume = TRUE, verbose = FALSE, moments,
     rank = .mgcvst_pca_defaults$rank,
     n_per_cell = .mgcvst_pca_defaults$n_per_cell,
     seed = .mgcvst_pca_defaults$seed, k = NULL) {
+  if (missing(moments)) .mgcvst_moments_missing()
   adjust <- match.arg(adjust)
-  moments <- match.arg(moments)
   .mgcvst_test_run(
     fitmgcvST, "mgcv", pairs, q.value, adjust, threads, chunk_size,
     checkpoint_dir, resume, verbose, moments = moments, rank = rank,

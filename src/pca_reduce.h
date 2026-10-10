@@ -13,7 +13,9 @@
 
 #include <RcppEigen.h>
 #include <cmath>
+#include <cstring>
 #include <limits>
+#include <string>
 #include <vector>
 
 namespace mgcvst_pca {
@@ -80,6 +82,61 @@ inline bool project_factor(const Mat& M, double scale, const Mat& V, Mat& R) {
     }
   }
   return false;
+}
+
+// Reduction of one symmetric score-curvature matrix M (q x q) to what the
+// PCAlearning route keeps: the scale max|M|, ||vech_w(M)||^2, the coefficients
+// c = B' vech_w(M) (empty when the basis has no columns), the float32 packed
+// weighted vech when `pack` is set, and the vectorized factor R of the shared
+// basis V (empty when V has no columns). `h` is a work vector of length
+// q (q + 1) / 2. Returns an empty string, or the reason why the feature is
+// unusable (then every output is missing and `packed` is empty).
+inline std::string reduce_feature(const Mat& M, int q,
+                                  const Eigen::Map<const Mat>& PB,
+                                  const Eigen::Map<const Mat>& V, bool pack,
+                                  Vec& h, double& scale, double& fro2,
+                                  Eigen::Ref<Vec> c, std::vector<float>& packed,
+                                  Eigen::Ref<Vec> Rcol) {
+  const Index L = static_cast<Index>(q) * (q + 1) / 2;
+  auto fail = [&](const char* why) {
+    fro2 = NA_REAL;
+    c.setConstant(NA_REAL);
+    Rcol.setConstant(NA_REAL);
+    std::vector<float>().swap(packed);
+    return std::string(why);
+  };
+  scale = matrix_scale(M);
+  if (!(std::isfinite(scale) && scale > 0)) {
+    return fail("The curvature matrix is zero or not finite.");
+  }
+  pack_vech(M, q, h);
+  fro2 = h.squaredNorm();
+  if (c.size()) c = PB.transpose() * h;
+  if (pack) {
+    packed.resize(L);
+    for (Index p = 0; p < L; ++p) packed[p] = static_cast<float>(h[p]);
+  }
+  if (V.cols()) {
+    Mat R;
+    if (!project_factor(M, scale, V, R)) {
+      return fail("The shared-basis compression is not positive definite.");
+    }
+    Rcol = Eigen::Map<const Vec>(R.data(), V.cols() * V.cols());
+  }
+  return std::string();
+}
+
+// Float32 vectors of a batch as raw vectors for R (4 bytes per entry).
+inline Rcpp::List packed_to_raw(std::vector<std::vector<float> >& packed, Index L) {
+  Rcpp::List out(packed.size());
+  for (size_t g = 0; g < packed.size(); ++g) {
+    if (packed[g].empty()) continue;
+    Rcpp::RawVector x(4 * L);
+    std::memcpy(RAW(x), packed[g].data(), 4 * L);
+    out[g] = x;
+    std::vector<float>().swap(packed[g]);
+  }
+  return out;
 }
 
 }  // namespace mgcvst_pca

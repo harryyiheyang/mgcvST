@@ -503,14 +503,14 @@ test_that("mgcvST.estimate fits the spatial model of the Stage 1 discoveries onl
   expect_identical(fit$nuisance_covariance[chosen], all$nuisance_covariance[chosen])
   expect_output(print(fit), "spatial models: 2 of 3 features")
   # pairs = NULL tests the pairs among the fitted features; the others are not failures.
-  tested <- mgcvST.test(fit)
+  tested <- mgcvST.test(fit, moments = "exact")
   expect_identical(nrow(tested$results), 1L)
   expect_identical(c(tested$results$i, tested$results$j), chosen)
   expect_identical(nrow(tested$failed), 0L)
   expect_identical(tested$results$log_p_two_sided,
-                   mgcvST.test(all, pairs = rbind(chosen))$results$log_p_two_sided)
+                   mgcvST.test(all, pairs = rbind(chosen), moments = "exact")$results$log_p_two_sided)
   # An explicit pair with an unselected feature is reported, not tested.
-  bad <- mgcvST.test(fit, pairs = rbind(c(chosen[1L], rest)))
+  bad <- mgcvST.test(fit, pairs = rbind(c(chosen[1L], rest)), moments = "exact")
   expect_identical(bad$results$status, 3L)
   expect_match(bad$failed$error, "not selected in step 2")
   expect_identical(bad$failed$feature_id, fit$feature_id[rest])
@@ -519,10 +519,10 @@ test_that("mgcvST.estimate fits the spatial model of the Stage 1 discoveries onl
   none <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp, spatial = "none"))
   expect_false(any(none$diagnostics$spatial_fitted))
   expect_true(is.null(none$geometry))
-  expect_error(mgcvST.test(none), "no spatial model")
+  expect_error(mgcvST.test(none, moments = "exact"), "no spatial model")
   one_model <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp,
                                                 spatial = "response2"))
-  expect_error(mgcvST.test(one_model), "At least two available features")
+  expect_error(mgcvST.test(one_model, moments = "exact"), "At least two available features")
   by_id <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp,
                                             spatial = c("response3", "response")))
   expect_identical(by_id$diagnostics$spatial_fitted, c(TRUE, FALSE, TRUE))
@@ -560,7 +560,7 @@ test_that("mgcvST.estimate_spatial adds spatial models to a step 1 fit", {
     x$geometry
   }
   expect_identical(geometry(full), geometry(all))
-  expect_identical(mgcvST.test(full)$results, mgcvST.test(all)$results)
+  expect_identical(mgcvST.test(full, moments = "exact")$results, mgcvST.test(all, moments = "exact")$results)
   # Discoveries are selected from the stored Stage 1 p-values.
   q <- all$diagnostics$marginal_q_value
   cut <- sqrt(sort(q)[2L] * sort(q)[3L])
@@ -694,11 +694,11 @@ test_that("inlaST.estimate fits the null model of every feature and the spatial 
   expect_output(print(fit), "spatial models: 3 of 6 features")
 
   # The test covers the fitted features; the others are not failures.
-  tested <- inlaST.test(fit, rank = 3L, seed = 4L)
+  tested <- inlaST.test(fit, rank = 3L, seed = 4L, moments = "exact")
   expect_identical(nrow(tested$results), 3L)
   expect_true(all(c(tested$results$i, tested$results$j) %in% chosen))
   expect_identical(nrow(tested$failed), 0L)
-  bad <- inlaST.test(fit, pairs = rbind(c(chosen[1L], rest[1L])), rank = 3L, seed = 4L)
+  bad <- inlaST.test(fit, pairs = rbind(c(chosen[1L], rest[1L])), rank = 3L, seed = 4L, moments = "exact")
   expect_identical(bad$results$status, 3L)
   expect_match(bad$failed$error, "not selected in step 2")
   expect_error(inlaST.wgcna(fit, indices = fit$feature_id), "no spatial fit")
@@ -731,8 +731,8 @@ test_that("inlaST.estimate_spatial adds spatial models to a step 1 fit", {
               "family_parameters", "null_state", "constraint_residual",
               "observation_spatial_mean", "feature_family", "y_digest")
   .ts_same_estimates(full, all, fields)
-  expect_identical(inlaST.test(full, rank = 3L, seed = 4L)$results,
-                   inlaST.test(all, rank = 3L, seed = 4L)$results)
+  expect_identical(inlaST.test(full, rank = 3L, seed = 4L, moments = "exact")$results,
+                   inlaST.test(all, rank = 3L, seed = 4L, moments = "exact")$results)
   q <- all$diagnostics$marginal_q_value
   cut <- sqrt(sort(q)[3L] * sort(q)[4L])
   some <- inlaST.estimate_spatial(none, d$Y, q.value = cut, BPPARAM = sp)
@@ -844,7 +844,7 @@ test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
   expect_error(mgcvST:::.mgcvst_pca_scales(missing), "does not store mu_bar")
   for (old in list(missing, local({ x <- fit; x$format <- NULL; x }),
                    local({ x <- fit; x$format <- 1L; x }))) {
-    expect_error(inlaST.test(old, rank = 2L), "before mgcvST 0.0.1.9032|re-run inlaST.estimate")
+    expect_error(inlaST.test(old, rank = 2L, moments = "exact"), "before mgcvST 0.0.1.9032|re-run inlaST.estimate")
     expect_error(inlaST.wgcna(old, indices = fit$feature_id[1:3]), "re-run inlaST.estimate")
     expect_error(inlaST.estimate_spatial(old, d$Y), "re-run inlaST.estimate")
   }
@@ -862,7 +862,7 @@ test_that("the observation basis is full rank and enters the pair signature", {
   expect_identical(basis$rank, d$m - 1L)
   expect_identical(ncol(basis$coordinate), d$m - 1L)
   # The basis is built once and is the one the test reports.
-  tested <- inlaST.test(fit, rank = 3L, seed = 4L)
+  tested <- inlaST.test(fit, rank = 3L, seed = 4L, moments = "exact")
   expect_identical(tested$timing$inla_projection$q, d$m)
   expect_identical(tested$timing$route$q, d$m - 1L)
   expect_identical(tested$timing$inla_projection$r, d$m - 1L)
@@ -877,10 +877,10 @@ test_that("the observation basis is full rank and enters the pair signature", {
   expect_identical(fit$basis_spec, list(kind = "full_rank", rank = d$m - 1L))
   changed <- fit
   changed$basis_spec$kind <- "truncated"
-  expect_error(inlaST.test(changed, rank = 3L, seed = 4L), "differs from the one recorded")
+  expect_error(inlaST.test(changed, rank = 3L, seed = 4L, moments = "exact"), "differs from the one recorded")
   expect_error(mgcvST:::.mgcvst_inla_wgcna_scores(changed, 1:3, 1L, FALSE),
                "differs from the one recorded")
-  expect_error(inlaST.test(local({ x <- fit; x$basis_spec <- NULL; x }), rank = 3L),
+  expect_error(inlaST.test(local({ x <- fit; x$basis_spec <- NULL; x }), rank = 3L, moments = "exact"),
                "recorded by the estimation (none)", fixed = TRUE)
   # The pair signature, and with it every pair checkpoint, depends on the basis.
   signature <- mgcvST:::.mgcvst_pair_signature(prepared, basis)

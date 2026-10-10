@@ -86,6 +86,51 @@ test_that("each remainder form is used when its moments allow it", {
   expect_true(all(kept[, "remainder_kind"] > 0))
 })
 
+test_that("a remainder node above the leading values is bracketed whatever its multiplicity", {
+  # The term that attains the largest squared value can be a node with a
+  # multiplicity below 1; the root bracket must use its multiplicity.
+  s <- c(1, 0.5)
+  lead <- .spa_powers(s)
+  x <- c(5, 20)
+  node <- function(u, m) vapply(1:4, function(r) sum(m * u^r), numeric(1L))
+  # One node m = 0.5, u = 1.5 > s_1^2 = 1.
+  z <- .spa_kernel(x, s, lead + node(1.5, 0.5), 2L)
+  expect_identical(unname(z[, "status"]), c(0, 0))
+  expect_identical(unname(z[, "remainder_kind"]), c(1, 1))
+  ref <- vapply(x, function(v) .spa_ref(v, s, m = 0.5, u = 1.5), numeric(1L))
+  expect_equal(unname(z[, "log_p_two_sided"]), ref, tolerance = 1e-9)
+  expect_equal(unname(z[, "log_p_two_sided"]), c(-5.026, -18.36), tolerance = 1e-3)
+  expect_identical(attr(z, "nodes_above_leading"), 2)
+  # Two nodes with u_2 > s_1^2 and m_2 < 1.
+  mu <- node(c(0.2, 1.5), c(3, 0.5))
+  z2 <- .spa_kernel(x, s, lead + mu, 4L)
+  expect_identical(unname(z2[, "status"]), c(0, 0))
+  expect_identical(unname(z2[, "remainder_kind"]), c(2, 2))
+  ref2 <- vapply(x, function(v) .spa_ref(v, s, m = c(3, 0.5), u = c(0.2, 1.5)), numeric(1L))
+  expect_equal(unname(z2[, "log_p_two_sided"]), ref2, tolerance = 1e-9)
+  expect_identical(attr(z2, "nodes_above_leading"), 2)
+  # No node above the leading values: the diagnostic is zero.
+  z3 <- .spa_kernel(x, s, lead + node(c(0.2, 0.05), c(3, 2)), 4L)
+  expect_identical(attr(z3, "nodes_above_leading"), 0)
+  # A wrong root is never returned as a p-value: the residual of the saddlepoint
+  # equation is checked, so every evaluated pair satisfies it. Sweep the node
+  # position and multiplicity, including nodes far above the leading values.
+  xs <- c(0.5, 5, 20, 60)
+  for (u in c(1.01, 1.5, 4, 25)) for (m in c(0.02, 0.5, 1, 3)) {
+    zz <- .spa_kernel(xs, s, lead + node(u, m), 2L)
+    expect_true(all(zz[, "status"] == 0), info = paste(u, m))
+    # The R reference loses a few points to its own root finding; it is
+    # compared where it is finite.
+    refs <- suppressWarnings(vapply(xs, function(v) .spa_ref(v, s, m = m, u = u),
+                                    numeric(1L)))
+    good <- is.finite(refs)
+    expect_gte(sum(good), 1L)
+    expect_true(all(diff(zz[, "log_p_two_sided"]) < 0), info = paste(u, m))
+    expect_equal(unname(zz[good, "log_p_two_sided"]), refs[good], tolerance = 1e-7,
+                 info = paste(u, m))
+  }
+})
+
 test_that("invalid saddlepoint inputs return a status and no p-value", {
   s <- c(1, 0.6)
   Tm <- .spa_powers(s)

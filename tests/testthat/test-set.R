@@ -73,7 +73,7 @@ test_that("set expands factor interactions once for shared BAM null and full des
     }
     retained <- mgcvST.marginal(fit, BPPARAM = BiocParallel::SerialParam())
     expect_equal(retained$p_value, fit$diagnostics$marginal_p_value, tolerance = 1e-7)
-    pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L))
+    pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L), moments = "exact")
     expect_true(all(is.finite(pair$results$log_p_two_sided)))
   }
 })

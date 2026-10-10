@@ -27,7 +27,7 @@
 //
 // A pair needs the first two trace moments t_s = tr((H_i H_j)^s), s = 1, 2. With
 // X = sum_k x_k B_k and Y = sum_k y_k B_k:
-//   s = 1: tr(XY) = x'y, since B is orthonormal (Tsym1 = I).
+//   s = 1: tr(XY) = x'y, since B is orthonormal.
 //   s = 2: tr(XYXY) = sum tr(Y_ab Y_cd), Y_ab = B_a B_b, and tr(Y_ab Y_cd) =
 //          <Y_ba, Y_cd>: one Gram matrix of the r^2 products. It is written as
 //          kappa_2(x)' Tsym2 kappa_2(y) with the degree-2 monomials kappa_2
@@ -133,6 +133,7 @@ struct PairWork {
   MatD Mk;
   Eigen::BDCSVD<MatD> svd;
   mgcvst_spa::Scratch scratch;
+  long above = 0;  // pairs whose remainder node lies above the largest leading value
   explicit PairWork(int k) : Mk(k, k), svd(k, k, 0) { scratch.reserve(k + 2); }
 };
 
@@ -171,6 +172,7 @@ inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1
     out[row + 4 * rows] = lp[1];
     out[row + 5 * rows] = lp[2];
     out[row + 6 * rows] = rem.kind;
+    if (mgcvst_spa::node_above_leading(rem, sv[0])) ++w.above;
   }
 }
 
@@ -255,9 +257,9 @@ Rcpp::NumericMatrix mgcvst_pca_basis_cpp(const Rcpp::List& packed,
   return out;
 }
 
-// Trace tables Tsym1 (r x r) and Tsym2 of a symmetric basis B given as q^2 x r
-// (full columns, symmetrized) or q (q + 1) / 2 x r (weighted vech). For an
-// orthonormal basis Tsym1 is the identity.
+// Trace table Tsym2 of a symmetric orthonormal basis B given as q^2 x r (full
+// columns, symmetrized) or q (q + 1) / 2 x r (weighted vech). The products
+// Y_ab = B_a B_b are stored for a <= b only (Y_ba is its transpose).
 // [[Rcpp::export]]
 Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
                                  int threads = 1, int block = 32, int tile = 192) {
@@ -265,7 +267,7 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
   const int r = B.ncol();
   const Index qq = (Index)q * q;
   const bool full = B.nrow() == qq;
-  const Multisets m1 = make_multisets(r, 1), m2 = make_multisets(r, 2);
+  const Multisets m2 = make_multisets(r, 2);
   const int d2 = m2.d;
   std::vector<double> timing;
   std::vector<std::string> tnames;
@@ -280,21 +282,23 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
 #endif
   for (int k = 0; k < r; ++k) Bd[k] = unpack_symmetric(&B(0, k), q, full);
-  std::vector<MatF> Yf(r * r);
+  std::vector<MatF> Yf(d2);
+  std::vector<int> pid((size_t)r * r);
+  for (int t = 0; t < d2; ++t) {
+    const int a = m2.at(t, 0), b = m2.at(t, 1);
+    pid[(size_t)a * r + b] = pid[(size_t)b * r + a] = t;
+  }
 #ifdef _OPENMP
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
 #endif
   for (int t = 0; t < d2; ++t) {
     const int a = m2.at(t, 0), b = m2.at(t, 1);
     MatD y = Bd[a] * Bd[b];
-    Yf[a * r + b] = y.cast<float>();
-    if (a != b) Yf[b * r + a] = y.transpose().cast<float>();
+    Yf[t] = y.cast<float>();
   }
-  MatD T1(r, r);
-  for (int a = 0; a < r; ++a) for (int b = 0; b < r; ++b) T1(a, b) = (Bd[a].array() * Bd[b].array()).sum();
   Bd.clear();
   mark("products", t0);
-  memory.push_back(8.0 * qq * r + 4.0 * qq * r * r); mnames.push_back("B_Y");
+  memory.push_back(8.0 * qq * r + 4.0 * qq * d2); mnames.push_back("B_Y");
 
   // Level 2: Gram of the r^2 products over column blocks of full entries.
   t0 = now();
@@ -305,7 +309,21 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
     for (int c0 = 0; c0 < q; c0 += block) {
       const int w = std::min(block, q - c0);
       const Index len = (Index)q * w;
-      for (int t = 0; t < r * r; ++t) std::memcpy(P.data() + (Index)t * len, Yf[t].data() + (Index)c0 * q, sizeof(float) * len);
+      for (int a = 0; a < r; ++a) {
+        for (int b = 0; b < r; ++b) {
+          float* dst = P.data() + ((Index)a * r + b) * len;
+          const float* src = Yf[pid[(size_t)a * r + b]].data();
+          if (a <= b) {
+            std::memcpy(dst, src + (Index)c0 * q, sizeof(float) * len);
+          } else {
+            // Y_ba = Y_ab': columns c0, ..., c0 + w - 1 of the transpose.
+            for (Index i = 0; i < q; ++i) {
+              const float* row = src + i * q + c0;
+              for (int c = 0; c < w; ++c) dst[(Index)c * q + i] = row[c];
+            }
+          }
+        }
+      }
       gram_accumulate(P.data(), len, r * r, Gy, threads, tile);
     }
   }
@@ -324,8 +342,7 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
   tv.names() = tnames;
   mv.names() = mnames;
   return Rcpp::List::create(
-    Rcpp::Named("Tsym1") = T1, Rcpp::Named("Tsym2") = T2,
-    Rcpp::Named("ms1") = multiset_matrix(m1), Rcpp::Named("ms2") = multiset_matrix(m2),
+    Rcpp::Named("Tsym2") = T2, Rcpp::Named("ms2") = multiset_matrix(m2),
     Rcpp::Named("r") = r, Rcpp::Named("q") = q,
     Rcpp::Named("timing") = tv, Rcpp::Named("memory") = mv);
 }
@@ -412,11 +429,11 @@ Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::Mat
   if (a.cols() != n || pack.size() != n) Rcpp::stop("H, a and pack must align.");
   Rcpp::NumericMatrix PBr = pca_basis.isNotNull() ? Rcpp::NumericMatrix(pca_basis.get())
                                                   : Rcpp::NumericMatrix(L, 0);
-  const Eigen::Map<MatD> PB(PBr.begin(), L, PBr.ncol());
+  const Eigen::Map<const MatD> PB(PBr.begin(), L, PBr.ncol());
   const int r = PB.cols();
   Rcpp::NumericMatrix Vr = V.isNotNull() ? Rcpp::NumericMatrix(V.get()) : Rcpp::NumericMatrix(q, 0);
   if (Vr.nrow() != q) Rcpp::stop("V must have q rows.");
-  const Eigen::Map<MatD> Vm(Vr.begin(), q, Vr.ncol());
+  const Eigen::Map<const MatD> Vm(Vr.begin(), q, Vr.ncol());
   const int k = Vm.cols();
   std::vector<const double*> Hptr(n);
   for (int g = 0; g < n; ++g) {
@@ -437,52 +454,29 @@ Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::Mat
 #endif
   {
     VecD h(L);
+    VecD ccol(r), rcol((Index)k * k);
 #ifdef _OPENMP
 #pragma omp for schedule(dynamic, 1)
 #endif
     for (int g = 0; g < n; ++g) {
       Eigen::Map<const MatD> Mraw(Hptr[g], q, q);
       const MatD M = 0.5 * (Mraw + Mraw.transpose());
-      const double s = mgcvst_pca::matrix_scale(M);
+      double s = NA_REAL, f2 = NA_REAL;
+      error[g] = mgcvst_pca::reduce_feature(M, q, PB, Vm, pack[g] != 0, h, s, f2,
+                                            ccol, packed[g], rcol);
       sp[g] = s;
-      if (!(std::isfinite(s) && s > 0)) {
-        error[g] = "The curvature matrix is zero or not finite.";
-        Aout.col(g).setConstant(NA_REAL);
-        C.row(g).setConstant(NA_REAL);
-        fro2[g] = NA_REAL;
-        if (k) Rall.col(g).setConstant(NA_REAL);
-        continue;
-      }
-      mgcvst_pca::pack_vech(M, q, h);
-      fro2[g] = h.squaredNorm();
-      if (r) C.row(g) = (PB.transpose() * h).transpose();
-      if (pack[g]) {
-        packed[g].resize(L);
-        for (Index p = 0; p < L; ++p) packed[g][p] = (float)h[p];
-      }
-      if (k) {
-        MatD Rg;
-        if (mgcvst_pca::project_factor(M, s, Vm, Rg)) {
-          Rall.col(g) = Eigen::Map<const VecD>(Rg.data(), (Index)k * k);
-        } else {
-          error[g] = "The shared-basis compression is not positive definite.";
-          Rall.col(g).setConstant(NA_REAL);
-        }
-      }
+      fro2[g] = f2;
+      C.row(g) = ccol.transpose();
+      if (k) Rall.col(g) = rcol;
+      if (!error[g].empty()) Aout.col(g).setConstant(NA_REAL);
     }
   }
-  Rcpp::List packed_out(n);
+  Rcpp::List packed_out = mgcvst_pca::packed_to_raw(packed, L);
   Rcpp::CharacterVector error_out(n);
   int failed = 0;
   for (int g = 0; g < n; ++g) {
     error_out[g] = error[g].empty() ? NA_STRING : Rcpp::String(error[g]);
     if (!error[g].empty()) ++failed;
-    if (!packed[g].empty()) {
-      Rcpp::RawVector x(4 * L);
-      std::memcpy(RAW(x), packed[g].data(), 4 * L);
-      packed_out[g] = x;
-      std::vector<float>().swap(packed[g]);
-    }
   }
   return Rcpp::List::create(
     Rcpp::Named("a") = Rcpp::wrap(Aout), Rcpp::Named("C") = Rcpp::wrap(C),
@@ -537,6 +531,7 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
   Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
   const double* sc = scale.begin();
+  long nodes_above = 0;
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
@@ -552,8 +547,13 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
       const double t2 = S2.col(slot[a]).dot(K2.col(b));
       spa_pair_row(o, np, t, U, t1, t2, sc[a], sc[b], &R(0, a), &R(0, b), k, work);
     }
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    nodes_above += work.above;
   }
   Rcpp::colnames(out) = pair_columns();
+  out.attr("nodes_above_leading") = (double)nodes_above;
   return out;
 }
 
@@ -600,6 +600,7 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
   Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
   const double* sc = scale.begin();
+  long nodes_above = 0;
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
@@ -623,7 +624,12 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
         }
       }
     }
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    nodes_above += work.above;
   }
   Rcpp::colnames(out) = pair_columns();
+  out.attr("nodes_above_leading") = (double)nodes_above;
   return out;
 }

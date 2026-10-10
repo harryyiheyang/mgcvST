@@ -79,16 +79,36 @@ test_that("pair results written under another algorithm contract are refused", {
   expect_identical(mgcvST:::.mgcvst_pairs_open(root, universe, contract), dir)
   expect_error(mgcvST:::.mgcvst_pairs_open(root, universe, contract, resume = FALSE),
                "already exist")
-  # The PCAlearning route is keyed by its own contract record and coexists.
-  other <- mgcvST:::.mgcvst_pairs_open(root, universe,
-    mgcvST:::.mgcvst_contract("pcalearning"))
-  expect_false(identical(other, dir))
+  # The rank and the basis sha are results of a run, not part of the algorithm:
+  # a directory of the same route and kernel is kept whatever they are.
+  expect_identical(mgcvST:::.mgcvst_pairs_open(root, universe,
+    mgcvST:::.mgcvst_contract("exact", k = 20L, basis_sha = strrep("a", 64L))) != dir, TRUE)
+  expect_silent(mgcvST:::.mgcvst_pairs_refuse_stale(root,
+    mgcvST:::.mgcvst_contract("exact", k = 3L, basis_sha = strrep("b", 64L))))
 
-  # An earlier contract, or pair blocks written before contracts existed.
-  later <- contract
-  later$calibration_contract <- "spa_v2"
-  expect_error(mgcvST:::.mgcvst_pairs_open(root, universe, later),
-               "different algorithm contract")
+  # Another route, kernel version, remainder order, schema or contract string
+  # is refused, so that no directory of an earlier algorithm stays silently.
+  expect_identical(contract$kernel_version, 2L)
+  for (field in c("calibration_contract", "route", "kernel_version", "remainder_order",
+                  "schema")) {
+    later <- contract
+    later[[field]] <- if (is.character(later[[field]])) paste0(later[[field]], "_x") else
+      later[[field]] + 1L
+    expect_error(mgcvST:::.mgcvst_pairs_open(root, universe, later),
+                 "different algorithm contract", info = field)
+  }
+  expect_error(mgcvST:::.mgcvst_pairs_open(root, universe,
+    mgcvST:::.mgcvst_contract("pcalearning")), "different algorithm contract")
+  # A directory written by the first kernel version (spa_v1, kernel 1).
+  stale <- file.path(root, "pairs-kernel1")
+  dir.create(stale)
+  old_contract <- contract
+  old_contract$kernel_version <- 1L
+  saveRDS(list(version = 3L, contract = old_contract, universe_sha = "x"),
+          file.path(stale, "contract.rds"))
+  expect_error(mgcvST:::.mgcvst_pairs_open(root, universe, contract),
+               "kernel 1; this call writes spa_v1, exact, kernel 2")
+  unlink(stale, recursive = TRUE)
   old <- file.path(root, "pairs-0123")
   dir.create(old)
   saveRDS(list(first = 1L, last = 1L), file.path(old, "block-0000000001.rds"))
@@ -105,23 +125,23 @@ test_that("checkpointed pair tests resume and refuse a pre-contract directory", 
                          BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   dir <- tempfile("mgcvst-checkpoint-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  first <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L)
+  first <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(first$timing$pair_pipeline$resumed_pairs, 0)
   expect_true(file.exists(file.path(dir, "manifest.rds")))
-  again <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L)
+  again <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(again$timing$pair_pipeline$resumed_pairs, 3)
   expect_identical(again$results, first$results)
   expect_identical(again$timing$pair_pipeline$builds, 0L)
-  expect_error(mgcvST.test(fit, checkpoint_dir = dir, resume = FALSE), "already exists")
+  expect_error(mgcvST.test(fit, checkpoint_dir = dir, resume = FALSE, moments = "exact"), "already exists")
 
   old <- file.path(dir, paste0("pairs-", strrep("0", 64L)))
   dir.create(old)
   saveRDS(list(first = 1L, last = 3L, result = data.frame()),
           file.path(old, "block-0000000001.rds"))
-  expect_error(mgcvST.test(fit, checkpoint_dir = dir),
+  expect_error(mgcvST.test(fit, checkpoint_dir = dir, moments = "exact"),
                "different algorithm contract")
   unlink(old, recursive = TRUE)
-  reused <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L)
+  reused <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(reused$timing$pair_pipeline$builds, 0L)
   expect_identical(reused$results, first$results)
 })

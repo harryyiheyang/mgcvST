@@ -39,7 +39,7 @@ if (any(failed)) {
 }
 
 pairs <- t(combn(genes, 2L))
-testmgcvST <- mgcvST.test(fitmgcvST, pairs = pairs, threads = workers)
+testmgcvST <- mgcvST.test(fitmgcvST, pairs = pairs, threads = workers, moments = "exact")
 BPPARAM <- bpstop(BPPARAM)
 
 write.csv(fitmgcvST$diagnostics,

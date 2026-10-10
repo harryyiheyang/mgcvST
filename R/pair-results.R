@@ -19,7 +19,11 @@
 .mgcvst_pair_status <- c(ok = 0L, moments = 1L, p_value = 2L, feature = 3L)
 
 # Algorithm contract of the pair p-values. Every checkpoint of pair results is
-# keyed by it, and a checkpoint written under another contract is refused.
+# keyed by it, and a checkpoint written under another contract is refused. The
+# rank `k` and the sha of the shared basis are results of the run, not part of
+# the algorithm: a directory is refused when its contract differs in the
+# contract string, the route, the remainder order, the kernel version or the
+# schema.
 # Stage 2 is calibrated by a saddlepoint approximation on k leading singular
 # values of the pair spectrum plus a remainder that matches the remaining power
 # sums: four moments with two nodes on the exact route (`remainder_order` 4),
@@ -31,8 +35,13 @@
   stopifnot(route %in% c("exact", "pcalearning"))
   list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
        remainder_order = if (identical(route, "exact")) 4L else 2L,
-       basis_sha = as.character(basis_sha), kernel_version = 1L,
+       basis_sha = as.character(basis_sha), kernel_version = 2L,
        schema = "compact_v1")
+}
+
+# The part of a contract that defines the algorithm.
+.mgcvst_contract_algorithm <- function(contract) {
+  contract[setdiff(names(contract), c("k", "basis_sha"))]
 }
 
 .mgcvst_pairs_frame <- function(i, j, score = NA_real_, log_p_two_sided = NA_real_,
@@ -107,14 +116,17 @@
   for (dir in dirs) {
     record <- file.path(dir, "contract.rds")
     found <- if (file.exists(record)) {
-      tryCatch(readRDS(record)$contract$calibration_contract,
-               error = function(e) NA_character_)
-    } else NA_character_
-    if (!identical(found, contract$calibration_contract)) {
+      tryCatch(readRDS(record)$contract, error = function(e) NULL)
+    } else NULL
+    if (!identical(.mgcvst_contract_algorithm(found),
+                   .mgcvst_contract_algorithm(contract))) {
       stop("The checkpoint directory ", root, " holds pair results written ",
            "under a different algorithm contract (",
-           if (is.na(found)) "none recorded" else found, "; this version ",
-           "writes ", contract$calibration_contract, "): ", basename(dir),
+           if (is.null(found)) "none recorded" else
+             paste0(found$calibration_contract, ", ", found$route, ", kernel ",
+                    found$kernel_version),
+           "; this call writes ", contract$calibration_contract, ", ",
+           contract$route, ", kernel ", contract$kernel_version, "): ", basename(dir),
            ". Use a new checkpoint_dir, or delete the pairs-* directories to ",
            "keep the reusable feature score states.", call. = FALSE)
     }

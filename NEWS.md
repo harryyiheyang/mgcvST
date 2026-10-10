@@ -16,19 +16,19 @@
   1/2, and the tail is computed at `|U|` and mirrored. One header
   (`src/spa_pair.h`) serves both routes; `liu_tail.h` and `mgcvst_liu_logp_cpp`
   are gone.
-* API change: `mgcvST.test()` and `inlaST.test()` take `moments = c("auto",
-  "exact", "pcalearning")` and `k` (after `verbose`), and `mgcvST.test()` also
-  takes the PCAlearning controls `rank`, `n_per_cell` and `seed`, so the two
-  tests have one argument list. `moments = "auto"` chooses the route by the score
-  dimension `q`, the number of pairs `P`, the threads and the memory, not by the
-  estimator: the exact route when `P * 5 ms * (q / 298)^3 / threads` is at most
-  2 hours, its resident pair bases take at most 30% of the available memory and
-  its score-state store at most 64 GB, or when there are no more genes than
-  `rank`; PCAlearning otherwise. `verbose = TRUE` prints the chosen route and
-  the estimated pair time, and a checkpoint directory records its route
-  (`route.rds`), so a resumed `"auto"` run follows it. The result gains
-  `moments`, `timing$route` and `calibration = "saddlepoint"`; `timing$inla_projection`
-  is now `timing$pcalearning`.
+* API change: `mgcvST.test()` and `inlaST.test()` take the required argument
+  `moments`, `"exact"` or `"pcalearning"`, and `k` (after `verbose`), and
+  `mgcvST.test()` also takes the PCAlearning controls `rank`, `n_per_cell` and
+  `seed`, so the two tests have one argument list. There is no default and no
+  automatic route: the route is the user's choice, so that the p-values do not
+  depend on the machine, and a call without `moments` stops. Both routes serve
+  both estimators. `verbose = TRUE` prints the route and `k`. A checkpoint
+  directory records its route (`route.rds`), and a resume with another `moments`
+  stops with a message. The result gains `moments`, `timing$route` (route, `k`,
+  `q`) and `calibration = "saddlepoint"`, and `timing$pair_pipeline` or
+  `timing$pcalearning` holds the route metadata, including
+  `nodes_above_leading`, the number of pairs whose remainder has a node above
+  the largest leading value (a diagnostic of the compression).
 * Exact route (`moments = "exact"`, default `k = 20`): the shared basis `V` is
   the `k` leading eigenvectors of the sum of the symmetrized states divided by
   their largest absolute entry, accumulated once while the states are built, in
@@ -51,16 +51,34 @@
   (`spa_pcalearning`) and `pca-basis.rds` carries `V` and the training factors;
   a checkpoint or pair directory of an earlier algorithm contract is refused.
 * Algorithm contract `spa_v1` (route, `k`, remainder order, sha of the shared
-  basis, kernel version) keys every pair directory. A gene whose curvature
-  matrix is zero has `status` 1 on the exact route and no usable state
-  (`status` 3) on the PCAlearning route.
+  basis, kernel version 2) keys every pair directory. A directory is refused
+  when its contract differs in the contract string, the route, the remainder
+  order, the kernel version or the schema (`k` and the basis sha are results of
+  a run). A gene whose curvature matrix is zero has `status` 1 on the exact
+  route and no usable state (`status` 3) on the PCAlearning route.
+* Saddlepoint root: the lower bracket of the root uses the total multiplicity of
+  the terms that attain the largest squared value, so a remainder node with a
+  multiplicity below 1 that lies above the leading values is bracketed
+  correctly, and a root that does not satisfy the saddlepoint equation to
+  `1e-10 x'` returns `status` 2 instead of a wrong p-value. Two nodes are
+  accepted when the discriminant is non-negative.
 * `rkhs_score_calibrate()` is the single-pair full-spectrum saddlepoint
   reference (`k` equal to the dimension); it returns the log p-values and a
   `spa` record in place of `liu_parameters`, and `rkhs_covariance_score()`
-  reports `calibration = "saddlepoint"`.
+  reports `calibration = "saddlepoint"`. `rkhs_score_information()` and
+  `rkhs_score_singular_values()` are removed (no callers).
 * Removed internals: `.liu_log_p()`, `.liu_squared_score_moments()`,
-  `mgcvst_pair_liu_cpp()`, `mgcvst_pca_pairs_cpp()`, `mgcvst_pca_pairs_block_cpp()`
-  and trace-table levels 3 and 4.
+  `mgcvst_pair_liu_cpp()`, `mgcvst_pca_pairs_cpp()`, `mgcvst_pca_pairs_block_cpp()`,
+  trace-table levels 1, 3 and 4 (the level-1 table is the identity of an
+  orthonormal basis; the basis check is reported as
+  `pca_learning$basis_orthonormality`) and the Armadillo dependency of
+  `score_pair.cpp`. The trace-table products `B_a B_b` are stored for `a <= b`
+  only, which halves the table memory (`.mgcvst_pca_table_bytes()` follows). The
+  per-feature reduction of the PCAlearning route is one helper shared by the
+  dense and the sparse materialization, and the preparation of the route is a
+  separate internal function, `.mgcvst_pca_prepare()`, used by the validation
+  scripts. Research scripts that called removed arguments or the removed Liu
+  calibration are deleted.
 * Validation (see `inst/benchmarks/spa-validation-*.R`). Visium-B, `q = 298`,
   25,853 pairs of the shared-basis study, exact route with `k = 20`: the
   maximum deviation of `-log10(p)` from the full-spectrum saddlepoint is 0.0015

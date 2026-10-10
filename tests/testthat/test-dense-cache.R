@@ -16,8 +16,8 @@ test_that("a raw gam setup and a prepared model share one estimation and test pa
     expect_s3_class(fit, "mgcvST_model_fit")
     expect_identical(fit$test_engine, "single_model")
     expect_true(is.list(fit$geometry$smooth))
-    one <- mgcvST.test(fit, pairs = pairs, chunk_size = 1L)
-    block <- mgcvST.test(fit, pairs = pairs, chunk_size = 100L)
+    one <- mgcvST.test(fit, pairs = pairs, chunk_size = 1L, moments = "exact")
+    block <- mgcvST.test(fit, pairs = pairs, chunk_size = 100L, moments = "exact")
     expect_equal(one$results, block$results, tolerance = 1e-12)
     expect_true(all(is.finite(one$results$log_p_two_sided)))
   }
@@ -39,7 +39,7 @@ test_that("model pair states are constructed once per unique feature", {
       original_batch(T0, variance, error, scale, X, nuisance, threads)
     }, .package = "mgcvST"
   )
-  ans <- mgcvST.test(fit, pairs = pairs, chunk_size = 1L)
+  ans <- mgcvST.test(fit, pairs = pairs, chunk_size = 1L, moments = "exact")
   expect_identical(count$features, 3L)
   expect_true(all(is.finite(ans$results$log_p_two_sided)))
 })

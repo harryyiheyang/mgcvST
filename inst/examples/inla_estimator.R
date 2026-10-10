@@ -35,7 +35,7 @@ for (dataset in datasets) {
   }
   pairs <- t(utils::combn(rownames(Y), 2L))
   tested <- inlaST.test(fit, pairs = pairs, threads = 1L,
-                        rank = min(10L, nrow(Y)))
+                        rank = min(10L, nrow(Y)), moments = "exact")
   stopifnot(all(is.finite(tested$results$log_p_two_sided)),
             all(is.finite(fit$diagnostics$marginal_p_value)))
   B <- fit$geometry$smooth[[fit$geometry$target[["global"]]]]$B

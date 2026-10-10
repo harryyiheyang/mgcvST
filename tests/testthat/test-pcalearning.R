@@ -116,8 +116,8 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
                   calibration = "liu", BPPARAM = BiocParallel::SerialParam(),
                   FDR = TRUE, method = "BY", highlight = pair, cache_bytes = 1e9)
   for (name in names(removed)) {
-    expect_error(do.call(inlaST.test, c(list(fit, pairs = pair, rank = 2L), removed[name])),
-                 "unused argument")
+    expect_error(do.call(inlaST.test, c(list(fit, pairs = pair, rank = 2L, moments = "exact"),
+                                        removed[name])), "unused argument")
   }
   for (name in c("approximate_test", "pairwise_method", "liu_approximation",
                  "calibration", "conditional_precision", "BPPARAM", "FDR", "method",
@@ -136,11 +136,19 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
   expect_equal(unlist(mgcvST:::.mgcvst_pca_defaults),
                c(rank = 20, n_per_cell = 3, seed = 1, k = 50))
   expect_identical(eval(formals(inlaST.test)$rank), 20L)
-  expect_identical(eval(formals(inlaST.test)$moments), c("auto", "exact", "pcalearning"))
+  # The route has no default: a call without it stops, whatever else is wrong.
+  expect_identical(formals(inlaST.test)$moments, formals(function(moments) NULL)$moments)
+  expect_identical(formals(mgcvST.test)$moments, formals(function(moments) NULL)$moments)
+  expect_error(inlaST.test(fit, pairs = pair), "moments must be given")
+  expect_error(inlaST.test(fit, pairs = pair, rank = 0L), "moments must be given")
+  expect_error(mgcvST.test(fit, pairs = pair), "moments must be given")
+  expect_error(inlaST.test(fit, pairs = pair, moments = "auto"), "moments must be one of")
+  expect_error(inlaST.test(fit, pairs = pair, moments = c("exact", "pcalearning")),
+               "moments must be one of")
   expect_null(formals(inlaST.test)$k)
-  expect_error(inlaST.test(fit, pairs = pair, adjust = "holm"), "should be one of")
-  expect_error(inlaST.test(fit, pairs = pair, moments = "liu"), "should be one of")
-  expect_error(inlaST.test(fit, pairs = pair, k = 0L), "k must be NULL or one positive")
+  expect_error(inlaST.test(fit, pairs = pair, adjust = "holm", moments = "exact"), "should be one of")
+  expect_error(inlaST.test(fit, pairs = pair, moments = "liu"), "moments must be one of")
+  expect_error(inlaST.test(fit, pairs = pair, k = 0L, moments = "exact"), "k must be NULL or one positive")
   expect_false(exists(".mgcvst_conditional_test", asNamespace("mgcvST"),
                       inherits = FALSE))
   expect_false(exists("mgcvst_liu_logp_cpp", asNamespace("mgcvST"), inherits = FALSE))
@@ -226,10 +234,10 @@ test_that("rank-10 trace tables reproduce brute-force projected traces", {
     M
   }
   tables <- mgcvST:::mgcvst_pca_tables_cpp(B, q, 2L)
-  # Only the levels the saddlepoint needs; for an orthonormal basis the level-1
-  # table is the identity, so t1 is the inner product of the coefficients.
-  expect_false(any(c("Tsym3", "Tsym4") %in% names(tables)))
-  expect_equal(tables$Tsym1, diag(r), tolerance = 1e-12)
+  # Only the level the saddlepoint needs; for an orthonormal basis t_1 is the
+  # inner product of the coefficients, so there is no level-1 table.
+  expect_false(any(c("Tsym1", "Tsym3", "Tsym4", "ms1") %in% names(tables)))
+  expect_equal(crossprod(B), diag(r), tolerance = 1e-12)
   d2 <- as.integer(choose(r + 1L, 2L))
   expect_identical(dim(tables$Tsym2), c(d2, d2))
   C <- matrix(rnorm(6L * r), 6L, r)
@@ -257,6 +265,35 @@ test_that("rank-10 trace tables reproduce brute-force projected traces", {
                                               rep(1, 6L), pair_index[, 1L],
                                               pair_index[, 2L], 1L)
   expect_equal(block, single, tolerance = 1e-12)
+})
+
+test_that(".mgcvst_pca_prepare gives the arrays of the pair kernels and an orthonormal basis", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
+  basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
+  G <- length(fit$feature_id)
+  q <- basis$rank
+  prep <- mgcvST:::.mgcvst_pca_prepare(prepared, seq_len(G), basis, q = q, rank = 3L,
+                                       n_per_cell = 3L, seed = 4L, k = 50L, threads = 2L)
+  # The basis is orthonormal to roundoff: t_1 = c_i' c_j needs no level-1 table.
+  expect_lt(prep$basis_check, 1e-10)
+  k <- min(50L, q)
+  expect_identical(prep$k, k)
+  expect_identical(dim(prep$A), c(q, G))
+  expect_identical(dim(prep$C), c(G, 3L))
+  expect_identical(dim(prep$R), c(k * k, G))
+  expect_identical(dim(prep$K2), c(6L, G))
+  expect_identical(dim(prep$T2), c(6L, 6L))
+  expect_identical(dim(prep$V), c(q, k))
+  expect_match(prep$V_sha, "^[0-9a-f]{64}$")
+  expect_false(any(prep$failed_gene))
+  expect_identical(prep$used, seq_len(G))
+  # The route is built on the same object.
+  z <- inlaST.test(fit, pairs = t(combn(fit$feature_id, 2L)), moments = "pcalearning",
+                   rank = 3L, seed = 4L, threads = 2L)
+  expect_identical(z$contract$basis_sha, prep$V_sha)
+  expect_equal(z$pca_learning$basis_orthonormality, prep$basis_check)
 })
 
 test_that("PCAlearning pair kernel reproduces the approx-liu-p rank-10 traces", {
@@ -385,8 +422,9 @@ test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory",
   expect_error(run(3L, seed = -1L), "seed must be one non-negative integer")
   expect_error(run(3L, seed = 1.5), "seed must be one non-negative integer")
   expect_error(run(3L, k = 0L), "k must be NULL or one positive integer")
-  # q = 1404, r = 20: levels 1 and 2 only, about 3.3 GiB.
-  expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1404, 20) / 1024^3, 3.30, tolerance = 1e-2)
+  # q = 1404, r = 20: the 210 products B_a B_b with a <= b, about 1.9 GiB (3.3
+  # GiB when the transposes are stored as well).
+  expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1404, 20) / 1024^3, 1.90, tolerance = 1e-2)
   local_mocked_bindings(.mgcvst_memory_probe = function(...) list(available = 1e3),
                         .package = "mgcvST")
   expect_error(run(3L), "trace tables for rank = 3 .* use a smaller rank")
@@ -444,11 +482,11 @@ test_that("PCAlearning controls fail before the basis, and the pair directory fo
       observation_basis(fit)
     },
     .package = "mgcvST")
-  expect_error(inlaST.test(fit, rank = 0L), "rank must be one positive integer")
-  expect_error(inlaST.test(fit, n_per_cell = 1.5), "n_per_cell must be one positive")
-  expect_error(inlaST.test(fit, seed = -1), "seed must be one non-negative integer")
-  expect_error(inlaST.test(fit, k = 2.5), "k must be NULL or one positive integer")
-  expect_error(inlaST.test(fit, threads = 1.5), "threads must be one positive integer")
+  expect_error(inlaST.test(fit, rank = 0L, moments = "exact"), "rank must be one positive integer")
+  expect_error(inlaST.test(fit, n_per_cell = 1.5, moments = "exact"), "n_per_cell must be one positive")
+  expect_error(inlaST.test(fit, seed = -1, moments = "exact"), "seed must be one non-negative integer")
+  expect_error(inlaST.test(fit, k = 2.5, moments = "exact"), "k must be NULL or one positive integer")
+  expect_error(inlaST.test(fit, threads = 1.5, moments = "exact"), "threads must be one positive integer")
   expect_identical(calls, 0L)
 
   dir <- tempfile("mgcvst-pca-order-")

@@ -95,13 +95,15 @@
 # indices) from the score states of the features `active`, one state per
 # feature, and their pair bases G (indexed by global feature). A pair with a
 # feature whose state failed is returned with status 3; a pair that is not
-# evaluated carries no p-value.
+# evaluated carries no p-value. The attribute `nodes_above_leading` counts the
+# pairs whose remainder has a node above the largest leading value.
 .mgcvst_spa_pairs <- function(index, active, states, G, threads, order = 4L) {
   out <- .mgcvst_pairs_frame(index[, 1L], index[, 2L],
                              status = .mgcvst_pair_status[["feature"]])
   good <- vapply(states, function(z) is.null(z$error), logical(1L))
   local <- matrix(match(index, active), ncol = 2L)
   rows <- which(good[local[, 1L]] & good[local[, 2L]])
+  attr(out, "nodes_above_leading") <- 0
   if (!length(rows)) return(out)
   keep <- which(good)
   avec <- do.call(cbind, lapply(states[keep], `[[`, "a"))
@@ -117,6 +119,9 @@
   out$log_p_negative[at] <- res$log_p_negative
   out$remainder_kind[at] <- res$remainder_kind
   out$status[at] <- res$status
+  if (!is.null(res$nodes_above_leading)) {
+    attr(out, "nodes_above_leading") <- res$nodes_above_leading
+  }
   # A pair that is not evaluated carries no p-value, as in the PCAlearning
   # route; a non-finite log p-value would otherwise enter the adjustment.
   invalid <- which(out$status != .mgcvst_pair_status[["ok"]])
@@ -430,10 +435,13 @@
   elapsed <- 0
   chunks <- 0L
   resumed_pairs <- 0
+  nodes_above <- 0
   evaluate <- function(window, active, id) {
     t0 <- proc.time()[["elapsed"]]
     states <- fetch(active)
     frame <- .mgcvst_spa_pairs(window, active, states, G, threads, order = 4L)
+    nodes_above <<- nodes_above + as.numeric(attr(frame, "nodes_above_leading"))
+    attr(frame, "nodes_above_leading") <- NULL
     .mgcvst_write_parquet(frame, .mgcvst_shard_file(pair_dir, id))
     elapsed <<- elapsed + proc.time()[["elapsed"]] - t0
     nrow(frame)
@@ -521,7 +529,7 @@
       resumed_pairs = resumed_pairs,
       preparation_backend = if (sparse) "sparse_reduced" else "model_native",
       pair_schedule = pair_schedule, chunks = chunks, k = k,
-      basis_sha = shared$sha, q = width,
+      basis_sha = shared$sha, q = width, nodes_above_leading = nodes_above,
       cache_hits = cache$hits, cache_misses = cache$misses,
       cache_evictions = cache$evictions, cache_bytes = cache_bytes,
       resident_bytes = cache$bytes, preparation_elapsed = preparation_elapsed,
