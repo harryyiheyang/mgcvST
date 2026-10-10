@@ -1,5 +1,7 @@
 # INLA stress and score validation
 
+> 历史文档，截至 9030。
+
 This report records completed validation evidence. The subsequent implementation applies only to INLA, retains the constrained score statistic, uses Liu calibration without Davies, and uses bounded C++ sparse/OpenMP downstream kernels rather than BiocParallel. The mgcv implementation remains unchanged. The public BiocParallel results below remain historical validation measurements rather than recommendations for the new downstream design.
 
 This validation separates the public 2D implementation from the standalone 3D research calculations. The null study completed all 4,000 planned datasets and produced 8,000 calibration rows, with 500 datasets in each of eight cases. The feature-parallel stress study also completed all 50 full-observation independent fits. The large joint-fit study remains in progress and is reported only as an incomplete execution record below.

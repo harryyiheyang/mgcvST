@@ -39,15 +39,16 @@ if (any(failed)) {
 }
 
 pairs <- t(combn(genes, 2L))
-testmgcvST <- mgcvST.test(
-  fitmgcvST, pairs = pairs, BPPARAM = BPPARAM,
-  calibration = "liu", threads = workers
-)
+testmgcvST <- mgcvST.test(fitmgcvST, pairs = pairs, threads = workers)
 BPPARAM <- bpstop(BPPARAM)
 
 write.csv(fitmgcvST$diagnostics,
           file.path(out.dir, "MISO_E13_mgcvST_estimate.csv"), row.names = FALSE)
-write.csv(testmgcvST$results,
-          file.path(out.dir, "MISO_E13_mgcvST_test.csv"), row.names = FALSE)
+results <- cbind(
+  feature1 = testmgcvST$feature_id[testmgcvST$results$i],
+  feature2 = testmgcvST$feature_id[testmgcvST$results$j],
+  testmgcvST$results
+)
+write.csv(results, file.path(out.dir, "MISO_E13_mgcvST_test.csv"), row.names = FALSE)
 saveRDS(fitmgcvST, file.path(out.dir, "MISO_E13_mgcvST_estimate.rds"))
 saveRDS(testmgcvST, file.path(out.dir, "MISO_E13_mgcvST_test.rds"))

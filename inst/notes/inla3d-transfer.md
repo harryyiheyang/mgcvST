@@ -1,5 +1,7 @@
 # Real tissue tetrahedral transfer audit
 
+> 历史文档，截至 9030。
+
 The 2026-09-13 transfer supplies three real tissue meshes and one executable
 gene example. MAGIC supports an INLA-only fit on all 97,830 observations with
 1,962 mesh nodes. Two real-data fits and ten conditional simulation fits

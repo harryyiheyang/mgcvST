@@ -1,3 +1,71 @@
+# mgcvST 0.0.1.9031
+
+* Stage A of the saddlepoint release (cleanup and API). The Stage 2 pair
+  calibration is unchanged: the pair p-values are still Liu moment matching of
+  the four trace moments.
+* API change: `mgcvST.test()` and `inlaST.test()` share one argument list,
+  `(fit, pairs, q.value, adjust, threads, chunk_size, checkpoint_dir, resume,
+  verbose)`; `inlaST.test()` adds `rank`, `n_per_cell` and `seed` after
+  `adjust`. Removed: `BPPARAM`, `calibration`, `approximate_test`,
+  `liu_approximation`, `cache_bytes`, `FDR`, `method`, `highlight`, and the
+  `...` that reached `cache_bytes`. The fp16 exact INLA Liu path
+  (`approximate_test = FALSE`) and the mgcv `calibration = "davies"` path are
+  deleted; `inlaST.test()` always uses PCAlearning. `rank`, `n_per_cell` and
+  `seed` take their defaults from one constant.
+* API change: `pairs = NULL` tests every pair of the available features in
+  both tests. Pairs are generated and scored in blocks and streamed to
+  shards; no pair matrix or per-pair table is allocated.
+* API change: one compact result for both tests. Each pair is a row of the
+  integer feature indices `i < j`, `score`, the natural-log two-sided,
+  positive and negative p-values, the adjusted two-sided `log_q`,
+  `remainder_kind` (0: Liu, no remainder) and `status` (0 evaluated, 1 invalid
+  trace moments, 2 invalid p-value, 3 a gene without a usable score state).
+  Rows are written as Parquet shards while the pairs are evaluated and
+  `$shards` lists them. `$results` is the same table sorted by `(i, j)` when
+  it fits the memory guard (56 bytes per pair, 20% of available memory) and
+  is `NULL` otherwise. Feature names are looked up as `$feature_id[i]`. The
+  19-column per-pair table with character columns, `information`,
+  `effective_rank`, `p_*` columns and the highlight/retained flags is gone;
+  genes without a usable state are listed in `$failed`.
+* Multiple testing is one adjustment of the two-sided family, computed in log
+  space by a native kernel: `adjust = "BY"` (default; Benjamini-Yekutieli
+  under arbitrary dependence, `c(m) = sum(1 / i)`, equal to
+  `stats::p.adjust(, "BY")`), `"BH"`, `"Sidak"` or `"none"`. p-values down to
+  `exp(-5000)` keep their order and decisions; the former non-BY path
+  exponentiated before adjusting and underflowed. Positive and negative
+  discoveries are the adjusted two-sided discoveries split by the sign of the
+  score. When 24 bytes per pair exceed 40% of the available memory, the
+  adjustment is skipped with a warning and `log_q` is `NA`.
+* Checkpoints are keyed by an algorithm contract (`calibration_contract`,
+  route, `k`, remainder order, basis sha, kernel version). A checkpoint
+  directory that holds pair results written under another contract, including
+  every pair block written before this version, and a PCAlearning manifest of
+  an earlier contract, are refused with an error instead of being resumed.
+  Feature score states keep their signature and remain reusable; delete the
+  `pairs-*` directories to reuse them.
+* The two mgcv test engines are one. `mgcvST.estimate(Y, G)` with a raw
+  `gam(..., fit = FALSE)` setup is converted by `mgcvST.set(G = G)` and fitted
+  by the model path, so the mgcv score always uses the conditional nuisance
+  covariance `Vp`; the former fixed pseudo-inverse projection of the raw-`G`
+  path is gone. The two projections agree up to the accuracy of `bam`'s `Vp`:
+  the signed score of the Mapt-Map1b pair of `MISO_E13` (baseline mesh,
+  `kappa = 0.1`) moves from 28.295 to 28.182 (two-sided p-value 9.0e-07 to
+  9.9e-07), and a toy fixture moves by up to 1.5e-3 (relative). The raw-`G`
+  path no longer returns `fit_basis`, `fit_penalty` or `basis_metadata`, and
+  accepts Gaussian, negative-binomial, Poisson and quasi-Poisson families.
+* The `spdePC` smooth is removed, with `spde_basis(pc_cutoff = )`, the
+  principal-component fields of a basis, the score-precision PSD branch and
+  `spdePC_g999`-based examples (the data set keeps its finer mesh under that
+  name). The mgcv examples use the full-basis `spde`.
+* Removed internals: `.mgcvst_liu_summaries()`, `.mgcvst_test_chunk()`,
+  `.mgcvst_test_spde()`, `.liu_squared_score()`,
+  `.rkhs_covariance_score_direct()`, the Davies-only helpers and worker bundle
+  entries, the `state_store` argument, the float32 score-state storage,
+  `mgcvst_pca_pack_cpp()` and the seven `mgcvst_fp16_*_cpp()` exports. The
+  shared INLA working-state kernels moved from `src/inla_fp16.cpp` to
+  `src/inla_working_state.cpp`. `rkhs_score_calibrate()` and
+  `rkhs_covariance_score()` lose `method = "davies"`.
+
 # mgcvST 0.0.1.9030
 
 * Stage 1 (the marginal score test) has one calibration in both the mgcv and

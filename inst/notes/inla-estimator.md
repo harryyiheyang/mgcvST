@@ -1,5 +1,7 @@
 # INLA estimator for mgcvST
 
+> 历史文档，截至 9030。
+
 `inlaST.set()` prepares a shared model and `inlaST.estimate()` fits each
 feature with INLA. The output preserves the compact working-model inputs
 used by `inlaST.test()` and `inlaST.marginal()`. The preferred setup is a

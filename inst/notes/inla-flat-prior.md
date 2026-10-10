@@ -1,5 +1,7 @@
 # Flat log-hyperparameter objectives and sparse scaling
 
+> 历史文档，截至 9030。
+
 Spatial log precision and NB log size use the following defaults:
 
 ```r

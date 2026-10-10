@@ -1,3 +1,5 @@
+> 历史文档，截至 9030。
+
 > Historical diagnostic record. The standalone Davies comparisons below are
 > retained as evidence for the study and are not calls supported by the current
 > INLA downstream API, which uses sparse Liu calibration.

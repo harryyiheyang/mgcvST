@@ -1,5 +1,7 @@
 # WGCNA source reconciliation — 2026-09-10
 
+> 历史文档，截至 9030。
+
 The package release source is the Git checkout at
 `C:/Users/yxy1234/Downloads/mgcvST`, with remote
 `https://github.com/harryyiheyang/mgcvST.git` and branch `main`.

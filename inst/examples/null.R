@@ -8,7 +8,6 @@ out.dir <- Sys.getenv("MGCVST_EXAMPLE_OUTPUT", ".")
 if (!dir.exists(out.dir)) dir.create(out.dir, recursive = TRUE)
 alpha <- 10^seq(-5, -1, length.out = 100L)
 kappa <- 0.1
-cutoff <- 0.999
 ctrl <- gam.control(maxit = 50L, nthreads = 1L, ncv.threads = 1L)
 
 if (!is.finite(workers) || workers < 1L || !is.finite(B.null) ||
@@ -16,36 +15,23 @@ if (!is.finite(workers) || workers < 1L || !is.finite(B.null) ||
   stop("workers, null simulation count, and output directory are invalid.")
 }
 
-fit_pair <- function(D, gene1, gene2, mesh, pc = FALSE) {
+fit_pair <- function(D, gene1, gene2, mesh) {
   D1 <- D$covariates
   D2 <- D$covariates
   D1$response <- D$expression[[gene1]]
   D2$response <- D$expression[[gene2]]
   basis <- spde_basis(mesh, as.matrix(D$covariates[, c("x", "y")]),
-                      kappa = kappa, pc_cutoff = cutoff)
-  if (pc) {
-    f1 <- gam(
-      response ~ offset(offset0) + s(
-        x, y, bs = "spdePC", xt = basis, sp = -1
-      ), data = D1, family = nb(link = "log"), method = "REML", control = ctrl
-    )
-    f2 <- gam(
-      response ~ offset(offset0) + s(
-        x, y, bs = "spdePC", xt = basis, sp = -1
-      ), data = D2, family = nb(link = "log"), method = "REML", control = ctrl
-    )
-  } else {
-    f1 <- gam(
-      response ~ offset(offset0) + s(
-        x, y, bs = "spde", xt = basis, sp = -1
-      ), data = D1, family = nb(link = "log"), method = "REML", control = ctrl
-    )
-    f2 <- gam(
-      response ~ offset(offset0) + s(
-        x, y, bs = "spde", xt = basis, sp = -1
-      ), data = D2, family = nb(link = "log"), method = "REML", control = ctrl
-    )
-  }
+                      kappa = kappa)
+  f1 <- gam(
+    response ~ offset(offset0) + s(
+      x, y, bs = "spde", xt = basis, sp = -1
+    ), data = D1, family = nb(link = "log"), method = "REML", control = ctrl
+  )
+  f2 <- gam(
+    response ~ offset(offset0) + s(
+      x, y, bs = "spde", xt = basis, sp = -1
+    ), data = D2, family = nb(link = "log"), method = "REML", control = ctrl
+  )
   list(fit1 = f1, fit2 = f2)
 }
 
@@ -90,17 +76,9 @@ S <- list(
   MISO_spde = c(list(slice = "MISO_E13", representation = "spde",
                      pair = "Mapt--Map1b"),
                 fit_pair(MISO_E13, "Mapt", "Map1b", MISO_E13$meshes$spde)),
-  MISO_spdePC_G999 = c(list(slice = "MISO_E13", representation = "spdePC_G999",
-                            pair = "Mapt--Map1b"),
-                       fit_pair(MISO_E13, "Mapt", "Map1b",
-                                MISO_E13$meshes$spdePC_g999, pc = TRUE)),
   Visium_spde = c(list(slice = "Visium_B", representation = "spde",
                        pair = "mt-co3--BRAFhuman"),
-                  fit_pair(Visium_B, "mt_co3", "BRAFhuman", Visium_B$meshes$spde)),
-  Visium_spdePC_G999 = c(list(slice = "Visium_B", representation = "spdePC_G999",
-                              pair = "mt-co3--BRAFhuman"),
-                         fit_pair(Visium_B, "mt_co3", "BRAFhuman",
-                                  Visium_B$meshes$spdePC_g999, pc = TRUE))
+                  fit_pair(Visium_B, "mt_co3", "BRAFhuman", Visium_B$meshes$spde))
 )
 
 R.geometry <- list()
@@ -111,14 +89,14 @@ for (nm in names(S)) {
   S[[nm]]$R2 <- psd_root(z$summary2$H)
   S[[nm]]$moments <- z$moments
   sm <- S[[nm]]$fit1$smooth[[1L]]
-  Q <- if (inherits(sm, "spdePC.smooth")) sm$pc_score_Q else sm$S[[1L]]
+  Q <- sm$S[[1L]]
   R.geometry[[nm]] <- data.frame(
     scenario = nm, slice = S[[nm]]$slice, representation = S[[nm]]$representation,
     pair = S[[nm]]$pair, n_spots = length(S[[nm]]$fit1$y),
     fit_dimension = sm$last.para - sm$first.para + 1L,
     score_dimension = ncol(z$summary1$H), score_Q_rank = as.integer(Matrix::rankMatrix(Q)),
     information = z$information, effective_rank = z$effective_rank,
-    kappa = kappa, pc_cutoff = if (inherits(sm, "spdePC.smooth")) sm$pc_cutoff else NA_real_
+    kappa = kappa
   )
 }
 
@@ -163,9 +141,3 @@ R.type1 <- do.call(rbind, R.type1)
 write.csv(R.geometry, file.path(out.dir, "null_geometry.csv"), row.names = FALSE)
 write.csv(R.type1, file.path(out.dir, "null_type1.csv"), row.names = FALSE)
 saveRDS(R.null, file.path(out.dir, "null_pvalues.rds"))
-saveRDS(
-  list(
-    MISO_spdePC_G999 = S$MISO_spdePC_G999$fit1$smooth[[1L]]$pc_score_Q,
-    Visium_spdePC_G999 = S$Visium_spdePC_G999$fit1$smooth[[1L]]$pc_score_Q
-  ), file.path(out.dir, "null_score_Q.rds")
-)

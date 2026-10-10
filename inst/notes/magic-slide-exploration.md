@@ -1,5 +1,7 @@
 # MAGIC marker and slide-effect exploration
 
+> 历史文档，截至 9030。
+
 This analysis compares three representative genes on the same 97,830 MAGIC
 observations and 93 sections. We use the comparison to examine expression
 patterns and the separation of a three-dimensional spatial field from a

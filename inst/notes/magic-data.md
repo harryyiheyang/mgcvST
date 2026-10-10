@@ -1,5 +1,7 @@
 # MAGIC E18.5 three-dimensional brain data
 
+> 历史文档，截至 9030。
+
 The reproducible research object is written to
 `artifacts/datasets/MAGIC/MAGIC.rds`. It contains 97,830 observations, three
 raw-count genes, 39 point-level covariates, metadata for 93 measured sections,

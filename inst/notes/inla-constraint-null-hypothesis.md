@@ -1,5 +1,7 @@
 # Intercept centering in the score test
 
+> 历史文档，截至 9030。
+
 ## The score identity relevant here
 
 Let `1` be the observation-space intercept, let `C = I - 1 1' / n`, and let

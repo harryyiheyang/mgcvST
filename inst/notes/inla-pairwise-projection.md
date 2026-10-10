@@ -1,5 +1,7 @@
 # INLA pairwise observation-kernel projection
 
+> 历史文档，截至 9030。
+
 Version 0.0.1.9014 adds a score-only approximation for sparse INLA Liu pair
 tests. The basis is formed lazily from the constrained observation kernel and
 retains the smallest number of directions whose cumulative eigenvalue sum is

@@ -1,5 +1,7 @@
 # Sparse raw-kernel score plan
 
+> 历史文档，截至 9030。
+
 ## Scope
 
 This note audits the pairwise covariance score for one fixed-kappa SPDE

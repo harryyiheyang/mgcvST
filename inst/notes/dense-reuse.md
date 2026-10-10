@@ -1,5 +1,7 @@
 # Dense mgcv computation reuse
 
+> 历史文档，截至 9030。
+
 The mgcv backend retains its dense score mathematics and both Liu and Davies calibration. These changes concern the lifetime of computed quantities, not the statistical estimator or calibration.
 
 Model-set pair tests construct each unique endpoint's score state once per call. Legacy/SPDE Davies tests also construct the shared precision factor once per call and each unique endpoint once. The existing legacy Liu lifecycle is unchanged. Pair workers consume temporary packed score states rather than rebuilding feature operators for each pair chunk.

@@ -5,7 +5,7 @@ Prepare the common design before estimating genes:
 ```r
 model <- mgcvST.set(
   response ~ celltype + batch + offset(log_depth) +
-    s(z, k = 5) + s(x, y, bs = "spdePC", xt = basis),
+    s(z, k = 5) + s(x, y, bs = "spde", xt = basis),
   data = dat, family = mgcv::nb()
 )
 # Or wrap an externally prepared mgcv::gam(..., fit = FALSE) setup:

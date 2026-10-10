@@ -1,5 +1,7 @@
 # INLA-only adaptive tetrahedral analysis of stacked slices
 
+> 历史文档，截至 9030。
+
 This study evaluates a sparse three-dimensional fitting route with fewer than
 3,000 mesh nodes. Spatial log precision and negative-binomial (NB) log size
 both retain the author's flat objectives. The implementation uses actual

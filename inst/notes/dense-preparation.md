@@ -1,5 +1,7 @@
 # Parallel feature preparation for covariance tests
 
+> 历史文档，截至 9030。
+
 The mgcv test paths now construct feature score summaries in a C++ OpenMP
 batch before evaluating pairs. The legacy Liu and Davies paths share this
 kernel. Current `model.set()` fits use the same kernel with their fitted

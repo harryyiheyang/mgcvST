@@ -1,5 +1,7 @@
 # INLA low-count investigation and posterior covariance contract
 
+> 历史文档，截至 9030。
+
 The implementation now obtains the nuisance `Vp` block directly from INLA's
 conditional Gaussian posterior at its empirical-Bayes configuration. It uses
 selected sparse solves of the stored posterior precision and applies all exact

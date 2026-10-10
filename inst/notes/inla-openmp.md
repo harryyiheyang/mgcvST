@@ -1,5 +1,7 @@
 # INLA sparse OpenMP arithmetic
 
+> 历史文档，截至 9030。
+
 > Historical implementation note. This describes the pre-0.0.1.9014 exact
 > full-q downstream route. Current INLA Liu pair testing uses the constrained
 > observation-kernel score approximation described in

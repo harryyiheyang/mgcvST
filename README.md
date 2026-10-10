@@ -27,22 +27,15 @@ convergence diagnostics. See the [paired validation
 report](inst/notes/inla-bam-validation.md) and [recorded
 results](inst/validation/inla-bam/).
 
-The package provides two `mgcv` smooths:
-
-- `bs = "spde"` fits the full projected SPDE basis.
-- `bs = "spdePC"` eigendecomposes the fixed-`kappa` projected covariance
-  `G = Q^{-1}` and retains the leading directions specified by
-  `xt$pc_cutoff`. The fitted smooth stores `pc_score_Q`, the positive
-  semidefinite score precision in the full projected coordinates, so
-  that the raw-`G` workflow below tests the original score space after
-  truncation.
+The package provides the `mgcv` smooth `bs = "spde"`, which fits the
+full projected SPDE basis.
 
 Two small spatial-transcriptomics data sets are included: `MISO_E13` and
 `Visium_B`. Each contains covariates, three selected genes, a baseline
-mesh, and a finer mesh for the `0.999` principal-component analysis.
-Their figures and results are regenerated when this document is
-rendered. The final MAGIC figure is reproduced separately from the
-larger local data and saved fits.
+mesh (`meshes$spde`) and a finer mesh (`meshes$spdePC_g999`, a name kept
+for compatibility). Their figures and results are regenerated when this
+document is rendered. The final MAGIC figure is reproduced separately
+from the larger local data and saved fits.
 
 ## Installation
 
@@ -198,30 +191,38 @@ need not satisfy `P %*% 1 = 0` numerically. This does not make the
 conditioned kernel equivalent to either the raw kernel or a separately
 formed `C %*% G_raw %*% C`.
 
-`inlaST.test()` tests each gene pair by the squared cross-gene score with
-Liu moment matching. By default (`approximate_test = TRUE`), PCAlearning
-replaces the exact Liu trace moments by a low-rank approximation.
-Training genes are drawn by stratified sampling on the fitted spatial
-and observation variance scales, and their score covariances `H_j`,
-scaled by `sigma_e2 / sigma_g2`, define an orthonormal basis of `rank`
-symmetric matrices. Each tested gene is summarized by its basis
-coefficients `c_j`, and the four pair traces are obtained by contracting
-these coefficients with trace tables computed once. Liu calibration and
-BY adjustment are unchanged. In a validation with 1,404 score
-coordinates, 300 training genes and `rank = 10`, the relative residual
-`e_j^2 / ||H_j||_F^2` had median 0.0017 and maximum 0.027 across 150
-test genes. On their 11,175 pairs, the 1% and 99% quantiles of the
-difference in `-log10(p)` between the approximate and exact tests were
--0.010 and 0.020, and the BY discoveries at `q = 0.05` were identical
-for the two-sided, positive and negative tests. On a separate 100-gene
-benchmark with 4,950 pairs, one of 2,352 exact two-sided BY discoveries
-was not recovered. Per-gene residuals are returned in
+`inlaST.test()` tests each gene pair by the squared cross-gene score
+with Liu moment matching, and PCAlearning replaces the exact Liu trace
+moments by a low-rank approximation. Training genes are drawn by
+stratified sampling on the fitted spatial and observation variance
+scales, and their score covariances `H_j`, scaled by
+`sigma_e2 / sigma_g2`, define an orthonormal basis of `rank` symmetric
+matrices. Each tested gene is summarized by its basis coefficients
+`c_j`, and the four pair traces are obtained by contracting these
+coefficients with trace tables computed once. In a validation with 1,404
+score coordinates, 300 training genes and `rank = 10`, the relative
+residual `e_j^2 / ||H_j||_F^2` had median 0.0017 and maximum 0.027
+across 150 test genes. On their 11,175 pairs, the 1% and 99% quantiles
+of the difference in `-log10(p)` between the approximate and exact tests
+were -0.010 and 0.020, and the BY discoveries at `q = 0.05` were
+identical for the two-sided, positive and negative tests. On a separate
+100-gene benchmark with 4,950 pairs, one of 2,352 exact two-sided BY
+discoveries was not recovered. Per-gene residuals are returned in
 `result$pca_learning$genes`.
 
-With `approximate_test = FALSE`, `inlaST.test()` computes the exact Liu trace
-moments with the fp16 score-state backend and returns a compact result with
-integer `i`, `j` and double `score`, `mlog10p` columns. For both settings,
-`method` selects the multiple-testing adjustment, such as `"BH"` or `"BY"`.
+`mgcvST.test()` and `inlaST.test()` share one argument list and one
+compact result. With `pairs = NULL`, every pair of the available genes
+is tested in blocks and streamed to Parquet shards. Each pair is a row
+of the integer feature indices `i < j`, `score`, the natural-log
+two-sided, positive and negative p-values, the adjusted two-sided
+`log_q`, `remainder_kind` and `status`; feature names are
+`result$feature_id[result$results$i]`. The adjustment (`adjust = "BY"`,
+`"BH"`, `"Sidak"` or `"none"`) is applied once to the two-sided family
+in log space, so p-values below the double range keep their decisions,
+and positive and negative discoveries are split by the sign of the
+score. A `checkpoint_dir` stores the feature score states and the pair
+shards under an algorithm contract; a directory holding pair results
+from another contract is refused.
 
 ## Included data and observed spatial locations
 
@@ -305,77 +306,71 @@ shows linear raw counts for its named gene, with white at zero.
 
 </div>
 
-## MISO E13: PC-truncated SPDE fit, random field, and score test
+## MISO E13: SPDE fit, random field, and score test
 
-The following chunk fits `Mapt` and `Map1b` on the finer MISO mesh. It
-fixes the unit-scale `kappa = 0.1`, estimates only the smoothing
-parameter by REML, and retains the `0.999` covariance-trace PC basis.
-For the pairwise test,
-the raw `gam(..., fit = FALSE)` setup is passed directly to
-`mgcvST.estimate()`. This path uses the stored positive-semidefinite
-`pc_score_Q` in the full projected coordinate system.
+The following chunk fits `Mapt` and `Map1b` on the MISO mesh. It fixes
+the unit-scale `kappa = 0.1`, estimates only the smoothing parameter by
+REML, and uses the full projected SPDE basis. For the pairwise test, the
+raw `gam(..., fit = FALSE)` setup is passed directly to
+`mgcvST.estimate()`, which prepares it with `mgcvST.set()`.
 
 ``` r
 D_miso_mapt <- D_miso
 D_miso_map1b <- D_miso
 D_miso_mapt$response <- MISO_E13$expression$Mapt
 D_miso_map1b$response <- MISO_E13$expression$Map1b
-basis_miso_pc <- spde_basis(
-  MISO_E13$meshes$spdePC_g999, as.matrix(D_miso[, c("x", "y")]),
-  kappa = 0.1, pc_cutoff = 0.999
+basis_miso <- spde_basis(
+  MISO_E13$meshes$spde, as.matrix(D_miso[, c("x", "y")]), kappa = 0.1
 )
 
 fit_miso_mapt <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = basis_miso_pc, sp = -1),
+    s(x, y, bs = "spde", xt = basis_miso, sp = -1),
   data = D_miso_mapt, family = nb(link = "log"), method = "REML"
 )
 fit_miso_map1b <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = basis_miso_pc, sp = -1),
+    s(x, y, bs = "spde", xt = basis_miso, sp = -1),
   data = D_miso_map1b, family = nb(link = "log"), method = "REML"
 )
 
-sm_miso <- fit_miso_mapt$smooth[[1L]]
 data.frame(
-  full_projected_dimension = sm_miso$pc_full_dimension,
-  retained_dimension = sm_miso$pc_retained_dimension,
-  retained_trace = sm_miso$pc_cumulative_trace[sm_miso$pc_retained_dimension],
-  score_Q_rank = as.integer(Matrix::rankMatrix(sm_miso$pc_score_Q))
+  mesh_vertices = basis_miso$raw_dimension,
+  coefficients = ncol(basis_miso$B),
+  penalty_rank = as.integer(Matrix::rankMatrix(fit_miso_mapt$smooth[[1L]]$S[[1L]]))
 )
-#>   full_projected_dimension retained_dimension retained_trace score_Q_rank
-#> 1                      150                112      0.9990077          112
+#>   mesh_vertices coefficients penalty_rank
+#> 1           101          100          100
 
-G_miso_pc <- gam(
+G_miso <- gam(
   formula(fit_miso_mapt), data = D_miso_mapt,
   family = nb(link = "log"), method = "REML", fit = FALSE,
   control = gam.control(nthreads = 1L, ncv.threads = 1L)
 )
-Y_miso_pc <- t(as.matrix(MISO_E13$expression[, c("Mapt", "Map1b")]))
+Y_miso_pair <- t(as.matrix(MISO_E13$expression[, c("Mapt", "Map1b")]))
 fit_pair_miso <- mgcvST.estimate(
-  Y_miso_pc, G_miso_pc, BPPARAM = BiocParallel::SerialParam()
+  Y_miso_pair, G_miso, BPPARAM = BiocParallel::SerialParam()
 )
 score_miso <- mgcvST.test(
   fit_pair_miso, pairs = matrix(c("Mapt", "Map1b"), nrow = 1L),
-  calibration = "liu", FDR = FALSE,
-  BPPARAM = BiocParallel::SerialParam(), threads = 1L
+  adjust = "none", threads = 1L
 )
 data.frame(
   pair = "Mapt--Map1b",
-  signed_score = score_miso$results$signed_score,
-  quadratic_statistic = score_miso$results$statistic,
-  information = score_miso$results$information,
-  calibration = score_miso$calibration,
-  p_value = score_miso$results$p_two_sided
+  signed_score = score_miso$results$score,
+  quadratic_statistic = score_miso$results$score^2,
+  log_p_two_sided = score_miso$results$log_p_two_sided,
+  p_value = exp(score_miso$results$log_p_two_sided),
+  calibration = score_miso$calibration
 )
-#>          pair signed_score quadratic_statistic information calibration
-#> 1 Mapt--Map1b     25.87039             669.277    29.23742         liu
-#>        p_value
-#> 1 5.044071e-06
+#>          pair signed_score quadratic_statistic log_p_two_sided      p_value
+#> 1 Mapt--Map1b     28.18242            794.2486       -13.82215 9.933803e-07
+#>   calibration
+#> 1         liu
 ```
 
 The fitted random field is evaluated on a regular grid through the
-registered `spdePC` prediction matrix. Predictions are restricted to the
+registered `spde` prediction matrix. Predictions are restricted to the
 intersection of the supplied domain and its triangulation, preserving
 boundaries and holes.
 
@@ -402,80 +397,75 @@ print(p_miso)
 <img src="README_files/figure-gfm/miso-random-field-1.png" alt="Fitted spatial random field for Mapt in MISO E13, with a horizontal legend below."  />
 <p class="caption">
 
-MISO E13 Mapt fitted PC-truncated SPDE random field, evaluated inside
-the supplied mesh.
+MISO E13 Mapt fitted SPDE random field, evaluated inside the supplied
+mesh.
 </p>
 
 </div>
 
-## Visium B: PC-truncated SPDE fit, random field, and score test
+## Visium B: SPDE fit, random field, and score test
 
-The Visium example uses the same fixed-`kappa` and `0.999` PC
-construction on its finer mesh. Here we test `mt_co3` against
-`BRAFhuman`.
+The Visium example uses the same fixed-`kappa` full-basis construction
+on its baseline mesh. Here we test `mt_co3` against `BRAFhuman`.
 
 ``` r
 D_visium_mtco3 <- D_visium
 D_visium_braf <- D_visium
 D_visium_mtco3$response <- Visium_B$expression$mt_co3
 D_visium_braf$response <- Visium_B$expression$BRAFhuman
-basis_visium_pc <- spde_basis(
-  Visium_B$meshes$spdePC_g999, as.matrix(D_visium[, c("x", "y")]),
-  kappa = 0.1, pc_cutoff = 0.999
+basis_visium <- spde_basis(
+  Visium_B$meshes$spde, as.matrix(D_visium[, c("x", "y")]), kappa = 0.1
 )
 
 fit_visium_mtco3 <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = basis_visium_pc, sp = -1),
+    s(x, y, bs = "spde", xt = basis_visium, sp = -1),
   data = D_visium_mtco3, family = nb(link = "log"), method = "REML"
 )
 fit_visium_braf <- gam(
   response ~ offset(offset0) +
-    s(x, y, bs = "spdePC", xt = basis_visium_pc, sp = -1),
+    s(x, y, bs = "spde", xt = basis_visium, sp = -1),
   data = D_visium_braf, family = nb(link = "log"), method = "REML"
 )
 
-sm_visium <- fit_visium_mtco3$smooth[[1L]]
 data.frame(
-  full_projected_dimension = sm_visium$pc_full_dimension,
-  retained_dimension = sm_visium$pc_retained_dimension,
-  retained_trace = sm_visium$pc_cumulative_trace[sm_visium$pc_retained_dimension],
-  score_Q_rank = as.integer(Matrix::rankMatrix(sm_visium$pc_score_Q))
+  mesh_vertices = basis_visium$raw_dimension,
+  coefficients = ncol(basis_visium$B),
+  penalty_rank = as.integer(Matrix::rankMatrix(fit_visium_mtco3$smooth[[1L]]$S[[1L]]))
 )
-#>   full_projected_dimension retained_dimension retained_trace score_Q_rank
-#> 1                      498                228      0.9990019          228
+#>   mesh_vertices coefficients penalty_rank
+#> 1           299          298          298
 
-G_visium_pc <- gam(
+G_visium <- gam(
   formula(fit_visium_mtco3), data = D_visium_mtco3,
   family = nb(link = "log"), method = "REML", fit = FALSE,
   control = gam.control(nthreads = 1L, ncv.threads = 1L)
 )
-Y_visium_pc <- t(as.matrix(Visium_B$expression[, c("mt_co3", "BRAFhuman")]))
+Y_visium_pair <- t(as.matrix(Visium_B$expression[, c("mt_co3", "BRAFhuman")]))
 fit_pair_visium <- mgcvST.estimate(
-  Y_visium_pc, G_visium_pc, BPPARAM = BiocParallel::SerialParam()
+  Y_visium_pair, G_visium, BPPARAM = BiocParallel::SerialParam()
 )
 score_visium <- mgcvST.test(
   fit_pair_visium, pairs = matrix(c("mt_co3", "BRAFhuman"), nrow = 1L),
-  calibration = "liu", FDR = FALSE,
-  BPPARAM = BiocParallel::SerialParam(), threads = 1L
+  adjust = "none", threads = 1L
 )
 data.frame(
   pair = "mt_co3--BRAFhuman",
-  signed_score = score_visium$results$signed_score,
-  quadratic_statistic = score_visium$results$statistic,
-  information = score_visium$results$information,
-  calibration = score_visium$calibration,
-  p_value = score_visium$results$p_two_sided
+  signed_score = score_visium$results$score,
+  quadratic_statistic = score_visium$results$score^2,
+  log_p_two_sided = score_visium$results$log_p_two_sided,
+  p_value = exp(score_visium$results$log_p_two_sided),
+  calibration = score_visium$calibration
 )
-#>                pair signed_score quadratic_statistic information calibration
-#> 1 mt_co3--BRAFhuman    -65.03883             4230.05     69.6801         liu
-#>        p_value
-#> 1 2.899265e-14
+#>                pair signed_score quadratic_statistic log_p_two_sided
+#> 1 mt_co3--BRAFhuman    -62.19882            3868.693       -30.03954
+#>        p_value calibration
+#> 1 8.994851e-14         liu
 ```
 
 ``` r
 visium_rings <- sf::st_geometry(
-  Visium_B$meshes$spdePC_g999$domain.original
+  Visium_B$meshes$spde$domain.original
 )[[1L]]
 visium_holes <- do.call(rbind, lapply(
   seq_along(visium_rings[-1L]),
@@ -513,8 +503,8 @@ print(p_visium)
 <img src="README_files/figure-gfm/visium-random-field-1.png" alt="Fitted spatial random field for mt_co3 in Visium B, with two excluded interior holes in grey and a horizontal legend below."  />
 <p class="caption">
 
-Visium B mt_co3 fitted PC-truncated SPDE random field. Grey polygons are
-the two interior holes excluded by the manual SPDE boundary.
+Visium B mt_co3 fitted SPDE random field. Grey polygons are the two
+interior holes excluded by the manual SPDE boundary.
 </p>
 
 </div>
@@ -522,11 +512,11 @@ the two interior holes excluded by the manual SPDE boundary.
 ## High-throughput baseline-SPDE workflow
 
 `mgcvST.estimate()` and `mgcvST.test()` retain only the compact
-summaries needed for a pre-specified pair universe. Their current
-high-throughput implementation uses the positive-definite baseline
-`spde` precision. The following executable chunk fits all three MISO E13
-genes and tests all three pairs; no full `gam` objects are retained
-after estimation.
+summaries needed for the tested pair universe. Their high-throughput
+implementation uses the positive-definite `spde` precision. The
+following executable chunk fits all three MISO E13 genes and tests all
+three pairs (`pairs = NULL` tests every pair of the available genes); no
+full `gam` objects are retained after estimation.
 
 ``` r
 genes_miso <- c("Mapt", "Map1b", "Hist1h2ao")
@@ -548,16 +538,17 @@ fit_batch_miso <- mgcvST.estimate(
   BPPARAM = BiocParallel::SerialParam()
 )
 test_batch_miso <- mgcvST.test(
-  fit_batch_miso, pairs = t(combn(genes_miso, 2L)),
-  BPPARAM = BiocParallel::SerialParam(), calibration = "liu", threads = 1L
+  fit_batch_miso, pairs = t(combn(genes_miso, 2L)), threads = 1L
 )
-test_batch_miso$results[, c(
-  "feature1", "feature2", "signed_score", "p_two_sided", "p_adjusted"
-)]
-#>   feature1  feature2 signed_score  p_two_sided   p_adjusted
-#> 1     Mapt     Map1b     25.44474 1.455816e-06 4.367447e-06
-#> 2     Mapt Hist1h2ao    -10.67423 1.473115e-02 1.473115e-02
-#> 3    Map1b Hist1h2ao    -16.88088 3.383823e-04 5.075734e-04
+cbind(
+  feature1 = test_batch_miso$feature_id[test_batch_miso$results$i],
+  feature2 = test_batch_miso$feature_id[test_batch_miso$results$j],
+  test_batch_miso$results[, c("score", "log_p_two_sided", "log_q")]
+)
+#>   feature1  feature2     score log_p_two_sided      log_q
+#> 1     Mapt     Map1b  28.18242      -13.822152 -12.117404
+#> 2     Mapt Hist1h2ao -10.56698       -3.750270  -3.144134
+#> 3    Map1b Hist1h2ao -18.58114       -8.189925  -7.178324
 ```
 
 For the packaged three-core versions, set an output directory and source
@@ -577,12 +568,11 @@ source(system.file("examples", "Visium_B.R", package = "mgcvST"))
 ## Simulation reference scripts
 
 `inst/examples/null.R` and `inst/examples/alternative.R` retain the
-original null-tail and power simulation designs for the baseline and
-`0.999` PC-truncated representations. These historical scripts use
-earlier smooth and score interfaces and require migration before running
-with the current release. See the [paired validation
-report](inst/notes/inla-bam-validation.md) for the settings and results
-of the newer INLA–mgcv comparisons.
+original null-tail and power simulation designs for the baseline `spde`
+representation. These historical scripts use earlier score interfaces
+and require migration before running with the current release. See the
+[paired validation report](inst/notes/inla-bam-validation.md) for the
+settings and results of the newer INLA–mgcv comparisons.
 
 ## Construct a mesh from a boundary
 

@@ -1,5 +1,7 @@
 # Low-count INLA score inflation: mechanism review
 
+> 历史文档，截至 9030。
+
 This is a historical experiment using the recorded non-flat hyperpriors.
 Those settings are preserved as part of the experiment; they are not the
 current flat defaults.

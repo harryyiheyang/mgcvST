@@ -1,5 +1,7 @@
 # Interpretation of the re-estimated-hyperparameter null simulation
 
+> 历史文档，截至 9030。
+
 The non-flat hyperpriors described below belong to this historical experiment.
 The current estimator defaults to flat internal log-hyperparameter priors.
 

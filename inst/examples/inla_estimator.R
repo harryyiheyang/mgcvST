@@ -39,7 +39,7 @@ for (dataset in datasets) {
   recalibrated <- inlaST.marginal(
     fit, calibration = "liu", BPPARAM = BiocParallel::SerialParam()
   )
-  stopifnot(all(is.finite(tested$results$p_two_sided)),
+  stopifnot(all(is.finite(tested$results$log_p_two_sided)),
             all(is.finite(fit$diagnostics$marginal_p_value)),
             isTRUE(all.equal(recalibrated$p_value,
                               fit$diagnostics$marginal_p_value,
@@ -58,7 +58,7 @@ for (dataset in datasets) {
     mesh_vertices = basis$raw_dimension, setup_seconds = setup_seconds,
     estimate_seconds = fit$timing$elapsed,
     max_abs_observation_mean = max(abs(means)),
-    valid_pair_p_values = sum(is.finite(tested$results$p_two_sided))
+    valid_pair_p_values = sum(is.finite(tested$results$log_p_two_sided))
   )
   print(results[[dataset]])
 }
