@@ -56,7 +56,7 @@ refused. With \code{NULL}, temporary storage is used.}
 calibration. Required: there is no default, and a call without it stops.
 Both routes serve both estimators.}
 
-\item{rank}{Number of PCAlearning basis matrices (default 20). Used by the
+\item{rank}{Number of PCAlearning basis matrices (default 30). Used by the
 PCAlearning route.}
 
 \item{n_per_cell}{Training genes drawn per PCAlearning stratification cell
@@ -66,7 +66,7 @@ PCAlearning route.}
 sampling; the caller's random-number state is restored.}
 
 \item{k}{Number of leading singular values of the shared basis. \code{NULL}
-uses 20 on the exact route and 50 on the PCAlearning route; a value above
+uses 20 on the exact route and 80 on the PCAlearning route; a value above
 the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
 full-spectrum saddlepoint of each pair.}
 }

@@ -230,15 +230,15 @@ route and `k`.
   and `k = q` reproduces it. Its cost is cubic in `q` for every pair
   (about 5 ms per pair and thread at `q = 298`).
 * `moments = "pcalearning"` projects every score covariance `H_j` onto an
-  orthonormal basis of `rank = 20` symmetric matrices learned from training
+  orthonormal basis of `rank = 30` symmetric matrices learned from training
   genes drawn by stratified sampling on the fitted spatial and observation
   variance scales. Each tested gene is summarized by its basis coefficients
   `c_j`, the two pair traces `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from
   contractions with trace tables computed once, the shared basis holds the
-  `k = 50` leading eigenvectors of the training genes, and the remainder is one
-  node. On the 1,225 held-out pairs of the 1,404-coordinate MAGIC fit, the
+  `k = 80` leading eigenvectors of the training genes, and the remainder is one
+  node. On 1,225 held-out pairs of the full-rank MAGIC fit (`q = 1961`), the
   route stays within 0.018 of the full-spectrum saddlepoint at `p = 1e-12`
-  and within 0.047 at `p = 1e-20`. Per-gene residuals
+  and within 0.035 at `p = 1e-20`. Per-gene residuals
   `e_j^2 / ||H_j||_F^2` are returned in `result$pca_learning$genes`. The Gram
   matrix of the training genes is summed in a fixed block order, so one and
   several threads give identical results.

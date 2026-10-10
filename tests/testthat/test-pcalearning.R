@@ -70,7 +70,9 @@ test_that("inlaST.test() runs the PCAlearning route on request and returns the c
   expect_identical(contract$calibration_contract, "spa_v1")
   expect_identical(contract$route, "pcalearning")
   expect_identical(contract$remainder_order, 2L)
-  expect_identical(contract$k, min(50L, default$timing$route$q))
+  # k = NULL means 80 on the PCAlearning route (and 20 on the exact route).
+  expect_identical(contract$k, min(80L, default$timing$route$q))
+  expect_identical(default$timing$route$k, contract$k)
   expect_match(contract$basis_sha, "^[0-9a-f]{64}$")
   expect_identical(default$timing$pcalearning$pair_schedule, "pcalearning_pair_list")
   all_pairs <- inlaST.test(fit, threads = 2L, rank = 3L, seed = 4L, moments = "pcalearning")
@@ -134,8 +136,8 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
   expect_identical(names(formals(mgcvST.test)), c("fitmgcvST", shared, controls))
   expect_identical(formals(inlaST.test)[controls], formals(mgcvST.test)[controls])
   expect_equal(unlist(mgcvST:::.mgcvst_pca_defaults),
-               c(rank = 20, n_per_cell = 3, seed = 1, k = 50))
-  expect_identical(eval(formals(inlaST.test)$rank), 20L)
+               c(rank = 30, n_per_cell = 3, seed = 1, k = 80))
+  expect_identical(eval(formals(inlaST.test)$rank), 30L)
   # The route has no default: a call without it stops, whatever else is wrong.
   expect_identical(formals(inlaST.test)$moments, formals(function(moments) NULL)$moments)
   expect_identical(formals(mgcvST.test)$moments, formals(function(moments) NULL)$moments)
@@ -324,9 +326,9 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
     .package = "mgcvST"
   )
   basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
-  run <- function(index, dir, rank = 3L, resume = TRUE, n_per_cell = 3L) {
+  run <- function(index, dir, rank = 3L, resume = TRUE, n_per_cell = 3L, k = NULL) {
     mgcvST:::.mgcvst_pair_pcalearning(
-      fit, index, 2L, 1000L, FALSE, basis, rank = rank,
+      fit, index, 2L, 1000L, FALSE, basis, rank = rank, k = k,
       n_per_cell = n_per_cell, seed = 1L, checkpoint_dir = dir, resume = resume
     )
   }
@@ -369,7 +371,12 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   expect_identical(complete$metadata$pca_learning$checkpoint$projected_genes, 0L)
   same(complete)
 
+  # A checkpoint written for another rank or another k is refused, so a
+  # checkpoint made under the earlier defaults (rank 20, k 50) is not resumed
+  # under rank 30 and k 80.
   expect_error(run(index, dir, rank = 2L), "different fit, score basis, route, rank")
+  expect_error(run(index, dir, k = 5L), "different fit, score basis, route, rank, k")
+  expect_error(run(index, dir, k = 50L), "different fit, score basis, route, rank, k")
   expect_error(run(index, dir, resume = FALSE), "already exists")
 
   # A manifest of an earlier algorithm contract is refused, not resumed.
@@ -423,8 +430,11 @@ test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory",
   expect_error(run(3L, seed = 1.5), "seed must be one non-negative integer")
   expect_error(run(3L, k = 0L), "k must be NULL or one positive integer")
   # q = 1404, r = 20: the 210 products B_a B_b with a <= b, about 1.9 GiB (3.3
-  # GiB when the transposes are stored as well).
+  # GiB when the transposes are stored as well). q = 1961, r = 30 (the default
+  # rank): 465 products, 7.7 GiB (7.52 GiB measured for the products, 0.21 for
+  # the panel).
   expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1404, 20) / 1024^3, 1.90, tolerance = 1e-2)
+  expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1961, 30) / 1024^3, 7.74, tolerance = 1e-2)
   local_mocked_bindings(.mgcvst_memory_probe = function(...) list(available = 1e3),
                         .package = "mgcvST")
   expect_error(run(3L), "trace tables for rank = 3 .* use a smaller rank")

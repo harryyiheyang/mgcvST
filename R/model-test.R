@@ -21,7 +21,7 @@
 .mgcvst_moments_missing <- function() {
   stop("moments must be given: \"exact\" (the four exact trace moments of every ",
        "pair, k = 20 leading singular values) or \"pcalearning\" (low-rank trace ",
-       "moments, k = 50). There is no default.", call. = FALSE)
+       "moments, k = 80). There is no default.", call. = FALSE)
 }
 
 # Shared orchestration of mgcvST.test() and inlaST.test(): validate the
@@ -292,7 +292,7 @@
 #' rank-`rank` basis learned from training genes (see [inlaST.test()] for the
 #' construction), the pair traces `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from
 #' a contraction of the projected coefficients, the shared basis holds the
-#' `k = 50` leading eigenvectors of the training genes, and the remainder is
+#' `k = 80` leading eigenvectors of the training genes, and the remainder is
 #' one node. The exact route costs time cubic in the score dimension `q` for
 #' every pair, and the PCAlearning route does not depend on `q` per pair; the
 #' PCAlearning route needs more genes than `rank`. `verbose = TRUE` prints the
@@ -357,14 +357,14 @@
 #' @param moments `"exact"` or `"pcalearning"`, the route of the pair
 #'   calibration. Required: there is no default, and a call without it stops.
 #'   Both routes serve both estimators.
-#' @param rank Number of PCAlearning basis matrices (default 20). Used by the
+#' @param rank Number of PCAlearning basis matrices (default 30). Used by the
 #'   PCAlearning route.
 #' @param n_per_cell Training genes drawn per PCAlearning stratification cell
 #'   (default 3).
 #' @param seed Non-negative integer seed for PCAlearning training-gene
 #'   sampling; the caller's random-number state is restored.
 #' @param k Number of leading singular values of the shared basis. `NULL`
-#'   uses 20 on the exact route and 50 on the PCAlearning route; a value above
+#'   uses 20 on the exact route and 80 on the PCAlearning route; a value above
 #'   the score dimension `q` is reduced to `q`, and `k = q` reproduces the
 #'   full-spectrum saddlepoint of each pair.
 #' @return An object of class `mgcvST_test` with `results`, `shards`,

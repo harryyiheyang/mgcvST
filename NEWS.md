@@ -38,10 +38,11 @@
   the exact trace moments `t_1..t_4`. Sparse INLA fits use this route at small
   `q` through the reduced observation-kernel states. The parallel region uses
   only Eigen operations on `k x k` and `q x q` matrices and `R::pnorm`.
-* PCAlearning route (`moments = "pcalearning"`, default `rank = 20`, `k = 50`):
+* PCAlearning route (`moments = "pcalearning"`, default `rank = 30`, `k = 80`):
   the trace tables are built for levels 1 and 2 only (`t_1 = c_i' c_j` and `t_2`
   from the degree-2 monomials, which are built once and reused across blocks),
-  `.mgcvst_pca_table_bytes()` follows. The shared basis comes from the packed
+  `.mgcvst_pca_table_bytes()` follows (7.5 GiB at `q = 1961` and `rank = 30`).
+  The shared basis comes from the packed
   training matrices, `R_g = chol(V' H_g V / max|H_g|)` is computed when a gene is
   materialized, and the remainder is one node. The route no longer depends on
   the estimator: an mgcv fit materializes its states with the dense score
@@ -82,9 +83,21 @@
 * Validation (see `inst/benchmarks/spa-validation-*.R`). Visium-B, `q = 298`,
   25,853 pairs of the shared-basis study, exact route with `k = 20`: the
   maximum deviation of `-log10(p)` from the full-spectrum saddlepoint is 0.0015
-  for `p >= 1e-30`, and `k = q` agrees to 2e-13. MAGIC INLA, `q = 1404`, 1,225
-  held-out pairs, PCAlearning with `rank = 20` and `k = 50`: 0.0176 at
-  `p = 1e-12` and 0.0471 at `p = 1e-20`.
+  for `p >= 1e-30`, and `k = q` agrees to 2e-13. MAGIC INLA on the full-rank
+  observation basis (`q = 1961`), 1,225 pairs of 50 genes that are excluded
+  from the training draw, against the full-spectrum saddlepoint of the exact
+  pair spectra (`r_g = 1879` of 1961 for every gene): PCAlearning with
+  `rank = 30` and `k = 80` deviates by at most 0.018 at `p = 1e-12` and 0.035
+  at `p = 1e-20`, which meets the limits of 0.02 and 0.05. The former defaults,
+  `rank = 20` with `k = 50`, reached 0.030 and 0.054 and did not (`rank = 30`
+  with `k = 50`: 0.019 and 0.045; `rank = 20` with `k = 80`: 0.030 and 0.053),
+  so the rank is what the accuracy needs, and the defaults are now `rank = 30`
+  and `k = 80`. The exact route with `k = 20` deviates by at most 3.1e-5 at
+  `p = 1e-12` and 5.0e-4 at `p = 1e-20` at the same `q`; its pair kernel takes
+  1.3 s per pair and thread at `q = 1961`, the PCAlearning kernel 1.1 ms with
+  `k = 80`. The earlier check on the 0.995-coverage basis (`q = 1404`;
+  `rank = 20`, `k = 50`: 0.0176 at `p = 1e-12` and 0.0471 at `p = 1e-20`) was
+  made on the truncated basis, which is no longer the production basis.
 
 # mgcvST 0.0.1.9032
 

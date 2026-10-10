@@ -267,8 +267,10 @@
 
 # Defaults of the PCAlearning controls of the pair tests, in one place: the
 # rank r of the trace tables and the number k of leading singular values taken
-# from the shared basis.
-.mgcvst_pca_defaults <- list(rank = 20L, n_per_cell = 3L, seed = 1L, k = 50L)
+# from the shared basis. On the full-rank MAGIC basis (q = 1961) rank 20 with
+# k = 50 missed the accuracy limits at p = 1e-12 and 1e-20, and rank 30 with
+# k = 80 met them.
+.mgcvst_pca_defaults <- list(rank = 30L, n_per_cell = 3L, seed = 1L, k = 80L)
 
 # Validated PCAlearning controls as integers. The pair tests call this before
 # they build any basis, so a bad control fails at once.

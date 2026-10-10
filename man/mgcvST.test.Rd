@@ -53,7 +53,7 @@ refused. With \code{NULL}, temporary storage is used.}
 calibration. Required: there is no default, and a call without it stops.
 Both routes serve both estimators.}
 
-\item{rank}{Number of PCAlearning basis matrices (default 20). Used by the
+\item{rank}{Number of PCAlearning basis matrices (default 30). Used by the
 PCAlearning route.}
 
 \item{n_per_cell}{Training genes drawn per PCAlearning stratification cell
@@ -63,7 +63,7 @@ PCAlearning route.}
 sampling; the caller's random-number state is restored.}
 
 \item{k}{Number of leading singular values of the shared basis. \code{NULL}
-uses 20 on the exact route and 50 on the PCAlearning route; a value above
+uses 20 on the exact route and 80 on the PCAlearning route; a value above
 the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
 full-spectrum saddlepoint of each pair.}
 }
@@ -98,7 +98,7 @@ With \code{moments = "pcalearning"}, the score covariances are projected onto a
 rank-\code{rank} basis learned from training genes (see \code{\link[=inlaST.test]{inlaST.test()}} for the
 construction), the pair traces \verb{tr(H_i H_j)} and \verb{tr((H_i H_j)^2)} come from
 a contraction of the projected coefficients, the shared basis holds the
-\code{k = 50} leading eigenvectors of the training genes, and the remainder is
+\code{k = 80} leading eigenvectors of the training genes, and the remainder is
 one node. The exact route costs time cubic in the score dimension \code{q} for
 every pair, and the PCAlearning route does not depend on \code{q} per pair; the
 PCAlearning route needs more genes than \code{rank}. \code{verbose = TRUE} prints the
