@@ -83,7 +83,7 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = rownames(f$Y)
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   W <- mgcvST.wgcna(fit, ids)
@@ -166,7 +166,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   model <- inlaST.set(response ~ z, data, basis, family = gaussian())
   fit <- inlaST.estimate(
     Y, model, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09), spatial = rownames(Y)
+    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09), spatial = "all"
   )
   ids <- rownames(Y)
   used <- match(ids, fit$feature_id)

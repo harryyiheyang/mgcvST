@@ -100,7 +100,7 @@ test_that("pair results written under another algorithm contract are refused", {
   expect_error(mgcvST:::.mgcvst_pairs_open(root, universe,
     mgcvST:::.mgcvst_contract("pcalearning")), "different algorithm contract")
   # Directories written by the earlier kernel versions (spa_v1, kernels 1 and 2:
-  # kernel 2 had no degenerate-gene rule, so its p-values are not reusable).
+  # kernel 2 left a pair with status 1 or 2 without a p-value).
   for (kernel in 1:2) {
     stale <- file.path(root, paste0("pairs-kernel", kernel))
     dir.create(stale)

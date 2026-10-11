@@ -416,7 +416,6 @@
     error_class = NA_character_, error_message = NA_character_,
     error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
-    spatial_route = NA_character_,
     prescreen_phi = prescreen$phi,
     family_used = ifelse(prescreen$poisson, "quasipoisson", family_id),
     stringsAsFactors = FALSE
@@ -496,7 +495,7 @@
   rm(step1)
 
   index <- .mgcvst_select_spatial(spatial, feature_id, marginal_q, q.value)
-  ans$diagnostics <- .mgcvst_record_selection(ans$diagnostics, index, spatial)
+  ans$diagnostics$spatial_selected[index] <- TRUE
   ans <- .mgcvst_apply_spatial(ans, Y, index, BPPARAM, chunk_size, store)
   ans$timing$elapsed <- proc.time()[["elapsed"]] - t0
   ans
@@ -682,12 +681,7 @@
 #' @param features The features to add: `"discoveries"` (the default; Stage 1
 #'   q-value at most `q.value` under `adjust`, computed from the stored Stage 1
 #'   p-values), `"all"`, a vector of feature IDs or one-based indices, or a
-#'   logical vector with one value per feature. As in the `spatial` argument of
-#'   the estimator, the route is recorded per feature: a feature added with
-#'   `"all"` that the Stage 1 test of the fit (its own `adjust` and `q.value`)
-#'   did not select has p = 1 in every pair of the pair test, and a feature
-#'   added as `"discoveries"` (whatever `adjust` and `q.value` of this call) or
-#'   by ID is the selection.
+#'   logical vector with one value per feature.
 #' @param adjust,q.value Adjustment and threshold used when
 #'   `features = "discoveries"`. The defaults are those of the original call.
 #' @param BPPARAM A `BiocParallelParam`; defaults to the registered `bpparam()`.
@@ -729,7 +723,7 @@ mgcvST.estimate_spatial <- function(
   .mgcvst_check_responses(fit, Y, index)
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", fit$signature, resume)
   t0 <- proc.time()[["elapsed"]]
-  fit$diagnostics <- .mgcvst_record_selection(fit$diagnostics, index, features)
+  fit$diagnostics$spatial_selected[index] <- TRUE
   fit <- .mgcvst_apply_spatial(fit, Y, index, BPPARAM, chunk_size, store)
   fit$timing$elapsed <- fit$timing$elapsed + proc.time()[["elapsed"]] - t0
   fit

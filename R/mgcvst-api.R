@@ -323,13 +323,7 @@
 #'   `q.value`), `"all"`, `"none"`, a vector of feature IDs or one-based
 #'   indices, or a logical vector with one value per feature. A user-given
 #'   vector allows, for example, a Stage 1 adjustment within a modality or a
-#'   family of features that the user performs outside this function, and it is
-#'   the selection: the pair test calibrates every feature in it. With `"all"`,
-#'   the features that the Stage 1 test of this fit does not select (Stage 1
-#'   q-value missing or above `q.value`) receive a spatial model, and the pair
-#'   tests set every pair that contains one of them to p = 1 (status 4); with
-#'   `"discoveries"` there is none. The route is recorded per feature in
-#'   `diagnostics$spatial_route`.
+#'   family of features that the user performs outside this function.
 #' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
 #'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
 #' @param q.value Stage 1 discovery threshold in `(0, 1]`.
@@ -346,10 +340,8 @@
 #'   `Vp` objects are discarded. When `retain_smooth = TRUE`, it also contains
 #'   `smooth_coefficients`. Score methods derive the field scale as
 #'   `dispersion / lambda`. The diagnostics table holds `marginal_q_value`,
-#'   `spatial_selected`, `spatial_fitted` and `spatial_route` (how the spatial
-#'   model of the feature was requested: `"discoveries"`, `"all"` or `"user"`),
-#'   and `y_digest` records a digest of each response row, which
-#'   [mgcvST.estimate_spatial()] checks.
+#'   `spatial_selected` and `spatial_fitted`, and `y_digest` records a digest
+#'   of each response row, which [mgcvST.estimate_spatial()] checks.
 #' @seealso [mgcvST.estimate_spatial()] to add spatial models after step 1.
 #' @export
 mgcvST.estimate <- function(

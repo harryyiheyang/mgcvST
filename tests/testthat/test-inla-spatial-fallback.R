@@ -91,7 +91,7 @@ test_that("public native crash recovery reuses null fits without replacing p-val
     z
   }, .package = "mgcvST")
   fit <- inlaST.estimate(Y, model, offset = extra, retain_smooth = TRUE,
-    diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(), spatial = rownames(Y))
+    diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   expect_length(calls$null, 2L)
   expect_identical(calls$spatial, 2L)
   expect_true(all(fit$diagnostics$converged))

@@ -298,18 +298,14 @@
 # the PCAlearning basis B (learned, or read from the checkpoint directory
 # `path`), the shared basis V, the coefficients C, the factors R_g of V, the
 # scales, the score coordinates A, the degree-2 monomials K2 and the trace
-# table T2. Genes without a usable state (`failed_gene`) and genes that the
-# Stage 1 test did not select (`skipped`, neither trained on nor materialized)
-# carry neutral values. The pair stage and the validation scripts both start from this
-# object.
+# table T2. Genes without a usable state (`failed_gene`) carry neutral values.
+# The pair stage and the validation scripts both start from this object.
 .mgcvst_pca_prepare <- function(fit, used, basis, q, rank, n_per_cell, seed, k,
                                 threads, path = NULL, verbose = FALSE,
                                 started = proc.time()[["elapsed"]]) {
   k_requested <- k
   basis_file <- if (is.null(path)) NULL else file.path(path, "pca-basis.rds")
-  degenerate <- .mgcvst_stage1_unselected(fit)
-  skipped <- degenerate[used]
-  available <- .mgcvst_feature_available(fit) & !degenerate
+  available <- .mgcvst_feature_available(fit)
   basis_resumed <- !is.null(basis_file) && file.exists(basis_file)
   if (basis_resumed) {
     saved <- readRDS(basis_file)
@@ -330,8 +326,8 @@
                          " PCAlearning training genes.")
   }
   # The producer serves the training genes as well as the genes of the pairs.
-  producer <- .mgcvst_pca_producer(
-    fit, sort(unique(c(used[!skipped], sampled$train))), basis, threads)
+  producer <- .mgcvst_pca_producer(fit, sort(unique(c(used, sampled$train))),
+                                   basis, threads)
   if (!basis_resumed) {
     learned <- .mgcvst_pca_basis(producer, sampled$train,
                                  sampled$scales$tau[sampled$train], rank,
@@ -350,7 +346,7 @@
   # Training genes reuse their first materialization; the others are projected
   # in checkpoint blocks of 256 genes.
   t0 <- proc.time()[["elapsed"]]
-  rest <- setdiff(used[!skipped], learned$train)
+  rest <- setdiff(used, learned$train)
   blocks <- if (is.null(path)) list() else .mgcvst_pca_blocks_read(path)
   done <- unlist(lapply(blocks, `[[`, "feature_index"))
   resumed_genes <- sum(rest %in% done)
@@ -384,41 +380,34 @@
   kt <- match(used, learned$train)
   kr <- match(used, proj$ids)
   tr <- !is.na(kt)
-  other <- which(!tr & !skipped)
   A <- matrix(NA_real_, q, length(used))
   C <- matrix(NA_real_, length(used), ncol(learned$B))
   R <- matrix(NA_real_, kv * kv, length(used))
   scale <- rep(NA_real_, length(used))
-  fro2 <- rep(NA_real_, length(used))
-  gene_error <- rep(NA_character_, length(used))
   A[, tr] <- learned$A[, kt[tr]]
-  A[, other] <- proj$A[, kr[other]]
+  A[, !tr] <- proj$A[, kr[!tr]]
   C[tr, ] <- learned$C[kt[tr], ]
-  C[other, ] <- proj$C[kr[other], ]
+  C[!tr, ] <- proj$C[kr[!tr], ]
   R[, tr] <- learned$R[, kt[tr]]
-  R[, other] <- proj$R[, kr[other]]
+  R[, !tr] <- proj$R[, kr[!tr]]
   scale[tr] <- learned$scale[kt[tr]]
-  scale[other] <- proj$scale[kr[other]]
-  fro2[tr] <- learned$fro2[kt[tr]]
-  fro2[other] <- proj$fro2[kr[other]]
-  gene_error[tr] <- learned$error[kt[tr]]
-  gene_error[other] <- proj$error[kr[other]]
+  scale[!tr] <- proj$scale[kr[!tr]]
+  fro2 <- ifelse(tr, learned$fro2[kt], proj$fro2[kr])
+  gene_error <- ifelse(tr, learned$error[kt], proj$error[kr])
   learned$A <- NULL
   learned$R <- NULL
   rm(proj)
   t_project <- proc.time()[["elapsed"]] - t0
 
-  # A gene without a usable state, or one that the Stage 1 test did not select,
-  # enters the kernels with neutral values; its pairs are marked below (status 3 and
-  # status 4) and carry no kernel result.
+  # A gene without a usable state enters the kernels with neutral values; its
+  # pairs are marked status 3 below and carry no p-value.
   failed_gene <- !is.na(gene_error)
   C_out <- C
-  dead <- failed_gene | skipped
-  if (any(dead)) {
-    A[, dead] <- 0
-    C[dead, ] <- 0
-    R[, dead] <- 0
-    scale[dead] <- 1
+  if (any(failed_gene)) {
+    A[, failed_gene] <- 0
+    C[failed_gene, ] <- 0
+    R[, failed_gene] <- 0
+    scale[failed_gene] <- 1
   }
   # The basis is orthonormal: t_1 = c_i' c_j needs no level-1 table.
   basis_check <- max(abs(crossprod(learned$B) - diag(ncol(learned$B))))
@@ -430,8 +419,7 @@
                        round(tables$timing[["total"]], 2), " s.")
   list(A = A, C = C, C_out = C_out, K2 = K2, T2 = T2, R = R, scale = scale,
        used = used, k = kv, V = learned$V, V_sha = learned$V_sha, fro2 = fro2,
-       gene_error = gene_error, failed_gene = failed_gene, skipped = skipped,
-       trained = tr,
+       gene_error = gene_error, failed_gene = failed_gene, trained = tr,
        sampled = sampled, scales = scales, learned = learned, tables = tables,
        basis_check = basis_check, basis_resumed = basis_resumed,
        resumed_genes = resumed_genes, projected_genes = length(missing),
@@ -523,29 +511,24 @@
   # Pair directories of another algorithm contract are refused before any
   # work; the directory of this run is opened once the shared basis exists.
   .mgcvst_pairs_refuse_stale(root, contract_early)
-  degenerate <- .mgcvst_stage1_unselected(fit)
   universe <- if (all_pairs) {
-    list(all = TRUE, used = used, n_feature = length(fit$feature_id),
-         degenerate = which(degenerate[used]))
-  } else list(index = index, degenerate = which(degenerate[used]))
+    list(all = TRUE, used = used, n_feature = length(fit$feature_id))
+  } else list(index = index)
 
   prep <- .mgcvst_pca_prepare(fit, used, basis, q, rank, n_per_cell, seed,
                               k_requested, threads, path, verbose, started)
   A <- prep$A; C <- prep$C; C_out <- prep$C_out; K2 <- prep$K2; T2 <- prep$T2
   R <- prep$R; scale <- prep$scale; kv <- prep$k; fro2 <- prep$fro2
   gene_error <- prep$gene_error; tr <- prep$trained; sampled <- prep$sampled
-  skipped <- prep$skipped
   scales <- prep$scales; learned <- prep$learned; tables <- prep$tables
   t_sample <- prep$t_sample; t_project <- prep$t_project
   preparation_elapsed <- proc.time()[["elapsed"]] - started
 
   # Compact rows of one block of pairs: local positions (li, lj) in `used`
   # and the kernel output matrix. A pair with a gene whose projection failed
-  # has status 3 and no p-value. Otherwise a pair with an unselected gene has
-  # status 4, p = 1 and no score. A pair the kernel could not evaluate keeps its
+  # has status 3 and no p-value; a pair the kernel could not evaluate keeps its
   # status 1 or 2 and has p = 1: two-sided and both one-sided log p are 0.
   ok <- is.na(gene_error)
-  pcols <- c("log_p_two_sided", "log_p_positive", "log_p_negative")
   pair_frame <- function(li, lj, out) {
     frame <- .mgcvst_pairs_frame(
       used[li], used[lj], out[, "U"], out[, "logp_two_sided"],
@@ -553,16 +536,12 @@
       remainder_kind = out[, "remainder_kind"], status = out[, "status"]
     )
     invalid <- frame$status != .mgcvst_pair_status[["ok"]]
-    frame[invalid, pcols] <- 0
+    frame[invalid, c("log_p_two_sided", "log_p_positive", "log_p_negative")] <- 0
     bad <- !ok[li] | !ok[lj]
-    skip <- !bad & (skipped[li] | skipped[lj])
-    frame$status[skip] <- .mgcvst_pair_status[["degenerate"]]
-    frame$remainder_kind[skip] <- 0L
-    frame$score[skip] <- NA_real_
-    frame[skip, pcols] <- 0
     frame$status[bad] <- .mgcvst_pair_status[["feature"]]
     frame$remainder_kind[bad] <- 0L
-    frame[bad, c("score", pcols)] <- NA_real_
+    frame[bad, c("score", "log_p_two_sided", "log_p_positive",
+                 "log_p_negative")] <- NA_real_
     frame
   }
 
@@ -654,7 +633,7 @@
     training = tr, cell = sampled$cell[used],
     sigma_g2 = scales$sigma_g2[used], sigma_e2 = scales$sigma_e2[used],
     tau = scales$tau[used], fro2 = fro2, e2 = e2,
-    e2_relative = e2 / fro2, error_message = gene_error, degenerate = skipped,
+    e2_relative = e2 / fro2, error_message = gene_error,
     stringsAsFactors = FALSE
   )
   dimnames(C) <- list(fit$feature_id[used], paste0("c", seq_len(ncol(C))))
@@ -677,7 +656,6 @@
       chunks = chunks, chunk_size = chunk_size, resumed_pairs = resumed_pairs,
       pair_dir = pair_dir, k = kv, basis_sha = learned$V_sha, q = q,
       nodes_above_leading = nodes_above,
-      degenerate_genes = sum(skipped),
       preparation_elapsed = preparation_elapsed, contract = contract,
       pca_learning = list(
         rank = rank, n_per_cell = n_per_cell,

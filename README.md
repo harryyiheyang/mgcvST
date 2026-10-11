@@ -262,22 +262,17 @@ feature indices `i < j`, `score`, the natural-log two-sided, positive
 and negative p-values, the adjusted two-sided `log_q`, `remainder_kind`
 (0 none, 1 one node, 2 two nodes, 3 Gaussian) and `status`; feature
 names are `result$feature_id[result$results$i]`. The status is 0 for an
-evaluated pair, 1 or 2 when the kernel cannot give a p-value, 3 when a
-gene has no usable score state and 4 when a gene was fitted spatially
-under `spatial = "all"` although the Stage 1 test of the fit did not
-select it (Stage 1 q-value missing or above `q.value`; listed in
-`result$degenerate`). A fit with `spatial = "discoveries"` or with
-feature IDs has no such gene. A pair with status 1, 2 or 4 has p = 1 and
-stays in the adjustment family, and a pair with status 3 has no p-value.
-The adjustment (`adjust = "BY"`, `"BH"`, `"Sidak"` or `"none"`) is
-applied once to the two-sided family in log space, and positive and
-negative discoveries are split by the sign of the score. A
-`checkpoint_dir` stores the feature score states, the shared basis and
-the pair shards under the algorithm contract `spa_v1`, which records the
-route, `k`, the remainder order and the sha of the shared basis; a
-directory holding pair results from another contract is refused. The
-directory records its route, and a resume with another `moments` stops
-with a message.
+evaluated pair, 1 or 2 when the kernel cannot give a p-value (the pair
+then has p = 1 and stays in the adjustment family) and 3 when a gene has
+no usable score state (no p-value, not adjusted). The adjustment
+(`adjust = "BY"`, `"BH"`, `"Sidak"` or `"none"`) is applied once to the
+two-sided family in log space, and positive and negative discoveries are
+split by the sign of the score. A `checkpoint_dir` stores the feature
+score states, the shared basis and the pair shards under the algorithm
+contract `spa_v1`, which records the route, `k`, the remainder order and
+the sha of the shared basis; a directory holding pair results from
+another contract is refused. The directory records its route, and a
+resume with another `moments` stops with a message.
 
 ## Included data and observed spatial locations
 

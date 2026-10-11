@@ -73,11 +73,10 @@
   }
 })
 
-# Identical estimates: every field the tests read, without timings and without
-# the route, which records how each spatial model was requested.
+# Identical estimates: every field the tests read, without timings.
 .ts_same_estimates <- function(a, b, fields) {
   for (name in fields) expect_identical(a[[name]], b[[name]], info = name)
-  keep <- !grepl("_seconds$|^spatial_route$", names(a$diagnostics))
+  keep <- !grepl("_seconds$", names(a$diagnostics))
   expect_identical(a$diagnostics[, keep], b$diagnostics[, keep])
 }
 
@@ -654,6 +653,28 @@ test_that("mgcv null chunks hold no observation-length vector and resume exactly
   expect_identical(changed$timing$resumed_spatial_chunks, 2L)
 })
 
+test_that("fits and estimation checkpoints of format 2 (0.0.1.9032 and later) are accepted", {
+  skip_on_cran()
+  f <- st_fixture()
+  sp <- BiocParallel::SerialParam()
+  dir <- tempfile("mgcvst-format2-")
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  expect_identical(mgcvST:::.mgcvst_fit_format, 2L)
+  first <- suppressWarnings(mgcvST.estimate(
+    f$Y, f$model, BPPARAM = sp, spatial = "none", chunk_size = 2L, checkpoint_dir = dir))
+  expect_identical(first$format, 2L)
+  expect_identical(readRDS(file.path(dir, "estimation-manifest.rds"))$format, 2L)
+  # The checkpoint is resumed, the fit is extended, and the pair test reads it.
+  again <- suppressWarnings(mgcvST.estimate(
+    f$Y, f$model, BPPARAM = sp, spatial = "none", chunk_size = 2L, checkpoint_dir = dir))
+  expect_gt(again$timing$resumed_null_chunks, 0L)
+  full <- suppressWarnings(mgcvST.estimate_spatial(
+    again, f$Y, "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir))
+  z <- mgcvST.test(full, moments = "exact")
+  expect_true(all(z$results$status == 0L))
+  expect_no_error(mgcvST:::.mgcvst_check_fit_format(list(format = 2L)))
+})
+
 # ---- INLA branch ------------------------------------------------------------
 
 test_that("inlaST.estimate fits the null model of every feature and the spatial model of the discoveries", {
@@ -732,14 +753,8 @@ test_that("inlaST.estimate_spatial adds spatial models to a step 1 fit", {
               "family_parameters", "null_state", "constraint_residual",
               "observation_spatial_mean", "feature_family", "y_digest")
   .ts_same_estimates(full, all, fields)
-  # The two fits request their spatial models differently (by ID and "all"), so
-  # their routes differ; the pair test compares the estimates.
-  no_route <- function(x) {
-    x$diagnostics$spatial_route <- NULL
-    x
-  }
-  expect_identical(inlaST.test(no_route(full), rank = 3L, seed = 4L, moments = "exact")$results,
-                   inlaST.test(no_route(all), rank = 3L, seed = 4L, moments = "exact")$results)
+  expect_identical(inlaST.test(full, rank = 3L, seed = 4L, moments = "exact")$results,
+                   inlaST.test(all, rank = 3L, seed = 4L, moments = "exact")$results)
   q <- all$diagnostics$marginal_q_value
   cut <- sqrt(sort(q)[3L] * sort(q)[4L])
   some <- inlaST.estimate_spatial(none, d$Y, q.value = cut, BPPARAM = sp)

@@ -1,59 +1,26 @@
-# mgcvST 0.0.1.9034
+# mgcvST 0.0.1.9035
 
-* Pairs with a feature that the Stage 1 test did not select. `spatial = "all"`
-  fits a spatial model for every feature, including the features without a
-  Stage 1 signal, and the score covariance of such a feature has no information
-  to calibrate. The copula SVG simulation (`copula_svg_pair_9033`, 90 datasets,
-  `spatial = "all"`) gave 16 BY discoveries at q = 0.05 in 11 datasets (9
-  between two genes without a field, 5 between two weak genes, 1 medium-weak, 1
-  strong-medium), and 15 of them contain a gene that Stage 1 does not select. A
-  feature is now set aside when its spatial model was requested as `"all"` and
-  the Stage 1 null score test of the fit does not select it: its stored `marginal_q_value` (under the `adjust` of
-  the fit) is missing or above the `q.value` of the fit. Every pair that
-  contains such a feature gets p = 1 (`log_p_two_sided = log_p_positive =
-  log_p_negative = 0`), the new `status` 4 and `score = NA`, and stays in the
-  adjustment family, so BY (and BH, Bonferroni) are computed over all requested
-  pairs and equal `stats::p.adjust` on the written p-values. The rule is the
-  same for both routes (`moments = "exact"` and `"pcalearning"`) and both
-  estimators. Stage 1 BY (q = 0.05, within dataset) selects 96.6% of the strong,
-  81.1% of the medium, 46.2% of the weak and 0.43% of the no-field genes of the
-  simulation; restricting the pair tests to pairs of two selected genes and
-  redoing BY on that family leaves 1 of the 16 discoveries (the strong-medium
-  pair).
-* The rule per way of requesting the spatial models: `spatial = "discoveries"`
-  (the default, and `features = "discoveries"` of the add-later functions,
-  whatever `adjust` and `q.value` that call is given) sets nothing aside;
-  `spatial = "all"` (and `features = "all"`) sets aside the features that Stage 1
-  did not select; `spatial` or `features` given as feature IDs, indices or a
-  logical vector is the user's own selection (for example a Stage 1 adjustment
-  within a modality) and sets nothing aside. The way a feature received its
-  spatial model is recorded in the new diagnostics column `spatial_route`
-  (`"discoveries"`, `"all"`, `"user"`; `NA` without a spatial model). A feature
-  without a spatial model is not a status 4 feature.
-* A pair the kernel cannot evaluate (`status` 1, moments, or `status` 2,
-  invalid p-value) now also gets `p = 1`, keeps its status, and counts in the
-  adjustment family; it was `NA` and excluded. `status` 3 (a feature without a
-  usable score state, for example a failed fit) keeps its behaviour: no
-  p-value, not in the family. The status table is 0 ok, 1 moments, 2 p-value,
-  3 no usable state, 4 not selected by Stage 1.
-* The features set aside are skipped when the states are built: they do not
-  enter the shared basis `V`, the Gram matrix or the PCAlearning tables, and
-  their pair rows are written afterwards with `status` 4, `score = NA` and
-  `remainder_kind = 0`. The result gains `degenerate` (the `feature_id` of the
-  available features that were set aside), the run metadata `degenerate_genes`,
-  and the print method reports their number. A test in which every feature is
-  set aside still returns a result with every pair at `p = 1`. The README and
-  the documentation of `mgcvST.test()` and `inlaST.test()` list the status codes
-  and the rule.
-* Compatibility. The fit format stays 2: a fit or an estimation checkpoint
-  directory written by 0.0.1.9032 or 0.0.1.9033 is accepted by `mgcvST.test()`,
-  `inlaST.test()`, `mgcvST.estimate()`, `mgcvST.estimate_spatial()` and the INLA
-  counterparts as before. Such a fit has no `spatial_route` and is read as the
-  user's selection, so it sets nothing aside; `estimate_spatial()` records the
-  route of the features it adds. The algorithm contract's `kernel_version` is 3
-  (status 1 and 2 pairs now have p = 1, and status 4 exists), so a pair
+* A pair the kernel cannot evaluate (`status` 1, moments non-finite or
+  non-positive, or `status` 2, invalid p-value) now has `p = 1`
+  (`log_p_two_sided = log_p_positive = log_p_negative = 0`), keeps its status
+  code and stays in the adjustment family (BY, BH, Sidak, none), so that a
+  non-finite value never enters the adjustment. It was missing and excluded.
+  `status` 3 (a feature without a usable score state) is unchanged: no p-value,
+  not adjusted. The algorithm contract's `kernel_version` is 3, so a pair
   directory written by 0.0.1.9033 is refused with a message that names the
   kernel version.
+* 0.0.1.9034 is superseded: its status 4 (pairs with a feature that the Stage 1
+  test did not select set to `p = 1`), `diagnostics$spatial_route`,
+  `result$degenerate` and the exclusion of such features from the shared basis
+  and the PCAlearning training are removed. Features without a spatial field are
+  handled by the Stage 1 selection: `spatial = "discoveries"` (the default) fits
+  spatial models only for the Stage 1 discoveries. In the copula SVG simulation
+  (`copula_svg_pair_9033`, 90 datasets, `spatial = "all"`), BY at q = 0.05 over
+  all pairs gave 16 discoveries in 11 of the 90 datasets, against 1 in 1 dataset
+  when the pair tests are restricted to pairs of two genes that pass the Stage 1
+  BY selection.
+* The fit format is 2, as in 0.0.1.9032 and 0.0.1.9033: fits and estimation
+  checkpoint directories written by those versions are accepted.
 
 # mgcvST 0.0.1.9033
 

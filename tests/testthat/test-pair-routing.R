@@ -113,3 +113,52 @@ test_that("an INLA fit takes either route and the exact route agrees with the fu
   expect_identical(one$results, four$results)
   expect_identical(one$contract$basis_sha, four$contract$basis_sha)
 })
+
+test_that("a pair the kernel cannot evaluate has p = 1, keeps its status and stays in the family", {
+  skip_on_cran()
+  fit <- .routing_fit()
+  exact_kernel <- mgcvST:::mgcvst_pair_spa_cpp
+  pca_kernel <- mgcvST:::mgcvst_pca_spa_pairs_cpp
+  # The first two pairs of the kernel output become status 2 (invalid p-value)
+  # and status 1 (non-finite moments).
+  testthat::local_mocked_bindings(
+    mgcvst_pair_spa_cpp = function(...) {
+      res <- exact_kernel(...)
+      res$status[1:2] <- c(2L, 1L)
+      for (name in c("log_p_two_sided", "log_p_positive", "log_p_negative")) {
+        res[[name]][1:2] <- c(NA_real_, -Inf)
+      }
+      res
+    },
+    mgcvst_pca_spa_pairs_cpp = function(...) {
+      out <- pca_kernel(...)
+      out[1:2, c("logp_two_sided", "logp_positive", "logp_negative")] <- c(NA_real_, -Inf)
+      out[1:2, "status"] <- c(2, 1)
+      out
+    },
+    .package = "mgcvST")
+  pcols <- c("log_p_two_sided", "log_p_positive", "log_p_negative")
+  pairs <- t(combn(fit$feature_id, 2L))
+  for (moments in c("exact", "pcalearning")) {
+    for (adjust in c("BY", "BH", "Sidak", "none")) {
+      info <- paste(moments, adjust)
+      z <- mgcvST.test(fit, pairs = pairs, moments = moments, rank = 2L, k = 3L,
+                       adjust = adjust)
+      r <- z$results
+      expect_identical(sort(r$status), c(0L, 1L, 2L), info = info)
+      bad <- r$status != 0L
+      expect_true(all(r[bad, pcols] == 0), info = info)
+      expect_true(all(is.finite(r$log_p_two_sided)), info = info)
+      expect_true(all(r$log_p_two_sided[!bad] < 0), info = info)
+      # The pairs stay in the family: all three are adjusted, and a pair with
+      # p = 1 has q = 1.
+      if (adjust != "none") expect_equal(z$adjustment$n_adjusted, 3, info = info)
+      expect_equal(z$discoveries$pairs_with_p_value, 3, info = info)
+      expect_true(all(r$log_q[bad] == 0), info = info)
+      if (adjust != "Sidak") {
+        expect_equal(exp(r$log_q), stats::p.adjust(exp(r$log_p_two_sided), adjust),
+                     tolerance = 1e-12, info = info)
+      }
+    }
+  }
+})

@@ -5,10 +5,9 @@ test_that("bounded pair blocks stream every pair once whatever the state budget"
   original <- mgcvST:::.mgcvst_spa_pairs
   seen <- list()
   testthat::local_mocked_bindings(
-    .mgcvst_spa_pairs = function(index, active, states, G, threads, order = 4L,
-                                 degenerate = NULL) {
+    .mgcvst_spa_pairs = function(index, active, states, G, threads, order = 4L) {
       seen[[length(seen) + 1L]] <<- c(rows = nrow(index), features = length(active))
-      original(index, active, states, G, threads, order, degenerate)
+      original(index, active, states, G, threads, order)
     },
     .package = "mgcvST"
   )

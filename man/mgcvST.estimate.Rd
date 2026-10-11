@@ -113,13 +113,7 @@ gene.}
 \code{q.value}), \code{"all"}, \code{"none"}, a vector of feature IDs or one-based
 indices, or a logical vector with one value per feature. A user-given
 vector allows, for example, a Stage 1 adjustment within a modality or a
-family of features that the user performs outside this function, and it is
-the selection: the pair test calibrates every feature in it. With \code{"all"},
-the features that the Stage 1 test of this fit does not select (Stage 1
-q-value missing or above \code{q.value}) receive a spatial model, and the pair
-tests set every pair that contains one of them to p = 1 (status 4); with
-\code{"discoveries"} there is none. The route is recorded per feature in
-\code{diagnostics$spatial_route}.}
+family of features that the user performs outside this function.}
 
 \item{adjust}{Multiple-testing adjustment of the Stage 1 p-values:
 \code{"BY"} (the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
@@ -142,10 +136,8 @@ block per feature in \code{nuisance_covariance} are retained; full GAM and
 \code{Vp} objects are discarded. When \code{retain_smooth = TRUE}, it also contains
 \code{smooth_coefficients}. Score methods derive the field scale as
 \code{dispersion / lambda}. The diagnostics table holds \code{marginal_q_value},
-\code{spatial_selected}, \code{spatial_fitted} and \code{spatial_route} (how the spatial
-model of the feature was requested: \code{"discoveries"}, \code{"all"} or \code{"user"}),
-and \code{y_digest} records a digest of each response row, which
-\code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} checks.
+\code{spatial_selected} and \code{spatial_fitted}, and \code{y_digest} records a digest
+of each response row, which \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} checks.
 }
 \description{
 Fits each row of \code{Y} from a reusable shared design and retains the fixed

@@ -85,43 +85,6 @@
   sort(unique(as.integer(index)))
 }
 
-# How the spatial model of a feature was requested, recorded per feature in
-# diagnostics$spatial_route: "discoveries" (the Stage 1 selection of that call),
-# "all" (every feature was fitted) or "user" (feature IDs, indices or a logical
-# vector: the selection is the user's own, for example a Stage 1 adjustment
-# within a modality). A fit of 0.0.1.9032 or 0.0.1.9033 has no route, which is
-# read as a selection by the user.
-.mgcvst_spatial_route <- function(spatial) {
-  if (is.character(spatial) && length(spatial) == 1L &&
-      spatial %in% c("discoveries", "all")) spatial else "user"
-}
-
-# The one place that marks features as selected for a spatial model.
-.mgcvst_record_selection <- function(diagnostics, index, spatial) {
-  if (is.null(diagnostics$spatial_route)) {
-    diagnostics$spatial_route <- rep(NA_character_, nrow(diagnostics))
-  }
-  diagnostics$spatial_selected[index] <- TRUE
-  diagnostics$spatial_route[index] <- .mgcvst_spatial_route(spatial)
-  diagnostics
-}
-
-# The features that the pair test sets to p = 1 (status 4): spatial models that
-# were fitted for every feature (spatial = "all") of a gene that the Stage 1
-# null score test of the fit itself did not select, that is, whose stored
-# Stage 1 q-value (under the adjustment of the fit) is missing or above its
-# q.value. Spatial models requested as "discoveries" or by the user are the
-# selection and are never set aside, and neither is a fit without a recorded
-# route.
-.mgcvst_stage1_unselected <- function(fit) {
-  d <- fit$diagnostics
-  none <- rep(FALSE, length(fit$feature_id))
-  if (is.null(d$spatial_route) || is.null(d$marginal_q_value) ||
-      is.null(fit$stage1$q.value)) return(none)
-  selected <- !is.na(d$marginal_q_value) & d$marginal_q_value <= fit$stage1$q.value
-  d$spatial_route %in% "all" & d$spatial_fitted %in% TRUE & !selected
-}
-
 # The digest of one feature row of Y. It is taken over the plain double values,
 # so that neither the names nor the storage type of Y matter.
 .mgcvst_row_digest <- function(Y, j) {

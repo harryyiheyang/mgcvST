@@ -296,13 +296,7 @@
 #'   `q.value`), `"all"`, `"none"`, a vector of feature IDs or one-based
 #'   indices, or a logical vector with one value per feature. A user-given
 #'   vector allows, for example, a Stage 1 adjustment within a modality or a
-#'   family of features that the user performs outside this function, and it is
-#'   the selection: the pair test calibrates every feature in it. With `"all"`,
-#'   the features that the Stage 1 test of this fit does not select (Stage 1
-#'   q-value missing or above `q.value`) receive a spatial model, and the pair
-#'   tests set every pair that contains one of them to p = 1 (status 4); with
-#'   `"discoveries"` there is none. The route is recorded per feature in
-#'   `diagnostics$spatial_route`.
+#'   family of features that the user performs outside this function.
 #' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
 #'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
 #' @param q.value Stage 1 discovery threshold in `(0, 1]`.
@@ -355,9 +349,8 @@
 #'   the estimates, it holds `mu_bar` (the mean of each fitted mean),
 #'   `null_state` (the compact null estimates used by a later step 2),
 #'   `y_digest` (a digest of each response row, which a later step 2 checks)
-#'   and the diagnostics columns `marginal_q_value`, `spatial_selected`,
-#'   `spatial_fitted` and `spatial_route` (how the spatial model of the feature
-#'   was requested: `"discoveries"`, `"all"` or `"user"`).
+#'   and the diagnostics columns `marginal_q_value`, `spatial_selected` and
+#'   `spatial_fitted`.
 #' @seealso [inlaST.estimate_spatial()] to add spatial models after step 1.
 #' @export
 inlaST.estimate <- function(
@@ -493,7 +486,6 @@ inlaST.estimate <- function(
     outer_convergence = NA_character_, error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
-    spatial_route = NA_character_,
     spatial_fallback = FALSE, spatial_fallback_method = NA_character_,
     spatial_precision_assigned = NA_real_,
     null_converged = null_converged, null_fit_seconds = null_fit_seconds,
@@ -583,7 +575,7 @@ inlaST.estimate <- function(
   rm(step1)
 
   index <- .mgcvst_select_spatial(spatial, feature_id, marginal_q, q.value)
-  ans$diagnostics <- .mgcvst_record_selection(ans$diagnostics, index, spatial)
+  ans$diagnostics$spatial_selected[index] <- TRUE
   ans <- .inlast_apply_spatial(ans, Y, index, BPPARAM, chunk_size, threads, store)
   ans$timing$elapsed <- proc.time()[["elapsed"]] - t0
   ans
@@ -604,12 +596,7 @@ inlaST.estimate <- function(
 #' @param features The features to add: `"discoveries"` (the default; Stage 1
 #'   q-value at most `q.value` under `adjust`, computed from the stored Stage 1
 #'   p-values), `"all"`, a vector of feature IDs or one-based indices, or a
-#'   logical vector with one value per feature. As in the `spatial` argument of
-#'   the estimator, the route is recorded per feature: a feature added with
-#'   `"all"` that the Stage 1 test of the fit (its own `adjust` and `q.value`)
-#'   did not select has p = 1 in every pair of the pair test, and a feature
-#'   added as `"discoveries"` (whatever `adjust` and `q.value` of this call) or
-#'   by ID is the selection.
+#'   logical vector with one value per feature.
 #' @param adjust,q.value Adjustment and threshold used when
 #'   `features = "discoveries"`. The defaults are those of the original call.
 #' @inheritParams inlaST.estimate
@@ -648,7 +635,7 @@ inlaST.estimate_spatial <- function(
   .mgcvst_check_responses(fit, Y, index)
   store <- .mgcvst_chunk_store(checkpoint_dir, "inla", fit$signature, resume)
   t0 <- proc.time()[["elapsed"]]
-  fit$diagnostics <- .mgcvst_record_selection(fit$diagnostics, index, features)
+  fit$diagnostics$spatial_selected[index] <- TRUE
   fit <- .inlast_apply_spatial(fit, Y, index, BPPARAM, chunk_size, threads, store)
   fit$timing$elapsed <- fit$timing$elapsed + proc.time()[["elapsed"]] - t0
   fit
