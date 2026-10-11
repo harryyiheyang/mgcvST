@@ -26,7 +26,12 @@ later).}
 \item{features}{The features to add: \code{"discoveries"} (the default; Stage 1
 q-value at most \code{q.value} under \code{adjust}, computed from the stored Stage 1
 p-values), \code{"all"}, a vector of feature IDs or one-based indices, or a
-logical vector with one value per feature.}
+logical vector with one value per feature. As in the \code{spatial} argument of
+the estimator, the route is recorded per feature: a feature added with
+\code{"all"} that the Stage 1 test of the fit (its own \code{adjust} and \code{q.value})
+did not select has p = 1 in every pair of the pair test, and a feature
+added as \code{"discoveries"} (whatever \code{adjust} and \code{q.value} of this call) or
+by ID is the selection.}
 
 \item{adjust, q.value}{Adjustment and threshold used when
 \code{features = "discoveries"}. The defaults are those of the original call.}

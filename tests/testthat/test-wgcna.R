@@ -80,12 +80,11 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  f <- st_fixture(n = 240L, family = gaussian(), nuisance = TRUE)
+  f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
+    BPPARAM = BiocParallel::SerialParam(), spatial = rownames(f$Y)
   )
-  expect_false(any(fit$diagnostics$spatial_degenerate))
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   W <- mgcvST.wgcna(fit, ids)
   pairs <- t(utils::combn(ids, 2L))
@@ -150,7 +149,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   skip_if_not_installed("INLA")
   skip_if_not_installed("geometry")
   set.seed(1731L)
-  n <- 120L
+  n <- 60L
   vertices <- as.matrix(expand.grid(
     x = seq(0, 1, length.out = 5L), y = seq(0, 1, length.out = 5L)
   ))
@@ -167,7 +166,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   model <- inlaST.set(response ~ z, data, basis, family = gaussian())
   fit <- inlaST.estimate(
     Y, model, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09), spatial = "all"
+    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09), spatial = rownames(Y)
   )
   ids <- rownames(Y)
   used <- match(ids, fit$feature_id)

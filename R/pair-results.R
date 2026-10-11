@@ -15,11 +15,11 @@
 )
 
 # status: 0 evaluated; 1 trace moments non-finite or non-positive; 2 invalid
-# p-value; 3 a gene of the pair has no usable score state; 4 a gene has a
-# degenerate spatial fit (effective degrees of freedom below the package
-# minimum). A pair with status 1, 2 or 4 has p = 1: two-sided log p = 0, and
-# both one-sided log p = 0, and it stays in the adjustment family. A pair with
-# status 3 has no p-value and is not adjusted.
+# p-value; 3 a gene of the pair has no usable score state; 4 a gene was fitted
+# spatially under spatial = "all" but was not selected by the Stage 1 null score
+# test of the fit. A pair with status 1, 2 or 4 has p = 1: two-sided log p = 0,
+# and both one-sided log p = 0, and it stays in the adjustment family. A pair
+# with status 3 has no p-value and is not adjusted.
 .mgcvst_pair_status <- c(ok = 0L, moments = 1L, p_value = 2L, feature = 3L,
                          degenerate = 4L)
 

@@ -84,7 +84,6 @@
     }
   }
   .mgcvst_check_fit_format(fit)
-  .mgcvst_check_edf(fit, if (.mgcvst_inla_downstream(fit)) "inlaST" else "mgcvST")
   if (!is.null(fit$diagnostics$spatial_fitted) && !any(fit$diagnostics$spatial_fitted)) {
     stop("The fit has no spatial model; add spatial models with ",
          if (.mgcvst_inla_downstream(fit)) "inlaST" else "mgcvST",
@@ -253,7 +252,7 @@
       threshold = finalized$threshold,
       discoveries = finalized$discoveries,
       adjustment = finalized$adjustment,
-      degenerate = fit$feature_id[.mgcvst_degenerate_features(fit) & available],
+      degenerate = fit$feature_id[.mgcvst_stage1_unselected(fit) & available],
       pair_contract = if (is.null(pairs)) "all_available_pairs" else
         "explicit_tested_pair_universe",
       test_definition = "single_global_cross_gene_covariance_at_independence",
@@ -321,22 +320,23 @@
 #' | 1 | trace moments non-finite or non-positive | 1 |
 #' | 2 | invalid p-value | 1 |
 #' | 3 | a feature of the pair has no usable score state | missing, not adjusted |
-#' | 4 | a feature has a degenerate spatial fit | 1 |
+#' | 4 | a feature was not selected by the Stage 1 test of the fit | 1 |
 #'
 #' A pair with status 1, 2 or 4 has p = 1 (`log_p_two_sided`, `log_p_positive`
 #' and `log_p_negative` are all 0), the conservative choice, and stays in the
-#' adjustment family; a status 4 pair also has no `score`. A spatial fit is
-#' degenerate when the effective degrees of freedom of the spatial smooth of
-#' the gene are below 3 (`diagnostics$edf_spatial` and
-#' `diagnostics$spatial_degenerate` of the fit): the smooth is penalized to the
-#' boundary, the gene is fitted with essentially no spatial field, and the
-#' score covariance of the pair is not informative. For an mgcv fit the
-#' effective degrees of freedom are those of `mgcv`; for a sparse INLA fit they
-#' are the trace of the field block of the hat matrix, `tr(S K) - tr(Vp (S L)'
-#' U)` with the constrained posterior covariance `S` of the field given the
-#' hyperparameters (exact for a field of at most 200 coefficients, otherwise a
-#' trace estimate with 128 fixed probes, standard error at most
-#' `sqrt(2 * edf / 128)`). The genes are listed in `$degenerate`.
+#' adjustment family; a status 4 pair also has no `score`. Status 4 follows
+#' the Stage 1 null score test of the fit. When the spatial models were fitted
+#' for every feature (`spatial = "all"` of the estimator, or `features = "all"`
+#' of the add-later function), a feature whose Stage 1 q-value (under the
+#' `adjust` of the fit) is missing or above its `q.value` was not selected:
+#' the spatial model of a feature without a Stage 1 signal does not carry a
+#' score covariance to calibrate, and every pair that contains such a feature
+#' has p = 1. A fit with `spatial = "discoveries"` (the default) has no such
+#' feature, and neither does a fit whose spatial models were requested by
+#' feature IDs, indices or a logical vector: that selection, for example a
+#' Stage 1 adjustment within a modality, is the user's own. Fits of earlier
+#' versions record no route and are treated as a selection by the user. The
+#' features are listed in `$degenerate`.
 #' Rows are written as Parquet shards while the
 #' pairs are evaluated, and `$results` is the same table sorted by `(i, j)`
 #' when it fits the memory guard (56 bytes per pair, 20% of available memory),
@@ -394,9 +394,9 @@
 #'   `feature_id`, `failed` (features without a usable score state and the
 #'   reason), `threshold`, `discoveries`, `adjustment`, `timing`
 #'   (`timing$route` holds the route, `k` and the score dimension `q`),
-#'   `calibration`, `moments` (the route), `degenerate` (the features with a
-#'   degenerate spatial fit that are among the available ones), `contract` and
-#'   `call`. A PCAlearning run additionally returns `pca_learning`.
+#'   `calibration`, `moments` (the route), `degenerate` (the available features
+#'   that the Stage 1 test of the fit did not select, whose pairs have status
+#'   4), `contract` and `call`. A PCAlearning run additionally returns `pca_learning`.
 #' @export
 mgcvST.test <- function(
     fitmgcvST, pairs = NULL, q.value = 0.05,
@@ -433,7 +433,7 @@ print.mgcvST_test <- function(x, ...) {
       format(d$pairs_discovered_positive, big.mark = ","), ", negative",
       format(d$pairs_discovered_negative, big.mark = ","), ")\n")
   cat("  features without a score state:", nrow(x$failed), "\n")
-  cat("  features with a degenerate spatial fit:", length(x$degenerate), "\n")
+  cat("  features not selected by Stage 1 (pairs at p = 1):", length(x$degenerate), "\n")
   cat("  result shards:", length(x$shards), "\n")
   invisible(x)
 }

@@ -98,8 +98,7 @@
 # What the manager keeps of one spatial fit: the compact estimates, never an
 # observation-length vector.
 .inlast_spatial_record <- function(z, spec, scores_a, score_error, mu_bar,
-                                   edf_spatial, retain_smooth, diagnostics,
-                                   estimation) {
+                                   retain_smooth, diagnostics, estimation) {
   record <- list(
     dispersion = z$dispersion, family_parameters = z$family_parameters,
     smoothing_parameters = z$smoothing_parameters,
@@ -111,8 +110,7 @@
     fit_seconds = z$fit_seconds, spatial_fallback = z$spatial_fallback,
     constraint_residual = z$constraint_residual,
     observation_spatial_mean = z$observation_spatial_mean,
-    score_a = scores_a, score_error = score_error, mu_bar = mu_bar,
-    edf_spatial = edf_spatial
+    score_a = scores_a, score_error = score_error, mu_bar = mu_bar
   )
   if (estimation) record$estimation <- z$estimation
   if (retain_smooth) record$coefficients <- z$coefficients
@@ -174,8 +172,7 @@
       } else {
         record <- .inlast_spatial_record(
           z, spec, scores$a[, kk], scores$error[kk], mean(z$mu),
-          scores$edf[kk], retain_smooth, diagnostics,
-          estimation = !have_estimation
+          retain_smooth, diagnostics, estimation = !have_estimation
         )
         have_estimation <- TRUE
         record
@@ -299,7 +296,13 @@
 #'   `q.value`), `"all"`, `"none"`, a vector of feature IDs or one-based
 #'   indices, or a logical vector with one value per feature. A user-given
 #'   vector allows, for example, a Stage 1 adjustment within a modality or a
-#'   family of features that the user performs outside this function.
+#'   family of features that the user performs outside this function, and it is
+#'   the selection: the pair test calibrates every feature in it. With `"all"`,
+#'   the features that the Stage 1 test of this fit does not select (Stage 1
+#'   q-value missing or above `q.value`) receive a spatial model, and the pair
+#'   tests set every pair that contains one of them to p = 1 (status 4); with
+#'   `"discoveries"` there is none. The route is recorded per feature in
+#'   `diagnostics$spatial_route`.
 #' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
 #'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
 #' @param q.value Stage 1 discovery threshold in `(0, 1]`.
@@ -352,12 +355,9 @@
 #'   the estimates, it holds `mu_bar` (the mean of each fitted mean),
 #'   `null_state` (the compact null estimates used by a later step 2),
 #'   `y_digest` (a digest of each response row, which a later step 2 checks)
-#'   and the diagnostics columns `marginal_q_value`, `spatial_selected` and
-#'   `spatial_fitted`, the effective dimension of the spatial field
-#'   `edf_spatial` (the trace of the field block of the hat matrix, computed in
-#'   the worker from the same sparse factorization as the score vector) and the
-#'   flag `spatial_degenerate` (`edf_spatial` below 3; [inlaST.test()] gives
-#'   every pair with such a gene p = 1 and status 4).
+#'   and the diagnostics columns `marginal_q_value`, `spatial_selected`,
+#'   `spatial_fitted` and `spatial_route` (how the spatial model of the feature
+#'   was requested: `"discoveries"`, `"all"` or `"user"`).
 #' @seealso [inlaST.estimate_spatial()] to add spatial models after step 1.
 #' @export
 inlaST.estimate <- function(
@@ -493,7 +493,7 @@ inlaST.estimate <- function(
     outer_convergence = NA_character_, error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
-    edf_spatial = NA_real_, spatial_degenerate = NA,
+    spatial_route = NA_character_,
     spatial_fallback = FALSE, spatial_fallback_method = NA_character_,
     spatial_precision_assigned = NA_real_,
     null_converged = null_converged, null_fit_seconds = null_fit_seconds,
@@ -583,7 +583,7 @@ inlaST.estimate <- function(
   rm(step1)
 
   index <- .mgcvst_select_spatial(spatial, feature_id, marginal_q, q.value)
-  ans$diagnostics$spatial_selected[index] <- TRUE
+  ans$diagnostics <- .mgcvst_record_selection(ans$diagnostics, index, spatial)
   ans <- .inlast_apply_spatial(ans, Y, index, BPPARAM, chunk_size, threads, store)
   ans$timing$elapsed <- proc.time()[["elapsed"]] - t0
   ans
@@ -604,7 +604,12 @@ inlaST.estimate <- function(
 #' @param features The features to add: `"discoveries"` (the default; Stage 1
 #'   q-value at most `q.value` under `adjust`, computed from the stored Stage 1
 #'   p-values), `"all"`, a vector of feature IDs or one-based indices, or a
-#'   logical vector with one value per feature.
+#'   logical vector with one value per feature. As in the `spatial` argument of
+#'   the estimator, the route is recorded per feature: a feature added with
+#'   `"all"` that the Stage 1 test of the fit (its own `adjust` and `q.value`)
+#'   did not select has p = 1 in every pair of the pair test, and a feature
+#'   added as `"discoveries"` (whatever `adjust` and `q.value` of this call) or
+#'   by ID is the selection.
 #' @param adjust,q.value Adjustment and threshold used when
 #'   `features = "discoveries"`. The defaults are those of the original call.
 #' @inheritParams inlaST.estimate
@@ -628,7 +633,6 @@ inlaST.estimate_spatial <- function(
     stop("fitinlaST must be returned by inlaST.estimate().")
   }
   .mgcvst_check_fit_format(fit)
-  .mgcvst_check_edf(fit, "inlaST")
   adjust <- if (missing(adjust)) fit$stage1$adjust else match.arg(adjust)
   q.value <- if (missing(q.value)) fit$stage1$q.value else
     .mgcvst_check_q_value(q.value)
@@ -644,7 +648,7 @@ inlaST.estimate_spatial <- function(
   .mgcvst_check_responses(fit, Y, index)
   store <- .mgcvst_chunk_store(checkpoint_dir, "inla", fit$signature, resume)
   t0 <- proc.time()[["elapsed"]]
-  fit$diagnostics$spatial_selected[index] <- TRUE
+  fit$diagnostics <- .mgcvst_record_selection(fit$diagnostics, index, features)
   fit <- .inlast_apply_spatial(fit, Y, index, BPPARAM, chunk_size, threads, store)
   fit$timing$elapsed <- fit$timing$elapsed + proc.time()[["elapsed"]] - t0
   fit
@@ -700,8 +704,6 @@ inlaST.estimate_spatial <- function(
     if (length(z$nuisance)) fit$nuisance_coefficients[, j] <- z$nuisance
     fit$score_a[, j] <- z$score_a
     fit$mu_bar[j] <- z$mu_bar
-    diag$edf_spatial[j] <- z$edf_spatial
-    diag$spatial_degenerate[j] <- .mgcvst_degenerate(z$edf_spatial)
     diag$converged[j] <- z$converged
     diag$criterion[j] <- z$log_marginal_likelihood
     diag$fit_seconds[j] <- z$fit_seconds

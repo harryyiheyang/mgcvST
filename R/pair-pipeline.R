@@ -94,10 +94,11 @@
 # Scores and saddlepoint log p-values of the pairs `index` (global feature
 # indices) from the score states of the features `active`, one state per
 # feature, and their pair bases G (indexed by global feature). `degenerate`
-# flags (by global feature) the genes with a degenerate spatial fit; they have
+# flags (by global feature) the genes that the Stage 1 test of the fit did not
+# select although their spatial model was fitted (spatial = "all"); they have
 # no state here.
 #   * a pair with a feature whose state failed has status 3 and no p-value;
-#   * otherwise a pair with a degenerate gene has status 4 and p = 1, and no
+#   * otherwise a pair with an unselected gene has status 4 and p = 1, and no
 #     score;
 #   * a pair the kernel could not evaluate (status 1 or 2) keeps its status and
 #     has p = 1: two-sided and both one-sided log p are 0.
@@ -303,9 +304,9 @@
   width <- .mgcvst_state_width(fit, basis)
   k <- as.integer(min(k, width))
   if (!is.finite(k) || k < 1L) stop("k must be a positive integer.")
-  # Genes with a degenerate spatial fit have no state and no pair basis: their
-  # pairs are written with p = 1 and status 4.
-  degenerate <- .mgcvst_degenerate_features(fit)
+  # Genes that the Stage 1 test of the fit did not select have no state and no
+  # pair basis: their pairs are written with p = 1 and status 4.
+  degenerate <- .mgcvst_stage1_unselected(fit)
   used_kernel <- used[!degenerate[used]]
 
   contract_early <- .mgcvst_contract("exact")

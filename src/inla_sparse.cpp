@@ -35,35 +35,11 @@ Vec positive_spectrum(const Mat& value) {
   return out;
 }
 
-// Probes of the trace estimator of the effective dimension of the spatial
-// field: the same m x kProbes Rademacher matrix for every feature and every
-// call (a fixed splitmix64 stream), so the estimate is a deterministic function
-// of the feature. A field of at most kExactBelow coefficients is traced exactly.
-constexpr int kProbes = 128;
-constexpr int kExactBelow = 200;
-
-Mat probe_matrix(int m) {
-  Mat Z(m, kProbes);
-  unsigned long long state = 0x9E3779B97F4A7C15ULL;
-  for (int j = 0; j < kProbes; ++j) {
-    for (int i = 0; i < m; ++i) {
-      state += 0x9E3779B97F4A7C15ULL;
-      unsigned long long z = state;
-      z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-      z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-      z = z ^ (z >> 31);
-      Z(i, j) = (z & 1ULL) ? 1.0 : -1.0;
-    }
-  }
-  return Z;
-}
-
 struct FeatureResult {
   Vec a;
   Mat M;
   Mat Vp;
   Vec lambda;
-  double edf = NA_REAL;
   double statistic = NA_REAL;
   double constraint_norm = NA_REAL;
   std::string error;
@@ -210,7 +186,6 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
 
   std::vector<FeatureResult> result(features);
   int failed = 0;
-  const Mat probe = (!null_target && m > kExactBelow) ? probe_matrix(m) : Mat(0, 0);
 
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads) reduction(+:failed)
@@ -281,29 +256,6 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
           } else Vp.resize(0, 0);
           h = tvec - K * St;
           if (px) h.noalias() -= U * (Vp * nuisance_score);
-
-          // Effective dimension of the spatial field, as in a GAM: the trace of
-          // the field block of the hat matrix, tr(S K) - tr(Vp (S L)' U) with
-          // S the constrained inverse of K + tau Q, L = A'WX and U = L - K S L
-          // (the nuisance terms enter through the same Vp as in the score). The
-          // trace of S K is exact for a small field and a Hutchinson estimate
-          // with fixed probes otherwise (standard error at most
-          // sqrt(2 edf / 128)).
-          double trace_sk;
-          if (m <= kExactBelow) {
-            const Mat KS = constrained_solve(hfactor, constraint, Mat(K), hinv_g, hden);
-            trace_sk = KS.trace();
-          } else {
-            const Mat KZ = K * probe;
-            const Mat SKZ = constrained_solve(hfactor, constraint, KZ, hinv_g, hden);
-            trace_sk = (probe.array() * SKZ.array()).sum() / kProbes;
-          }
-          double edf = trace_sk;
-          if (px) {
-            const Mat TU = SL.transpose() * U;
-            edf -= (Vp.array() * TU.transpose().array()).sum();
-          }
-          result[f].edf = edf;
         }
 
         Vec a = project_coordinates(apply_Bt(qfactor, h), coordinate_constraint) /
@@ -345,7 +297,6 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
         Rcpp::Named("a") = result[f].a,
         Rcpp::Named("statistic") = result[f].statistic,
         Rcpp::Named("lambda") = null_target ? Rcpp::wrap(result[f].lambda) : R_NilValue,
-        Rcpp::Named("edf_spatial") = result[f].edf,
         Rcpp::Named("expected_vp") = result[f].Vp,
         Rcpp::Named("width") = m,
         Rcpp::Named("normalization") = m - 1,

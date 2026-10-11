@@ -7,46 +7,8 @@
 # step 1, and resumable chunk checkpoints written by the workers.
 
 # Format of the fit objects of the two-step estimators. Fits without it were
-# estimated before 0.0.1.9032; format 3 (0.0.1.9034) adds the effective degrees
-# of freedom of the spatial smooth to the diagnostics.
-.mgcvst_fit_format <- 3L
-
-# A fit whose spatial smooth has fewer effective degrees of freedom than this
-# is degenerate: the gene is fitted with essentially no spatial field (the
-# smooth is penalized to the boundary, or to less than a plane), and every pair
-# with such a gene gets p = 1 and status 4. One constant for both estimators.
-#
-# Chosen from the copula SVG simulation (11 datasets, 11,000 genes, 50 x 50
-# spots, q = 132): the edf of the genes with field variance v = 0.30 / 0.10 /
-# 0.03 has medians 82 / 56 / 26 and minima 49 / 28 / 4e-5, and the edf of the
-# genes without a field has median 3e-4 and maximum 11. At 3, 0% of the strong
-# and medium genes and 0.76% of the weak genes (v = 0.03) are flagged, against
-# 96% of the genes without a field. The nine pairs of genes without a field
-# among the 9033 BY discoveries of these datasets (p between 1e-5 and 1e-7) each
-# have a gene below 3.
-.mgcvst_edf_min <- 3
-
-# Flag of the degenerate spatial fits; missing where the effective degrees of
-# freedom are missing.
-.mgcvst_degenerate <- function(edf) as.numeric(edf) < .mgcvst_edf_min
-
-# Degenerate spatial fits as a logical vector over the features of a fit; a
-# fit without the flag has none.
-.mgcvst_degenerate_features <- function(fit) {
-  d <- fit$diagnostics$spatial_degenerate
-  if (is.null(d)) rep(FALSE, length(fit$feature_id)) else d %in% TRUE
-}
-
-# The pair test reads the effective degrees of freedom of the spatial smooth.
-.mgcvst_check_edf <- function(fit, estimator = "mgcvST") {
-  if (is.null(fit$format) || fit$format < 3L ||
-      is.null(fit$diagnostics$spatial_degenerate)) {
-    stop("This fit was estimated before mgcvST 0.0.1.9034 and lacks the effective ",
-         "degrees of freedom of the spatial smooth (diagnostics$edf_spatial) that ",
-         "the pair test reads; re-run ", estimator, ".estimate().", call. = FALSE)
-  }
-  invisible(fit)
-}
+# estimated before 0.0.1.9032.
+.mgcvst_fit_format <- 2L
 
 # A sparse INLA fit estimated before 0.0.1.9032 lacks the stored mean mu_bar and
 # the two-step bookkeeping that the tests and the later steps read, so it is
@@ -60,7 +22,7 @@
          call. = FALSE)
   }
   if (identical(fit$estimator, "INLA") &&
-      (is.null(format) || format < 2L || !is.numeric(fit$mu_bar))) {
+      (is.null(format) || format < .mgcvst_fit_format || !is.numeric(fit$mu_bar))) {
     stop("This inlaST fit was estimated before mgcvST 0.0.1.9032 and lacks the ",
          "stored mean mu_bar that the pair test reads; re-run inlaST.estimate().",
          call. = FALSE)
@@ -121,6 +83,43 @@
          "feature indices or a logical vector.")
   }
   sort(unique(as.integer(index)))
+}
+
+# How the spatial model of a feature was requested, recorded per feature in
+# diagnostics$spatial_route: "discoveries" (the Stage 1 selection of that call),
+# "all" (every feature was fitted) or "user" (feature IDs, indices or a logical
+# vector: the selection is the user's own, for example a Stage 1 adjustment
+# within a modality). A fit of 0.0.1.9032 or 0.0.1.9033 has no route, which is
+# read as a selection by the user.
+.mgcvst_spatial_route <- function(spatial) {
+  if (is.character(spatial) && length(spatial) == 1L &&
+      spatial %in% c("discoveries", "all")) spatial else "user"
+}
+
+# The one place that marks features as selected for a spatial model.
+.mgcvst_record_selection <- function(diagnostics, index, spatial) {
+  if (is.null(diagnostics$spatial_route)) {
+    diagnostics$spatial_route <- rep(NA_character_, nrow(diagnostics))
+  }
+  diagnostics$spatial_selected[index] <- TRUE
+  diagnostics$spatial_route[index] <- .mgcvst_spatial_route(spatial)
+  diagnostics
+}
+
+# The features that the pair test sets to p = 1 (status 4): spatial models that
+# were fitted for every feature (spatial = "all") of a gene that the Stage 1
+# null score test of the fit itself did not select, that is, whose stored
+# Stage 1 q-value (under the adjustment of the fit) is missing or above its
+# q.value. Spatial models requested as "discoveries" or by the user are the
+# selection and are never set aside, and neither is a fit without a recorded
+# route.
+.mgcvst_stage1_unselected <- function(fit) {
+  d <- fit$diagnostics
+  none <- rep(FALSE, length(fit$feature_id))
+  if (is.null(d$spatial_route) || is.null(d$marginal_q_value) ||
+      is.null(fit$stage1$q.value)) return(none)
+  selected <- !is.na(d$marginal_q_value) & d$marginal_q_value <= fit$stage1$q.value
+  d$spatial_route %in% "all" & d$spatial_fitted %in% TRUE & !selected
 }
 
 # The digest of one feature row of Y. It is taken over the plain double values,
@@ -223,9 +222,7 @@
     old <- tryCatch(readRDS(manifest), error = function(e) NULL)
     if (!identical(old$format, .mgcvst_fit_format) || !identical(old$kind, kind)) {
       stop("The estimation checkpoint ", path, " was written by another ",
-           "estimator or by a version before 0.0.1.9034 (its chunks lack the ",
-           "effective degrees of freedom of the spatial smooth); use a new ",
-           "checkpoint_dir.")
+           "estimator or by a version before 0.0.1.9032; use a new checkpoint_dir.")
     }
     if (!identical(old$signature, signature)) {
       stop("The estimation checkpoint ", path, " was written for a different ",

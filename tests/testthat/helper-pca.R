@@ -17,13 +17,13 @@
     G <- 8L
     Y <- t(vapply(seq_len(G), function(g) {
       eta <- 1 + 0.25 * data$z + data$offset0 +
-        0.7 * sin(2 * pi * (data$x + g / G)) + 0.5 * cos(2 * pi * data$y * g / 4)
-      rnbinom(n, mu = exp(eta), size = if (g %% 3 == 0) 1e4 else 6 + g)
+        0.4 * sin(2 * pi * (data$x + g / G)) + 0.3 * cos(2 * pi * data$y * g / 4)
+      rnbinom(n, mu = exp(eta), size = if (g %% 3 == 0) 1e4 else 2 + g)
     }, numeric(n)))
     dimnames(Y) <- list(paste0("g", seq_len(G)), NULL)
     model <- inlaST.set(response ~ z + offset(offset0), data, basis,
                         family = mgcv::nb())
-    cached <<- inlaST.estimate(Y, model, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+    cached <<- inlaST.estimate(Y, model, BPPARAM = BiocParallel::SerialParam(), spatial = rownames(Y))
     cached
   }
 })

@@ -93,7 +93,13 @@ computations of the workers.}
 \code{q.value}), \code{"all"}, \code{"none"}, a vector of feature IDs or one-based
 indices, or a logical vector with one value per feature. A user-given
 vector allows, for example, a Stage 1 adjustment within a modality or a
-family of features that the user performs outside this function.}
+family of features that the user performs outside this function, and it is
+the selection: the pair test calibrates every feature in it. With \code{"all"},
+the features that the Stage 1 test of this fit does not select (Stage 1
+q-value missing or above \code{q.value}) receive a spatial model, and the pair
+tests set every pair that contains one of them to p = 1 (status 4); with
+\code{"discoveries"} there is none. The route is recorded per feature in
+\code{diagnostics$spatial_route}.}
 
 \item{adjust}{Multiple-testing adjustment of the Stage 1 p-values:
 \code{"BY"} (the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
@@ -110,12 +116,9 @@ An \code{inlaST_fit} that is also an \code{mgcvST_model_fit}. In addition to
 the estimates, it holds \code{mu_bar} (the mean of each fitted mean),
 \code{null_state} (the compact null estimates used by a later step 2),
 \code{y_digest} (a digest of each response row, which a later step 2 checks)
-and the diagnostics columns \code{marginal_q_value}, \code{spatial_selected} and
-\code{spatial_fitted}, the effective dimension of the spatial field
-\code{edf_spatial} (the trace of the field block of the hat matrix, computed in
-the worker from the same sparse factorization as the score vector) and the
-flag \code{spatial_degenerate} (\code{edf_spatial} below 3; \code{\link[=inlaST.test]{inlaST.test()}} gives
-every pair with such a gene p = 1 and status 4).
+and the diagnostics columns \code{marginal_q_value}, \code{spatial_selected},
+\code{spatial_fitted} and \code{spatial_route} (how the spatial model of the feature
+was requested: \code{"discoveries"}, \code{"all"} or \code{"user"}).
 }
 \description{
 Fits one latent Gaussian model per feature with INLA and returns the compact

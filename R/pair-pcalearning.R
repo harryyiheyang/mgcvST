@@ -298,16 +298,16 @@
 # the PCAlearning basis B (learned, or read from the checkpoint directory
 # `path`), the shared basis V, the coefficients C, the factors R_g of V, the
 # scales, the score coordinates A, the degree-2 monomials K2 and the trace
-# table T2. Genes without a usable state (`failed_gene`) and genes with a
-# degenerate spatial fit (`skipped`, neither trained on nor materialized) carry
-# neutral values. The pair stage and the validation scripts both start from this
+# table T2. Genes without a usable state (`failed_gene`) and genes that the
+# Stage 1 test did not select (`skipped`, neither trained on nor materialized)
+# carry neutral values. The pair stage and the validation scripts both start from this
 # object.
 .mgcvst_pca_prepare <- function(fit, used, basis, q, rank, n_per_cell, seed, k,
                                 threads, path = NULL, verbose = FALSE,
                                 started = proc.time()[["elapsed"]]) {
   k_requested <- k
   basis_file <- if (is.null(path)) NULL else file.path(path, "pca-basis.rds")
-  degenerate <- .mgcvst_degenerate_features(fit)
+  degenerate <- .mgcvst_stage1_unselected(fit)
   skipped <- degenerate[used]
   available <- .mgcvst_feature_available(fit) & !degenerate
   basis_resumed <- !is.null(basis_file) && file.exists(basis_file)
@@ -408,8 +408,8 @@
   rm(proj)
   t_project <- proc.time()[["elapsed"]] - t0
 
-  # A gene without a usable state, or with a degenerate spatial fit, enters the
-  # kernels with neutral values; its pairs are marked below (status 3 and
+  # A gene without a usable state, or one that the Stage 1 test did not select,
+  # enters the kernels with neutral values; its pairs are marked below (status 3 and
   # status 4) and carry no kernel result.
   failed_gene <- !is.na(gene_error)
   C_out <- C
@@ -523,7 +523,7 @@
   # Pair directories of another algorithm contract are refused before any
   # work; the directory of this run is opened once the shared basis exists.
   .mgcvst_pairs_refuse_stale(root, contract_early)
-  degenerate <- .mgcvst_degenerate_features(fit)
+  degenerate <- .mgcvst_stage1_unselected(fit)
   universe <- if (all_pairs) {
     list(all = TRUE, used = used, n_feature = length(fit$feature_id),
          degenerate = which(degenerate[used]))
@@ -541,7 +541,7 @@
 
   # Compact rows of one block of pairs: local positions (li, lj) in `used`
   # and the kernel output matrix. A pair with a gene whose projection failed
-  # has status 3 and no p-value. Otherwise a pair with a degenerate gene has
+  # has status 3 and no p-value. Otherwise a pair with an unselected gene has
   # status 4, p = 1 and no score. A pair the kernel could not evaluate keeps its
   # status 1 or 2 and has p = 1: two-sided and both one-sided log p are 0.
   ok <- is.na(gene_error)
