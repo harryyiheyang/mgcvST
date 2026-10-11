@@ -388,6 +388,13 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   earlier$signature$contract <- NULL
   saveRDS(earlier, manifest)
   expect_error(run(index, dir), "earlier algorithm contract")
+  # A manifest of kernel 3 (0.0.1.9034, which learned its basis without its
+  # status-4 features, and 0.0.1.9035) is refused by name, so its PCAlearning
+  # basis is never reused.
+  earlier <- current
+  earlier$signature$contract$kernel_version <- 3L
+  saveRDS(earlier, manifest)
+  expect_error(run(index, dir), "spa_v1, kernel 3; this version writes spa_v1, kernel 4")
   saveRDS(current, manifest)
   expect_identical(rows(run(index, dir)), rows(reference))
 

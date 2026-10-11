@@ -491,11 +491,18 @@
              "the exact route; use a new checkpoint_dir for the PCAlearning ",
              "route.", call. = FALSE)
       }
-      if (!identical(old$contract$calibration_contract,
-                     contract_early$calibration_contract)) {
+      # The PCAlearning basis of the directory belongs to its contract, so a
+      # directory of another kernel version is refused as a whole.
+      if (!identical(.mgcvst_contract_algorithm(old$contract),
+                     .mgcvst_contract_algorithm(contract_early))) {
         stop("The checkpoint in ", checkpoint_dir, " was written under an ",
-             "earlier algorithm contract (this version writes ",
-             contract_early$calibration_contract, "); use a new checkpoint_dir.")
+             "earlier algorithm contract (",
+             if (is.null(old$contract)) "none recorded" else
+               paste0(old$contract$calibration_contract, ", kernel ",
+                      old$contract$kernel_version),
+             "; this version writes ", contract_early$calibration_contract,
+             ", kernel ", contract_early$kernel_version, "); its PCAlearning ",
+             "basis is not reused. Use a new checkpoint_dir.")
       }
       if (!identical(old, signature)) {
         stop("The checkpoint in ", checkpoint_dir, " was written for a different ",

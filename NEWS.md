@@ -1,3 +1,16 @@
+# mgcvST 0.0.1.9036
+
+* The algorithm contract's `kernel_version` is 4. Kernel 3 was written by both
+  0.0.1.9034, whose shared basis and PCAlearning training set left out its
+  status-4 features, and 0.0.1.9035; a PCAlearning checkpoint of 0.0.1.9034 was
+  therefore resumed silently by 0.0.1.9035 with a basis learned on another
+  training set. Pair directories and PCAlearning checkpoints of kernels 1 to 3
+  are now refused.
+* A PCAlearning checkpoint written under another algorithm contract is refused
+  with a message that names its contract string and kernel version (it was
+  reported as a different fit, rank or `k`). Its basis is not reused; use a new
+  `checkpoint_dir`. The pair p-values are unchanged.
+
 # mgcvST 0.0.1.9035
 
 * A pair the kernel cannot evaluate (`status` 1, moments non-finite or
