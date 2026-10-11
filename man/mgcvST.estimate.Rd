@@ -136,8 +136,12 @@ block per feature in \code{nuisance_covariance} are retained; full GAM and
 \code{Vp} objects are discarded. When \code{retain_smooth = TRUE}, it also contains
 \code{smooth_coefficients}. Score methods derive the field scale as
 \code{dispersion / lambda}. The diagnostics table holds \code{marginal_q_value},
-\code{spatial_selected} and \code{spatial_fitted}, and \code{y_digest} records a digest
-of each response row, which \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} checks.
+\code{spatial_selected} and \code{spatial_fitted}, the effective degrees of freedom
+of the spatial smooth \code{edf_spatial} and the flag \code{spatial_degenerate}
+(\code{edf_spatial} below 3: the gene is fitted with essentially no spatial
+field, and \code{\link[=mgcvST.test]{mgcvST.test()}} gives every pair with such a gene p = 1 and
+status 4), and \code{y_digest} records a digest of each response row, which
+\code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} checks.
 }
 \description{
 Fits each row of \code{Y} from a reusable shared design and retains the fixed

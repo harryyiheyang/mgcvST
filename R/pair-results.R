@@ -15,8 +15,13 @@
 )
 
 # status: 0 evaluated; 1 trace moments non-finite or non-positive; 2 invalid
-# p-value; 3 a gene of the pair has no usable score state.
-.mgcvst_pair_status <- c(ok = 0L, moments = 1L, p_value = 2L, feature = 3L)
+# p-value; 3 a gene of the pair has no usable score state; 4 a gene has a
+# degenerate spatial fit (effective degrees of freedom below the package
+# minimum). A pair with status 1, 2 or 4 has p = 1: two-sided log p = 0, and
+# both one-sided log p = 0, and it stays in the adjustment family. A pair with
+# status 3 has no p-value and is not adjusted.
+.mgcvst_pair_status <- c(ok = 0L, moments = 1L, p_value = 2L, feature = 3L,
+                         degenerate = 4L)
 
 # Algorithm contract of the pair p-values. Every checkpoint of pair results is
 # keyed by it, and a checkpoint written under another contract is refused. The
@@ -35,7 +40,7 @@
   stopifnot(route %in% c("exact", "pcalearning"))
   list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
        remainder_order = if (identical(route, "exact")) 4L else 2L,
-       basis_sha = as.character(basis_sha), kernel_version = 2L,
+       basis_sha = as.character(basis_sha), kernel_version = 3L,
        schema = "compact_v1")
 }
 

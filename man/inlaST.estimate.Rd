@@ -111,7 +111,11 @@ the estimates, it holds \code{mu_bar} (the mean of each fitted mean),
 \code{null_state} (the compact null estimates used by a later step 2),
 \code{y_digest} (a digest of each response row, which a later step 2 checks)
 and the diagnostics columns \code{marginal_q_value}, \code{spatial_selected} and
-\code{spatial_fitted}.
+\code{spatial_fitted}, the effective dimension of the spatial field
+\code{edf_spatial} (the trace of the field block of the hat matrix, computed in
+the worker from the same sparse factorization as the score vector) and the
+flag \code{spatial_degenerate} (\code{edf_spatial} below 3; \code{\link[=inlaST.test]{inlaST.test()}} gives
+every pair with such a gene p = 1 and status 4).
 }
 \description{
 Fits one latent Gaussian model per feature with INLA and returns the compact

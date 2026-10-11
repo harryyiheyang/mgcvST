@@ -93,18 +93,39 @@
 
 # Scores and saddlepoint log p-values of the pairs `index` (global feature
 # indices) from the score states of the features `active`, one state per
-# feature, and their pair bases G (indexed by global feature). A pair with a
-# feature whose state failed is returned with status 3; a pair that is not
-# evaluated carries no p-value. The attribute `nodes_above_leading` counts the
-# pairs whose remainder has a node above the largest leading value.
-.mgcvst_spa_pairs <- function(index, active, states, G, threads, order = 4L) {
+# feature, and their pair bases G (indexed by global feature). `degenerate`
+# flags (by global feature) the genes with a degenerate spatial fit; they have
+# no state here.
+#   * a pair with a feature whose state failed has status 3 and no p-value;
+#   * otherwise a pair with a degenerate gene has status 4 and p = 1, and no
+#     score;
+#   * a pair the kernel could not evaluate (status 1 or 2) keeps its status and
+#     has p = 1: two-sided and both one-sided log p are 0.
+# The attribute `nodes_above_leading` counts the pairs whose remainder has a
+# node above the largest leading value.
+.mgcvst_spa_pairs <- function(index, active, states, G, threads, order = 4L,
+                              degenerate = NULL) {
   out <- .mgcvst_pairs_frame(index[, 1L], index[, 2L],
                              status = .mgcvst_pair_status[["feature"]])
   good <- vapply(states, function(z) is.null(z$error), logical(1L))
   local <- matrix(match(index, active), ncol = 2L)
-  rows <- which(good[local[, 1L]] & good[local[, 2L]])
+  deg <- if (is.null(degenerate)) rep(FALSE, nrow(index)) else
+    degenerate[index[, 1L]] | degenerate[index[, 2L]]
+  # A gene that has no state because it is degenerate is not a failure.
+  state_failed <- (!is.na(local[, 1L]) & !good[local[, 1L]]) |
+    (!is.na(local[, 2L]) & !good[local[, 2L]])
+  rows <- which(!deg & !is.na(local[, 1L]) & !is.na(local[, 2L]))
+  rows <- rows[good[local[rows, 1L]] & good[local[rows, 2L]]]
   attr(out, "nodes_above_leading") <- 0
-  if (!length(rows)) return(out)
+  set_degenerate <- function() {
+    at <- which(deg & !state_failed)
+    out$status[at] <<- .mgcvst_pair_status[["degenerate"]]
+    out$log_p_two_sided[at] <<- 0
+    out$log_p_positive[at] <<- 0
+    out$log_p_negative[at] <<- 0
+    out
+  }
+  if (!length(rows)) return(set_degenerate())
   keep <- which(good)
   avec <- do.call(cbind, lapply(states[keep], `[[`, "a"))
   H <- lapply(states[keep], `[[`, "M")
@@ -122,15 +143,17 @@
   if (!is.null(res$nodes_above_leading)) {
     attr(out, "nodes_above_leading") <- res$nodes_above_leading
   }
-  # A pair that is not evaluated carries no p-value, as in the PCAlearning
-  # route; a non-finite log p-value would otherwise enter the adjustment.
-  invalid <- which(out$status != .mgcvst_pair_status[["ok"]])
+  # A pair the kernel could not evaluate has p = 1 and keeps its status code,
+  # so that a non-finite log p-value never enters the adjustment and the pair
+  # stays in its family.
+  invalid <- which(out$status %in% c(.mgcvst_pair_status[["moments"]],
+                                     .mgcvst_pair_status[["p_value"]]))
   if (length(invalid)) {
-    out$log_p_two_sided[invalid] <- NA_real_
-    out$log_p_positive[invalid] <- NA_real_
-    out$log_p_negative[invalid] <- NA_real_
+    out$log_p_two_sided[invalid] <- 0
+    out$log_p_positive[invalid] <- 0
+    out$log_p_negative[invalid] <- 0
   }
-  out
+  set_degenerate()
 }
 
 # How the dense score state (a, M) of a feature is produced: from the working
@@ -280,6 +303,10 @@
   width <- .mgcvst_state_width(fit, basis)
   k <- as.integer(min(k, width))
   if (!is.finite(k) || k < 1L) stop("k must be a positive integer.")
+  # Genes with a degenerate spatial fit have no state and no pair basis: their
+  # pairs are written with p = 1 and status 4.
+  degenerate <- .mgcvst_degenerate_features(fit)
+  used_kernel <- used[!degenerate[used]]
 
   contract_early <- .mgcvst_contract("exact")
   signature <- if (is.null(checkpoint_dir)) {
@@ -296,19 +323,20 @@
   # work; the directory of this run is opened once the shared basis exists.
   .mgcvst_pairs_refuse_stale(root, contract_early)
   universe <- if (all_pairs) {
-    list(all = TRUE, used = used, n_feature = length(fit$feature_id))
-  } else list(index = index)
+    list(all = TRUE, used = used, n_feature = length(fit$feature_id),
+         degenerate = which(degenerate[used]))
+  } else list(index = index, degenerate = which(degenerate[used]))
 
   n_pairs_hint <- if (all_pairs) length(used) * (length(used) - 1) / 2 else
     nrow(index)
   state_estimate <- 8 * (width^2 + width) + 2048
-  basis_bytes <- 8 * width * k * length(used)
+  basis_bytes <- 8 * width * k * length(used_kernel)
   probe <- .mgcvst_memory_probe()
   if (is.finite(probe$available) && basis_bytes > 0.3 * probe$available) {
     stop(sprintf(paste0("The pair bases of %d features need about %.1f GB, ",
                         "above 30%% of the %.1f GB available; use ",
                         "moments = \"pcalearning\", fewer features or a smaller k."),
-                 length(used), basis_bytes / 1024^3, probe$available / 1024^3))
+                 length(used_kernel), basis_bytes / 1024^3, probe$available / 1024^3))
   }
   reserve <- 4 * 8 * width^2 * min(threads, chunk_size) +
     2 * state_estimate + 256 * min(n_pairs_hint, chunk_size) + 64 * 1024^2 +
@@ -317,14 +345,15 @@
     max(0, 0.7 * probe$available - reserve)
   } else 512 * 1024^2
 
-  existing <- vapply(used, function(id) .mgcvst_store_has(store, id), logical(1L))
+  existing <- vapply(used_kernel, function(id) .mgcvst_store_has(store, id),
+                     logical(1L))
   resume_count <- sum(existing)
-  missing <- used[!existing]
+  missing <- used_kernel[!existing]
   builds <- 0L
   preparation_started <- proc.time()[["elapsed"]]
   # When every state is built in this run, in feature order, the sum behind the
   # shared basis is accumulated as they are built.
-  running <- if (identical(missing, used)) matrix(0, width, width) else NULL
+  running <- if (identical(missing, used_kernel)) matrix(0, width, width) else NULL
   if (length(missing)) {
     builder <- .mgcvst_state_builder(fit, missing, threads, basis)
     first <- 1L
@@ -361,21 +390,27 @@
     rm(builder)
   }
   read_batch <- 32L
-  shared <- .mgcvst_exact_basis(store, used, width, k,
-    path = if (isTRUE(store$temporary)) NULL else store$path,
-    sum = running, batch_size = read_batch, verbose = verbose)
-  rm(running)
-  # Pair bases G_g = H_g^(1/2) V of every used feature, resident.
   G <- vector("list", length(fit$feature_id))
-  for (first in seq.int(1L, length(used), by = read_batch)) {
-    ids <- used[first:min(length(used), first + read_batch - 1L)]
-    states <- lapply(ids, function(id) .mgcvst_store_read(store, id))
-    good <- vapply(states, function(z) is.null(z$error), logical(1L))
-    if (any(good)) {
-      G[ids[good]] <- mgcvst_pair_basis_cpp(lapply(states[good], `[[`, "M"),
-                                            shared$V, threads)
+  if (length(used_kernel)) {
+    shared <- .mgcvst_exact_basis(store, used_kernel, width, k,
+      path = if (isTRUE(store$temporary)) NULL else store$path,
+      sum = running, batch_size = read_batch, verbose = verbose)
+    # Pair bases G_g = H_g^(1/2) V of every used feature, resident.
+    for (first in seq.int(1L, length(used_kernel), by = read_batch)) {
+      ids <- used_kernel[first:min(length(used_kernel), first + read_batch - 1L)]
+      states <- lapply(ids, function(id) .mgcvst_store_read(store, id))
+      good <- vapply(states, function(z) is.null(z$error), logical(1L))
+      if (any(good)) {
+        G[ids[good]] <- mgcvst_pair_basis_cpp(lapply(states[good], `[[`, "M"),
+                                              shared$V, threads)
+      }
     }
+  } else {
+    # Every gene of the pairs is degenerate: no basis, every pair has p = 1.
+    shared <- list(V = NULL, sha = digest::digest(list(no_kernel_gene = TRUE),
+                                                 algo = "sha256"))
   }
+  rm(running)
   preparation_elapsed <- proc.time()[["elapsed"]] - preparation_started
   contract <- .mgcvst_contract("exact", k = k, basis_sha = shared$sha)
   pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
@@ -438,8 +473,10 @@
   nodes_above <- 0
   evaluate <- function(window, active, id) {
     t0 <- proc.time()[["elapsed"]]
+    active <- setdiff(active, which(degenerate))
     states <- fetch(active)
-    frame <- .mgcvst_spa_pairs(window, active, states, G, threads, order = 4L)
+    frame <- .mgcvst_spa_pairs(window, active, states, G, threads, order = 4L,
+                               degenerate = degenerate)
     nodes_above <<- nodes_above + as.numeric(attr(frame, "nodes_above_leading"))
     attr(frame, "nodes_above_leading") <- NULL
     .mgcvst_write_parquet(frame, .mgcvst_shard_file(pair_dir, id))
@@ -530,6 +567,7 @@
       preparation_backend = if (sparse) "sparse_reduced" else "model_native",
       pair_schedule = pair_schedule, chunks = chunks, k = k,
       basis_sha = shared$sha, q = width, nodes_above_leading = nodes_above,
+      degenerate_genes = sum(degenerate[used]),
       cache_hits = cache$hits, cache_misses = cache$misses,
       cache_evictions = cache$evictions, cache_bytes = cache_bytes,
       resident_bytes = cache$bytes, preparation_elapsed = preparation_elapsed,

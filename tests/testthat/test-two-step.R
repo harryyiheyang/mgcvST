@@ -172,7 +172,7 @@ test_that("chunk checkpoints are resumed, and refused when they do not match", {
 
   # The manifest ties the directory to one estimator, format and signature.
   expect_error(mgcvST:::.mgcvst_chunk_store(dir, "mgcv", "signature-a", TRUE),
-               "another estimator or by a version before 0.0.1.9032")
+               "another estimator or by a version before 0.0.1.9034")
   expect_error(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-b", TRUE),
                "different model, offset or controls")
   expect_error(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", FALSE),
@@ -183,7 +183,7 @@ test_that("chunk checkpoints are resumed, and refused when they do not match", {
   earlier$format <- 1L
   saveRDS(earlier, manifest)
   expect_error(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE),
-               "before 0.0.1.9032")
+               "before 0.0.1.9034")
   saveRDS(record, manifest)
   expect_identical(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)$kind,
                    "inla")
@@ -661,7 +661,7 @@ test_that("inlaST.estimate fits the null model of every feature and the spatial 
   .ts_memoize_fits()
   sp <- BiocParallel::SerialParam()
   all <- inlaST.estimate(d$Y, d$model, BPPARAM = sp, spatial = "all")
-  expect_identical(all$format, 2L)
+  expect_identical(all$format, 3L)
   expect_s3_class(all, "inlaST_fit")
   p <- all$diagnostics$marginal_p_value
   expect_true(all(is.finite(p)))

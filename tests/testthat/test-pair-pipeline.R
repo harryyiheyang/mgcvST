@@ -5,9 +5,10 @@ test_that("bounded pair blocks stream every pair once whatever the state budget"
   original <- mgcvST:::.mgcvst_spa_pairs
   seen <- list()
   testthat::local_mocked_bindings(
-    .mgcvst_spa_pairs = function(index, active, states, G, threads, order = 4L) {
+    .mgcvst_spa_pairs = function(index, active, states, G, threads, order = 4L,
+                                 degenerate = NULL) {
       seen[[length(seen) + 1L]] <<- c(rows = nrow(index), features = length(active))
-      original(index, active, states, G, threads, order)
+      original(index, active, states, G, threads, order, degenerate)
     },
     .package = "mgcvST"
   )
@@ -143,7 +144,7 @@ test_that("the fused exact pair kernel matches the trace powers and the full-spe
   expect_equal(exp(strong$log_p_two_sided), 0)
 })
 
-test_that("an invalid exact-route p-value is missing and never enters the adjustment", {
+test_that("an invalid exact-route p-value is p = 1, keeps its status and stays in the adjustment", {
   testthat::local_mocked_bindings(
     mgcvst_pair_spa_cpp = function(H, G, avec, left, right, threads, order) {
       list(score = c(1, 2), log_p_two_sided = c(-Inf, -3),
@@ -156,12 +157,13 @@ test_that("an invalid exact-route p-value is missing and never enters the adjust
   expect_identical(out$status, c(2L, 0L))
   expect_equal(out$score, c(1, 2))
   expect_identical(out$remainder_kind, c(0L, 2L))
-  expect_true(all(is.na(out[1L, c("log_p_two_sided", "log_p_positive",
-                                  "log_p_negative")])))
+  expect_identical(unlist(out[1L, c("log_p_two_sided", "log_p_positive",
+                                    "log_p_negative")], use.names = FALSE), c(0, 0, 0))
   expect_equal(out$log_p_two_sided[2L], -3)
   adjusted <- mgcvST:::.mgcvst_log_adjust(out$log_p_two_sided, "BY")
-  expect_equal(adjusted$n, 1)
-  expect_true(is.na(adjusted$log_q[1L]))
+  expect_equal(adjusted$n, 2)
+  expect_equal(exp(adjusted$log_q), stats::p.adjust(exp(out$log_p_two_sided), "BY"),
+               tolerance = 1e-12)
 })
 
 test_that("stale pair results are refused before work and the pair directory follows the states", {

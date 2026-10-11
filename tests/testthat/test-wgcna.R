@@ -80,11 +80,12 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
+  f <- st_fixture(n = 240L, family = gaussian(), nuisance = TRUE)
   fit <- mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
     BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
+  expect_false(any(fit$diagnostics$spatial_degenerate))
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   W <- mgcvST.wgcna(fit, ids)
   pairs <- t(utils::combn(ids, 2L))
@@ -149,7 +150,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   skip_if_not_installed("INLA")
   skip_if_not_installed("geometry")
   set.seed(1731L)
-  n <- 60L
+  n <- 120L
   vertices <- as.matrix(expand.grid(
     x = seq(0, 1, length.out = 5L), y = seq(0, 1, length.out = 5L)
   ))

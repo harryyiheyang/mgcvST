@@ -98,7 +98,8 @@
 # What the manager keeps of one spatial fit: the compact estimates, never an
 # observation-length vector.
 .inlast_spatial_record <- function(z, spec, scores_a, score_error, mu_bar,
-                                   retain_smooth, diagnostics, estimation) {
+                                   edf_spatial, retain_smooth, diagnostics,
+                                   estimation) {
   record <- list(
     dispersion = z$dispersion, family_parameters = z$family_parameters,
     smoothing_parameters = z$smoothing_parameters,
@@ -110,7 +111,8 @@
     fit_seconds = z$fit_seconds, spatial_fallback = z$spatial_fallback,
     constraint_residual = z$constraint_residual,
     observation_spatial_mean = z$observation_spatial_mean,
-    score_a = scores_a, score_error = score_error, mu_bar = mu_bar
+    score_a = scores_a, score_error = score_error, mu_bar = mu_bar,
+    edf_spatial = edf_spatial
   )
   if (estimation) record$estimation <- z$estimation
   if (retain_smooth) record$coefficients <- z$coefficients
@@ -172,7 +174,8 @@
       } else {
         record <- .inlast_spatial_record(
           z, spec, scores$a[, kk], scores$error[kk], mean(z$mu),
-          retain_smooth, diagnostics, estimation = !have_estimation
+          scores$edf[kk], retain_smooth, diagnostics,
+          estimation = !have_estimation
         )
         have_estimation <- TRUE
         record
@@ -350,7 +353,11 @@
 #'   `null_state` (the compact null estimates used by a later step 2),
 #'   `y_digest` (a digest of each response row, which a later step 2 checks)
 #'   and the diagnostics columns `marginal_q_value`, `spatial_selected` and
-#'   `spatial_fitted`.
+#'   `spatial_fitted`, the effective dimension of the spatial field
+#'   `edf_spatial` (the trace of the field block of the hat matrix, computed in
+#'   the worker from the same sparse factorization as the score vector) and the
+#'   flag `spatial_degenerate` (`edf_spatial` below 3; [inlaST.test()] gives
+#'   every pair with such a gene p = 1 and status 4).
 #' @seealso [inlaST.estimate_spatial()] to add spatial models after step 1.
 #' @export
 inlaST.estimate <- function(
@@ -486,6 +493,7 @@ inlaST.estimate <- function(
     outer_convergence = NA_character_, error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
+    edf_spatial = NA_real_, spatial_degenerate = NA,
     spatial_fallback = FALSE, spatial_fallback_method = NA_character_,
     spatial_precision_assigned = NA_real_,
     null_converged = null_converged, null_fit_seconds = null_fit_seconds,
@@ -620,6 +628,7 @@ inlaST.estimate_spatial <- function(
     stop("fitinlaST must be returned by inlaST.estimate().")
   }
   .mgcvst_check_fit_format(fit)
+  .mgcvst_check_edf(fit, "inlaST")
   adjust <- if (missing(adjust)) fit$stage1$adjust else match.arg(adjust)
   q.value <- if (missing(q.value)) fit$stage1$q.value else
     .mgcvst_check_q_value(q.value)
@@ -691,6 +700,8 @@ inlaST.estimate_spatial <- function(
     if (length(z$nuisance)) fit$nuisance_coefficients[, j] <- z$nuisance
     fit$score_a[, j] <- z$score_a
     fit$mu_bar[j] <- z$mu_bar
+    diag$edf_spatial[j] <- z$edf_spatial
+    diag$spatial_degenerate[j] <- .mgcvst_degenerate(z$edf_spatial)
     diag$converged[j] <- z$converged
     diag$criterion[j] <- z$log_marginal_likelihood
     diag$fit_seconds[j] <- z$fit_seconds

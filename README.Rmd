@@ -249,7 +249,14 @@ streamed to Parquet shards. Each pair is a row of the integer feature indices
 `i < j`, `score`, the natural-log two-sided, positive and negative p-values,
 the adjusted two-sided `log_q`, `remainder_kind` (0 none, 1 one node, 2 two
 nodes, 3 Gaussian) and `status`; feature names are
-`result$feature_id[result$results$i]`. The adjustment (`adjust = "BY"`,
+`result$feature_id[result$results$i]`. The status is 0 for an evaluated pair,
+1 or 2 when the kernel cannot give a p-value, 3 when a gene has no usable score
+state and 4 when a gene has a degenerate spatial fit, that is, fewer than three
+effective degrees of freedom in its spatial smooth (the gene is fitted with
+essentially no spatial field; `diagnostics$edf_spatial` and
+`spatial_degenerate` of the fit, and `result$degenerate`). A pair with status 1,
+2 or 4 has p = 1 and stays in the adjustment family, and a pair with status 3
+has no p-value. The adjustment (`adjust = "BY"`,
 `"BH"`, `"Sidak"` or `"none"`) is applied once to the two-sided family in log
 space, and positive and negative discoveries are split by the sign of the
 score. A `checkpoint_dir` stores the feature score states, the shared basis

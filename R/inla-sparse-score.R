@@ -223,6 +223,7 @@
   score_fit <- .inlast_sparse_prepare(list(score_sparse = score_sparse))
   geometry <- score_fit$score_sparse
   a <- matrix(NA_real_, ncol(geometry$Q), length(fits))
+  edf <- rep(NA_real_, length(fits))
   error <- rep(NA_character_, length(fits))
   tau <- as.numeric(smoothing_parameters[, geometry$sp_index]) / as.numeric(dispersion)
   bad <- features[!is.finite(tau[features]) | tau[features] <= 0]
@@ -242,11 +243,13 @@
       )
     )
     for (k in seq_along(ids)) {
-      if (!is.null(out[[k]]$error)) error[ids[k]] <- out[[k]]$error else
+      if (!is.null(out[[k]]$error)) error[ids[k]] <- out[[k]]$error else {
         a[, ids[k]] <- out[[k]]$a
+        edf[ids[k]] <- out[[k]]$edf_spatial
+      }
     }
   }
-  list(a = a, error = error)
+  list(a = a, error = error, edf = edf)
 }
 
 .inlast_family_code <- function(family) {

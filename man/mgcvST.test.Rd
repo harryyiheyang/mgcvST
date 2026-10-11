@@ -72,8 +72,9 @@ An object of class \code{mgcvST_test} with \code{results}, \code{shards},
 \code{feature_id}, \code{failed} (features without a usable score state and the
 reason), \code{threshold}, \code{discoveries}, \code{adjustment}, \code{timing}
 (\code{timing$route} holds the route, \code{k} and the score dimension \code{q}),
-\code{calibration}, \code{moments} (the route), \code{contract} and \code{call}. A PCAlearning
-run additionally returns \code{pca_learning}.
+\code{calibration}, \code{moments} (the route), \code{degenerate} (the features with a
+degenerate spatial fit that are among the available ones), \code{contract} and
+\code{call}. A PCAlearning run additionally returns \code{pca_learning}.
 }
 \description{
 Tests the cross-feature spatial covariance of every requested gene pair from
@@ -117,10 +118,30 @@ two-sided, positive and negative p-values \code{log_p_two_sided},
 \code{log_p_positive} and \code{log_p_negative}, the adjusted two-sided
 log q-value \code{log_q}, the integer \code{remainder_kind} of the calibration (0:
 no remainder; 1: one node; 2: two nodes; 3: Gaussian term) and the integer
-\code{status} (0: evaluated; 1: trace moments non-finite or non-positive; 2:
-invalid p-value; 3: a feature of the pair has no usable score state). A
-pair with a status other than 0 has missing log
-p-values and is not adjusted. Rows are written as Parquet shards while the
+\code{status}:\tabular{lll}{
+   status \tab meaning \tab p-values \cr
+   0 \tab evaluated \tab the saddlepoint p-values \cr
+   1 \tab trace moments non-finite or non-positive \tab 1 \cr
+   2 \tab invalid p-value \tab 1 \cr
+   3 \tab a feature of the pair has no usable score state \tab missing, not adjusted \cr
+   4 \tab a feature has a degenerate spatial fit \tab 1 \cr
+}
+
+
+A pair with status 1, 2 or 4 has p = 1 (\code{log_p_two_sided}, \code{log_p_positive}
+and \code{log_p_negative} are all 0), the conservative choice, and stays in the
+adjustment family; a status 4 pair also has no \code{score}. A spatial fit is
+degenerate when the effective degrees of freedom of the spatial smooth of
+the gene are below 3 (\code{diagnostics$edf_spatial} and
+\code{diagnostics$spatial_degenerate} of the fit): the smooth is penalized to the
+boundary, the gene is fitted with essentially no spatial field, and the
+score covariance of the pair is not informative. For an mgcv fit the
+effective degrees of freedom are those of \code{mgcv}; for a sparse INLA fit they
+are the trace of the field block of the hat matrix, \verb{tr(S K) - tr(Vp (S L)' U)} with the constrained posterior covariance \code{S} of the field given the
+hyperparameters (exact for a field of at most 200 coefficients, otherwise a
+trace estimate with 128 fixed probes, standard error at most
+\code{sqrt(2 * edf / 128)}). The genes are listed in \verb{$degenerate}.
+Rows are written as Parquet shards while the
 pairs are evaluated, and \verb{$results} is the same table sorted by \verb{(i, j)}
 when it fits the memory guard (56 bytes per pair, 20\% of available memory),
 and \code{NULL} otherwise. Without a \code{checkpoint_dir} the shards are temporary:

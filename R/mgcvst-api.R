@@ -340,8 +340,12 @@
 #'   `Vp` objects are discarded. When `retain_smooth = TRUE`, it also contains
 #'   `smooth_coefficients`. Score methods derive the field scale as
 #'   `dispersion / lambda`. The diagnostics table holds `marginal_q_value`,
-#'   `spatial_selected` and `spatial_fitted`, and `y_digest` records a digest
-#'   of each response row, which [mgcvST.estimate_spatial()] checks.
+#'   `spatial_selected` and `spatial_fitted`, the effective degrees of freedom
+#'   of the spatial smooth `edf_spatial` and the flag `spatial_degenerate`
+#'   (`edf_spatial` below 3: the gene is fitted with essentially no spatial
+#'   field, and [mgcvST.test()] gives every pair with such a gene p = 1 and
+#'   status 4), and `y_digest` records a digest of each response row, which
+#'   [mgcvST.estimate_spatial()] checks.
 #' @seealso [mgcvST.estimate_spatial()] to add spatial models after step 1.
 #' @export
 mgcvST.estimate <- function(

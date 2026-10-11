@@ -1,3 +1,76 @@
+# mgcvST 0.0.1.9034
+
+* Degenerate spatial fits. A gene whose spatial smooth keeps fewer than
+  `EDF_MIN = 3` effective degrees of freedom is fitted with essentially no
+  spatial field (the smooth is penalized to the boundary or to less than a
+  plane), and a pair score built from it has no usable curvature to calibrate:
+  the saddlepoint p-value of such a pair was an artefact of the score kernel, not
+  a test of co-variation. The pair test now writes `p = 1` for every pair with a
+  degenerate gene (`log_p_two_sided = log_p_positive = log_p_negative = 0`) with
+  the new `status` 4, and the pair stays in the adjustment family with `p = 1`,
+  so BY (and BH, Bonferroni) are computed over all requested pairs and equal
+  `stats::p.adjust` on the written p-values.
+* Effective degrees of freedom of the spatial smooth, stored per gene in the fit
+  diagnostics as `edf_spatial`, with `spatial_degenerate = edf_spatial < EDF_MIN`
+  (one package constant, `.mgcvst_edf_min`, for both estimators). For
+  `mgcvST.estimate()` it is the sum of the mgcv `edf` over the spatial smooth's
+  coefficients. For `inlaST.estimate()` it is the spatial block of the hat
+  matrix of the working model at the fitted hyperparameters, `edf = tr(S K) -
+  tr(V_p (S L)' U)`, with `S` the constrained inverse of `K + tau Q`, `L = A'WX`,
+  `U = L - K S L` and `V_p` the covariance of the fixed effects; this is the
+  trace of the reduced curvature in the observation basis and costs one more
+  solve with the already factorized matrix. The trace is exact for meshes with
+  `m <= 200` nodes and a Hutchinson estimate with 128 fixed splitmix64
+  Rademacher probes otherwise (deterministic; standard error at most
+  `sqrt(2 edf / 128)`).
+* `EDF_MIN = 3` was chosen from the copula SVG simulation of
+  `paper_workspace/05_analysis/copula_svg_pair_9033` (11 refitted datasets,
+  11,000 genes, q = 132, field variance `v` in {0.30, 0.10, 0.03, 0}):
+
+  | v | genes | n | edf median | edf minimum | flagged at 1 | flagged at 3 |
+  |---|---|---|---|---|---|---|
+  | 0.30 | strong | 3146 | 82.2 | 49.4 | 0% | 0% |
+  | 0.10 | medium | 3146 | 55.7 | 28.1 | 0% | 0% |
+  | 0.03 | weak | 3146 | 25.8 | 4.5e-5 | 0.51% | 0.76% (24) |
+  | 0 | no field | 1562 | 3.4e-4 | 4.1e-5 | 81.7% | 96.2% |
+
+  The weak genes have edf quantiles 1% 4.2 and 5% 11.4; the no-field genes have
+  a 95% quantile of 2.6 and a maximum of 11.4, and the genes at the boundary of
+  the spatial variance have `edf < 0.01`. With `EDF_MIN = 1`, two of the nine
+  artefactual no-field/no-field BY discoveries of 0.0.1.9033 survive (gene pairs
+  with edf 1.5 and 6.0, and 2.5 and 2.8); with `EDF_MIN = 3` none does. The 13 BY
+  discoveries at q = 0.05 over the 11 datasets (500 pairs each; 9 of them between
+  two genes without a field) become 4, the four discoveries between genes that
+  carry a field, all retained. 14.6% of the simulated pairs contain a gene below
+  3, which is the share written as `p = 1`. The log p-value of the other pairs
+  changes by at most 0.025, because the shared basis `V` (exact route) and the
+  PCAlearning training set no longer include the degenerate genes.
+* A pair the kernel cannot evaluate (`status` 1, moments, or `status` 2,
+  invalid p-value) now also gets `p = 1`, keeps its status, and counts in the
+  adjustment family; it was `NA` and excluded. `status` 3 (a gene without a
+  usable state, for example a failed fit) keeps its behaviour: no p-value, not
+  in the family. The status table is 0 ok, 1 moments, 2 p-value, 3 no usable
+  state, 4 degenerate spatial fit. Both routes and both estimators follow the
+  same rules.
+* Degenerate genes are skipped when the states are built: they do not enter the
+  shared basis `V`, the Gram matrix or the PCAlearning tables, and their pair
+  rows are written afterwards with `status` 4, `score = NA` and
+  `remainder_kind = 0`. The result gains `degenerate` (the `feature_id` of the
+  degenerate genes among the available ones), the run metadata
+  `degenerate_genes`, and the print method reports their number. A test in
+  which every gene is degenerate still returns a result with every pair at
+  `p = 1`.
+* Versioning. The fit format is 3 and the algorithm contract's `kernel_version`
+  is 3, so a pair directory or estimation checkpoint written by 0.0.1.9033 or
+  earlier is refused with a message that names the version (`k` and the basis
+  sha remain results of a run). A fit estimated before 0.0.1.9034 lacks
+  `edf_spatial` and is refused by `mgcvST.test()`, `inlaST.test()`,
+  `mgcvST.estimate_spatial()` and `inlaST.estimate_spatial()` with the request to
+  re-run `mgcvST.estimate()` or `inlaST.estimate()`; estimation checkpoints of
+  earlier versions are refused in the same way. The README states the new status
+  rule and the documentation of `mgcvST.test()` lists the status codes and the
+  effective-dimension measures.
+
 # mgcvST 0.0.1.9033
 
 * Stage B of the saddlepoint release: the Stage 2 pair calibration. Liu moment
