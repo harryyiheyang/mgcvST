@@ -54,12 +54,12 @@ Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U,
       if (ok) {
         long double lead[4];
         mgcvst_spa::leading_sums(s, k, lead);
-        const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(t, lead, order);
+        double s1 = 0;
+        for (int i = 0; i < k; ++i) s1 = std::max(s1, s[i]);
+        const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(t, lead, order, s1);
         status = mgcvst_spa::spa_pair(U[j], s, k, rem, scratch, lp);
         if (status == 0) {
           kind = rem.kind;
-          double s1 = 0;
-          for (int i = 0; i < k; ++i) s1 = std::max(s1, s[i]);
           if (mgcvst_spa::node_above_leading(rem, s1)) ++above;
         }
       }

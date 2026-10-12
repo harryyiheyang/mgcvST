@@ -56,7 +56,7 @@ test_that("each remainder form is used when its moments allow it", {
     z <- .spa_kernel(x, s, lead + mu, order)
     expect_identical(unique(unname(z[, "remainder_kind"])), kind)
     expect_true(all(z[, "status"] == 0))
-    rem <- if (order == 4L) .spa_rem_two(mu) else .spa_rem_one(mu)
+    rem <- if (order == 4L) .spa_rem_two(mu, max(s)) else .spa_rem_one(mu, max(s))
     expect_identical(rem$kind, as.integer(kind))
     ref <- vapply(x, function(v) .spa_ref(v, s, rem$m, rem$u, rem$g), numeric(1L))
     expect_equal(unname(z[, "log_p_two_sided"]), ref, tolerance = 1e-8)
@@ -86,9 +86,7 @@ test_that("each remainder form is used when its moments allow it", {
   expect_true(all(kept[, "remainder_kind"] > 0))
 })
 
-test_that("a remainder node above the leading values is bracketed whatever its multiplicity", {
-  # The term that attains the largest squared value can be a node with a
-  # multiplicity below 1; the root bracket must use its multiplicity.
+test_that("only one-node remainders above the leading values use the Gaussian fallback", {
   s <- c(1, 0.5)
   lead <- .spa_powers(s)
   x <- c(5, 20)
@@ -96,11 +94,13 @@ test_that("a remainder node above the leading values is bracketed whatever its m
   # One node m = 0.5, u = 1.5 > s_1^2 = 1.
   z <- .spa_kernel(x, s, lead + node(1.5, 0.5), 2L)
   expect_identical(unname(z[, "status"]), c(0, 0))
-  expect_identical(unname(z[, "remainder_kind"]), c(1, 1))
-  ref <- vapply(x, function(v) .spa_ref(v, s, m = 0.5, u = 1.5), numeric(1L))
+  expect_identical(unname(z[, "remainder_kind"]), c(3, 3))
+  ref <- vapply(x, function(v) .spa_ref(v, s, g = 0.75), numeric(1L))
   expect_equal(unname(z[, "log_p_two_sided"]), ref, tolerance = 1e-9)
-  expect_equal(unname(z[, "log_p_two_sided"]), c(-5.026, -18.36), tolerance = 1e-3)
-  expect_identical(attr(z, "nodes_above_leading"), 2)
+  expect_identical(attr(z, "nodes_above_leading"), 0)
+  # The order-4 fallback obeys the same condition when two nodes cannot be fit.
+  z1 <- .spa_kernel(x, s, lead + c(0.75, 1.125, 0, 0), 4L)
+  expect_identical(z1, z)
   # Two nodes with u_2 > s_1^2 and m_2 < 1.
   mu <- node(c(0.2, 1.5), c(3, 0.5))
   z2 <- .spa_kernel(x, s, lead + mu, 4L)
@@ -112,23 +112,76 @@ test_that("a remainder node above the leading values is bracketed whatever its m
   # No node above the leading values: the diagnostic is zero.
   z3 <- .spa_kernel(x, s, lead + node(c(0.2, 0.05), c(3, 2)), 4L)
   expect_identical(attr(z3, "nodes_above_leading"), 0)
-  # A wrong root is never returned as a p-value: the residual of the saddlepoint
-  # equation is checked, so every evaluated pair satisfies it. Sweep the node
-  # position and multiplicity, including nodes far above the leading values.
+  # Sweep inconsistent one-node moments, including nodes far above the lead.
   xs <- c(0.5, 5, 20, 60)
   for (u in c(1.01, 1.5, 4, 25)) for (m in c(0.02, 0.5, 1, 3)) {
     zz <- .spa_kernel(xs, s, lead + node(u, m), 2L)
     expect_true(all(zz[, "status"] == 0), info = paste(u, m))
-    # The R reference loses a few points to its own root finding; it is
-    # compared where it is finite.
-    refs <- suppressWarnings(vapply(xs, function(v) .spa_ref(v, s, m = m, u = u),
-                                    numeric(1L)))
-    good <- is.finite(refs)
-    expect_gte(sum(good), 1L)
+    expect_true(all(zz[, "remainder_kind"] == 3), info = paste(u, m))
+    refs <- vapply(xs, function(v) .spa_ref(v, s, g = m * u), numeric(1L))
+    expect_true(all(is.finite(refs)))
     expect_true(all(diff(zz[, "log_p_two_sided"]) < 0), info = paste(u, m))
-    expect_equal(unname(zz[good, "log_p_two_sided"]), refs[good], tolerance = 1e-7,
+    expect_equal(unname(zz[, "log_p_two_sided"]), refs, tolerance = 1e-7,
                  info = paste(u, m))
   }
+})
+
+test_that("inconsistent tiny remainder moments agree with Monte Carlo tails", {
+  withr::local_seed(9037L)
+  s <- 0.63 * exp(-(0:79) / 3.5)
+  lead <- .spa_powers(s)
+  x <- 0.5
+  U <- numeric(200000L)
+  for (a in s) U <- U + a * rnorm(length(U)) * rnorm(length(U))
+  E <- rnorm(length(U)) * rnorm(length(U))
+  for (mu1 in c(1e-4, 1e-6, 1e-8)) {
+    # A genuine small remainder has variance mu1 and negligible higher moments.
+    mc <- log10(mean(abs(U + sqrt(mu1) * E) > x))
+    for (order in c(2L, 4L)) {
+      z <- .spa_kernel(x, s, lead + c(mu1, 1e-3, 0, 0), order)
+      expect_identical(unname(z[, "status"]), 0)
+      expect_identical(unname(z[, "remainder_kind"]), 3)
+      expect_identical(attr(z, "nodes_above_leading"), 0)
+      lp <- unname(z[, "log_p_two_sided"]) / log(10)
+      expect_gt(lp, -10)
+      expect_lt(abs(lp - mc), 0.02)
+      expect_identical(z, .spa_kernel(x, s, lead + c(mu1, 0, 0, 0), order))
+    }
+  }
+})
+
+test_that("compatible one-node moments retain their saddlepoint calculation", {
+  s <- 0.63 * exp(-(0:79) / 3.5)
+  mu <- c(1e-2, 1e-3, 0, 0)
+  x <- c(-2, -0.5, 0.5, 2)
+  z <- .spa_kernel(x, s, .spa_powers(s) + mu, 2L)
+  expect_identical(unname(z[, "remainder_kind"]), rep(1, length(x)))
+  expect_identical(unname(z[, "status"]), rep(0, length(x)))
+  expect_identical(z, .spa_kernel(x, s, .spa_powers(s) + mu, 4L))
+  ref <- vapply(abs(x), function(v) .spa_ref(v, s, m = 0.1, u = 0.1), numeric(1L))
+  expect_equal(unname(z[, "log_p_two_sided"]), ref, tolerance = 1e-8)
+  # Roundoff in subtracting the leading sums must not reject equality.
+  z <- .spa_kernel(0.5, s, .spa_powers(s) + c(1, 0.63^2, 0, 0), 2L)
+  expect_identical(unname(z[, "remainder_kind"]), 1)
+  ref <- .spa_ref(0.5, s, m = 1 / 0.63^2, u = 0.63^2)
+  expect_equal(unname(z[, "log_p_two_sided"]), ref, tolerance = 1e-8)
+  above <- .spa_kernel(0.5, s, .spa_powers(s) + c(1, 0.63^2 * (1 + 1e-7), 0, 0), 2L)
+  expect_identical(unname(above[, "remainder_kind"]), 3)
+  # Equality at the leading squared value is still compatible.
+  s <- c(0.5, 0.25)
+  z <- .spa_kernel(0.5, s, .spa_powers(s) + c(0.125, 0.03125, 0, 0), 2L)
+  expect_identical(unname(z[, "remainder_kind"]), 1)
+})
+
+test_that("without positive leading values the existing one-node calculation remains available", {
+  Tm <- 3 * 0.2^(1:4)
+  x <- c(0.5, 2)
+  z <- .spa_kernel(x, numeric(0), Tm, 2L)
+  expect_identical(unname(z[, "remainder_kind"]), c(1, 1))
+  expect_identical(unname(z[, "status"]), c(0, 0))
+  expect_identical(z, .spa_kernel(x, c(0, 0), Tm, 2L))
+  ref <- vapply(x, function(v) .spa_ref(v, numeric(0), m = 3, u = 0.2), numeric(1L))
+  expect_equal(unname(z[, "log_p_two_sided"]), ref, tolerance = 1e-8)
 })
 
 test_that("invalid saddlepoint inputs return a status and no p-value", {
@@ -197,7 +250,7 @@ test_that("the four-moment remainder of a shared basis matches an R reference", 
       s <- svd(.spa_sqrtm(Hi) %*% .spa_sqrtm(Hj))$d
       shat <- svd(crossprod(.spa_sqrtm(Hi) %*% V, .spa_sqrtm(Hj) %*% V))$d
       mu <- .spa_powers(s) - .spa_powers(shat)
-      rem <- if (order == 4L) .spa_rem_two(mu) else .spa_rem_one(mu)
+      rem <- if (order == 4L) .spa_rem_two(mu, max(shat)) else .spa_rem_one(mu, max(shat))
       .spa_ref(abs(U[p]) / units, shat, rem$m, rem$u, rem$g)
     }, numeric(1L))
     expect_equal(z$log_p_two_sided, ref, tolerance = 1e-6)

@@ -1,3 +1,38 @@
+# mgcvST 0.0.1.9037
+
+* Fix Stage 2 saddlepoint calibration when a one-node remainder has
+  incompatible moments. PCAlearning estimates `t_1` and `t_2` on its rank-30
+  approximation, whereas the leading singular values use the `k = 80`
+  projection. Subtraction can leave a tiny positive `mu_1` but a much larger
+  `mu_2`. The resulting node `u = mu_2 / mu_1` can lie far above `s_1^2`, with
+  multiplicity `m = mu_1^2 / mu_2` near zero. Its artificial saddlepoint
+  boundary can then produce extremely small p-values despite negligible
+  remainder variance. A one-node remainder with `mu_2 > s_1^2 * mu_1` now
+  uses the existing Gaussian remainder (`remainder_kind = 3`, variance
+  `mu_1`), when a positive leading value supplies the bound. The comparison
+  allows floating-point rounding in the total-minus-leading subtraction.
+* Gaussian fallback was chosen over capping the node at `s_1^2`. For
+  `s_i = 0.63 * exp(-(i - 1) / 3.5)`, `i = 1,...,80`, and `|U| = 0.5`, a
+  million null draws give a two-sided tail probability of 0.5383. With
+  `mu_2 = 1e-3` and `mu_1 = 1e-4, 1e-6, 1e-8`, the old `log10(p)` values
+  are -19.30, -485.83 and -9495.44; Gaussian fallback gives approximately
+  -0.269 in each case. Both candidates fix this collapse. In 24 comparisons
+  with full spectra (remainder variance `1e-4` or `0.01`, spread over 1, 10
+  or 100 equal modes, scores 0.5, 1, 2 and 4), the largest absolute
+  `log10(p)` difference from full-spectrum SPA is `8.37e-5` for Gaussian
+  fallback and `7.95e-3` for capping. Retaining the small remainder variance
+  avoids introducing the cap's artificial fourth moment; this comparison
+  concerns small remainders, rather than a general accuracy guarantee.
+* Compatible one-node calculations and the exact route's four-moment
+  two-node calculations are unchanged, including two-node remainders above
+  the leading spectrum. The check applies only after the two-node branch,
+  including its single-node fallback. Scores, Stage 1, public arguments and
+  PCAlearning defaults (`rank = 30`, `k = 80`) are unchanged.
+* The algorithm contract's `kernel_version` is 5 because calibrated p-values
+  change. Pair directories and PCAlearning checkpoints from kernels 1 to 4
+  are refused with an error naming the saved kernel version; use a new
+  checkpoint directory. Fits remain reusable.
+
 # mgcvST 0.0.1.9036
 
 * The algorithm contract's `kernel_version` is 4. Kernel 3 was written by both

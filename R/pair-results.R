@@ -32,15 +32,14 @@
 # two moments with one node on the PCAlearning route (2). The rank `k` and the
 # sha of the shared basis are known only once the basis exists, so the pair
 # directory of a run is opened (and the contract written) after the basis is
-# built; only the refusal of stale directories happens earlier. Kernel 3 was
-# also written by 0.0.1.9034, whose shared basis and PCAlearning training set
-# left out its status-4 features; kernel 4 keeps those directories from being
-# resumed.
+# built; only the refusal of stale directories happens earlier. Kernel 5
+# corrects incompatible single-node remainder moments; earlier pair results
+# and PCAlearning checkpoints belong to a different calibration.
 .mgcvst_contract <- function(route, k = NA_integer_, basis_sha = NA_character_) {
   stopifnot(route %in% c("exact", "pcalearning"))
   list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
        remainder_order = if (identical(route, "exact")) 4L else 2L,
-       basis_sha = as.character(basis_sha), kernel_version = 4L,
+       basis_sha = as.character(basis_sha), kernel_version = 5L,
        schema = "compact_v1")
 }
 

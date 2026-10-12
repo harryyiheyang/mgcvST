@@ -34,7 +34,7 @@ test_that("mgcvST.test reports its route and k, and the contract records them", 
   expect_identical(contract$k, 20L)
   expect_identical(contract$remainder_order, 4L)
   expect_match(contract$basis_sha, "^[0-9a-f]{64}$")
-  expect_identical(contract$kernel_version, 4L)
+  expect_identical(contract$kernel_version, 5L)
   expect_true(all(exact$results$remainder_kind %in% 0:3))
   # The diagnostic of the compression is one aggregate count in the metadata.
   expect_true(is.numeric(exact$timing$pair_pipeline$nodes_above_leading))
@@ -53,6 +53,7 @@ test_that("mgcvST.test reports its route and k, and the contract records them", 
   expect_identical(pca$contract$k, 3L)
   expect_identical(pca$contract$route, "pcalearning")
   expect_identical(pca$contract$remainder_order, 2L)
+  expect_identical(pca$contract$kernel_version, 5L)
   expect_false(is.null(pca$pca_learning))
   expect_true(is.numeric(pca$timing$pcalearning$nodes_above_leading))
   expect_equal(pca$results$log_p_two_sided, full$results$log_p_two_sided, tolerance = 0.3)

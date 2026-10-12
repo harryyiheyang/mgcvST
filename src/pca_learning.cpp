@@ -162,7 +162,7 @@ inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1
   mgcvst_spa::leading_sums(sv.data(), k, lead);
   const double units2 = scale_i * scale_j;
   const double tn[4] = {t1 / units2, t2 / (units2 * units2), 0.0, 0.0};
-  const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(tn, lead, 2);
+  const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(tn, lead, 2, sv[0]);
   double lp[3] = {NA_REAL, NA_REAL, NA_REAL};
   const double x = U / (std::sqrt(scale_i) * std::sqrt(scale_j));
   const int status = mgcvst_spa::spa_pair(x, sv.data(), k, rem, w.scratch, lp);

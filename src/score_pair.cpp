@@ -356,7 +356,7 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
         const Eigen::VectorXd& sv = svd.singularValues();
         long double lead[4];
         mgcvst_spa::leading_sums(sv.data(), k, lead);
-        const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(v, lead, order);
+        const mgcvst_spa::Remainder rem = mgcvst_spa::make_remainder(v, lead, order, sv[0]);
         double lp[3] = {NA_REAL, NA_REAL, NA_REAL};
         const int st = mgcvst_spa::spa_pair(sc, sv.data(), k, rem, scratch, lp);
         statusp[j] = st;

@@ -70,6 +70,7 @@ test_that("inlaST.test() runs the PCAlearning route on request and returns the c
   expect_identical(contract$calibration_contract, "spa_v1")
   expect_identical(contract$route, "pcalearning")
   expect_identical(contract$remainder_order, 2L)
+  expect_identical(contract$kernel_version, 5L)
   # k = NULL means 80 on the PCAlearning route (and 20 on the exact route).
   expect_identical(contract$k, min(80L, default$timing$route$q))
   expect_identical(default$timing$route$k, contract$k)
@@ -388,19 +389,30 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   earlier$signature$contract <- NULL
   saveRDS(earlier, manifest)
   expect_error(run(index, dir), "earlier algorithm contract")
-  # A manifest of kernel 3 (0.0.1.9034, which learned its basis without its
-  # status-4 features, and 0.0.1.9035) is refused by name, so its PCAlearning
-  # basis is never reused.
-  earlier <- current
-  earlier$signature$contract$kernel_version <- 3L
-  saveRDS(earlier, manifest)
-  expect_error(run(index, dir), "spa_v1, kernel 3; this version writes spa_v1, kernel 4")
+  # Earlier and future kernels are refused by name before their PCAlearning
+  # basis can be reused, including kernel 4's single-node calibration.
+  for (kernel in c(1:4, 6L)) {
+    earlier <- current
+    earlier$signature$contract$kernel_version <- kernel
+    saveRDS(earlier, manifest)
+    expect_error(run(index, dir),
+                 sprintf("spa_v1, kernel %d; this version writes spa_v1, kernel 5", kernel))
+  }
   saveRDS(current, manifest)
   expect_identical(rows(run(index, dir)), rows(reference))
 
   # Pair shards of another algorithm contract are refused as well.
   old <- file.path(dir, "pairs-0123456789")
   dir.create(old)
+  for (kernel in c(1:4, 6L)) {
+    old_contract <- current$signature$contract
+    old_contract$kernel_version <- kernel
+    saveRDS(list(version = 3L, contract = old_contract, universe_sha = "x"),
+            file.path(old, "contract.rds"))
+    expect_error(run(index, dir),
+                 sprintf("kernel %d; this call writes spa_v1, pcalearning, kernel 5", kernel))
+  }
+  unlink(file.path(old, "contract.rds"))
   saveRDS(list(), file.path(old, "block-0000000001.rds"))
   expect_error(run(index, dir), "different algorithm contract")
   unlink(old, recursive = TRUE)

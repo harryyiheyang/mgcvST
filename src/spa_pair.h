@@ -12,7 +12,8 @@
 //   * two nodes   matches mu_1..mu_4 (exact route, four trace moments),
 //   * one node    matches mu_1, mu_2 (Satterthwaite type; PCAlearning route and
 //                 fallback of the two-node form),
-//   * Gaussian    variance mu_1, when mu_2 is not positive,
+//   * Gaussian    variance mu_1, when mu_2 is not positive or the one-node
+//                 moments require a node above the largest leading value,
 //   * none        when mu_1 is not positive.
 // A node (u, m) stands for m singular values s = sqrt(u).
 //
@@ -69,7 +70,8 @@ inline void leading_sums(const double* s, int k, long double* lead) {
 // units of s) and the leading sums. order = 4 tries two nodes first; order = 2
 // starts at one node. A remainder moment smaller than 1e-10 t_r in absolute
 // value is zero.
-inline Remainder make_remainder(const double* t, const long double* lead, int order) {
+inline Remainder make_remainder(const double* t, const long double* lead, int order,
+                                double s1) {
   long double mu[4];
   for (int r = 0; r < 4; ++r) {
     mu[r] = static_cast<long double>(t[r]) - lead[r];
@@ -106,7 +108,14 @@ inline Remainder make_remainder(const double* t, const long double* lead, int or
       }
     }
   }
-  if (mu[1] > 0) {
+  // A one-node remainder bounded by a positive s1 requires mu_2 <= s1^2 mu_1.
+  // Incompatible approximate moments retain only the variance as a Gaussian
+  // remainder. The four-moment two-node branch above is unchanged.
+  const long double s2max = static_cast<long double>(s1) * s1;
+  // Allow rounding in the total-minus-leading moments at the bound.
+  const long double tol = 8.0L * std::numeric_limits<double>::epsilon() *
+    (std::fabs(static_cast<long double>(t[1])) + s2max * std::fabs(static_cast<long double>(t[0])));
+  if (mu[1] > 0 && (s1 <= 0 || mu[1] <= s2max * mu[0] + tol)) {
     R.kind = REM_ONE;
     R.nodes = 1;
     R.u[0] = static_cast<double>(mu[1] / mu[0]);

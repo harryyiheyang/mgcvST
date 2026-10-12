@@ -24,18 +24,19 @@
 # Remainder of power sums mu_1..mu_4 as nodes (u, m) in the form of the
 # research scripts: two Gauss nodes, else one Satterthwaite node, else a
 # Gaussian term.
-.spa_rem_one <- function(mu) {
-  if (mu[1] > 0 && mu[2] > 0) list(m = mu[1]^2 / mu[2], u = mu[2] / mu[1], g = 0, kind = 1L)
+.spa_rem_one <- function(mu, s1) {
+  if (mu[1] > 0 && mu[2] > 0 && (s1 <= 0 || mu[2] <= mu[1] * s1^2))
+    list(m = mu[1]^2 / mu[2], u = mu[2] / mu[1], g = 0, kind = 1L)
   else list(m = numeric(0), u = numeric(0), g = max(mu[1], 0), kind = 3L)
 }
-.spa_rem_two <- function(mu) {
+.spa_rem_two <- function(mu, s1) {
   H <- matrix(c(mu[1], mu[2], mu[2], mu[3]), 2L)
-  if (any(mu <= 0) || det(H) <= 0) return(.spa_rem_one(mu))
+  if (any(mu <= 0) || det(H) <= 0) return(.spa_rem_one(mu, s1))
   ab <- solve(H, -c(mu[3], mu[4]))
   x <- Re(polyroot(c(ab[1L], ab[2L], 1)))
-  if (any(!is.finite(x)) || any(x <= 0)) return(.spa_rem_one(mu))
+  if (any(!is.finite(x)) || any(x <= 0)) return(.spa_rem_one(mu, s1))
   w <- solve(rbind(c(1, 1), x), mu[1:2])
-  if (any(w <= 0)) return(.spa_rem_one(mu))
+  if (any(w <= 0)) return(.spa_rem_one(mu, s1))
   list(m = w / x, u = x, g = 0, kind = 2L)
 }
 .spa_powers <- function(s) vapply(1:4, function(r) sum(s^(2 * r)), numeric(1L))

@@ -88,7 +88,7 @@ test_that("pair results written under another algorithm contract are refused", {
 
   # Another route, kernel version, remainder order, schema or contract string
   # is refused, so that no directory of an earlier algorithm stays silently.
-  expect_identical(contract$kernel_version, 4L)
+  expect_identical(contract$kernel_version, 5L)
   for (field in c("calibration_contract", "route", "kernel_version", "remainder_order",
                   "schema")) {
     later <- contract
@@ -99,10 +99,12 @@ test_that("pair results written under another algorithm contract are refused", {
   }
   expect_error(mgcvST:::.mgcvst_pairs_open(root, universe,
     mgcvST:::.mgcvst_contract("pcalearning")), "different algorithm contract")
-  # Directories written by the earlier kernel versions (spa_v1, kernels 1 to 3:
+  # Directories written by the earlier kernel versions (spa_v1, kernels 1 to 4:
   # kernel 2 left a pair with status 1 or 2 without a p-value; kernel 3 was
-  # also written by 0.0.1.9034, which left its status-4 features out).
-  for (kernel in 1:3) {
+  # also written by 0.0.1.9034, which left its status-4 features out; kernel 4
+  # permitted incompatible single-node remainder moments). Future kernels
+  # are refused as well.
+  for (kernel in c(1:4, 6L)) {
     stale <- file.path(root, paste0("pairs-kernel", kernel))
     dir.create(stale)
     old_contract <- contract
@@ -110,7 +112,7 @@ test_that("pair results written under another algorithm contract are refused", {
     saveRDS(list(version = 3L, contract = old_contract, universe_sha = "x"),
             file.path(stale, "contract.rds"))
     expect_error(mgcvST:::.mgcvst_pairs_open(root, universe, contract),
-                 sprintf("kernel %d; this call writes spa_v1, exact, kernel 4", kernel))
+                 sprintf("kernel %d; this call writes spa_v1, exact, kernel 5", kernel))
     unlink(stale, recursive = TRUE)
   }
   old <- file.path(root, "pairs-0123")
