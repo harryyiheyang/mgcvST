@@ -137,8 +137,8 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
   expect_identical(names(formals(mgcvST.test)), c("fitmgcvST", shared, controls))
   expect_identical(formals(inlaST.test)[controls], formals(mgcvST.test)[controls])
   expect_equal(unlist(mgcvST:::.mgcvst_pca_defaults),
-               c(rank = 30, n_per_cell = 3, seed = 1, k = 80))
-  expect_identical(eval(formals(inlaST.test)$rank), 30L)
+               c(rank = 100, n_per_cell = 3, seed = 1, k = 80))
+  expect_identical(eval(formals(inlaST.test)$rank), 100L)
   # The route has no default: a call without it stops, whatever else is wrong.
   expect_identical(formals(inlaST.test)$moments, formals(function(moments) NULL)$moments)
   expect_identical(formals(mgcvST.test)$moments, formals(function(moments) NULL)$moments)
@@ -449,8 +449,8 @@ test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory",
   expect_error(run(3L, seed = 1.5), "seed must be one non-negative integer")
   expect_error(run(3L, k = 0L), "k must be NULL or one positive integer")
   # q = 1404, r = 20: the 210 products B_a B_b with a <= b, about 1.9 GiB (3.3
-  # GiB when the transposes are stored as well). q = 1961, r = 30 (the default
-  # rank): 465 products, 7.7 GiB (7.52 GiB measured for the products, 0.21 for
+  # GiB when the transposes are stored as well). q = 1961, r = 30: 465
+  # products, 7.7 GiB (7.52 GiB measured for the products, 0.21 for
   # the panel).
   expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1404, 20) / 1024^3, 1.90, tolerance = 1e-2)
   expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1961, 30) / 1024^3, 7.74, tolerance = 1e-2)

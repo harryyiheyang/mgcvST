@@ -1,3 +1,13 @@
+# mgcvST 0.0.1.9038
+
+* The default PCAlearning rank of `mgcvST.test()` and `inlaST.test()` is now
+  `rank = 100` (was 30); `k = 80` is unchanged. At rank 30 the trace
+  approximation underestimated the leading trace `t_1` of some Mux pairs,
+  which made their tail p-values too small; rank 100 agrees with the exact
+  route to within one BY discovery on Mux and on Visium-B. The trace tables
+  grow with `rank^2`: about 78 GiB at `q = 1961`, against 7.7 GiB at rank 30;
+  a smaller `rank` can still be given explicitly.
+
 # mgcvST 0.0.1.9037
 
 * Fix Stage 2 saddlepoint calibration when a one-node remainder has

@@ -241,7 +241,7 @@ mgcv fit takes the PCAlearning route through the dense score kernel);
   cost is cubic in `q` for every pair (about 5 ms per pair and thread at
   `q = 298`).
 - `moments = "pcalearning"` projects every score covariance `H_j` onto
-  an orthonormal basis of `rank = 30` symmetric matrices learned from
+  an orthonormal basis of `rank = 100` symmetric matrices learned from
   training genes drawn by stratified sampling on the fitted spatial and
   observation variance scales. Each tested gene is summarized by its
   basis coefficients `c_j`, the two pair traces `tr(H_i H_j)` and
