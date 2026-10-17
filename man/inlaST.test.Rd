@@ -66,7 +66,8 @@ PCAlearning route.}
 sampling; the caller's random-number state is restored.}
 
 \item{k}{Number of leading singular values of the shared basis. \code{NULL}
-uses 20 on the exact route and 80 on the PCAlearning route; a value above
+uses \code{q} (the full spectrum) on the exact route of an mgcv fit, 20 on the
+exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
 the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
 full-spectrum saddlepoint of each pair.}
 }

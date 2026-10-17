@@ -63,7 +63,8 @@ PCAlearning route.}
 sampling; the caller's random-number state is restored.}
 
 \item{k}{Number of leading singular values of the shared basis. \code{NULL}
-uses 20 on the exact route and 80 on the PCAlearning route; a value above
+uses \code{q} (the full spectrum) on the exact route of an mgcv fit, 20 on the
+exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
 the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
 full-spectrum saddlepoint of each pair.}
 }
@@ -90,8 +91,11 @@ takes the same arguments.
 \details{
 The argument \code{moments} selects the route that supplies the shared basis and
 the remainder; it has no default. With \code{moments = "exact"}, the shared basis
-holds the \code{k = 20} leading eigenvectors of the summed, normalized score
-covariances, every pair needs the four exact trace moments
+of an mgcv fit holds all \code{q} eigenvectors of the summed, normalized score
+covariances, so every pair uses its full singular spectrum and no remainder:
+the p-value is the full-spectrum saddlepoint of \code{\link[=rkhs_score_calibrate]{rkhs_score_calibrate()}}.
+On a sparse INLA fit (\code{\link[=inlaST.test]{inlaST.test()}}) the exact route holds the \code{k = 20}
+leading eigenvectors, every pair needs the four exact trace moments
 \verb{tr((H_i H_j)^s)}, \verb{s = 1, ..., 4}, and the remainder is two moment-matched
 nodes (one node or a Gaussian term when the moments do not allow two nodes).
 With \code{moments = "pcalearning"}, the score covariances are projected onto a
