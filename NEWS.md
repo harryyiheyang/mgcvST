@@ -1,3 +1,12 @@
+# mgcvST 0.0.1.9039
+
+* The exact route of `mgcvST.test()` (`moments = "exact"`) now takes the full
+  singular spectrum of every pair (`k = q`, no remainder), so its p-value is
+  the full-spectrum saddlepoint of `rkhs_score_calibrate()`. The score
+  dimension of an mgcv fit (`q` about 300 on Visium) keeps this affordable.
+  `inlaST.test()` keeps `k = 20` with the four exact trace moments on its exact
+  route, and both functions keep PCAlearning. An explicit `k` still applies.
+
 # mgcvST 0.0.1.9038
 
 * The default PCAlearning rank of `mgcvST.test()` and `inlaST.test()` is now

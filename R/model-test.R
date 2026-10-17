@@ -19,9 +19,10 @@
 .mgcvst_moments_choices <- c("exact", "pcalearning")
 
 .mgcvst_moments_missing <- function() {
-  stop("moments must be given: \"exact\" (the four exact trace moments of every ",
-       "pair, k = 20 leading singular values) or \"pcalearning\" (low-rank trace ",
-       "moments, k = 80). There is no default.", call. = FALSE)
+  stop("moments must be given: \"exact\" (the full spectrum of every pair for ",
+       "mgcvST fits; the four exact trace moments and k = 20 leading singular values ",
+       "for inlaST fits) or \"pcalearning\" (low-rank trace moments, k = 80). ",
+       "There is no default.", call. = FALSE)
 }
 
 # Shared orchestration of mgcvST.test() and inlaST.test(): validate the
@@ -156,9 +157,11 @@
       basis_kind <- basis$kind
     }
     q <- .mgcvst_state_width(fit, basis)
-    k_route <- if (is.null(pca$k)) {
-      if (identical(moments, "exact")) .mgcvst_exact_defaults$k else .mgcvst_pca_defaults$k
-    } else pca$k
+    # The exact route of an mgcv fit takes the full spectrum of every pair (k = q,
+    # no remainder); the score dimension of an mgcv fit is small enough for it.
+    k_route <- if (!is.null(pca$k)) pca$k else if (identical(moments, "pcalearning")) {
+      .mgcvst_pca_defaults$k
+    } else if (identical(entry, "mgcv")) q else .mgcvst_exact_defaults$k
     route <- list(moments = moments, k = as.integer(min(k_route, q)), q = q)
     if (verbose) {
       message("Pair test: ", if (identical(moments, "exact"))
@@ -284,8 +287,11 @@
 #'
 #' The argument `moments` selects the route that supplies the shared basis and
 #' the remainder; it has no default. With `moments = "exact"`, the shared basis
-#' holds the `k = 20` leading eigenvectors of the summed, normalized score
-#' covariances, every pair needs the four exact trace moments
+#' of an mgcv fit holds all `q` eigenvectors of the summed, normalized score
+#' covariances, so every pair uses its full singular spectrum and no remainder:
+#' the p-value is the full-spectrum saddlepoint of [rkhs_score_calibrate()].
+#' On a sparse INLA fit ([inlaST.test()]) the exact route holds the `k = 20`
+#' leading eigenvectors, every pair needs the four exact trace moments
 #' `tr((H_i H_j)^s)`, `s = 1, ..., 4`, and the remainder is two moment-matched
 #' nodes (one node or a Gaussian term when the moments do not allow two nodes).
 #' With `moments = "pcalearning"`, the score covariances are projected onto a
@@ -372,7 +378,8 @@
 #' @param seed Non-negative integer seed for PCAlearning training-gene
 #'   sampling; the caller's random-number state is restored.
 #' @param k Number of leading singular values of the shared basis. `NULL`
-#'   uses 20 on the exact route and 80 on the PCAlearning route; a value above
+#'   uses `q` (the full spectrum) on the exact route of an mgcv fit, 20 on the
+#'   exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
 #'   the score dimension `q` is reduced to `q`, and `k = q` reproduces the
 #'   full-spectrum saddlepoint of each pair.
 #' @return An object of class `mgcvST_test` with `results`, `shards`,

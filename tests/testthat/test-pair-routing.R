@@ -23,15 +23,15 @@ test_that("mgcvST.test reports its route and k, and the contract records them", 
   messages <- testthat::capture_messages(exact <- mgcvST.test(fit, moments = "exact",
                                                               verbose = TRUE))
   expect_match(paste(messages, collapse = ""),
-               "Pair test: exact moments \\(k = 20\\) on q = 24, 3 pairs and 1 thread\\.")
+               "Pair test: exact moments \\(k = 24\\) on q = 24, 3 pairs and 1 thread\\.")
   expect_false(grepl("estimated", paste(messages, collapse = "")))
   expect_identical(exact$moments, "exact")
   expect_identical(exact$calibration, "saddlepoint")
-  expect_identical(exact$timing$route, list(moments = "exact", k = 20L, q = q))
+  expect_identical(exact$timing$route, list(moments = "exact", k = q, q = q))
   contract <- exact$contract
   expect_identical(contract$calibration_contract, "spa_v1")
   expect_identical(contract$route, "exact")
-  expect_identical(contract$k, 20L)
+  expect_identical(contract$k, q)
   expect_identical(contract$remainder_order, 4L)
   expect_match(contract$basis_sha, "^[0-9a-f]{64}$")
   expect_identical(contract$kernel_version, 5L)
@@ -41,11 +41,14 @@ test_that("mgcvST.test reports its route and k, and the contract records them", 
   expect_length(exact$timing$pair_pipeline$nodes_above_leading, 1L)
   expect_false("nodes_above_leading" %in% names(exact$results))
 
-  # k = q is the full-spectrum saddlepoint; the default k = 20 differs from it
-  # only by the remainder.
+  # The default exact route of an mgcv fit is the full-spectrum saddlepoint
+  # (k = q); k = 20 differs from it only by the remainder.
   full <- mgcvST.test(fit, moments = "exact", k = 1000L)
   expect_identical(full$contract$k, q)
-  expect_equal(full$results$log_p_two_sided, exact$results$log_p_two_sided, tolerance = 1e-5)
+  expect_equal(full$results$log_p_two_sided, exact$results$log_p_two_sided, tolerance = 1e-12)
+  k20 <- mgcvST.test(fit, moments = "exact", k = 20L)
+  expect_identical(k20$contract$k, 20L)
+  expect_equal(k20$results$log_p_two_sided, exact$results$log_p_two_sided, tolerance = 1e-5)
   messages <- testthat::capture_messages(
     pca <- mgcvST.test(fit, moments = "pcalearning", rank = 2L, k = 3L, verbose = TRUE))
   expect_match(paste(messages, collapse = ""), "PCAlearning \\(rank 2, k = 3\\) on q = 24")
