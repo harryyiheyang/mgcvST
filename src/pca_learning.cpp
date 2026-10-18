@@ -130,11 +130,12 @@ const float* raw_float(SEXP x) { return reinterpret_cast<const float*>(RAW(x)); 
 
 // Work space of one thread of the pair kernel.
 struct PairWork {
-  MatD Mk;
-  Eigen::BDCSVD<MatD> svd;
+  MatD Mk, gram;
+  Eigen::SelfAdjointEigenSolver<MatD> eig;
+  VecD sv;
   mgcvst_spa::Scratch scratch;
   long above = 0;  // pairs whose remainder node lies above the largest leading value
-  explicit PairWork(int k) : Mk(k, k), svd(k, k, 0) { scratch.reserve(k + 2); }
+  explicit PairWork(int k) : Mk(k, k), gram(k, k), eig(k), sv(k) { scratch.reserve(k + 2); }
 };
 
 // One pair: score U, the projected trace moments t1, t2 (unnormalized), the
@@ -156,8 +157,16 @@ inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1
   Eigen::Map<const MatD> Mi(Ri, k, k), Mj(Rj, k, k);
   w.Mk.noalias() = Mi * Mj.transpose();
   if (!w.Mk.allFinite()) return;
-  w.svd.compute(w.Mk);
-  const VecD& sv = w.svd.singularValues();
+  // Singular values as square roots of the Gram eigenvalues (descending), as
+  // in the exact kernel (Eigen 3.4.0's BDCSVD is not used).
+  w.gram.noalias() = w.Mk.transpose() * w.Mk;
+  w.eig.compute(w.gram, Eigen::EigenvaluesOnly);
+  if (w.eig.info() != Eigen::Success) return;
+  for (int i = 0; i < k; ++i) {
+    const double e = w.eig.eigenvalues()[k - 1 - i];
+    w.sv[i] = e > 0 ? std::sqrt(e) : 0.0;
+  }
+  const VecD& sv = w.sv;
   long double lead[4];
   mgcvst_spa::leading_sums(sv.data(), k, lead);
   const double units2 = scale_i * scale_j;

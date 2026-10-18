@@ -1,12 +1,20 @@
+# mgcvST 0.0.1.9041
+
+* The pair kernels (exact and PCAlearning) take the leading singular values of
+  each pair from the eigenvalues of the k x k Gram matrix instead of Eigen's
+  `BDCSVD`. Eigen 3.4.0's `BDCSVD` gave invalid values, and could crash, on
+  rank-deficient matrices: on Visium-B (celltype, 3,736,011 pairs, full
+  spectrum k = q = 298) 2,012 pairs got status 2 and p = 1 under 0.0.1.9039
+  and 0.0.1.9040. The Gram eigenvalues agree with LAPACK's singular values to
+  about 1e-14 (relative, leading values), and are faster at k = 298.
+  `kernel_version` is 7, so earlier pair checkpoints are not resumed.
+
 # mgcvST 0.0.1.9040
 
 * On the full-spectrum exact route (`k = q`, the default of `mgcvST.test()`)
   the pair kernel no longer builds a remainder: the singular values are the
   whole spectrum, and the total-minus-leading trace moments are rounding only.
-  Fitting two remainder nodes to that rounding could fail the saddlepoint, and
-  on Visium-B (celltype, 3,736,011 pairs) 2,012 pairs got status 2 and p = 1
-  under 9039; their full-spectrum p-values are now returned. `kernel_version`
-  is 6, so pair checkpoints written by 9039 or earlier are not resumed.
+  `kernel_version` is 6.
 
 # mgcvST 0.0.1.9039
 

@@ -303,8 +303,9 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
 #endif
   {
     long above = 0;
-    Eigen::MatrixXd P1(q, q), P2(q, q), Ln(q, q), Rn(q, q), Mk(k, k);
-    Eigen::BDCSVD<Eigen::MatrixXd> svd(k, k, 0);
+    Eigen::MatrixXd P1(q, q), P2(q, q), Ln(q, q), Rn(q, q), Mk(k, k), Gram(k, k);
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(k);
+    Eigen::VectorXd sv(k);
     mgcvst_spa::Scratch scratch;
     scratch.reserve(k + 2);
     int current = -1;
@@ -352,8 +353,16 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
         if (!good) continue;
         Mk.noalias() = Gl.transpose() * Gr;
         if (!Mk.allFinite()) continue;
-        svd.compute(Mk);
-        const Eigen::VectorXd& sv = svd.singularValues();
+        // Singular values of G_l' G_r as the square roots of the eigenvalues of
+        // its Gram matrix (descending). Eigen 3.4.0's BDCSVD gave invalid values
+        // on rank-deficient k x k matrices (k = q = 298 on Visium-B).
+        Gram.noalias() = Mk.transpose() * Mk;
+        eig.compute(Gram, Eigen::EigenvaluesOnly);
+        if (eig.info() != Eigen::Success) continue;
+        for (int i = 0; i < k; ++i) {
+          const double e = eig.eigenvalues()[k - 1 - i];
+          sv[i] = e > 0 ? std::sqrt(e) : 0.0;
+        }
         long double lead[4];
         mgcvst_spa::leading_sums(sv.data(), k, lead);
         // With k = q the singular values are the full spectrum of the pair and
