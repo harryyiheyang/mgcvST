@@ -70,7 +70,7 @@ test_that("inlaST.test() runs the PCAlearning route on request and returns the c
   expect_identical(contract$calibration_contract, "spa_v1")
   expect_identical(contract$route, "pcalearning")
   expect_identical(contract$remainder_order, 2L)
-  expect_identical(contract$kernel_version, 5L)
+  expect_identical(contract$kernel_version, 6L)
   # k = NULL means 80 on the PCAlearning route (and 20 on the exact route).
   expect_identical(contract$k, min(80L, default$timing$route$q))
   expect_identical(default$timing$route$k, contract$k)
@@ -390,13 +390,14 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   saveRDS(earlier, manifest)
   expect_error(run(index, dir), "earlier algorithm contract")
   # Earlier and future kernels are refused by name before their PCAlearning
-  # basis can be reused, including kernel 4's single-node calibration.
-  for (kernel in c(1:4, 6L)) {
+  # basis can be reused, including kernel 4's single-node calibration and
+  # kernel 5, which fitted a remainder to the full spectrum.
+  for (kernel in c(1:5, 7L)) {
     earlier <- current
     earlier$signature$contract$kernel_version <- kernel
     saveRDS(earlier, manifest)
     expect_error(run(index, dir),
-                 sprintf("spa_v1, kernel %d; this version writes spa_v1, kernel 5", kernel))
+                 sprintf("spa_v1, kernel %d; this version writes spa_v1, kernel 6", kernel))
   }
   saveRDS(current, manifest)
   expect_identical(rows(run(index, dir)), rows(reference))
@@ -404,13 +405,13 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
   # Pair shards of another algorithm contract are refused as well.
   old <- file.path(dir, "pairs-0123456789")
   dir.create(old)
-  for (kernel in c(1:4, 6L)) {
+  for (kernel in c(1:5, 7L)) {
     old_contract <- current$signature$contract
     old_contract$kernel_version <- kernel
     saveRDS(list(version = 3L, contract = old_contract, universe_sha = "x"),
             file.path(old, "contract.rds"))
     expect_error(run(index, dir),
-                 sprintf("kernel %d; this call writes spa_v1, pcalearning, kernel 5", kernel))
+                 sprintf("kernel %d; this call writes spa_v1, pcalearning, kernel 6", kernel))
   }
   unlink(file.path(old, "contract.rds"))
   saveRDS(list(), file.path(old, "block-0000000001.rds"))

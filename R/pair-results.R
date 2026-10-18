@@ -33,13 +33,14 @@
 # sha of the shared basis are known only once the basis exists, so the pair
 # directory of a run is opened (and the contract written) after the basis is
 # built; only the refusal of stale directories happens earlier. Kernel 5
-# corrects incompatible single-node remainder moments; earlier pair results
-# and PCAlearning checkpoints belong to a different calibration.
+# corrects incompatible single-node remainder moments; kernel 6 drops the
+# remainder when k = q (full spectrum); earlier pair results and PCAlearning
+# checkpoints belong to a different calibration.
 .mgcvst_contract <- function(route, k = NA_integer_, basis_sha = NA_character_) {
   stopifnot(route %in% c("exact", "pcalearning"))
   list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
        remainder_order = if (identical(route, "exact")) 4L else 2L,
-       basis_sha = as.character(basis_sha), kernel_version = 5L,
+       basis_sha = as.character(basis_sha), kernel_version = 6L,
        schema = "compact_v1")
 }
 

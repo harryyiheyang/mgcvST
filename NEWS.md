@@ -1,3 +1,13 @@
+# mgcvST 0.0.1.9040
+
+* On the full-spectrum exact route (`k = q`, the default of `mgcvST.test()`)
+  the pair kernel no longer builds a remainder: the singular values are the
+  whole spectrum, and the total-minus-leading trace moments are rounding only.
+  Fitting two remainder nodes to that rounding could fail the saddlepoint, and
+  on Visium-B (celltype, 3,736,011 pairs) 2,012 pairs got status 2 and p = 1
+  under 9039; their full-spectrum p-values are now returned. `kernel_version`
+  is 6, so pair checkpoints written by 9039 or earlier are not resumed.
+
 # mgcvST 0.0.1.9039
 
 * The exact route of `mgcvST.test()` (`moments = "exact"`) now takes the full
