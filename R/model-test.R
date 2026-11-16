@@ -223,7 +223,8 @@
     elapsed = elapsed, summary_elapsed = summary_elapsed,
     pair_elapsed = elapsed - summary_elapsed,
     workers = threads, chunks = routed$metadata$chunks,
-    backend = "C++ OpenMP", preparation_backend = "C++ OpenMP",
+    backend = "C++ OpenMP", simd = mgcvst_simd_cpp(),
+    preparation_backend = "C++ OpenMP",
     preparation_threads = threads,
     test_wall_elapsed = proc.time()[["elapsed"]] - test_started
   )

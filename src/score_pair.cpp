@@ -1,6 +1,7 @@
 #define EIGEN_DONT_PARALLELIZE
 #include <RcppEigen.h>
 #include "spa_pair.h"
+#include "la_dispatch.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -205,8 +206,8 @@ Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix&
 // nodes, order = 2 uses the Satterthwaite node. `x` optionally replaces the
 // normalized score (for validation against stored scores).
 // Work is split into runs of equal `left` chunked to grain 32 and scheduled
-// dynamically. The parallel region uses only Eigen products and decompositions
-// of the pair matrices and R::pnorm. The result also holds the number of pairs
+// dynamically. The parallel region uses only the SIMD kernels of la_kernel.cpp
+// (products and the eigenvalues of the pair matrices) and R::pnorm. The result also holds the number of pairs
 // whose remainder has a node above the largest leading value (u > s_1^2), a
 // diagnostic of the compression.
 // [[Rcpp::depends(RcppEigen)]]
@@ -298,13 +299,14 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
   const double* xp = explicit_x ? xv.begin() : nullptr;
   const long ntask = tasks.size();
   long nodes_above = 0;
+  const bool full = k == q;
+  const mgcvst::LaFns& la = mgcvst::la();
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
   {
     long above = 0;
-    Eigen::MatrixXd P1(q, q), P2(q, q), Ln(q, q), Rn(q, q), Mk(k, k), Gram(k, k);
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(k);
+    mgcvst::LaWork work(la, q, k, !full);
     Eigen::VectorXd sv(k);
     mgcvst_spa::Scratch scratch;
     scratch.reserve(k + 2);
@@ -315,10 +317,8 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
     for (long t = 0; t < ntask; ++t) {
       const Task& task = tasks[t];
       const int l = task.left;
-      Eigen::Map<const Eigen::MatrixXd> Lm(Hptr[l], q, q);
-      Eigen::Map<const Eigen::MatrixXd> Gl(Gptr[l], q, k);
-      if (current != l && std::isfinite(scales[l]) && scales[l] > 0) {
-        Ln = (0.5 / scales[l]) * (Lm + Lm.transpose());
+      if (!full && current != l && std::isfinite(scales[l]) && scales[l] > 0) {
+        la.set_left(work.p, Hptr[l], scales[l]);
         current = l;
       }
       for (R_xlen_t j = task.first; j < task.last; ++j) {
@@ -329,46 +329,33 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
         statusp[j] = 1;
         if (!std::isfinite(scales[l]) || scales[l] <= 0 ||
             !std::isfinite(scales[r]) || scales[r] <= 0) continue;
-        Eigen::Map<const Eigen::MatrixXd> Rm(Hptr[r], q, q);
-        Eigen::Map<const Eigen::MatrixXd> Gr(Gptr[r], q, k);
-        Rn = (0.5 / scales[r]) * (Rm + Rm.transpose());
-        P1.noalias() = Ln * Rn;
-        P2.noalias() = P1 * P1;
-        double v[4] = {0, 0, 0, 0};
-        for (int i = 0; i < q; ++i) v[0] += P1(i, i);
-        for (int c = 0; c < q; ++c) {
-          for (int i = 0; i < q; ++i) {
-            const double p = P1(i, c), pt = P1(c, i), h = P2(i, c), ht = P2(c, i);
-            v[1] += p * pt;
-            v[2] += h * pt;
-            v[3] += h * ht;
-          }
-        }
         const double units = std::sqrt(scales[l]) * std::sqrt(scales[r]);
         const double sc = explicit_x ? xp[j] : normalized_a.col(l).dot(normalized_a.col(r));
         if (explicit_x) scorep[j] = sc * units;
-        const bool good = std::isfinite(sc) && std::isfinite(v[0]) &&
-          std::isfinite(v[1]) && std::isfinite(v[2]) && std::isfinite(v[3]) &&
-          v[0] > 0 && v[1] > 0 && v[2] > 0 && v[3] > 0;
-        if (!good) continue;
-        Mk.noalias() = Gl.transpose() * Gr;
-        if (!Mk.allFinite()) continue;
-        // Singular values of G_l' G_r as the square roots of the eigenvalues of
-        // its Gram matrix (descending). Eigen 3.4.0's BDCSVD gave invalid values
-        // on rank-deficient k x k matrices (k = q = 298 on Visium-B).
-        Gram.noalias() = Mk.transpose() * Mk;
-        eig.compute(Gram, Eigen::EigenvaluesOnly);
-        if (eig.info() != Eigen::Success) continue;
-        for (int i = 0; i < k; ++i) {
-          const double e = eig.eigenvalues()[k - 1 - i];
-          sv[i] = e > 0 ? std::sqrt(e) : 0.0;
+        if (!std::isfinite(sc)) continue;
+        // Exact trace moments t_s = tr((H_l H_r)^s) for the remainder. With
+        // k = q the singular values are the whole spectrum, there is no
+        // remainder, and the moments are the power sums of the singular
+        // values: the two q x q products are not formed.
+        double v[4] = {0, 0, 0, 0};
+        if (!full) {
+          la.moments(work.p, Hptr[r], scales[r], v);
+          const bool good = std::isfinite(v[0]) && std::isfinite(v[1]) &&
+            std::isfinite(v[2]) && std::isfinite(v[3]) &&
+            v[0] > 0 && v[1] > 0 && v[2] > 0 && v[3] > 0;
+          if (!good) continue;
         }
+        // The k leading singular values: those of G_l' G_r (la_kernel.cpp).
+        if (la.spectrum_tn(work.p, Gptr[l], Gptr[r], q, sv.data()) != 0) continue;
         long double lead[4];
         mgcvst_spa::leading_sums(sv.data(), k, lead);
+        // Full spectrum: the trace moments are the power sums; a pair without a
+        // positive singular value has non-positive moments (status 1).
+        if (full && !(lead[0] > 0 && std::isfinite(static_cast<double>(lead[3])))) continue;
         // With k = q the singular values are the full spectrum of the pair and
         // the remainder is zero; total-minus-leading moments are then rounding
         // only and are not matched (no remainder).
-        const mgcvst_spa::Remainder rem = k == q ? mgcvst_spa::Remainder() :
+        const mgcvst_spa::Remainder rem = full ? mgcvst_spa::Remainder() :
           mgcvst_spa::make_remainder(v, lead, order, sv[0]);
         double lp[3] = {NA_REAL, NA_REAL, NA_REAL};
         const int st = mgcvst_spa::spa_pair(sc, sv.data(), k, rem, scratch, lp);
@@ -395,6 +382,11 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
     Rcpp::Named("log_p_negative") = log_p_negative,
     Rcpp::Named("remainder_kind") = remainder_kind,
     Rcpp::Named("status") = status,
-    Rcpp::Named("nodes_above_leading") = (double)nodes_above
+    Rcpp::Named("nodes_above_leading") = (double)nodes_above,
+    Rcpp::Named("simd") = std::string(la.isa)
   );
 }
+
+// The instruction set of the SIMD kernels chosen for this process.
+// [[Rcpp::export]]
+std::string mgcvst_simd_cpp() { return mgcvst::la().isa; }

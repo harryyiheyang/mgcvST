@@ -1,3 +1,28 @@
+# mgcvST 0.0.1.9042
+
+* The dense kernels of the pair tests (pair products, the Gram eigenvalues, the
+  trace moments, and the products of the PCAlearning trace table) are in
+  `src/la_kernel.cpp`, compiled once per instruction set (the ordinary flags,
+  AVX2+FMA, AVX-512) and chosen at run time from the CPU (`src/la_dispatch.h`),
+  as in plink4r: each copy renames the Eigen namespace, so the copies do not
+  mix. R's default flags compile Eigen for SSE2 only. The environment variable
+  `MGCVST_SIMD` (`avx512`, `avx2` or `generic`), read when the first kernel
+  runs, caps the choice; `timing$simd` of a test records the copy that ran.
+  The generic copy gives the p-values of 0.0.1.9041 bitwise; with FMA they
+  differ by rounding (pairs with p < 0.01: relative difference of `log p`
+  below 1e-14 in the benchmark; largest absolute difference 3e-7, at p near
+  1). `kernel_version` stays 7.
+* On the full-spectrum exact route (`k = q`, the default of `mgcvST.test()`)
+  the pair kernel no longer forms `H_l H_r` and `(H_l H_r)^2`: without a
+  remainder their trace moments were not used. A pair whose spectrum has no
+  positive singular value keeps status 1.
+* The Gram matrix of a pair is formed as a symmetric rank-k update (lower
+  triangle only) in both pair kernels.
+* At `q = 298` on one thread the exact route takes 6.8 ms per pair with AVX2
+  and 5.3 ms with AVX-512, against 16.7 ms (conda R 4.4, Xeon); the generic
+  copy takes 8.6 ms. With `k = 20` and four trace moments: 3.2 ms against
+  6.9 ms.
+
 # mgcvST 0.0.1.9041
 
 * The pair kernels (exact and PCAlearning) take the leading singular values of

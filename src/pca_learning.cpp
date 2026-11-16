@@ -2,6 +2,7 @@
 #include <RcppEigen.h>
 #include "pca_reduce.h"
 #include "spa_pair.h"
+#include "la_dispatch.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -108,7 +109,7 @@ MatD monomials2(const Multisets& m, const MatD& C) {
 // float products and double accumulation.
 void gram_accumulate(const float* data, Index len, Index n, MatD& G,
                      int threads, int tile) {
-  Eigen::Map<const MatF> P(data, len, n);
+  const mgcvst::LaFns& la = mgcvst::la();
   std::vector<std::pair<Index, Index> > tasks;
   for (Index u = 0; u < n; u += tile) for (Index v = u; v < n; v += tile) tasks.push_back({u, v});
 #ifdef _OPENMP
@@ -117,7 +118,8 @@ void gram_accumulate(const float* data, Index len, Index n, MatD& G,
   for (long k = 0; k < (long)tasks.size(); ++k) {
     const Index u = tasks[k].first, v = tasks[k].second;
     const Index nu = std::min<Index>(tile, n - u), nv = std::min<Index>(tile, n - v);
-    MatF tmp = P.middleCols(u, nu).transpose() * P.middleCols(v, nv);
+    MatF tmp(nu, nv);
+    la.sgemm_tn(data + u * len, len, (int)nu, data + v * len, (int)nv, tmp.data());
     G.block(u, v, nu, nv) += tmp.cast<double>();
   }
 }
@@ -130,12 +132,11 @@ const float* raw_float(SEXP x) { return reinterpret_cast<const float*>(RAW(x)); 
 
 // Work space of one thread of the pair kernel.
 struct PairWork {
-  MatD Mk, gram;
-  Eigen::SelfAdjointEigenSolver<MatD> eig;
+  mgcvst::LaWork la;
   VecD sv;
   mgcvst_spa::Scratch scratch;
   long above = 0;  // pairs whose remainder node lies above the largest leading value
-  explicit PairWork(int k) : Mk(k, k), gram(k, k), eig(k), sv(k) { scratch.reserve(k + 2); }
+  explicit PairWork(int k) : la(mgcvst::la(), k, k, false), sv(k) { scratch.reserve(k + 2); }
 };
 
 // One pair: score U, the projected trace moments t1, t2 (unnormalized), the
@@ -154,18 +155,9 @@ inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1
       scale_j <= 0 || !std::isfinite(U) || !std::isfinite(t1) || !std::isfinite(t2)) {
     return;
   }
-  Eigen::Map<const MatD> Mi(Ri, k, k), Mj(Rj, k, k);
-  w.Mk.noalias() = Mi * Mj.transpose();
-  if (!w.Mk.allFinite()) return;
-  // Singular values as square roots of the Gram eigenvalues (descending), as
-  // in the exact kernel (Eigen 3.4.0's BDCSVD is not used).
-  w.gram.noalias() = w.Mk.transpose() * w.Mk;
-  w.eig.compute(w.gram, Eigen::EigenvaluesOnly);
-  if (w.eig.info() != Eigen::Success) return;
-  for (int i = 0; i < k; ++i) {
-    const double e = w.eig.eigenvalues()[k - 1 - i];
-    w.sv[i] = e > 0 ? std::sqrt(e) : 0.0;
-  }
+  // Singular values of R_i R_j' as square roots of the Gram eigenvalues
+  // (descending), as in the exact kernel (la_kernel.cpp).
+  if (w.la.f.spectrum_nt(w.la.p, Ri, Rj, w.sv.data()) != 0) return;
   const VecD& sv = w.sv;
   long double lead[4];
   mgcvst_spa::leading_sums(sv.data(), k, lead);
@@ -285,6 +277,7 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
   auto mark = [&](const char* name, double t0) { timing.push_back(now() - t0); tnames.push_back(name); };
 
   // B_k (double) and Y_ab = B_a B_b (double GEMM, stored float).
+  const mgcvst::LaFns& la = mgcvst::la();
   double t0 = now();
   std::vector<MatD> Bd(r);
 #ifdef _OPENMP
@@ -302,7 +295,8 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
 #endif
   for (int t = 0; t < d2; ++t) {
     const int a = m2.at(t, 0), b = m2.at(t, 1);
-    MatD y = Bd[a] * Bd[b];
+    MatD y(q, q);
+    la.dgemm_nn(Bd[a].data(), q, q, Bd[b].data(), q, y.data());
     Yf[t] = y.cast<float>();
   }
   Bd.clear();

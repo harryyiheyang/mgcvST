@@ -384,6 +384,16 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_simd_cpp
+std::string mgcvst_simd_cpp();
+RcppExport SEXP _mgcvST_mgcvst_simd_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(mgcvst_simd_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_spa_cpp
 Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U, const Rcpp::NumericMatrix& S, const Rcpp::NumericMatrix& Tm, int order, int threads);
 RcppExport SEXP _mgcvST_mgcvst_spa_cpp(SEXP USEXP, SEXP SSEXP, SEXP TmSEXP, SEXP orderSEXP, SEXP threadsSEXP) {
@@ -425,6 +435,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_pair_basis_sum_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_sum_cpp, 2},
     {"_mgcvST_mgcvst_pair_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_cpp, 3},
     {"_mgcvST_mgcvst_pair_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_spa_cpp, 8},
+    {"_mgcvST_mgcvst_simd_cpp", (DL_FUNC) &_mgcvST_mgcvst_simd_cpp, 0},
     {"_mgcvST_mgcvst_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_spa_cpp, 5},
     {NULL, NULL, 0}
 };

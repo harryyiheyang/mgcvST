@@ -1,3 +1,22 @@
 CXX_STD = CXX17
-PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS) -Wa,-mbig-obj
+
+# See src/Makevars: la_kernel.cpp is compiled once per instruction set and
+# chosen at run time. MinGW-w64 does not align the stack to 32 bytes, so spilled
+# AVX registers must use unaligned moves (the assembler flag below).
+LA_OBJECTS = la_generic.o la_avx2.o la_avx512.o
+OBJECTS = RcppExports.o adjust_pvalues.o dense_prepare.o inla_sparse.o \
+  inla_working_state.o memory_status.o pca_learning.o score_pair.o spa_pair.o \
+  $(LA_OBJECTS)
+PKG_CPPFLAGS = -DMGCVST_LA_X86
+PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS) -Wa,-mbig-obj -Wa,-muse-unaligned-vector-move
 PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lpsapi
+
+.PHONY: all
+all: $(SHLIB)
+
+la_generic.o: la_kernel.cpp la_dispatch.h
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -DMGCVST_LA_ISA=generic -c la_kernel.cpp -o $@
+la_avx2.o: la_kernel.cpp la_dispatch.h
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx2 -mfma -DMGCVST_LA_ISA=avx2 -c la_kernel.cpp -o $@
+la_avx512.o: la_kernel.cpp la_dispatch.h
+	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -mavx512bw -DMGCVST_LA_ISA=avx512 -c la_kernel.cpp -o $@
