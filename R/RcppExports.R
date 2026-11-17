@@ -73,12 +73,12 @@ mgcvst_pca_dense_cpp <- function(H, a, pca_basis, pack, V, threads = 1L) {
     .Call(`_mgcvST_mgcvst_pca_dense_cpp`, H, a, pca_basis, pack, V, threads)
 }
 
-mgcvst_pca_spa_pairs_cpp <- function(A, C, K2, T2, R, scale, i, j, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_pca_spa_pairs_cpp`, A, C, K2, T2, R, scale, i, j, threads)
+mgcvst_pca_spa_pairs_cpp <- function(A, C, K2, T2, R, scale, i, j, threads = 1L, screen_z = 0) {
+    .Call(`_mgcvST_mgcvst_pca_spa_pairs_cpp`, A, C, K2, T2, R, scale, i, j, threads, screen_z)
 }
 
-mgcvst_pca_spa_block_cpp <- function(A, C, K2, T2, R, scale, first, last, threads = 1L, gene_block = 32L, pair_block = 256L) {
-    .Call(`_mgcvST_mgcvst_pca_spa_block_cpp`, A, C, K2, T2, R, scale, first, last, threads, gene_block, pair_block)
+mgcvst_pca_spa_block_cpp <- function(A, C, K2, T2, R, scale, first, last, threads = 1L, gene_block = 32L, pair_block = 256L, screen_z = 0) {
+    .Call(`_mgcvST_mgcvst_pca_spa_block_cpp`, A, C, K2, T2, R, scale, first, last, threads, gene_block, pair_block, screen_z)
 }
 
 mgcvst_pair_trace_powers_cpp <- function(matrixList, pairs, maxPower = 4L, threads = 1L) {
@@ -93,8 +93,12 @@ mgcvst_pair_basis_cpp <- function(H, V, threads = 1L) {
     .Call(`_mgcvST_mgcvst_pair_basis_cpp`, H, V, threads)
 }
 
-mgcvst_pair_spa_cpp <- function(H, G, a, left, right, threads = 1L, order = 4L, x = NULL) {
-    .Call(`_mgcvST_mgcvst_pair_spa_cpp`, H, G, a, left, right, threads, order, x)
+mgcvst_pair_spa_cpp <- function(H, G, a, left, right, threads = 1L, order = 4L, x = NULL, screen_z = 0) {
+    .Call(`_mgcvST_mgcvst_pair_spa_cpp`, H, G, a, left, right, threads, order, x, screen_z)
+}
+
+mgcvst_simd_cpp <- function() {
+    .Call(`_mgcvST_mgcvst_simd_cpp`)
 }
 
 mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {

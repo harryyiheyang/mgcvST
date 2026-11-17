@@ -2,6 +2,7 @@
 #include <RcppEigen.h>
 #include "pca_reduce.h"
 #include "spa_pair.h"
+#include "la_dispatch.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -108,7 +109,7 @@ MatD monomials2(const Multisets& m, const MatD& C) {
 // float products and double accumulation.
 void gram_accumulate(const float* data, Index len, Index n, MatD& G,
                      int threads, int tile) {
-  Eigen::Map<const MatF> P(data, len, n);
+  const mgcvst::LaFns& la = mgcvst::la();
   std::vector<std::pair<Index, Index> > tasks;
   for (Index u = 0; u < n; u += tile) for (Index v = u; v < n; v += tile) tasks.push_back({u, v});
 #ifdef _OPENMP
@@ -117,7 +118,8 @@ void gram_accumulate(const float* data, Index len, Index n, MatD& G,
   for (long k = 0; k < (long)tasks.size(); ++k) {
     const Index u = tasks[k].first, v = tasks[k].second;
     const Index nu = std::min<Index>(tile, n - u), nv = std::min<Index>(tile, n - v);
-    MatF tmp = P.middleCols(u, nu).transpose() * P.middleCols(v, nv);
+    MatF tmp(nu, nv);
+    la.sgemm_tn(data + u * len, len, (int)nu, data + v * len, (int)nv, tmp.data());
     G.block(u, v, nu, nv) += tmp.cast<double>();
   }
 }
@@ -130,12 +132,12 @@ const float* raw_float(SEXP x) { return reinterpret_cast<const float*>(RAW(x)); 
 
 // Work space of one thread of the pair kernel.
 struct PairWork {
-  MatD Mk, gram;
-  Eigen::SelfAdjointEigenSolver<MatD> eig;
+  mgcvst::LaWork la;
   VecD sv;
   mgcvst_spa::Scratch scratch;
   long above = 0;  // pairs whose remainder node lies above the largest leading value
-  explicit PairWork(int k) : Mk(k, k), gram(k, k), eig(k), sv(k) { scratch.reserve(k + 2); }
+  long skipped = 0;  // pairs left to the Gaussian lower-bound screen (status 4)
+  explicit PairWork(int k) : la(mgcvst::la(), k, k, false), sv(k) { scratch.reserve(k + 2); }
 };
 
 // One pair: score U, the projected trace moments t1, t2 (unnormalized), the
@@ -143,7 +145,8 @@ struct PairWork {
 // output columns U, t1, t2, three log p-values, remainder kind and status.
 inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1,
                          double t2, double scale_i, double scale_j,
-                         const double* Ri, const double* Rj, int k, PairWork& w) {
+                         const double* Ri, const double* Rj, int k, PairWork& w,
+                         double screen_z) {
   out[row] = U;
   out[row + rows] = t1;
   out[row + 2 * rows] = t2;
@@ -154,18 +157,28 @@ inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1
       scale_j <= 0 || !std::isfinite(U) || !std::isfinite(t1) || !std::isfinite(t2)) {
     return;
   }
-  Eigen::Map<const MatD> Mi(Ri, k, k), Mj(Rj, k, k);
-  w.Mk.noalias() = Mi * Mj.transpose();
-  if (!w.Mk.allFinite()) return;
-  // Singular values as square roots of the Gram eigenvalues (descending), as
-  // in the exact kernel (Eigen 3.4.0's BDCSVD is not used).
-  w.gram.noalias() = w.Mk.transpose() * w.Mk;
-  w.eig.compute(w.gram, Eigen::EigenvaluesOnly);
-  if (w.eig.info() != Eigen::Success) return;
-  for (int i = 0; i < k; ++i) {
-    const double e = w.eig.eigenvalues()[k - 1 - i];
-    w.sv[i] = e > 0 ? std::sqrt(e) : 0.0;
+  // Gaussian lower-bound screen, as in the exact kernel (score_pair.cpp). The
+  // variance of the pair score in the saddlepoint of this route is at least
+  // the projected t1 (the remainder never removes variance), so
+  // z = |U| / sqrt(t1) is not below the z-score of the route, and a pair with
+  // z < screen_z has p >= 2 Phibar(screen_z): its spectrum is not computed and
+  // the lower bound 2 Phibar(max(z, 2)) is returned with status 4.
+  if (screen_z > 0 && t1 > 0) {
+    const double z = std::fabs(U) / std::sqrt(t1);
+    if (z < screen_z) {
+      const double one = R::pnorm(std::max(z, 2.0), 0.0, 1.0, 0, 1);
+      const double other = std::log1p(-std::exp(one));
+      out[row + 3 * rows] = std::min(0.0, one + mgcvst_spa::kLn2);
+      out[row + 4 * rows] = U >= 0 ? one : other;
+      out[row + 5 * rows] = U >= 0 ? other : one;
+      out[row + 7 * rows] = 4;
+      ++w.skipped;
+      return;
+    }
   }
+  // Singular values of R_i R_j' as square roots of the Gram eigenvalues
+  // (descending), as in the exact kernel (la_kernel.cpp).
+  if (w.la.f.spectrum_nt(w.la.p, Ri, Rj, w.sv.data()) != 0) return;
   const VecD& sv = w.sv;
   long double lead[4];
   mgcvst_spa::leading_sums(sv.data(), k, lead);
@@ -285,6 +298,7 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
   auto mark = [&](const char* name, double t0) { timing.push_back(now() - t0); tnames.push_back(name); };
 
   // B_k (double) and Y_ab = B_a B_b (double GEMM, stored float).
+  const mgcvst::LaFns& la = mgcvst::la();
   double t0 = now();
   std::vector<MatD> Bd(r);
 #ifdef _OPENMP
@@ -302,7 +316,8 @@ Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q,
 #endif
   for (int t = 0; t < d2; ++t) {
     const int a = m2.at(t, 0), b = m2.at(t, 1);
-    MatD y = Bd[a] * Bd[b];
+    MatD y(q, q);
+    la.dgemm_nn(Bd[a].data(), q, q, Bd[b].data(), q, y.data());
     Yf[t] = y.cast<float>();
   }
   Bd.clear();
@@ -508,7 +523,7 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
                                              const Rcpp::NumericVector& scale,
                                              const Rcpp::IntegerVector& i,
                                              const Rcpp::IntegerVector& j,
-                                             int threads = 1) {
+                                             int threads = 1, double screen_z = 0) {
   const int n = C.rows();
   const R_xlen_t np = i.size();
   const int k = (int)std::lround(std::sqrt((double)R.rows()));
@@ -540,7 +555,10 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
   Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
   const double* sc = scale.begin();
-  long nodes_above = 0;
+  long nodes_above = 0, screened = 0;
+  if (!(screen_z == 0 || (std::isfinite(screen_z) && screen_z >= 2))) {
+    Rcpp::stop("screen_z must be 0 (no screen) or a finite value of at least 2.");
+  }
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
@@ -554,15 +572,20 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
       const double U = A.col(a).dot(A.col(b));
       const double t1 = C.row(a).dot(C.row(b));
       const double t2 = S2.col(slot[a]).dot(K2.col(b));
-      spa_pair_row(o, np, t, U, t1, t2, sc[a], sc[b], &R(0, a), &R(0, b), k, work);
+      spa_pair_row(o, np, t, U, t1, t2, sc[a], sc[b], &R(0, a), &R(0, b), k, work, screen_z);
     }
 #ifdef _OPENMP
 #pragma omp atomic
 #endif
     nodes_above += work.above;
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    screened += work.skipped;
   }
   Rcpp::colnames(out) = pair_columns();
   out.attr("nodes_above_leading") = (double)nodes_above;
+  out.attr("screened") = (double)screened;
   return out;
 }
 
@@ -578,7 +601,8 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
                                              const Rcpp::NumericVector& scale,
                                              int first, int last,
                                              int threads = 1,
-                                             int gene_block = 32, int pair_block = 256) {
+                                             int gene_block = 32, int pair_block = 256,
+                                             double screen_z = 0) {
   const int n = C.rows();
   const int k = (int)std::lround(std::sqrt((double)R.rows()));
   if ((Index)k * k != R.rows() || R.cols() != n || scale.size() != n ||
@@ -609,7 +633,10 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
   Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
   const double* sc = scale.begin();
-  long nodes_above = 0;
+  long nodes_above = 0, screened = 0;
+  if (!(screen_z == 0 || (std::isfinite(screen_z) && screen_z >= 2))) {
+    Rcpp::stop("screen_z must be 0 (no screen) or a finite value of at least 2.");
+  }
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
@@ -629,7 +656,8 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
           const int il = tk.ib + ii, ig = i0 + il;
           if (jg <= ig) continue;
           spa_pair_row(o, np, offset[il] + (jg - ig - 1), Uab(ii, jj), T1(ii, jj),
-                       T2ab(ii, jj), sc[ig], sc[jg], &R(0, ig), &R(0, jg), k, work);
+                       T2ab(ii, jj), sc[ig], sc[jg], &R(0, ig), &R(0, jg), k, work,
+                       screen_z);
         }
       }
     }
@@ -637,8 +665,13 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
 #pragma omp atomic
 #endif
     nodes_above += work.above;
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    screened += work.skipped;
   }
   Rcpp::colnames(out) = pair_columns();
   out.attr("nodes_above_leading") = (double)nodes_above;
+  out.attr("screened") = (double)screened;
   return out;
 }

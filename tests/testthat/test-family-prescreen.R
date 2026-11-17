@@ -1,4 +1,5 @@
 test_that("both control paths share the default and preserve explicit thresholds", {
+  skip_if_not_installed("INLA")
   expect_identical(mgcvST:::.mgcvst_prescreen_threshold(NULL), 1.01)
   expect_identical(mgcvST:::.inlast_control()$poisson_screen_phi, 1.01)
   for (value in c(0, 1.005, 1.1)) {
@@ -41,6 +42,7 @@ test_that("the exact boundary is inclusive without changing phi", {
 })
 
 test_that("disabled screening is unchanged by the default value", {
+  skip_if_not_installed("INLA")
   control <- mgcvST:::.inlast_control(list(poisson_screen_phi = 0))
   threshold <- mgcvST:::.mgcvst_prescreen_threshold(control$poisson_screen_phi)
   testthat::local_mocked_bindings(.mgcvst_prescreen_default = 1.1,

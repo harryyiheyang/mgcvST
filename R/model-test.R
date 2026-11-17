@@ -32,7 +32,11 @@
 .mgcvst_test_run <- function(fit, entry, pairs, q.value, adjust, threads,
                              chunk_size, checkpoint_dir, resume, verbose,
                              moments, rank = NULL, n_per_cell = NULL,
-                             seed = NULL, k = NULL, call = NULL) {
+                             seed = NULL, k = NULL, screen = FALSE,
+                             call = NULL) {
+  if (!is.logical(screen) || length(screen) != 1L || is.na(screen)) {
+    stop("screen must be TRUE or FALSE.")
+  }
   q.value <- as.numeric(q.value)
   if (length(q.value) != 1L || !is.finite(q.value) ||
       q.value <= 0 || q.value > 1) {
@@ -97,7 +101,8 @@
   if (identical(entry, "mgcv") && is.null(fit$geometry)) {
     stop("fitmgcvST has no feature geometry to test.")
   }
-  .mgcvst_thread_limit()
+  old_threads <- .mgcvst_thread_limit()
+  on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
 
   index <- if (is.null(pairs)) NULL else .mgcvst_pair_index(pairs, fit$feature_id)
   available <- .mgcvst_feature_available(fit)
@@ -146,6 +151,7 @@
   test_started <- proc.time()[["elapsed"]]
   routed <- NULL
   route <- NULL
+  screen_record <- NULL
   if (n_tested > 0) {
     basis <- NULL
     if (identical(entry, "inla")) {
@@ -163,6 +169,15 @@
       .mgcvst_pca_defaults$k
     } else if (identical(entry, "mgcv")) q else .mgcvst_exact_defaults$k
     route <- list(moments = moments, k = as.integer(min(k_route, q)), q = q)
+    screening <- if (screen) .mgcvst_screen_z(adjust, q.value, n_tested) else
+      list(z = 0, theta = NA_real_, tau = NA_real_)
+    if (screen && verbose) {
+      message(if (screening$z > 0) sprintf(
+        "Screen: pairs with |U| / sqrt(t_1) < %.3f (p > %.3g) are not evaluated.",
+        screening$z, screening$tau) else paste0(
+        "Screen off: the rejection threshold of adjust = \"", adjust,
+        "\" at this q.value is too large for the Gaussian bound."))
+    }
     if (verbose) {
       message("Pair test: ", if (identical(moments, "exact"))
                 paste0("exact moments (k = ", route$k, ")") else
@@ -179,15 +194,17 @@
         fit, index, threads, chunk_size, verbose, basis = basis,
         rank = pca$rank, n_per_cell = pca$n_per_cell, seed = pca$seed,
         k = route$k, checkpoint_dir = checkpoint_dir, resume = resume,
-        route = route
+        route = route, screen_z = screening$z
       )
     } else {
       routed <- .mgcvst_pair_pipeline(
         fit, index, threads, chunk_size, verbose,
         checkpoint_dir = checkpoint_dir, resume = resume, k = route$k,
-        basis = basis, route = route
+        basis = basis, route = route, screen_z = screening$z
       )
     }
+    if (screen) screen_record <- c(screening, list(
+      screened = routed$metadata$screened))
   } else {
     root <- tempfile("mgcvst-pairs-")
     dir.create(root)
@@ -223,7 +240,8 @@
     elapsed = elapsed, summary_elapsed = summary_elapsed,
     pair_elapsed = elapsed - summary_elapsed,
     workers = threads, chunks = routed$metadata$chunks,
-    backend = "C++ OpenMP", preparation_backend = "C++ OpenMP",
+    backend = "C++ OpenMP", simd = mgcvst_simd_cpp(),
+    preparation_backend = "C++ OpenMP",
     preparation_threads = threads,
     test_wall_elapsed = proc.time()[["elapsed"]] - test_started
   )
@@ -238,6 +256,7 @@
   }
   pca_learning <- NULL
   if (!is.null(route)) timing$route <- route
+  if (!is.null(screen_record)) timing$screen <- screen_record
   if (identical(route$moments, "pcalearning")) {
     projection <- routed$metadata
     pca_learning <- projection$pca_learning
@@ -325,6 +344,7 @@
 #' | 1 | trace moments non-finite or non-positive | 1 |
 #' | 2 | invalid p-value | 1 |
 #' | 3 | a feature of the pair has no usable score state | missing, not adjusted |
+#' | 4 | screened (`screen = TRUE`) | lower bounds |
 #'
 #' A pair with status 1 or 2 has p = 1 (`log_p_two_sided`, `log_p_positive` and
 #' `log_p_negative` are all 0), the conservative choice, and stays in the
@@ -371,7 +391,7 @@
 #' @param moments `"exact"` or `"pcalearning"`, the route of the pair
 #'   calibration. Required: there is no default, and a call without it stops.
 #'   Both routes serve both estimators.
-#' @param rank Number of PCAlearning basis matrices (default 30). Used by the
+#' @param rank Number of PCAlearning basis matrices (default 100). Used by the
 #'   PCAlearning route.
 #' @param n_per_cell Training genes drawn per PCAlearning stratification cell
 #'   (default 3).
@@ -382,6 +402,22 @@
 #'   exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
 #'   the score dimension `q` is reduced to `q`, and `k = q` reproduces the
 #'   full-spectrum saddlepoint of each pair.
+#' @param screen Logical; `TRUE` skips the pairs that cannot be discoveries
+#'   (both routes). Given one of the two score vectors the pair score is
+#'   Gaussian with a variance of mean `t_1`, so for `z = |U| / sqrt(t_1) >= 2`
+#'   the two-sided p-value is at least the Gaussian tail `2 * pnorm(-z)`. On
+#'   the exact route `t_1 = tr(H_i H_j)`; on the PCAlearning route it is the
+#'   projected trace `c_i' c_j`, which the variance of the pair score in that
+#'   route's saddlepoint is never below. With `theta` the largest p-value that
+#'   `adjust` can reject at `q.value` over the tested pairs (BY:
+#'   `q.value / sum(1 / seq_len(m))`), a pair with `2 * pnorm(-z) > 2 * theta`
+#'   is not evaluated: it has status 4, its p-values are the lower bound
+#'   `2 * pnorm(-max(z, 2))`, and it stays in the adjustment family. The
+#'   discoveries, and every `log_q` at or below `log(q.value)`, are those of
+#'   `screen = FALSE`; the `log_q` of other pairs are lower bounds. The screen
+#'   is off when the bound would be needed below `z = 2` (for example
+#'   `adjust = "BH"` with `q.value = 0.05`). `timing$screen` records the
+#'   screening value and the number of screened pairs.
 #' @return An object of class `mgcvST_test` with `results`, `shards`,
 #'   `feature_id`, `failed` (features without a usable score state and the
 #'   reason), `threshold`, `discoveries`, `adjustment`, `timing`
@@ -396,13 +432,14 @@ mgcvST.test <- function(
     resume = TRUE, verbose = FALSE, moments,
     rank = .mgcvst_pca_defaults$rank,
     n_per_cell = .mgcvst_pca_defaults$n_per_cell,
-    seed = .mgcvst_pca_defaults$seed, k = NULL) {
+    seed = .mgcvst_pca_defaults$seed, k = NULL, screen = FALSE) {
   if (missing(moments)) .mgcvst_moments_missing()
   adjust <- match.arg(adjust)
   .mgcvst_test_run(
     fitmgcvST, "mgcv", pairs, q.value, adjust, threads, chunk_size,
     checkpoint_dir, resume, verbose, moments = moments, rank = rank,
-    n_per_cell = n_per_cell, seed = seed, k = k, call = match.call()
+    n_per_cell = n_per_cell, seed = seed, k = k, screen = screen,
+    call = match.call()
   )
 }
 

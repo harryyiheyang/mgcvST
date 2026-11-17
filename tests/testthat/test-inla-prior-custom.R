@@ -1,4 +1,5 @@
 test_that("INLA control merges prior objects atomically and preserves NULL", {
+  skip_if_not_installed("INLA")
   base <- list(
     precision_prior = list(
       prior = "flat", param = numeric(), initial = -3
@@ -39,6 +40,7 @@ test_that("INLA control merges prior objects atomically and preserves NULL", {
 })
 
 test_that("native INLA tuning is validated and EB Gaussian strategy is forced", {
+  skip_if_not_installed("INLA")
   control <- mgcvST:::.inlast_control(list(
     control.inla = list(
       tolerance = 1e-4, tolerance.f = 5e-5,
@@ -70,6 +72,7 @@ test_that("native INLA tuning is validated and EB Gaussian strategy is forced", 
 })
 
 test_that("registered and custom INLA prior specifications are validated", {
+  skip_if_not_installed("INLA")
   checked <- mgcvST:::.inlast_control(list(
     precision_prior = list(
       prior = "normal", param = c(-1.5, 0.25), initial = 1.2
@@ -124,6 +127,7 @@ test_that("registered and custom INLA prior specifications are validated", {
 })
 
 test_that("prior metadata records the actual family, parameters, and starts", {
+  skip_if_not_installed("INLA")
   control <- mgcvST:::.inlast_control(list(
     precision_prior = list(
       prior = "loggamma", param = c(1.7, 0.08), initial = -0.7

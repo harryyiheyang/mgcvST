@@ -18,7 +18,11 @@
 # p-value; 3 a gene of the pair has no usable score state. A pair with status 1
 # or 2 has p = 1 (two-sided and both one-sided log p are 0) and stays in the
 # adjustment family; a pair with status 3 has no p-value and is not adjusted.
-.mgcvst_pair_status <- c(ok = 0L, moments = 1L, p_value = 2L, feature = 3L)
+# 4 (screened, `screen = TRUE` only): the Gaussian z-score of the pair is below
+# the screening value, its p-values are lower bounds above every rejection
+# threshold of the adjustment, and it stays in the adjustment family.
+.mgcvst_pair_status <- c(ok = 0L, moments = 1L, p_value = 2L, feature = 3L,
+                         screened = 4L)
 
 # Algorithm contract of the pair p-values. Every checkpoint of pair results is
 # keyed by it, and a checkpoint written under another contract is refused. The
@@ -37,12 +41,38 @@
 # remainder when k = q (full spectrum); kernel 7 takes the leading singular
 # values from the Gram eigenvalues instead of Eigen's BDCSVD; earlier pair
 # results and PCAlearning checkpoints belong to a different calibration.
-.mgcvst_contract <- function(route, k = NA_integer_, basis_sha = NA_character_) {
+.mgcvst_contract <- function(route, k = NA_integer_, basis_sha = NA_character_,
+                             screen_z = 0) {
   stopifnot(route %in% c("exact", "pcalearning"))
-  list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
+  out <- list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
        remainder_order = if (identical(route, "exact")) 4L else 2L,
        basis_sha = as.character(basis_sha), kernel_version = 7L,
        schema = "compact_v1")
+  # A screened run is another contract (its screening value is part of it); an
+  # unscreened run keeps the contract of earlier versions.
+  if (screen_z > 0) out$screen_z <- as.numeric(screen_z)
+  out
+}
+
+# Screening value z0 of the Gaussian lower-bound screen for `m` adjusted pairs:
+# a pair is rejected only if p <= theta, the largest rejection threshold of the
+# adjustment (BY: q / c(m); BH and none: q; Sidak: 1 - (1 - q)^(1 / m)). Pairs
+# with a lower bound above tau = 2 theta are screened; z0 = Phibar^{-1}(tau / 2).
+# The bound holds for z >= 2, so the screen is off (0) when z0 would be below 2.
+.mgcvst_screen_z <- function(adjust, q.value, m) {
+  theta <- switch(adjust,
+    BY = q.value / mgcvst_harmonic(m),
+    Sidak = -expm1(log1p(-q.value) / m),
+    q.value)
+  tau <- 2 * theta
+  z <- stats::qnorm(tau / 2, lower.tail = FALSE)
+  if (!is.finite(z) || z < 2) z <- 0
+  list(z = z, theta = theta, tau = tau)
+}
+
+mgcvst_harmonic <- function(m) {
+  if (m <= 1e6) sum(1 / seq_len(m)) else
+    log(m) + 0.5772156649015329 + 1 / (2 * m) - 1 / (12 * m^2)
 }
 
 # The part of a contract that defines the algorithm.

@@ -1,3 +1,89 @@
+# mgcvST 0.0.1.9044
+
+* `screen = TRUE` of `mgcvST.test()` and `inlaST.test()` also applies to
+  `moments = "pcalearning"` (default still `FALSE`). The z-score uses the
+  projected trace `t_1 = c_i' c_j`, which the variance of the pair score in
+  the saddlepoint of that route is never below, so a screened pair (status 4)
+  has a p-value of that route above every rejection threshold; its spectrum
+  (the Gram eigenvalues of `R_i R_j'`, the cost of a pair) is not computed.
+  The discoveries and their `log_q` are those of `screen = FALSE`. On 79,800
+  simulated pairs (`q = 255`, rank 100, `k = 80`, BY at 0.05; 10,617
+  discoveries): 78% of the pairs screened, the pair stage takes 7.2 s against
+  25.9 s, the same 10,617 discoveries with identical `log_q`, evaluated pairs
+  bitwise unchanged, and no screened pair below its bound. A screened run is
+  its own checkpoint contract, as on the exact route.
+* `inlaST.estimate()` with a serial backend no longer unloads the mgcvST
+  namespace of the calling process when the package was loaded from source
+  (`devtools::load_all()`, `testthat::test_local()`) while another build is
+  installed; the reload from the manager's library path is for worker
+  processes only. On the cluster this had removed the test helpers of every
+  test file that ran after an `inlaST.estimate()` test.
+
+# mgcvST 0.0.1.9043
+
+* The dense score state of an mgcv fit (`a_j`, `H_j`; both pair routes and
+  `mgcvST.wgcna()`) is built from the `q x q` Woodbury system alone. With
+  `A = F' D^{-1} F`, `M = I + A`, `C = F' D^{-1} X` and `g = F' D^{-1} e`:
+  `F' W F = M^{-1} A`, `F' W X = M^{-1} C`, `F' W e = M^{-1} g` and
+  `X' W X = X' D^{-1} X - C' M^{-1} C`, so the only `O(n q^2)` work of a
+  feature is one symmetric rank update, where 0.0.1.9042 formed about four
+  `n x q^2` products. The step is in the run-time SIMD kernel
+  (`src/la_kernel.cpp`) and calls no BLAS, so its OpenMP loop never meets a
+  threaded BLAS. At `n = 4000`, `q = 298`, three nuisance columns, one thread:
+  0.014 s per feature with AVX-512 and 0.017 s with AVX2, against 0.100 s
+  (OpenBLAS, Xeon); the generic copy takes 0.033 s. States agree with
+  0.0.1.9042 to 7e-14 relative. `kernel_version` stays 7.
+* `mgcvST.estimate()` sets the BLAS, OpenMP and data.table thread limits of the
+  calling process to one before any worker starts, so a forked worker never
+  inherits a threaded BLAS. `mgcvST.estimate()`, `mgcvST.marginal()`,
+  `mgcvST.test()` and `inlaST.test()` restore the caller's settings (environment
+  variables, BLAS threads, data.table threads) when they return; before, the
+  limit stayed for the rest of the session. Worker processes keep the limit.
+
+# mgcvST 0.0.1.9042
+
+* The dense kernels of the pair tests (pair products, the Gram eigenvalues, the
+  trace moments, and the products of the PCAlearning trace table) are in
+  `src/la_kernel.cpp`, compiled once per instruction set (the ordinary flags,
+  AVX2+FMA, AVX-512) and chosen at run time from the CPU (`src/la_dispatch.h`),
+  as in plink4r: each copy renames the Eigen namespace, so the copies do not
+  mix. R's default flags compile Eigen for SSE2 only. The environment variable
+  `MGCVST_SIMD` (`avx512`, `avx2` or `generic`), read when the first kernel
+  runs, caps the choice; `timing$simd` of a test records the copy that ran.
+  The generic copy gives the p-values of 0.0.1.9041 bitwise; with FMA they
+  differ by rounding (pairs with p < 0.01: relative difference of `log p`
+  below 1e-14 in the benchmark; largest absolute difference 3e-7, at p near
+  1). `kernel_version` stays 7.
+* On the full-spectrum exact route (`k = q`, the default of `mgcvST.test()`)
+  the pair kernel no longer forms `H_l H_r` and `(H_l H_r)^2`: without a
+  remainder their trace moments were not used. A pair whose spectrum has no
+  positive singular value keeps status 1.
+* The Gram matrix of a pair is formed as a symmetric rank-k update (lower
+  triangle only) in both pair kernels.
+* At `q = 298` on one thread the exact route takes 6.8 ms per pair with AVX2
+  and 5.3 ms with AVX-512, against 16.7 ms (conda R 4.4, Xeon); the generic
+  copy takes 8.6 ms. With `k = 20` and four trace moments: 3.2 ms against
+  6.9 ms.
+
+* New argument `screen` of `mgcvST.test()` and `inlaST.test()` (default
+  `FALSE`, exact route only): the Gaussian lower-bound screen. Given one of
+  the two score vectors the pair score is Gaussian with a variance of mean
+  `t_1 = tr(H_i H_j)`, which costs `q^2`, so for `z = |U| / sqrt(t_1) >= 2`
+  the two-sided p-value is at least `2 * pnorm(-z)` (checked against the exact
+  tail on twelve spectra in the tests; the two tails cross between z = 1.68
+  and 1.84). With `theta` the largest p-value the adjustment can reject (BY:
+  `q.value / c(m)`), a pair whose bound exceeds `2 * theta` is not evaluated:
+  status 4, p-values equal to the bound `2 * pnorm(-max(z, 2))`, still in the
+  adjustment family. The discoveries and every `log_q <= log(q.value)` are
+  those of `screen = FALSE`; other `log_q` are lower bounds. The screen is
+  off when it would need the bound below z = 2 (BH at `q.value = 0.05`).
+  A screened run has its own pair contract (`screen_z`); unscreened
+  checkpoints are unchanged. In the benchmark (q = 298, null pairs with
+  decaying spectra, the BY threshold of 3,736,011 pairs, z0 = 2.73) 7% of the
+  pairs are evaluated and the kernel is 9.8 times faster.
+* The documented default of `rank` is 100 (it said 30). Tests that need INLA
+  are skipped when INLA is not installed.
+
 # mgcvST 0.0.1.9041
 
 * The pair kernels (exact and PCAlearning) take the leading singular values of

@@ -64,6 +64,7 @@ test_that("flat log-precision prior supports custom starts and retains mean zero
 })
 
 test_that("flat prior controls reject parameters and non-finite starts", {
+  skip_if_not_installed("INLA")
   fields <- c("precision_prior", "gaussian_precision_prior", "nb_size_prior")
   for (field in fields) {
     bad_param <- list()

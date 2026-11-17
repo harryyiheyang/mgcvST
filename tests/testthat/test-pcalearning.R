@@ -132,7 +132,7 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
               "checkpoint_dir", "resume", "verbose")
   # The shared arguments keep the same positions; the route and the PCAlearning
   # controls follow them, so a positional call means the same in both tests.
-  controls <- c("moments", "rank", "n_per_cell", "seed", "k")
+  controls <- c("moments", "rank", "n_per_cell", "seed", "k", "screen")
   expect_identical(names(formals(inlaST.test)), c("fitinlaST", shared, controls))
   expect_identical(names(formals(mgcvST.test)), c("fitmgcvST", shared, controls))
   expect_identical(formals(inlaST.test)[controls], formals(mgcvST.test)[controls])
