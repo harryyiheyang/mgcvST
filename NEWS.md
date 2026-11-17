@@ -1,3 +1,18 @@
+# mgcvST 0.0.1.9044
+
+* `screen = TRUE` of `mgcvST.test()` and `inlaST.test()` also applies to
+  `moments = "pcalearning"` (default still `FALSE`). The z-score uses the
+  projected trace `t_1 = c_i' c_j`, which the variance of the pair score in
+  the saddlepoint of that route is never below, so a screened pair (status 4)
+  has a p-value of that route above every rejection threshold; its spectrum
+  (the Gram eigenvalues of `R_i R_j'`, the cost of a pair) is not computed.
+  The discoveries and their `log_q` are those of `screen = FALSE`. On 79,800
+  simulated pairs (`q = 255`, rank 100, `k = 80`, BY at 0.05; 10,617
+  discoveries): 78% of the pairs screened, the pair stage takes 7.2 s against
+  25.9 s, the same 10,617 discoveries with identical `log_q`, evaluated pairs
+  bitwise unchanged, and no screened pair below its bound. A screened run is
+  its own checkpoint contract, as on the exact route.
+
 # mgcvST 0.0.1.9043
 
 * The dense score state of an mgcv fit (`a_j`, `H_j`; both pair routes and

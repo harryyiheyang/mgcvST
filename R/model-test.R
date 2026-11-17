@@ -37,9 +37,6 @@
   if (!is.logical(screen) || length(screen) != 1L || is.na(screen)) {
     stop("screen must be TRUE or FALSE.")
   }
-  if (screen && !identical(moments, "exact")) {
-    stop("screen = TRUE applies to moments = \"exact\" only.")
-  }
   q.value <- as.numeric(q.value)
   if (length(q.value) != 1L || !is.finite(q.value) ||
       q.value <= 0 || q.value > 1) {
@@ -176,7 +173,7 @@
       list(z = 0, theta = NA_real_, tau = NA_real_)
     if (screen && verbose) {
       message(if (screening$z > 0) sprintf(
-        "Screen: pairs with |U| / sqrt(tr(H_i H_j)) < %.3f (p > %.3g) are not evaluated.",
+        "Screen: pairs with |U| / sqrt(t_1) < %.3f (p > %.3g) are not evaluated.",
         screening$z, screening$tau) else paste0(
         "Screen off: the rejection threshold of adjust = \"", adjust,
         "\" at this q.value is too large for the Gaussian bound."))
@@ -197,7 +194,7 @@
         fit, index, threads, chunk_size, verbose, basis = basis,
         rank = pca$rank, n_per_cell = pca$n_per_cell, seed = pca$seed,
         k = route$k, checkpoint_dir = checkpoint_dir, resume = resume,
-        route = route
+        route = route, screen_z = screening$z
       )
     } else {
       routed <- .mgcvst_pair_pipeline(
@@ -205,9 +202,9 @@
         checkpoint_dir = checkpoint_dir, resume = resume, k = route$k,
         basis = basis, route = route, screen_z = screening$z
       )
-      if (screen) screen_record <- c(screening, list(
-        screened = routed$metadata$screened))
     }
+    if (screen) screen_record <- c(screening, list(
+      screened = routed$metadata$screened))
   } else {
     root <- tempfile("mgcvst-pairs-")
     dir.create(root)
@@ -405,11 +402,13 @@
 #'   exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
 #'   the score dimension `q` is reduced to `q`, and `k = q` reproduces the
 #'   full-spectrum saddlepoint of each pair.
-#' @param screen Logical; `TRUE` skips, on the exact route, the pairs that
-#'   cannot be discoveries. Given one of the two score vectors the pair score is
-#'   Gaussian with a variance of mean `tr(H_i H_j)`, so for
-#'   `z = |U| / sqrt(tr(H_i H_j)) >= 2` the two-sided p-value is at least the
-#'   Gaussian tail `2 * pnorm(-z)`. With `theta` the largest p-value that
+#' @param screen Logical; `TRUE` skips the pairs that cannot be discoveries
+#'   (both routes). Given one of the two score vectors the pair score is
+#'   Gaussian with a variance of mean `t_1`, so for `z = |U| / sqrt(t_1) >= 2`
+#'   the two-sided p-value is at least the Gaussian tail `2 * pnorm(-z)`. On
+#'   the exact route `t_1 = tr(H_i H_j)`; on the PCAlearning route it is the
+#'   projected trace `c_i' c_j`, which the variance of the pair score in that
+#'   route's saddlepoint is never below. With `theta` the largest p-value that
 #'   `adjust` can reject at `q.value` over the tested pairs (BY:
 #'   `q.value / sum(1 / seq_len(m))`), a pair with `2 * pnorm(-z) > 2 * theta`
 #'   is not evaluated: it has status 4, its p-values are the lower bound

@@ -80,7 +80,7 @@ test_that("discoveries and their q-values do not change with the screen", {
   }
 })
 
-test_that("mgcvST.test(screen = TRUE) keeps the discoveries of the exact route", {
+test_that("mgcvST.test(screen = TRUE) keeps the discoveries of both routes", {
   skip_if_not_installed("geometry")
   set.seed(31)
   n <- 900L
@@ -115,5 +115,20 @@ test_that("mgcvST.test(screen = TRUE) keeps the discoveries of the exact route",
                    full$results[!skipped, c("i", "j", "score", "log_p_two_sided")])
   expect_true(all(scr$results$log_p_two_sided[skipped] <=
                     full$results$log_p_two_sided[skipped] + 1e-12))
-  expect_error(mgcvST.test(fit, moments = "pcalearning", screen = TRUE), "exact")
+  # The PCAlearning route: the same discoveries, bounds below the route's own
+  # p-values, and evaluated pairs unchanged.
+  full <- mgcvST.test(fit, moments = "pcalearning", rank = 5L, k = 10L)
+  scr <- mgcvST.test(fit, moments = "pcalearning", rank = 5L, k = 10L, screen = TRUE)
+  skipped <- scr$results$status == 4L
+  expect_true(any(skipped))
+  expect_identical(scr$timing$screen$screened, as.numeric(sum(skipped)))
+  expect_identical(scr$discoveries, full$discoveries)
+  found <- full$results$log_q <= log(0.05)
+  expect_true(any(found))
+  expect_identical(scr$results$log_q <= log(0.05), found)
+  expect_identical(scr$results$log_p_two_sided[!skipped],
+                   full$results$log_p_two_sided[!skipped])
+  expect_true(all(scr$results$log_p_two_sided[skipped] <=
+                    full$results$log_p_two_sided[skipped]))
+  expect_true(all(scr$results$log_p_two_sided[skipped] > log(scr$timing$screen$tau)))
 })

@@ -72,11 +72,13 @@ exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
 the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
 full-spectrum saddlepoint of each pair.}
 
-\item{screen}{Logical; \code{TRUE} skips, on the exact route, the pairs that
-cannot be discoveries. Given one of the two score vectors the pair score is
-Gaussian with a variance of mean \verb{tr(H_i H_j)}, so for
-\verb{z = |U| / sqrt(tr(H_i H_j)) >= 2} the two-sided p-value is at least the
-Gaussian tail \code{2 * pnorm(-z)}. With \code{theta} the largest p-value that
+\item{screen}{Logical; \code{TRUE} skips the pairs that cannot be discoveries
+(both routes). Given one of the two score vectors the pair score is
+Gaussian with a variance of mean \code{t_1}, so for \verb{z = |U| / sqrt(t_1) >= 2}
+the two-sided p-value is at least the Gaussian tail \code{2 * pnorm(-z)}. On
+the exact route \verb{t_1 = tr(H_i H_j)}; on the PCAlearning route it is the
+projected trace \verb{c_i' c_j}, which the variance of the pair score in that
+route's saddlepoint is never below. With \code{theta} the largest p-value that
 \code{adjust} can reject at \code{q.value} over the tested pairs (BY:
 \code{q.value / sum(1 / seq_len(m))}), a pair with \code{2 * pnorm(-z) > 2 * theta}
 is not evaluated: it has status 4, its p-values are the lower bound

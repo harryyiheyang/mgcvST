@@ -136,6 +136,7 @@ struct PairWork {
   VecD sv;
   mgcvst_spa::Scratch scratch;
   long above = 0;  // pairs whose remainder node lies above the largest leading value
+  long skipped = 0;  // pairs left to the Gaussian lower-bound screen (status 4)
   explicit PairWork(int k) : la(mgcvst::la(), k, k, false), sv(k) { scratch.reserve(k + 2); }
 };
 
@@ -144,7 +145,8 @@ struct PairWork {
 // output columns U, t1, t2, three log p-values, remainder kind and status.
 inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1,
                          double t2, double scale_i, double scale_j,
-                         const double* Ri, const double* Rj, int k, PairWork& w) {
+                         const double* Ri, const double* Rj, int k, PairWork& w,
+                         double screen_z) {
   out[row] = U;
   out[row + rows] = t1;
   out[row + 2 * rows] = t2;
@@ -154,6 +156,25 @@ inline void spa_pair_row(double* out, Index rows, Index row, double U, double t1
   if (!std::isfinite(scale_i) || scale_i <= 0 || !std::isfinite(scale_j) ||
       scale_j <= 0 || !std::isfinite(U) || !std::isfinite(t1) || !std::isfinite(t2)) {
     return;
+  }
+  // Gaussian lower-bound screen, as in the exact kernel (score_pair.cpp). The
+  // variance of the pair score in the saddlepoint of this route is at least
+  // the projected t1 (the remainder never removes variance), so
+  // z = |U| / sqrt(t1) is not below the z-score of the route, and a pair with
+  // z < screen_z has p >= 2 Phibar(screen_z): its spectrum is not computed and
+  // the lower bound 2 Phibar(max(z, 2)) is returned with status 4.
+  if (screen_z > 0 && t1 > 0) {
+    const double z = std::fabs(U) / std::sqrt(t1);
+    if (z < screen_z) {
+      const double one = R::pnorm(std::max(z, 2.0), 0.0, 1.0, 0, 1);
+      const double other = std::log1p(-std::exp(one));
+      out[row + 3 * rows] = std::min(0.0, one + mgcvst_spa::kLn2);
+      out[row + 4 * rows] = U >= 0 ? one : other;
+      out[row + 5 * rows] = U >= 0 ? other : one;
+      out[row + 7 * rows] = 4;
+      ++w.skipped;
+      return;
+    }
   }
   // Singular values of R_i R_j' as square roots of the Gram eigenvalues
   // (descending), as in the exact kernel (la_kernel.cpp).
@@ -502,7 +523,7 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
                                              const Rcpp::NumericVector& scale,
                                              const Rcpp::IntegerVector& i,
                                              const Rcpp::IntegerVector& j,
-                                             int threads = 1) {
+                                             int threads = 1, double screen_z = 0) {
   const int n = C.rows();
   const R_xlen_t np = i.size();
   const int k = (int)std::lround(std::sqrt((double)R.rows()));
@@ -534,7 +555,10 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
   Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
   const double* sc = scale.begin();
-  long nodes_above = 0;
+  long nodes_above = 0, screened = 0;
+  if (!(screen_z == 0 || (std::isfinite(screen_z) && screen_z >= 2))) {
+    Rcpp::stop("screen_z must be 0 (no screen) or a finite value of at least 2.");
+  }
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
@@ -548,15 +572,20 @@ Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A
       const double U = A.col(a).dot(A.col(b));
       const double t1 = C.row(a).dot(C.row(b));
       const double t2 = S2.col(slot[a]).dot(K2.col(b));
-      spa_pair_row(o, np, t, U, t1, t2, sc[a], sc[b], &R(0, a), &R(0, b), k, work);
+      spa_pair_row(o, np, t, U, t1, t2, sc[a], sc[b], &R(0, a), &R(0, b), k, work, screen_z);
     }
 #ifdef _OPENMP
 #pragma omp atomic
 #endif
     nodes_above += work.above;
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    screened += work.skipped;
   }
   Rcpp::colnames(out) = pair_columns();
   out.attr("nodes_above_leading") = (double)nodes_above;
+  out.attr("screened") = (double)screened;
   return out;
 }
 
@@ -572,7 +601,8 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
                                              const Rcpp::NumericVector& scale,
                                              int first, int last,
                                              int threads = 1,
-                                             int gene_block = 32, int pair_block = 256) {
+                                             int gene_block = 32, int pair_block = 256,
+                                             double screen_z = 0) {
   const int n = C.rows();
   const int k = (int)std::lround(std::sqrt((double)R.rows()));
   if ((Index)k * k != R.rows() || R.cols() != n || scale.size() != n ||
@@ -603,7 +633,10 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
   Rcpp::NumericMatrix out(np, 8);
   double* o = out.begin();
   const double* sc = scale.begin();
-  long nodes_above = 0;
+  long nodes_above = 0, screened = 0;
+  if (!(screen_z == 0 || (std::isfinite(screen_z) && screen_z >= 2))) {
+    Rcpp::stop("screen_z must be 0 (no screen) or a finite value of at least 2.");
+  }
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
@@ -623,7 +656,8 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
           const int il = tk.ib + ii, ig = i0 + il;
           if (jg <= ig) continue;
           spa_pair_row(o, np, offset[il] + (jg - ig - 1), Uab(ii, jj), T1(ii, jj),
-                       T2ab(ii, jj), sc[ig], sc[jg], &R(0, ig), &R(0, jg), k, work);
+                       T2ab(ii, jj), sc[ig], sc[jg], &R(0, ig), &R(0, jg), k, work,
+                       screen_z);
         }
       }
     }
@@ -631,8 +665,13 @@ Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A
 #pragma omp atomic
 #endif
     nodes_above += work.above;
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    screened += work.skipped;
   }
   Rcpp::colnames(out) = pair_columns();
   out.attr("nodes_above_leading") = (double)nodes_above;
+  out.attr("screened") = (double)screened;
   return out;
 }

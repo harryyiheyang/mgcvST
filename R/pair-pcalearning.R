@@ -439,7 +439,7 @@
                                      seed = .mgcvst_pca_defaults$seed,
                                      k = .mgcvst_pca_defaults$k,
                                      checkpoint_dir = NULL, resume = TRUE,
-                                     route = NULL) {
+                                     route = NULL, screen_z = 0) {
   started <- proc.time()[["elapsed"]]
   controls <- .mgcvst_pca_check_args(rank, n_per_cell, seed, k)
   rank <- controls$rank
@@ -543,7 +543,8 @@
       out[, "logp_positive"], out[, "logp_negative"],
       remainder_kind = out[, "remainder_kind"], status = out[, "status"]
     )
-    invalid <- frame$status != .mgcvst_pair_status[["ok"]]
+    invalid <- !(frame$status %in% c(.mgcvst_pair_status[["ok"]],
+                                     .mgcvst_pair_status[["screened"]]))
     frame[invalid, c("log_p_two_sided", "log_p_positive", "log_p_negative")] <- 0
     bad <- !ok[li] | !ok[lj]
     frame$status[bad] <- .mgcvst_pair_status[["feature"]]
@@ -553,7 +554,8 @@
     frame
   }
 
-  contract <- .mgcvst_contract("pcalearning", k = kv, basis_sha = learned$V_sha)
+  contract <- .mgcvst_contract("pcalearning", k = kv, basis_sha = learned$V_sha,
+                               screen_z = screen_z)
   pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
   # The block schedule depends on chunk_size, so it is fixed when the pair
   # directory is first used and a resumed run follows the stored one, whatever
@@ -581,6 +583,7 @@
   chunks <- 0L
   resumed_pairs <- 0
   nodes_above <- 0
+  screened <- 0
   shard_files <- character()
   shard_rows <- integer()
   n_used <- length(used)
@@ -603,8 +606,10 @@
       if (.mgcvst_shard_complete(pair_dir, id, used[li], used[lj])) {
         resumed_pairs <- resumed_pairs + length(li)
       } else {
-        out <- mgcvst_pca_spa_block_cpp(A, C, K2, T2, R, scale, first, last, threads)
+        out <- mgcvst_pca_spa_block_cpp(A, C, K2, T2, R, scale, first, last, threads,
+                                        screen_z = screen_z)
         nodes_above <- nodes_above + attr(out, "nodes_above_leading")
+        screened <- screened + attr(out, "screened")
         .mgcvst_write_parquet(pair_frame(li, lj, out),
                               .mgcvst_shard_file(pair_dir, id))
       }
@@ -622,8 +627,9 @@
         resumed_pairs <- resumed_pairs + length(z)
       } else {
         out <- mgcvst_pca_spa_pairs_cpp(A, C, K2, T2, R, scale, local[z, 1L],
-                                        local[z, 2L], threads)
+                                        local[z, 2L], threads, screen_z)
         nodes_above <- nodes_above + attr(out, "nodes_above_leading")
+        screened <- screened + attr(out, "screened")
         .mgcvst_write_parquet(pair_frame(local[z, 1L], local[z, 2L], out),
                               .mgcvst_shard_file(pair_dir, first))
       }
@@ -664,6 +670,7 @@
       chunks = chunks, chunk_size = chunk_size, resumed_pairs = resumed_pairs,
       pair_dir = pair_dir, k = kv, basis_sha = learned$V_sha, q = q,
       nodes_above_leading = nodes_above,
+      screen_z = screen_z, screened = screened,
       preparation_elapsed = preparation_elapsed, contract = contract,
       pca_learning = list(
         rank = rank, n_per_cell = n_per_cell,
