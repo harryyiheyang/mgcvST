@@ -21,6 +21,9 @@ struct LaFns {
   void (*set_left)(void* work, const double* H, double scale);
   // v[s - 1] = tr((Ln Rn)^s), s = 1..4, Rn = sym(H) / scale.
   void (*moments)(void* work, const double* H, double scale, double* v);
+  // tr(sym(Hl) sym(Hr)) of two q x q matrices: the variance of the pair score
+  // in the units of Hl and Hr, in O(q^2).
+  double (*trace1)(const double* Hl, const double* Hr, int q);
   // Singular values (descending, k) of Gl' Gr, Gl and Gr q x k: square roots of
   // the eigenvalues of the Gram matrix. 0 done, 1 non-finite product, 2 the
   // eigenvalue solver failed.

@@ -23,6 +23,25 @@
   copy takes 8.6 ms. With `k = 20` and four trace moments: 3.2 ms against
   6.9 ms.
 
+* New argument `screen` of `mgcvST.test()` and `inlaST.test()` (default
+  `FALSE`, exact route only): the Gaussian lower-bound screen. Given one of
+  the two score vectors the pair score is Gaussian with a variance of mean
+  `t_1 = tr(H_i H_j)`, which costs `q^2`, so for `z = |U| / sqrt(t_1) >= 2`
+  the two-sided p-value is at least `2 * pnorm(-z)` (checked against the exact
+  tail on twelve spectra in the tests; the two tails cross between z = 1.68
+  and 1.84). With `theta` the largest p-value the adjustment can reject (BY:
+  `q.value / c(m)`), a pair whose bound exceeds `2 * theta` is not evaluated:
+  status 4, p-values equal to the bound `2 * pnorm(-max(z, 2))`, still in the
+  adjustment family. The discoveries and every `log_q <= log(q.value)` are
+  those of `screen = FALSE`; other `log_q` are lower bounds. The screen is
+  off when it would need the bound below z = 2 (BH at `q.value = 0.05`).
+  A screened run has its own pair contract (`screen_z`); unscreened
+  checkpoints are unchanged. In the benchmark (q = 298, null pairs with
+  decaying spectra, the BY threshold of 3,736,011 pairs, z0 = 2.73) 7% of the
+  pairs are evaluated and the kernel is 9.8 times faster.
+* The documented default of `rank` is 100 (it said 30). Tests that need INLA
+  are skipped when INLA is not installed.
+
 # mgcvST 0.0.1.9041
 
 * The pair kernels (exact and PCAlearning) take the leading singular values of

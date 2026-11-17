@@ -209,7 +209,8 @@ Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix&
 // dynamically. The parallel region uses only the SIMD kernels of la_kernel.cpp
 // (products and the eigenvalues of the pair matrices) and R::pnorm. The result also holds the number of pairs
 // whose remainder has a node above the largest leading value (u > s_1^2), a
-// diagnostic of the compression.
+// diagnostic of the compression. With screen_z > 0 a pair whose Gaussian
+// z-score is below screen_z is not evaluated (status 4, see below).
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::export]]
 Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
@@ -217,7 +218,8 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
                                const Rcpp::IntegerVector& left,
                                const Rcpp::IntegerVector& right,
                                int threads = 1, int order = 4,
-                               Rcpp::Nullable<Rcpp::NumericVector> x = R_NilValue) {
+                               Rcpp::Nullable<Rcpp::NumericVector> x = R_NilValue,
+                               double screen_z = 0) {
   const int n = H.size();
   if (n < 1) Rcpp::stop("H must contain at least one matrix.");
   const int q = a.nrow();
@@ -226,6 +228,9 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
   if (G.size() != n) Rcpp::stop("G must have one matrix per element of H.");
   if (threads < 1) Rcpp::stop("threads must be a positive integer.");
   if (order != 2 && order != 4) Rcpp::stop("order must be 2 or 4.");
+  if (!(screen_z == 0 || (std::isfinite(screen_z) && screen_z >= 2))) {
+    Rcpp::stop("screen_z must be 0 (no screen) or a finite value of at least 2.");
+  }
 #ifndef _OPENMP
   if (threads > 1) {
     Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
@@ -298,14 +303,14 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
   int* statusp = status.begin();
   const double* xp = explicit_x ? xv.begin() : nullptr;
   const long ntask = tasks.size();
-  long nodes_above = 0;
+  long nodes_above = 0, screened = 0;
   const bool full = k == q;
   const mgcvst::LaFns& la = mgcvst::la();
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
 #endif
   {
-    long above = 0;
+    long above = 0, skipped = 0;
     mgcvst::LaWork work(la, q, k, !full);
     Eigen::VectorXd sv(k);
     mgcvst_spa::Scratch scratch;
@@ -333,6 +338,27 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
         const double sc = explicit_x ? xp[j] : normalized_a.col(l).dot(normalized_a.col(r));
         if (explicit_x) scorep[j] = sc * units;
         if (!std::isfinite(sc)) continue;
+        // Gaussian lower-bound screen. Given one of the two score vectors, U is
+        // Gaussian with a random variance of mean t_1 = tr(H_l H_r), so for
+        // z = |U| / sqrt(t_1) >= 2 the two-sided p-value is at least the
+        // Gaussian tail 2 Phibar(z), and it decreases in |U|. A pair with
+        // z < screen_z therefore has p >= 2 Phibar(screen_z): its spectrum is
+        // not computed, and the lower bound 2 Phibar(max(z, 2)) is returned
+        // with status 4.
+        if (screen_z > 0) {
+          const double t1 = la.trace1(Hptr[l], Hptr[r], q) / (scales[l] * scales[r]);
+          const double z = t1 > 0 ? std::fabs(sc) / std::sqrt(t1) : R_PosInf;
+          if (std::isfinite(z) && z < screen_z) {
+            const double one = R::pnorm(std::max(z, 2.0), 0.0, 1.0, 0, 1);
+            const double other = std::log1p(-std::exp(one));
+            lp2p[j] = std::min(0.0, one + mgcvst_spa::kLn2);
+            lp1p[j] = sc >= 0 ? one : other;
+            lp0p[j] = sc >= 0 ? other : one;
+            statusp[j] = 4;
+            ++skipped;
+            continue;
+          }
+        }
         // Exact trace moments t_s = tr((H_l H_r)^s) for the remainder. With
         // k = q the singular values are the whole spectrum, there is no
         // remainder, and the moments are the power sums of the singular
@@ -373,6 +399,10 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
 #pragma omp atomic
 #endif
     nodes_above += above;
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+    screened += skipped;
   }
 
   return Rcpp::List::create(
@@ -383,6 +413,7 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
     Rcpp::Named("remainder_kind") = remainder_kind,
     Rcpp::Named("status") = status,
     Rcpp::Named("nodes_above_leading") = (double)nodes_above,
+    Rcpp::Named("screened") = (double)screened,
     Rcpp::Named("simd") = std::string(la.isa)
   );
 }

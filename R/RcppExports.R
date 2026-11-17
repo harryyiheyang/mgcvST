@@ -93,8 +93,8 @@ mgcvst_pair_basis_cpp <- function(H, V, threads = 1L) {
     .Call(`_mgcvST_mgcvst_pair_basis_cpp`, H, V, threads)
 }
 
-mgcvst_pair_spa_cpp <- function(H, G, a, left, right, threads = 1L, order = 4L, x = NULL) {
-    .Call(`_mgcvST_mgcvst_pair_spa_cpp`, H, G, a, left, right, threads, order, x)
+mgcvst_pair_spa_cpp <- function(H, G, a, left, right, threads = 1L, order = 4L, x = NULL, screen_z = 0) {
+    .Call(`_mgcvST_mgcvst_pair_spa_cpp`, H, G, a, left, right, threads, order, x, screen_z)
 }
 
 mgcvst_simd_cpp <- function() {

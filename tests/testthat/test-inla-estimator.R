@@ -26,6 +26,7 @@
 }
 
 test_that("INLA defaults estimated precision and NB size hyperparameters to flat", {
+  skip_if_not_installed("INLA")
   control <- mgcvST:::.inlast_control()
   fields <- c("precision_prior", "gaussian_precision_prior", "nb_size_prior")
   for (field in fields) {

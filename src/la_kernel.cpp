@@ -69,6 +69,16 @@ void moments(void* work, const double* H, double scale, double* v) {
   }
 }
 
+double trace1(const double* Hl, const double* Hr, int q) {
+  MapCD L(Hl, q, q), R(Hr, q, q);
+  double direct = 0, crossed = 0;
+  for (int c = 0; c < q; ++c) {
+    direct += L.col(c).dot(R.col(c));
+    crossed += L.col(c).dot(R.row(c));
+  }
+  return 0.5 * (direct + crossed);
+}
+
 // Singular values of Mk as the square roots of the eigenvalues of Mk' Mk
 // (descending). Eigen 3.4.0's BDCSVD gave invalid values on rank-deficient
 // matrices (k = q = 298 on Visium-B). Only the lower triangle of the Gram
@@ -119,6 +129,6 @@ void sgemm_tn(const float* A, long K, int M, const float* B, int N, float* Out) 
 #define MGCVST_STR2(x) #x
 #define MGCVST_STR(x) MGCVST_STR2(x)
 extern const mgcvst::LaFns MGCVST_LA_TABLE;
-const mgcvst::LaFns MGCVST_LA_TABLE = {work_new, work_free, set_left, moments, spectrum_tn,
+const mgcvst::LaFns MGCVST_LA_TABLE = {work_new, work_free, set_left, moments, trace1, spectrum_tn,
                                        spectrum_nt, dgemm_nn, sgemm_tn,
                                        MGCVST_STR(MGCVST_LA_ISA)};

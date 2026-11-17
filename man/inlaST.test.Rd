@@ -18,7 +18,8 @@ inlaST.test(
   rank = .mgcvst_pca_defaults$rank,
   n_per_cell = .mgcvst_pca_defaults$n_per_cell,
   seed = .mgcvst_pca_defaults$seed,
-  k = NULL
+  k = NULL,
+  screen = FALSE
 )
 }
 \arguments{
@@ -56,7 +57,7 @@ refused. With \code{NULL}, temporary storage is used.}
 calibration. Required: there is no default, and a call without it stops.
 Both routes serve both estimators.}
 
-\item{rank}{Number of PCAlearning basis matrices (default 30). Used by the
+\item{rank}{Number of PCAlearning basis matrices (default 100). Used by the
 PCAlearning route.}
 
 \item{n_per_cell}{Training genes drawn per PCAlearning stratification cell
@@ -70,6 +71,21 @@ uses \code{q} (the full spectrum) on the exact route of an mgcv fit, 20 on the
 exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
 the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
 full-spectrum saddlepoint of each pair.}
+
+\item{screen}{Logical; \code{TRUE} skips, on the exact route, the pairs that
+cannot be discoveries. Given one of the two score vectors the pair score is
+Gaussian with a variance of mean \verb{tr(H_i H_j)}, so for
+\verb{z = |U| / sqrt(tr(H_i H_j)) >= 2} the two-sided p-value is at least the
+Gaussian tail \code{2 * pnorm(-z)}. With \code{theta} the largest p-value that
+\code{adjust} can reject at \code{q.value} over the tested pairs (BY:
+\code{q.value / sum(1 / seq_len(m))}), a pair with \code{2 * pnorm(-z) > 2 * theta}
+is not evaluated: it has status 4, its p-values are the lower bound
+\code{2 * pnorm(-max(z, 2))}, and it stays in the adjustment family. The
+discoveries, and every \code{log_q} at or below \code{log(q.value)}, are those of
+\code{screen = FALSE}; the \code{log_q} of other pairs are lower bounds. The screen
+is off when the bound would be needed below \code{z = 2} (for example
+\code{adjust = "BH"} with \code{q.value = 0.05}). \code{timing$screen} records the
+screening value and the number of screened pairs.}
 }
 \value{
 An \code{mgcvST_test} object; see \code{\link[=mgcvST.test]{mgcvST.test()}}.

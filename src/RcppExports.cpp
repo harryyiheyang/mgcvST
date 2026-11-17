@@ -367,8 +367,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_pair_spa_cpp
-Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G, const Rcpp::NumericMatrix& a, const Rcpp::IntegerVector& left, const Rcpp::IntegerVector& right, int threads, int order, Rcpp::Nullable<Rcpp::NumericVector> x);
-RcppExport SEXP _mgcvST_mgcvst_pair_spa_cpp(SEXP HSEXP, SEXP GSEXP, SEXP aSEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP threadsSEXP, SEXP orderSEXP, SEXP xSEXP) {
+Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G, const Rcpp::NumericMatrix& a, const Rcpp::IntegerVector& left, const Rcpp::IntegerVector& right, int threads, int order, Rcpp::Nullable<Rcpp::NumericVector> x, double screen_z);
+RcppExport SEXP _mgcvST_mgcvst_pair_spa_cpp(SEXP HSEXP, SEXP GSEXP, SEXP aSEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP threadsSEXP, SEXP orderSEXP, SEXP xSEXP, SEXP screen_zSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -380,7 +380,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
     Rcpp::traits::input_parameter< int >::type order(orderSEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericVector> >::type x(xSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_spa_cpp(H, G, a, left, right, threads, order, x));
+    Rcpp::traits::input_parameter< double >::type screen_z(screen_zSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_spa_cpp(H, G, a, left, right, threads, order, x, screen_z));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -434,7 +435,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_trace_powers_cpp, 4},
     {"_mgcvST_mgcvst_pair_basis_sum_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_sum_cpp, 2},
     {"_mgcvST_mgcvst_pair_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_cpp, 3},
-    {"_mgcvST_mgcvst_pair_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_spa_cpp, 8},
+    {"_mgcvST_mgcvst_pair_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_spa_cpp, 9},
     {"_mgcvST_mgcvst_simd_cpp", (DL_FUNC) &_mgcvST_mgcvst_simd_cpp, 0},
     {"_mgcvST_mgcvst_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_spa_cpp, 5},
     {NULL, NULL, 0}

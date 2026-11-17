@@ -14,6 +14,9 @@ PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lpsapi
 .PHONY: all
 all: $(SHLIB)
 
+# The users of the function table are rebuilt when its layout changes.
+score_pair.o pca_learning.o: la_dispatch.h
+
 la_generic.o: la_kernel.cpp la_dispatch.h
 	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -DMGCVST_LA_ISA=generic -c la_kernel.cpp -o $@
 la_avx2.o: la_kernel.cpp la_dispatch.h

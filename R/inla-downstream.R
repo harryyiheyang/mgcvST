@@ -65,12 +65,13 @@ inlaST.test <- function(
     resume = TRUE, verbose = FALSE, moments,
     rank = .mgcvst_pca_defaults$rank,
     n_per_cell = .mgcvst_pca_defaults$n_per_cell,
-    seed = .mgcvst_pca_defaults$seed, k = NULL) {
+    seed = .mgcvst_pca_defaults$seed, k = NULL, screen = FALSE) {
   if (missing(moments)) .mgcvst_moments_missing()
   adjust <- match.arg(adjust)
   .mgcvst_test_run(
     fitinlaST, "inla", pairs, q.value, adjust, threads, chunk_size,
     checkpoint_dir, resume, verbose, moments = moments, rank = rank,
-    n_per_cell = n_per_cell, seed = seed, k = k, call = match.call()
+    n_per_cell = n_per_cell, seed = seed, k = k, screen = screen,
+    call = match.call()
   )
 }

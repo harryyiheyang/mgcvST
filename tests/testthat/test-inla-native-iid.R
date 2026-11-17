@@ -47,6 +47,7 @@ test_that("native iid design preserves multiple random-effect terms in order", {
 })
 
 test_that("native iid maps fixed and random nuisance columns in combined order", {
+  skip_if_not_installed("INLA")
   skip_if_not_installed("fmesher")
   skip_if_not_installed("geometry")
   d <- .native_iid_data(n = 186L, levels = 93L)
@@ -228,6 +229,7 @@ test_that("the GP bridge projects the intercept and whitens the penalty", {
 })
 
 test_that("native setup registers re and whitened GP blocks in formula order", {
+  skip_if_not_installed("INLA")
   skip_if_not_installed("fmesher")
   skip_if_not_installed("geometry")
   d <- .native_iid_data(n = 40L, seed = 2511L)

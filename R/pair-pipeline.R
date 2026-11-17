@@ -98,21 +98,29 @@
 # the kernel could not evaluate (status 1 or 2) keeps its status and has p = 1:
 # two-sided and both one-sided log p are 0. The attribute `nodes_above_leading`
 # counts the pairs whose remainder has a node above the largest leading value.
-.mgcvst_spa_pairs <- function(index, active, states, G, threads, order = 4L) {
+.mgcvst_spa_pairs <- function(index, active, states, G, threads, order = 4L,
+                              screen_z = 0) {
   out <- .mgcvst_pairs_frame(index[, 1L], index[, 2L],
                              status = .mgcvst_pair_status[["feature"]])
   good <- vapply(states, function(z) is.null(z$error), logical(1L))
   local <- matrix(match(index, active), ncol = 2L)
   rows <- which(good[local[, 1L]] & good[local[, 2L]])
   attr(out, "nodes_above_leading") <- 0
+  attr(out, "screened") <- 0
   if (!length(rows)) return(out)
   keep <- which(good)
   avec <- do.call(cbind, lapply(states[keep], `[[`, "a"))
   H <- lapply(states[keep], `[[`, "M")
   pair <- matrix(match(local[rows, , drop = FALSE], keep), ncol = 2L)
   perm <- order(pair[, 1L])
-  res <- mgcvst_pair_spa_cpp(H, G[active[keep]], avec, pair[perm, 1L],
-                             pair[perm, 2L], threads, order)
+  res <- if (screen_z > 0) {
+    mgcvst_pair_spa_cpp(H, G[active[keep]], avec, pair[perm, 1L],
+                        pair[perm, 2L], threads, order, NULL, screen_z)
+  } else {
+    mgcvst_pair_spa_cpp(H, G[active[keep]], avec, pair[perm, 1L],
+                        pair[perm, 2L], threads, order)
+  }
+  if (!is.null(res$screened)) attr(out, "screened") <- res$screened
   at <- rows[perm]
   out$score[at] <- res$score
   out$log_p_two_sided[at] <- res$log_p_two_sided
@@ -251,7 +259,7 @@
 .mgcvst_pair_pipeline <- function(fit, index, threads, chunk_size, verbose,
                                   checkpoint_dir = NULL, resume = TRUE,
                                   k = .mgcvst_exact_defaults$k, basis = NULL,
-                                  route = NULL) {
+                                  route = NULL, screen_z = 0) {
   if (!is.numeric(threads) || length(threads) != 1L ||
       !is.finite(threads) || threads < 1L || threads != floor(threads)) {
     stop("threads must be one positive integer.")
@@ -284,7 +292,7 @@
   k <- as.integer(min(k, width))
   if (!is.finite(k) || k < 1L) stop("k must be a positive integer.")
 
-  contract_early <- .mgcvst_contract("exact")
+  contract_early <- .mgcvst_contract("exact", screen_z = screen_z)
   signature <- if (is.null(checkpoint_dir)) {
     list(version = 2L, temporary = tempfile("mgcvst-pair-run-"))
   } else .mgcvst_pair_signature(fit, basis)
@@ -380,7 +388,8 @@
     }
   }
   preparation_elapsed <- proc.time()[["elapsed"]] - preparation_started
-  contract <- .mgcvst_contract("exact", k = k, basis_sha = shared$sha)
+  contract <- .mgcvst_contract("exact", k = k, basis_sha = shared$sha,
+                               screen_z = screen_z)
   pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
 
   # Resident score states: least-recently-used eviction under `cache_bytes`.
@@ -439,12 +448,20 @@
   chunks <- 0L
   resumed_pairs <- 0
   nodes_above <- 0
+  screened <- 0
   evaluate <- function(window, active, id) {
     t0 <- proc.time()[["elapsed"]]
     states <- fetch(active)
-    frame <- .mgcvst_spa_pairs(window, active, states, G, threads, order = 4L)
+    frame <- if (screen_z > 0) {
+      .mgcvst_spa_pairs(window, active, states, G, threads, order = 4L,
+                        screen_z = screen_z)
+    } else .mgcvst_spa_pairs(window, active, states, G, threads, order = 4L)
     nodes_above <<- nodes_above + as.numeric(attr(frame, "nodes_above_leading"))
+    if (!is.null(attr(frame, "screened"))) {
+      screened <<- screened + as.numeric(attr(frame, "screened"))
+    }
     attr(frame, "nodes_above_leading") <- NULL
+    attr(frame, "screened") <- NULL
     .mgcvst_write_parquet(frame, .mgcvst_shard_file(pair_dir, id))
     elapsed <<- elapsed + proc.time()[["elapsed"]] - t0
     nrow(frame)
@@ -533,6 +550,7 @@
       preparation_backend = if (sparse) "sparse_reduced" else "model_native",
       pair_schedule = pair_schedule, chunks = chunks, k = k,
       basis_sha = shared$sha, q = width, nodes_above_leading = nodes_above,
+      screen_z = screen_z, screened = screened,
       cache_hits = cache$hits, cache_misses = cache$misses,
       cache_evictions = cache$evictions, cache_bytes = cache_bytes,
       resident_bytes = cache$bytes, preparation_elapsed = preparation_elapsed,
