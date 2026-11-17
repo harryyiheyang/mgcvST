@@ -12,6 +12,12 @@
   25.9 s, the same 10,617 discoveries with identical `log_q`, evaluated pairs
   bitwise unchanged, and no screened pair below its bound. A screened run is
   its own checkpoint contract, as on the exact route.
+* `inlaST.estimate()` with a serial backend no longer unloads the mgcvST
+  namespace of the calling process when the package was loaded from source
+  (`devtools::load_all()`, `testthat::test_local()`) while another build is
+  installed; the reload from the manager's library path is for worker
+  processes only. On the cluster this had removed the test helpers of every
+  test file that ran after an `inlaST.estimate()` test.
 
 # mgcvST 0.0.1.9043
 

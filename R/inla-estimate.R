@@ -17,7 +17,7 @@
 # function, named by `fun_name`. Every serialized argument (sparse Matrix
 # blocks, plain lists and vectors) is likewise free of mgcvST classes.
 .inlast_chunk_task <- function() {
-  task <- function(payload, fun_name, args, libpaths) {
+  task <- function(payload, fun_name, args, libpaths, manager = NULL) {
     if (length(libpaths)) .libPaths(unique(c(libpaths, .libPaths())))
     # A worker can arrive with mgcvST already loaded from another library:
     # deserialising exported globals (e.g. testthat's topLevelEnvironment
@@ -25,7 +25,11 @@
     # BEFORE this body runs, resolving against the worker's default paths.
     # A stale build then shadows the manager's; reload from the right path.
     expected <- find.package("mgcvST", lib.loc = .libPaths(), quiet = TRUE)
-    if ("mgcvST" %in% loadedNamespaces() && length(expected)) {
+    # The manager process itself (a serial backend) keeps its namespace: it is
+    # the build that made this call, and under devtools::load_all() or
+    # testthat::test_local() unloading it would drop the caller's own objects.
+    if (!identical(manager, Sys.getpid()) &&
+        "mgcvST" %in% loadedNamespaces() && length(expected)) {
       current <- getNamespaceInfo(asNamespace("mgcvST"), "path")
       same <- identical(normalizePath(current, winslash = "/", mustWork = FALSE),
                         normalizePath(expected[[1L]], winslash = "/", mustWork = FALSE))
@@ -436,7 +440,7 @@ inlaST.estimate <- function(
     args = list(spec = model$inla_spec, null_spec = null_spec,
                 base_offset = model$offset, null_control = null_control,
                 threads = threads),
-    libpaths = .libPaths()
+    libpaths = .libPaths(), manager = Sys.getpid()
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
   nulls <- unlist(step1$results, recursive = FALSE)
@@ -668,7 +672,7 @@ inlaST.estimate_spatial <- function(
     args = list(spec = spec, base_offset = model$offset, control = fit$control,
                 diagnostics = !is.null(fit$inla_diagnostics),
                 retain_smooth = fit$retain_smooth, threads = threads),
-    libpaths = .libPaths()
+    libpaths = .libPaths(), manager = Sys.getpid()
   )
   fit_elapsed <- proc.time()[["elapsed"]] - fit_t0
   fits <- unlist(step2$results, recursive = FALSE)
