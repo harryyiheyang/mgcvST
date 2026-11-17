@@ -34,6 +34,17 @@ struct LaFns {
   void (*dgemm_nn)(const double* A, int M, int K, const double* B, int N, double* Out);
   // Out (M x N) = A' B, A K x M and B K x N, column-major floats, one serial call.
   void (*sgemm_tn)(const float* A, long K, int M, const float* B, int N, float* Out);
+  // Score state of one feature, P = W - W X K X' W with W = (D + F F')^{-1},
+  // D = diag(variance), F = sqrt(scale) T0 (n x q), X n x p: a = F' P error (q)
+  // and, unless H is NULL, H = sym(F' P F) (q x q). K is Vp (p x p) when given
+  // and the pseudo-inverse of X' W X otherwise. Everything is reduced to the
+  // q x q system M = I + F' D^{-1} F, so the only O(n q^2) work is one
+  // symmetric rank update. 0 done, 1 the Woodbury system is not positive
+  // definite or not finite, 2 non-finite nuisance projection, 3 non-finite
+  // result.
+  int (*score_state)(const double* T0, int n, int q, const double* variance,
+                     const double* error, double scale, const double* X, int p,
+                     const double* Vp, double* a, double* H);
   const char* isa;
 };
 

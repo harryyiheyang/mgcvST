@@ -336,7 +336,8 @@ mgcvST.marginal <- function(fitmgcvST, features = NULL,
   }
   index <- as.integer(index)
   data <- fitmgcvST$marginal_data
-  .mgcvst_thread_limit()
+  old_threads <- .mgcvst_thread_limit()
+  on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
   chunks <- split(seq_along(index), ceiling(seq_along(index) / chunk_size))
   payload <- lapply(chunks, function(rows) {
     i <- index[rows]

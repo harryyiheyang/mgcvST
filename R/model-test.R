@@ -104,7 +104,8 @@
   if (identical(entry, "mgcv") && is.null(fit$geometry)) {
     stop("fitmgcvST has no feature geometry to test.")
   }
-  .mgcvst_thread_limit()
+  old_threads <- .mgcvst_thread_limit()
+  on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
 
   index <- if (is.null(pairs)) NULL else .mgcvst_pair_index(pairs, fit$feature_id)
   available <- .mgcvst_feature_available(fit)

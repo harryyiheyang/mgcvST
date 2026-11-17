@@ -1,17 +1,40 @@
+.mgcvst_thread_vars <- c(
+  "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+  "BLIS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "RCPP_PARALLEL_NUM_THREADS"
+)
+
 # Set process-level numerical libraries and optional data.table to one thread.
+# Returns (invisibly) the settings found, for .mgcvst_thread_restore(). A
+# worker process keeps the limit for its life; a user-facing function restores
+# the caller's settings when it returns:
+#   old <- .mgcvst_thread_limit(); on.exit(.mgcvst_thread_restore(old), add = TRUE)
 .mgcvst_thread_limit <- function() {
-  Sys.setenv(
-    OMP_NUM_THREADS = "1",
-    OPENBLAS_NUM_THREADS = "1",
-    MKL_NUM_THREADS = "1",
-    BLIS_NUM_THREADS = "1",
-    VECLIB_MAXIMUM_THREADS = "1",
-    RCPP_PARALLEL_NUM_THREADS = "1"
+  old <- list(
+    pid = Sys.getpid(),
+    env = Sys.getenv(.mgcvst_thread_vars, unset = NA_character_, names = TRUE),
+    blas = tryCatch(RhpcBLASctl::blas_get_num_procs(), error = function(e) NA_integer_),
+    dt = if (requireNamespace("data.table", quietly = TRUE)) {
+      data.table::getDTthreads()
+    } else NA_integer_
   )
+  do.call(Sys.setenv, as.list(stats::setNames(
+    rep("1", length(.mgcvst_thread_vars)), .mgcvst_thread_vars)))
   RhpcBLASctl::blas_set_num_threads(1L)
-  if (requireNamespace("data.table", quietly = TRUE)) {
-    data.table::setDTthreads(1L)
+  if (!is.na(old$dt)) data.table::setDTthreads(1L)
+  invisible(old)
+}
+
+# Put back the thread settings that .mgcvst_thread_limit() found, in the
+# process that recorded them (never in a forked worker).
+.mgcvst_thread_restore <- function(old) {
+  if (!is.list(old) || !identical(old$pid, Sys.getpid())) return(invisible(NULL))
+  unset <- is.na(old$env)
+  if (any(unset)) Sys.unsetenv(names(old$env)[unset])
+  if (any(!unset)) do.call(Sys.setenv, as.list(old$env[!unset]))
+  if (length(old$blas) == 1L && is.finite(old$blas) && old$blas >= 1L) {
+    RhpcBLASctl::blas_set_num_threads(as.integer(old$blas))
   }
+  if (length(old$dt) == 1L && !is.na(old$dt)) data.table::setDTthreads(as.integer(old$dt))
   invisible(NULL)
 }
 
@@ -166,7 +189,7 @@
 # model fit chunk and everything it calls.
 .mgcvst_worker_bundle <- function() {
   names <- c(
-    ".mgcvst_thread_limit", ".mgcvst_worker_initialize", ".mgcvst_row_id",
+    ".mgcvst_thread_limit", ".mgcvst_thread_vars", ".mgcvst_worker_initialize", ".mgcvst_row_id",
     ".mgcvst_condition", ".mgcvst_null_chunk", ".mgcvst_spatial_chunk",
     ".mgcvst_model_fit_one", ".mgcvst_chunk_save",
     ".mgcvst_marginal_score", ".mgcvst_marginal_geometry",
@@ -360,6 +383,10 @@ mgcvST.estimate <- function(
   call <- match.call()
   adjust <- match.arg(adjust)
   q.value <- .mgcvst_check_q_value(q.value)
+  # One thread in this process before any worker is forked, so that a forked
+  # worker never inherits a threaded BLAS; the caller's settings return on exit.
+  old_threads <- .mgcvst_thread_limit()
+  on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
   for (name in c("diagnostics", "retain_marginal")) {
     value <- get(name)
     if (!is.logical(value) || length(value) != 1L || is.na(value)) {

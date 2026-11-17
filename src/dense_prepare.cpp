@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "la_dispatch.h"
 
 // [[Rcpp::depends(RcppArmadillo)]]
 
@@ -22,54 +23,11 @@ bool finite_matrix(const arma::mat& x) {
   return x.is_finite();
 }
 
-bool finite_vector(const arma::vec& x) {
-  return x.is_finite();
-}
-
-bool solve_checked(const arma::mat& A, const arma::mat& B, arma::mat& out) {
-  return arma::solve(out, A, B);
-}
-
-bool solve_checked(const arma::mat& A, const arma::vec& b, arma::vec& out) {
-  return arma::solve(out, A, b);
-}
-
-arma::mat apply_w(const arma::vec& Dinv,
-                  const arma::mat& F,
-                  const arma::mat& DinvF,
-                  const arma::mat& M,
-                  const arma::mat& rhs) {
-  arma::mat Dinv_rhs = rhs.each_col() % Dinv;
-  arma::mat Mrhs;
-  if (!solve_checked(M, F.t() * Dinv_rhs, Mrhs)) {
-    throw std::runtime_error("Woodbury solve failed.");
-  }
-  return Dinv_rhs - DinvF * Mrhs;
-}
-
-arma::mat apply_projection(const arma::mat& WZ,
-                           const arma::mat& WX,
-                           const arma::mat& XWZ,
-                           const arma::mat& X,
-                           const arma::mat* Vp) {
-  if (X.n_cols == 0L) return WZ;
-  arma::mat adjustment;
-  if (Vp == NULL) {
-    arma::mat XtWX = X.t() * WX;
-    arma::mat pinv_XtWX = arma::pinv(XtWX, 5e-16);
-    adjustment = WX * pinv_XtWX * XWZ;
-  } else {
-    adjustment = WX * (*Vp) * XWZ;
-  }
-  if (!finite_matrix(adjustment)) {
-    throw std::runtime_error("Nuisance projection produced non-finite values.");
-  }
-  return WZ - adjustment;
-}
-
+// One feature through the SIMD kernel (la_kernel.cpp, score_state): no BLAS
+// call, so the OpenMP loop below never meets a threaded BLAS.
 DenseFeatureResult one_feature(const arma::mat& T0,
-                               const arma::vec& variance,
-                               const arma::vec& error,
+                               const double* variance,
+                               const double* error,
                                double scale,
                                const arma::mat& X,
                                const arma::mat* Vp,
@@ -81,54 +39,28 @@ DenseFeatureResult one_feature(const arma::mat& T0,
     out.error = "scale must be one positive finite value per feature.";
     return out;
   }
-  if (variance.n_elem != n || error.n_elem != n ||
-      !finite_vector(variance) || !finite_vector(error)) {
-    out.error = "variance and error must be finite vectors with n observations.";
-    return out;
+  bool positive = true;
+  for (arma::uword i = 0; i < n; ++i) {
+    if (!std::isfinite(variance[i]) || !std::isfinite(error[i])) {
+      out.error = "variance and error must be finite vectors with n observations.";
+      return out;
+    }
+    if (variance[i] <= 0.0) positive = false;
   }
-  if (arma::any(variance <= 0.0)) {
+  if (!positive) {
     out.error = "variance must contain strictly positive values.";
     return out;
   }
-
-  arma::mat F = std::sqrt(scale) * T0;
-  arma::vec Dinv_vec = 1.0 / variance;
-  arma::mat DinvF = F.each_col() % Dinv_vec;
-  arma::mat M = arma::eye<arma::mat>(q, q) + F.t() * DinvF;
-  if (!finite_matrix(M)) {
-    out.error = "Woodbury system contains non-finite values.";
-    return out;
-  }
-
-  arma::mat WX;
-  if (X.n_cols > 0L) {
-    WX = apply_w(Dinv_vec, F, DinvF, M, X);
-  }
-
-  if (score_only) {
-    arma::mat We = apply_w(Dinv_vec, F, DinvF, M, error);
-    arma::mat Pe = apply_projection(We, WX, X.n_cols ? X.t() * We : arma::mat(), X, Vp);
-    out.a = F.t() * Pe;
-    if (!finite_vector(out.a)) {
-      out.error = "Dense score result contains non-finite values.";
-      out.a.reset();
-    }
-    return out;
-  }
-
-  arma::mat rhs(n, q + 1L, arma::fill::zeros);
-  rhs.cols(0L, q - 1L) = F;
-  rhs.col(q) = error;
-  arma::mat Wrhs = apply_w(Dinv_vec, F, DinvF, M, rhs);
-  arma::mat WF = Wrhs.cols(0L, q - 1L);
-  arma::mat We = Wrhs.col(q);
-  arma::mat PF = apply_projection(WF, WX, X.n_cols ? X.t() * WF : arma::mat(), X, Vp);
-  arma::mat Pe = apply_projection(We, WX, X.n_cols ? X.t() * We : arma::mat(), X, Vp);
-  out.a = F.t() * Pe;
-  out.H = F.t() * PF;
-  out.H = 0.5 * (out.H + out.H.t());
-  if (!finite_vector(out.a) || !finite_matrix(out.H)) {
-    out.error = "Dense score result contains non-finite values.";
+  out.a.set_size(q);
+  if (!score_only) out.H.set_size(q, q);
+  const int status = mgcvst::la().score_state(
+    T0.memptr(), static_cast<int>(n), static_cast<int>(q), variance, error, scale,
+    X.n_cols ? X.memptr() : NULL, static_cast<int>(X.n_cols),
+    Vp ? Vp->memptr() : NULL, out.a.memptr(), score_only ? NULL : out.H.memptr());
+  if (status != 0) {
+    out.error = status == 1 ? "Woodbury solve failed." :
+      status == 2 ? "Nuisance projection produced non-finite values." :
+      "Dense score result contains non-finite values.";
     out.a.reset();
     out.H.reset();
   }
@@ -199,9 +131,7 @@ Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0,
         results[jj].error = pre_errors[jj];
         continue;
       }
-      arma::vec v = variance.col(jj);
-      arma::vec e = error.col(jj);
-      results[jj] = one_feature(T0, v, e, scale(jj), X,
+      results[jj] = one_feature(T0, variance.colptr(jj), error.colptr(jj), scale(jj), X,
                                 fixed_projection ? NULL : &vp[jj], score_only);
     } catch (const std::exception& ex) {
       results[jj].error = ex.what();

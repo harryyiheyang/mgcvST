@@ -1,3 +1,24 @@
+# mgcvST 0.0.1.9043
+
+* The dense score state of an mgcv fit (`a_j`, `H_j`; both pair routes and
+  `mgcvST.wgcna()`) is built from the `q x q` Woodbury system alone. With
+  `A = F' D^{-1} F`, `M = I + A`, `C = F' D^{-1} X` and `g = F' D^{-1} e`:
+  `F' W F = M^{-1} A`, `F' W X = M^{-1} C`, `F' W e = M^{-1} g` and
+  `X' W X = X' D^{-1} X - C' M^{-1} C`, so the only `O(n q^2)` work of a
+  feature is one symmetric rank update, where 0.0.1.9042 formed about four
+  `n x q^2` products. The step is in the run-time SIMD kernel
+  (`src/la_kernel.cpp`) and calls no BLAS, so its OpenMP loop never meets a
+  threaded BLAS. At `n = 4000`, `q = 298`, three nuisance columns, one thread:
+  0.014 s per feature with AVX-512 and 0.017 s with AVX2, against 0.100 s
+  (OpenBLAS, Xeon); the generic copy takes 0.033 s. States agree with
+  0.0.1.9042 to 7e-14 relative. `kernel_version` stays 7.
+* `mgcvST.estimate()` sets the BLAS, OpenMP and data.table thread limits of the
+  calling process to one before any worker starts, so a forked worker never
+  inherits a threaded BLAS. `mgcvST.estimate()`, `mgcvST.marginal()`,
+  `mgcvST.test()` and `inlaST.test()` restore the caller's settings (environment
+  variables, BLAS threads, data.table threads) when they return; before, the
+  limit stayed for the rest of the session. Worker processes keep the limit.
+
 # mgcvST 0.0.1.9042
 
 * The dense kernels of the pair tests (pair products, the Gram eigenvalues, the

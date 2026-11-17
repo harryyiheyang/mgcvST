@@ -123,6 +123,66 @@ void sgemm_tn(const float* A, long K, int M, const float* B, int N, float* Out) 
   o.noalias() = a.transpose() * b;
 }
 
+// With A = F' D^{-1} F, M = I + A, C = F' D^{-1} X and g = F' D^{-1} e:
+//   F' W F = M^{-1} A,  F' W X = M^{-1} C,  F' W e = M^{-1} g,
+//   X' W X = X' D^{-1} X - C' M^{-1} C,  X' W e = X' D^{-1} e - C' M^{-1} g,
+// so a = M^{-1} g - B K (X' W e) and H = M^{-1} A - B K B', B = M^{-1} C.
+int score_state(const double* T0, int n, int q, const double* variance, const double* error,
+                double scale, const double* X, int p, const double* Vp, double* a, double* H) {
+  using VecD = Eigen::VectorXd;
+  MapCD T(T0, n, q);
+  Eigen::Map<const VecD> var(variance, n), err(error, n);
+  const double root = std::sqrt(scale);
+  const VecD dinv = var.cwiseInverse();
+  const VecD de = dinv.cwiseProduct(err);
+
+  MatD A = MatD::Zero(q, q);
+  {
+    const MatD S = dinv.cwiseSqrt().asDiagonal() * T;
+    A.selfadjointView<Eigen::Lower>().rankUpdate(S.transpose(), scale);
+  }
+  A.triangularView<Eigen::StrictlyUpper>() = A.transpose();
+  if (!A.allFinite()) return 1;
+  MatD M = A;
+  M.diagonal().array() += 1.0;
+  Eigen::LLT<MatD> llt(M);
+  if (llt.info() != Eigen::Success) return 1;
+
+  VecD av = llt.solve(root * (T.transpose() * de));  // F' W e
+  MatD B, KBt;
+  if (p > 0) {
+    MapCD Xm(X, n, p);
+    const MatD DX = dinv.asDiagonal() * Xm;
+    const MatD C = root * (T.transpose() * DX);
+    B = llt.solve(C);  // F' W X
+    const VecD xwe = Xm.transpose() * de - root * (B.transpose() * (T.transpose() * de));
+    MatD K;
+    if (Vp) {
+      K = MapCD(Vp, p, p);
+    } else {
+      MatD xwx = Xm.transpose() * DX - C.transpose() * B;
+      xwx = (0.5 * (xwx + xwx.transpose())).eval();
+      Eigen::SelfAdjointEigenSolver<MatD> es(xwx);
+      if (es.info() != Eigen::Success) return 2;
+      VecD inv = es.eigenvalues();
+      for (int i = 0; i < p; ++i) inv[i] = std::abs(inv[i]) > 5e-16 ? 1.0 / inv[i] : 0.0;
+      K = es.eigenvectors() * inv.asDiagonal() * es.eigenvectors().transpose();
+    }
+    KBt = K * B.transpose();
+    if (!KBt.allFinite()) return 2;
+    av.noalias() -= B * (K * xwe);
+  }
+  if (!av.allFinite()) return 3;
+  Eigen::Map<VecD>(a, q) = av;
+  if (!H) return 0;
+
+  MatD Hm = llt.solve(A);  // F' W F
+  if (p > 0) Hm.noalias() -= B * KBt;
+  Eigen::Map<MatD> Ho(H, q, q);
+  Ho = 0.5 * (Hm + Hm.transpose());
+  return Ho.allFinite() ? 0 : 3;
+}
+
 }  // namespace
 
 #define MGCVST_LA_TABLE MGCVST_CAT(mgcvst_la_, MGCVST_LA_ISA)
@@ -130,5 +190,5 @@ void sgemm_tn(const float* A, long K, int M, const float* B, int N, float* Out) 
 #define MGCVST_STR(x) MGCVST_STR2(x)
 extern const mgcvst::LaFns MGCVST_LA_TABLE;
 const mgcvst::LaFns MGCVST_LA_TABLE = {work_new, work_free, set_left, moments, trace1, spectrum_tn,
-                                       spectrum_nt, dgemm_nn, sgemm_tn,
+                                       spectrum_nt, dgemm_nn, sgemm_tn, score_state,
                                        MGCVST_STR(MGCVST_LA_ISA)};
