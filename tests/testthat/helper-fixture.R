@@ -50,3 +50,17 @@ pair_row <- function(x, i, j) {
   r <- x$results
   r[r$i == i & r$j == j, , drop = FALSE]
 }
+
+# Fix the Poisson routing of a test: TRUE routes every count feature to the
+# Poisson family, FALSE keeps every feature on the requested family (so that
+# near-Poisson synthetic genes can be compared with direct nb() fits).
+local_poisson_route <- function(value, env = parent.frame()) {
+  testthat::local_mocked_bindings(
+    .mgcvst_prescreen_route = function(Y, X, offset, active, threads = 1L) {
+      p <- nrow(as.matrix(Y))
+      list(phi = rep(NA_real_, p), score = rep(NA_real_, p),
+           poisson = rep(isTRUE(value) && isTRUE(active), p))
+    },
+    .package = "mgcvST", .env = env
+  )
+}

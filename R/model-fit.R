@@ -331,12 +331,7 @@
         spatial %in% c("discoveries", "all", "none"))) {
     .mgcvst_select_spatial(spatial, feature_id, rep(NA_real_, p), q.value)
   }
-  # Poisson prescreen (R/family-prescreen.R). The knob lives in control and is
-  # removed before control reaches mgcv::bam(), which rejects unknown entries.
-  screen_threshold <- .mgcvst_prescreen_threshold(
-    control[["poisson_screen_phi", exact = TRUE]]
-  )
-  control[["poisson_screen_phi"]] <- NULL
+  .mgcvst_refuse_screen_control(control)
   control$nthreads <- 1L
   control$ncv.threads <- 1L
   forbidden <- intersect(names(gam_args), c("G", "family", "method", "control"))
@@ -358,7 +353,6 @@
     Y, X = .mgcvst_prescreen_design(model$G),
     offset = if (is.null(offset)) base_offset else if (is.matrix(offset))
       sweep(offset, 2L, base_offset, "+") else base_offset + offset,
-    threshold = screen_threshold,
     active = isTRUE(tryCatch(
       identical(.working_family_id(model$G$family$family), "negative_binomial"),
       error = function(e) FALSE

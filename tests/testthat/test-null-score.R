@@ -22,7 +22,7 @@ test_that("external GAM setup uses its fixed null design", {
 
 test_that("Poisson prescreen routes independent null and full BAM fits", {
   control <- mgcv::gam.control(nthreads = 1L)
-  control$poisson_screen_phi <- 1e6
+  local_poisson_route(TRUE)
   f <- st_fixture(n = 60L, nuisance = TRUE)
   for (setup in list(f$G, f$model)) {
     fit <- mgcvST.estimate(
@@ -44,7 +44,7 @@ test_that("model-set null BAM includes a feature offset", {
   )
   extra_offset <- seq(-0.2, 0.2, length.out = ncol(f$Y))
   control <- mgcv::gam.control(nthreads = 1L)
-  control$poisson_screen_phi <- 0
+  local_poisson_route(FALSE)
   fit <- mgcvST.estimate(
     f$Y[1L, , drop = FALSE], model, offset = extra_offset,
     control = control,
@@ -79,7 +79,7 @@ test_that("single-coefficient null scores agree with direct GAM fits", {
       f$data, family = family
     )
     control <- mgcv::gam.control(nthreads = 1L)
-    control$poisson_screen_phi <- 0
+    local_poisson_route(FALSE)
     data <- model$null_data
     data[[model$null_response]] <- as.numeric(f$Y[1L, ])
     direct <- mgcv::gam(model$null_formula, data = data,
@@ -115,7 +115,7 @@ test_that("one slope without an intercept retains per-feature null offsets", {
   Y <- f$Y[1:2, , drop = FALSE]
   offset <- matrix(seq(-0.2, 0.2, length.out = length(Y)), nrow(Y))
   control <- mgcv::gam.control(nthreads = 1L)
-  control$poisson_screen_phi <- 0
+  local_poisson_route(FALSE)
   fit <- mgcvST.estimate(
     Y, model, offset = offset, control = control,
     BPPARAM = BiocParallel::SerialParam(), spatial = "all"

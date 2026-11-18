@@ -2,11 +2,11 @@
 % Please edit documentation in R/family-prescreen.R
 \name{mgcvst-family-prescreen}
 \alias{mgcvst-family-prescreen}
-\title{Poisson prescreen for count families}
+\title{Poisson routing for count families}
 \description{
-Poisson prescreen for count families
+Poisson routing for count families
 }
-\section{The default}{
+\section{The rule}{
  the overdispersion score:
 For one count feature we fit a plain Poisson GLM with the model's offset and
 its parametric (covariate) design only -- the spatial term is deliberately
@@ -23,13 +23,10 @@ fit, and the feature is routed to the Poisson family. Otherwise the size is
 finite and the feature keeps the negative binomial. The fits are batched in
 C++ (src/nb_null.cpp). The Pearson dispersion
 \code{phi = sum((y - mu)^2 / mu) / (n - p)} of the same fit is reported as well.
-}
 
-\section{A phi threshold}{
-
-\verb{poisson_screen_phi = <number>} restores the earlier screen: a feature is
-routed when its Pearson dispersion is at most that number. \code{0} disables the
-routing; \code{NULL} or \code{"score"} is the default above.
+There is no user threshold: the earlier \code{poisson_screen_phi} control, a
+cutoff on the Pearson dispersion, was removed because the score rule is
+exact.
 }
 
 \section{Which family a routed gene actually gets}{

@@ -1,3 +1,16 @@
+# mgcvST 0.0.1.9047
+
+* The `poisson_screen_phi` control is removed from `mgcvST.estimate()` and
+  `inlaST.estimate()`, with all its values (a phi threshold, `0`, `"score"`);
+  passing it is an error that says so. The Poisson routing of a
+  negative-binomial model has no user setting: a feature is fitted as Poisson
+  exactly when the overdispersion score of its covariate-only Poisson fit is
+  not positive, i.e. when its NB2 maximum-likelihood size is infinite
+  (`alpha = 1/size = 0`, the end point of the same model). The Pearson
+  dispersion of that fit is still reported as `prescreen_phi`, and
+  `family_used` still records the family of each fit (INLA has no infinite
+  size, so such a feature is fitted with the Poisson family internally).
+
 # mgcvST 0.0.1.9046
 
 * The default Poisson routing of a negative-binomial model

@@ -50,11 +50,9 @@
     control.inla = list(),
     num_threads = 1L,
     verbose = FALSE,
-    keep_fit = FALSE,
-    # Poisson prescreen threshold on the covariate-only Pearson dispersion; see
-    # R/family-prescreen.R. Used by inlaST.estimate() only, never by the engine.
-    poisson_screen_phi = .mgcvst_prescreen_default
+    keep_fit = FALSE
   )
+  .mgcvst_refuse_screen_control(control)
   unknown <- setdiff(names(control), names(defaults))
   if (length(unknown)) {
     stop("Unknown INLA control field", if (length(unknown) > 1L) "s" else "",
@@ -80,9 +78,6 @@
     if (!is.logical(out[[nm]]) || length(out[[nm]]) != 1L ||
         is.na(out[[nm]])) stop("control$", nm, " must be TRUE or FALSE.")
   }
-  # Validated here so a bad threshold fails once in the parent; the value is
-  # consumed by inlaST.estimate() before any feature is dispatched.
-  .mgcvst_prescreen_threshold(out[["poisson_screen_phi", exact = TRUE]])
   for (nm in c("gaussian_precision", "nb_size")) {
     if (!is.null(out[[nm]])) {
       out[[nm]] <- as.numeric(out[[nm]])

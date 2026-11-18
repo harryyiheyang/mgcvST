@@ -73,7 +73,8 @@ test_that("public native crash recovery reuses null fits without replacing p-val
   model <- inlaST.set(response ~ cov + offset(offset0) + s(group, bs = "re"),
     d, family = mgcv::nb(theta = 2), mesh = mesh, kappa = .7,
     coordinates = c("x", "y"), precision_scale = "raw",
-    control = list(fixed_precision = c(2, 3), poisson_screen_phi = 0))
+    control = list(fixed_precision = c(2, 3)))
+  local_poisson_route(FALSE)
   Y <- rbind(a = rnbinom(90, mu = exp(1 + d$cov + d$offset0), size = 2),
              b = rnbinom(90, mu = exp(1 - d$cov + d$offset0), size = 2))
   extra <- rbind(seq(-.1, .1, length.out = 90), seq(.1, -.1, length.out = 90))

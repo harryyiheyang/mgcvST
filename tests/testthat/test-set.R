@@ -35,11 +35,15 @@ test_that("set expands factor interactions once for shared BAM null and full des
         control = local({
           k <- mgcv::gam.control(nthreads = 1L)
           k$ncv.threads <- 1L
-          k$poisson_screen_phi <- 0
           k
         }),
         retain_marginal = TRUE, spatial = "all"),
       .gam_training_lpmatrix = function(...) stop("L rebuilt during estimate"),
+      .mgcvst_prescreen_route = function(Y, X, offset, active, threads = 1L) {
+        p <- nrow(as.matrix(Y))
+        list(phi = rep(NA_real_, p), score = rep(NA_real_, p),
+             poisson = rep(FALSE, p))
+      },
       .package = "mgcvST"
     )
     expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))

@@ -116,8 +116,7 @@ test_that("scan records carry the working response of the INLA null fit", {
     expect_true(f$converged)
     expect_length(f$random_mode, 0L)
   }
-  route <- mgcvST:::.mgcvst_prescreen_route(data$Y, data$X, data$offset,
-    "score", TRUE)
+  route <- mgcvST:::.mgcvst_prescreen_route(data$Y, data$X, data$offset, TRUE)
   expect_identical(route$poisson, route$score <= 0)
   fits0 <- mgcvST:::.inlast_scan_fits(
     seq_len(5L), Matrix::Matrix(data$Y, sparse = TRUE), spec, data$offset,

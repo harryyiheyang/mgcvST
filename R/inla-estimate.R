@@ -288,19 +288,16 @@
 #'   objective corresponds to density proportional to `1/parameter` on its
 #'   positive scale.
 #'   `control.inla` accepts supported numerical tuning, with Gaussian latent
-#'   strategy and EB integration enforced. `poisson_screen_phi` selects the
-#'   Poisson routing of a negative-binomial model (R/family-prescreen.R). The
-#'   default `"score"` fits each feature's offset-and-covariate-only Poisson
-#'   GLM and routes it to the Poisson family when its overdispersion score
+#'   strategy and EB integration enforced. With a negative-binomial family each
+#'   feature first gets its offset-and-covariate-only Poisson GLM, and it is
+#'   fitted with the Poisson family when its overdispersion score
 #'   `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
-#'   maximum-likelihood fit is the Poisson fit. A number restores the earlier
-#'   rule (route when the Pearson dispersion `phi = sum((y - mu)^2 / mu) /
-#'   (n - p)` is at most that number); `0` disables the routing. Other families
-#'   ignore it. When the null model has fixed effects only, the null fits are
-#'   the batched maximum-likelihood fits of `spde.scan`
+#'   maximum-likelihood fit is the Poisson fit (R/family-prescreen.R; there is
+#'   no threshold to set). When the null model has fixed effects only, the
+#'   null fits are the batched maximum-likelihood fits of `spde.scan`
 #'   (`options(mgcvST.scan_null = FALSE)` restores the INLA null fits). The
-#'   per-feature `phi` and the family actually used are reported in the
-#'   diagnostics as
+#'   per-feature Pearson dispersion of that Poisson fit and the family actually
+#'   used are reported in the diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
 #' @param retain_smooth Retain estimated score-component coefficients.
 #' @param diagnostics Retain the per-feature INLA optimizer/hyperparameter
@@ -402,21 +399,17 @@ inlaST.estimate <- function(
         spatial %in% c("discoveries", "all", "none"))) {
     .mgcvst_select_spatial(spatial, feature_id, rep(NA_real_, p), q.value)
   }
-  # Cheap per-feature overdispersion prescreen (R/family-prescreen.R): a
-  # near-Poisson feature drifts to a flat NB size likelihood, so fit it with the
-  # Poisson family instead. The family is fixed inside the spec, so a routed
+  # Exact Poisson routing (R/family-prescreen.R): a feature whose NB2
+  # maximum-likelihood fit is the Poisson fit (overdispersion score <= 0) is
+  # fitted with the Poisson family. The family is fixed inside the spec, so a routed
   # feature is fitted against a Poisson twin of the same spec
   # (.inlast_poisson_spec()); the twin is rebuilt once per chunk in the worker
   # rather than shipped, because it shares every sparse block with the original.
-  screen_threshold <- .mgcvst_prescreen_threshold(
-    control[["poisson_screen_phi", exact = TRUE]]
-  )
   screen_offset <- if (is.null(offset)) model$offset else
     if (is.matrix(offset)) sweep(offset, 2L, model$offset, "+") else
       model$offset + offset
   prescreen <- .mgcvst_prescreen_route(
     Y, X = model$inla_spec$fixed$X, offset = screen_offset,
-    threshold = screen_threshold,
     active = identical(model$inla_spec$family, "negative_binomial"),
     threads = threads
   )

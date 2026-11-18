@@ -74,23 +74,17 @@ supports prediction and other downstream uses without retaining full
 \code{gam} objects.}
 
 \item{control}{An \code{mgcv::gam.control()} object. Internal thread counts are
-always forced to one. It may additionally carry \code{poisson_screen_phi}
-(default \code{"score"}), the Poisson routing of a negative-binomial family:
-each feature first gets an offset-and-covariate-only Poisson GLM and is
-fitted with \code{stats::quasipoisson(link = "log")} when its overdispersion
-score \code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
-maximum-likelihood fit is the Poisson fit. A number restores the earlier
-rule (route when the Pearson dispersion
-\code{phi = sum((y - mu)^2 / mu) / (n - p)} is at most that number). The Poisson and
-quasipoisson point estimates agree. The null score fit and the full
-spatial fit both estimate their own scale and smoothing parameters. The
-screening phi is retained in diagnostics and is not passed as a fixed
-\code{fit$sig2}. In the INLA path, routed features use plain Poisson. Set it
-to \code{0} to disable the routing (\code{NULL} restores the default);
-other families ignore it. The entry is removed before \code{control} reaches
-\code{mgcv::bam()}. Per-feature \code{prescreen_phi} and \code{family_used} are reported
-in the diagnostics, and \code{family_used} reads \code{"quasipoisson"} for a routed
-gene.}
+always forced to one. With a negative-binomial family each feature first
+gets its offset-and-covariate-only Poisson GLM, and it is fitted with
+\code{stats::quasipoisson(link = "log")} when its overdispersion score
+\code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
+maximum-likelihood fit is the Poisson fit (there is no threshold to set;
+the earlier \code{poisson_screen_phi} entry is refused). The null score fit and
+the full spatial fit both estimate their own scale and smoothing
+parameters. In the INLA path, routed features use plain Poisson.
+Per-feature \code{prescreen_phi} (the Pearson dispersion of the Poisson fit)
+and \code{family_used} are reported in the diagnostics, and \code{family_used} reads
+\code{"quasipoisson"} for a routed gene.}
 
 \item{...}{Additional arguments passed to \code{mgcv::bam()}.}
 

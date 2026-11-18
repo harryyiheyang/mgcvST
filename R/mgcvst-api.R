@@ -325,23 +325,17 @@
 #'   one parametric coefficient and no smooths uses `mgcv::gam(method = "REML")`
 #'   to avoid BAM's one-column QR dimension error.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
-#'   always forced to one. It may additionally carry `poisson_screen_phi`
-#'   (default `"score"`), the Poisson routing of a negative-binomial family:
-#'   each feature first gets an offset-and-covariate-only Poisson GLM and is
-#'   fitted with `stats::quasipoisson(link = "log")` when its overdispersion
-#'   score `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
-#'   maximum-likelihood fit is the Poisson fit. A number restores the earlier
-#'   rule (route when the Pearson dispersion
-#'   `phi = sum((y - mu)^2 / mu) / (n - p)` is at most that number). The Poisson and
-#'   quasipoisson point estimates agree. The null score fit and the full
-#'   spatial fit both estimate their own scale and smoothing parameters. The
-#'   screening phi is retained in diagnostics and is not passed as a fixed
-#'   `fit$sig2`. In the INLA path, routed features use plain Poisson. Set it
-#'   to `0` to disable the routing (`NULL` restores the default);
-#'   other families ignore it. The entry is removed before `control` reaches
-#'   `mgcv::bam()`. Per-feature `prescreen_phi` and `family_used` are reported
-#'   in the diagnostics, and `family_used` reads `"quasipoisson"` for a routed
-#'   gene.
+#'   always forced to one. With a negative-binomial family each feature first
+#'   gets its offset-and-covariate-only Poisson GLM, and it is fitted with
+#'   `stats::quasipoisson(link = "log")` when its overdispersion score
+#'   `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
+#'   maximum-likelihood fit is the Poisson fit (there is no threshold to set;
+#'   the earlier `poisson_screen_phi` entry is refused). The null score fit and
+#'   the full spatial fit both estimate their own scale and smoothing
+#'   parameters. In the INLA path, routed features use plain Poisson.
+#'   Per-feature `prescreen_phi` (the Pearson dispersion of the Poisson fit)
+#'   and `family_used` are reported in the diagnostics, and `family_used` reads
+#'   `"quasipoisson"` for a routed gene.
 #' @param ... Additional arguments passed to `mgcv::bam()`.
 #' @param spatial Features that receive a spatial model in step 2:
 #'   `"discoveries"` (the default; the features with Stage 1 q-value at most

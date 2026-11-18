@@ -1,76 +1,35 @@
-test_that("both control paths share the default and preserve explicit thresholds", {
+test_that("the removed threshold control is refused by both entries", {
+  expect_error(mgcvST:::.mgcvst_refuse_screen_control(list(poisson_screen_phi = 1.1)),
+               "removed")
+  expect_error(mgcvST:::.mgcvst_refuse_screen_control(list(poisson_screen_phi = NULL)),
+               "removed")
+  expect_silent(mgcvST:::.mgcvst_refuse_screen_control(list(nthreads = 1L)))
   skip_if_not_installed("INLA")
-  expect_identical(mgcvST:::.mgcvst_prescreen_threshold(NULL), "score")
-  expect_identical(mgcvST:::.inlast_control()$poisson_screen_phi, "score")
-  for (value in c(0, 1.005, 1.1)) {
-    expected <- if (value == 0) NULL else value
-    expect_identical(mgcvST:::.mgcvst_prescreen_threshold(value), expected)
-    control <- mgcvST:::.inlast_control(list(poisson_screen_phi = value))
-    expect_identical(control$poisson_screen_phi, value)
-    expect_identical(mgcvST:::.mgcvst_prescreen_threshold(control$poisson_screen_phi), expected)
-  }
-  control <- mgcvST:::.inlast_control(list(poisson_screen_phi = NULL))
-  expect_identical(mgcvST:::.mgcvst_prescreen_threshold(control$poisson_screen_phi), "score")
+  expect_error(mgcvST:::.inlast_control(list(poisson_screen_phi = 0)), "removed")
+  expect_null(mgcvST:::.inlast_control()$poisson_screen_phi)
 })
 
-test_that("the threshold knob accepts the score rule and rejects other strings", {
-  expect_identical(mgcvST:::.mgcvst_prescreen_threshold("score"), "score")
-  expect_error(mgcvST:::.mgcvst_prescreen_threshold("phi"), "score")
-  expect_error(mgcvST:::.mgcvst_prescreen_threshold(-1), "score")
-})
-
-test_that("the default routes exactly when the NB2 fit is the Poisson fit", {
+test_that("a feature is routed exactly when its NB2 fit is the Poisson fit", {
   Y <- rbind(below = c(rep(c(0, 2), 49), 1, 1),
     between = rep(c(0, 2), 50), above = rep(c(0, 4), 50))
   X <- matrix(1, ncol(Y), 1L)
-  threshold <- mgcvST:::.mgcvst_prescreen_threshold(NULL)
-  z <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), threshold, TRUE)
+  z <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), TRUE)
   expect_equal(unname(z$phi), c(98, 100, 200) / 99, tolerance = 1e-8)
   # score = (sum (y - mu)^2 - sum y) / 2: -1, 0 and 100; 0 is the end point.
   expect_equal(unname(z$score), c(-1, 0, 100), tolerance = 1e-8)
   expect_identical(unname(z$poisson), c(TRUE, TRUE, FALSE))
   sparse <- mgcvST:::.mgcvst_prescreen_route(Matrix::Matrix(Y, sparse = TRUE), X,
-    NULL, threshold, TRUE, threads = 2L)
+    NULL, TRUE, threads = 2L)
   expect_equal(sparse$score, z$score)
   no_x <- mgcvST:::.mgcvst_prescreen_route(Y, matrix(numeric(), ncol(Y), 0L),
-    numeric(ncol(Y)), threshold, TRUE)
+    numeric(ncol(Y)), TRUE)
   expect_equal(unname(no_x$score), c(-1, 0, 150), tolerance = 1e-8)
-  tight <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), 1.01, TRUE)
-  expect_identical(unname(tight$poisson), c(TRUE, FALSE, FALSE))
-  old <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), 1.1, TRUE)
-  expect_identical(unname(old$poisson), c(TRUE, TRUE, FALSE))
-  off <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)),
-    mgcvST:::.mgcvst_prescreen_threshold(0), TRUE)
-  expect_identical(off, list(phi = rep(NA_real_, 3), poisson = rep(FALSE, 3)))
-  inactive <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), threshold, FALSE)
-  expect_identical(inactive, off)
+  inactive <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), FALSE)
+  expect_identical(inactive$poisson, rep(FALSE, 3))
+  expect_true(all(is.na(inactive$phi)))
 })
 
-test_that("the exact boundary is inclusive without changing phi", {
-  Y <- matrix(c(rep(0, 97), 3, 1, 1), nrow = 1L)
-  X <- matrix(numeric(), ncol(Y), 0L)
-  z <- mgcvST:::.mgcvst_prescreen_route(Y, X, NULL, 1.01, TRUE)
-  expect_identical(unname(z$phi), 1.01)
-  expect_identical(unname(z$poisson), TRUE)
-  below <- mgcvST:::.mgcvst_prescreen_route(Y, X, NULL, 1.01 - 1e-12, TRUE)
-  expect_identical(below$phi, z$phi)
-  expect_identical(unname(below$poisson), FALSE)
-})
-
-test_that("disabled screening is unchanged by the default value", {
-  skip_if_not_installed("INLA")
-  control <- mgcvST:::.inlast_control(list(poisson_screen_phi = 0))
-  threshold <- mgcvST:::.mgcvst_prescreen_threshold(control$poisson_screen_phi)
-  testthat::local_mocked_bindings(.mgcvst_prescreen_default = 1.1,
-    .mgcvst_prescreen_dispersion = function(...) stop("disabled screen must not fit a GLM"),
-    .package = "mgcvST")
-  expect_identical(mgcvST:::.inlast_control(list(poisson_screen_phi = 0)), control)
-  expect_identical(mgcvST:::.mgcvst_prescreen_threshold(0), threshold)
-  expect_identical(mgcvST:::.mgcvst_prescreen_route(matrix(1, 2L, 10L), NULL, NULL,
-    threshold, TRUE), list(phi = rep(NA_real_, 2), poisson = rep(FALSE, 2)))
-})
-
-test_that("public mgcv and INLA entries apply the same routing controls", {
+test_that("public mgcv and INLA entries apply the same routing", {
   skip_if_not_installed("INLA")
   f <- st_fixture(n = 100L)
   f$data$offset0 <- 0
@@ -80,29 +39,25 @@ test_that("public mgcv and INLA entries apply the same routing controls", {
   model_inla <- inlaST.set(response ~ offset(offset0), f$data,
     family = mgcv::nb(), mesh = mesh, kappa = .7,
     coordinates = c("x", "y"))
-  Y <- rbind(below = c(rep(c(0, 2), 49), 1, 1), between = rep(c(0, 2), 50))
+  Y <- rbind(below = c(rep(c(0, 2), 49), 1, 1), above = rep(c(0, 4), 50))
   route <- mgcvST:::.mgcvst_prescreen_route
   captured <- new.env(parent = emptyenv())
-  testthat::local_mocked_bindings(.mgcvst_prescreen_route = function(Y, X, offset, threshold, active, threads = 1L) {
-    captured$result <- route(Y, X, offset, threshold, active, threads)
-    captured$threshold <- threshold
+  testthat::local_mocked_bindings(.mgcvst_prescreen_route = function(Y, X, offset, active, threads = 1L) {
+    captured$result <- route(Y, X, offset, active, threads)
     stop("prescreen captured before model fitting")
   }, .package = "mgcvST")
-  controls <- list(list(), list(poisson_screen_phi = NULL),
-    list(poisson_screen_phi = 1.1), list(poisson_screen_phi = 0))
-  for (k in seq_along(controls)) {
-    expected <- if (k == 4L) c(FALSE, FALSE) else c(TRUE, TRUE)
-    threshold <- if (k == 3L) 1.1 else if (k == 4L) NULL else "score"
-    control <- utils::modifyList(mgcv::gam.control(), controls[[k]], keep.null = TRUE)
-    for (setup in list(model, model$G)) {
-      expect_error(mgcvST.estimate(Y, setup, control = control,
-        BPPARAM = BiocParallel::SerialParam(), spatial = "all"), "prescreen captured before model fitting")
-      expect_identical(captured$threshold, threshold)
-      expect_identical(unname(captured$result$poisson), expected)
-    }
-    expect_error(inlaST.estimate(Y, model_inla, control = controls[[k]],
-      BPPARAM = BiocParallel::SerialParam(), spatial = "all"), "prescreen captured before model fitting")
-    expect_identical(captured$threshold, threshold)
-    expect_identical(unname(captured$result$poisson), expected)
+  for (setup in list(model, model$G)) {
+    expect_error(mgcvST.estimate(Y, setup, control = mgcv::gam.control(),
+      BPPARAM = BiocParallel::SerialParam(), spatial = "all"),
+      "prescreen captured before model fitting")
+    expect_identical(unname(captured$result$poisson), c(TRUE, FALSE))
   }
+  expect_error(inlaST.estimate(Y, model_inla,
+    BPPARAM = BiocParallel::SerialParam(), spatial = "all"),
+    "prescreen captured before model fitting")
+  expect_identical(unname(captured$result$poisson), c(TRUE, FALSE))
+  control <- mgcv::gam.control()
+  control$poisson_screen_phi <- 1.1
+  expect_error(mgcvST.estimate(Y, model, control = control,
+    BPPARAM = BiocParallel::SerialParam()), "removed")
 })
