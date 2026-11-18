@@ -98,21 +98,3 @@
   })
 }
 
-# Exact Poisson routing for the scan: a feature is Poisson when the
-# overdispersion score of its Poisson fit, sum((y - mu)^2 - y) / 2, is not
-# positive, which is the KKT condition of the NB2 maximum-likelihood end point
-# alpha = 0. Returns the routing flags, the scores and the Pearson dispersions.
-.inlast_scan_route <- function(Y, X, offset, threads = 1L) {
-  X <- as.matrix(X)
-  storage.mode(X) <- "double"
-  n <- nrow(X)
-  p <- nrow(Y)
-  O <- if (is.null(offset)) matrix(0, n, 1L) else if (is.matrix(offset))
-    t(offset) else matrix(as.numeric(offset), n, 1L)
-  Yt <- methods::as(methods::as(methods::as(
-    Matrix::t(Y), "CsparseMatrix"), "generalMatrix"), "dMatrix")
-  z <- mgcvst_nb_null_batch_cpp(Yt, X, O, rep(TRUE, p),
-                                threads = as.integer(threads))
-  list(phi = z$phi, score = z$score0,
-       poisson = is.finite(z$score0) & z$score0 <= 0)
-}

@@ -312,6 +312,9 @@
     todo <- c(todo, k)
   }
   built <- 0L
+  sizes <- lengths(groups)
+  progress <- .mgcvst_progress(step, sum(sizes), "features",
+                               resumed = sum(sizes[setdiff(seq_len(n), todo)]))
   if (length(todo)) {
     position <- 0L
     iterate <- function() {
@@ -328,10 +331,19 @@
     if (anyDuplicated(keys[todo])) {
       stop("The chunks of a step must hold distinct features.")
     }
+    # The manager collects each result as it arrives and reports progress.
+    collect <- function(acc, x) {
+      acc[[length(acc) + 1L]] <- x
+      progress$add(if (is.list(x) && !inherits(x, "condition"))
+        length(x[["result"]]) else 0L)
+      acc
+    }
     returned <- BiocParallel::bpiterate(iterate, .mgcvst_keyed_task(), ...,
-                                        .worker = FUN, BPPARAM = BPPARAM)
+                                        .worker = FUN, REDUCE = collect,
+                                        init = list(), BPPARAM = BPPARAM)
     results[todo] <- .mgcvst_place_by_key(returned, keys[todo])
   }
+  progress$done()
   list(results = results, resumed = n - length(todo), chunks = n, built = built)
 }
 

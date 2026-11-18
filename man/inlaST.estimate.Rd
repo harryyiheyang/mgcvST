@@ -70,14 +70,18 @@ Normal parameters are mean and precision. A flat log-hyperparameter
 objective corresponds to density proportional to \code{1/parameter} on its
 positive scale.
 \code{control.inla} accepts supported numerical tuning, with Gaussian latent
-strategy and EB integration enforced. \code{poisson_screen_phi} (default \code{1.01})
-is the Poisson prescreen threshold: with a negative-binomial family, each
-feature first gets an offset-and-covariate-only Poisson GLM, and a feature
-whose Pearson dispersion \code{phi = sum((y - mu)^2 / mu) / (n - p)} is at most
-the threshold is fitted with the Poisson family instead. Set it to \code{0} to
-disable the screen (\code{NULL} restores the default); other families ignore it.
-The per-feature
-\code{phi} and the family actually used are reported in the diagnostics as
+strategy and EB integration enforced. \code{poisson_screen_phi} selects the
+Poisson routing of a negative-binomial model (R/family-prescreen.R). The
+default \code{"score"} fits each feature's offset-and-covariate-only Poisson
+GLM and routes it to the Poisson family when its overdispersion score
+\code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
+maximum-likelihood fit is the Poisson fit. A number restores the earlier
+rule (route when the Pearson dispersion \code{phi = sum((y - mu)^2 / mu) / (n - p)} is at most that number); \code{0} disables the routing. Other families
+ignore it. When the null model has fixed effects only, the null fits are
+the batched maximum-likelihood fits of \code{spde.scan}
+(\code{options(mgcvST.scan_null = FALSE)} restores the INLA null fits). The
+per-feature \code{phi} and the family actually used are reported in the
+diagnostics as
 \code{prescreen_phi} and \code{family_used}. Unknown controls are rejected.}
 
 \item{retain_smooth}{Retain estimated score-component coefficients.}

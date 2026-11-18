@@ -6,29 +6,30 @@
 \description{
 Poisson prescreen for count families
 }
-\section{What phi is}{
-
+\section{The default}{
+ the overdispersion score:
 For one count feature we fit a plain Poisson GLM with the model's offset and
 its parametric (covariate) design only -- the spatial term is deliberately
-left out -- and report the Pearson dispersion
+left out -- and compute the overdispersion score of the NB2 family
+(variance \verb{mu + alpha mu^2}) at its Poisson end point,
 
-\if{html}{\out{<div class="sourceCode">}}\preformatted{phi = sum((y - mu)^2 / mu) / (n - p),
+\if{html}{\out{<div class="sourceCode">}}\preformatted{score = sum((y - mu)^2 - y) / 2,
 }\if{html}{\out{</div>}}
 
-with \code{mu} the fitted Poisson mean and \code{p} the rank of the covariate design.
-The calculation reuses the parametric design and is performed before the
-feature fits are distributed.
+the derivative of the NB2 profile log-likelihood in \code{alpha} at \code{alpha = 0}
+(Cameron and Trivedi). A score that is not positive is the KKT condition of
+that end point: the negative-binomial maximum-likelihood fit is the Poisson
+fit, and the feature is routed to the Poisson family. Otherwise the size is
+finite and the feature keeps the negative binomial. The fits are batched in
+C++ (src/nb_null.cpp). The Pearson dispersion
+\code{phi = sum((y - mu)^2 / mu) / (n - p)} of the same fit is reported as well.
 }
 
-\section{How the screen is used}{
+\section{A phi threshold}{
 
-The screen fits an offset-and-covariate-only Poisson GLM and uses its Pearson
-dispersion as a routing statistic. The spatial term is omitted so that the
-calculation is inexpensive and identical across the two estimation paths.
-This statistic is a screening criterion rather than the scale estimate of the
-subsequent spatial fit. The default screening threshold is \code{1.01}.
-Genes above the threshold keep the negative binomial family and are fitted
-exactly as before.
+\verb{poisson_screen_phi = <number>} restores the earlier screen: a feature is
+routed when its Pearson dispersion is at most that number. \code{0} disables the
+routing; \code{NULL} or \code{"score"} is the default above.
 }
 
 \section{Which family a routed gene actually gets}{
@@ -37,14 +38,8 @@ The routing decision is shared, the routing target is not. In the \strong{mgcv}
 path a routed gene is fitted with \code{stats::quasipoisson(link = "log")}, which
 \code{mgcv::bam()} supports: the Poisson and quasipoisson point estimates are the
 same. The routed mgcv null score fit and full spatial fit each estimate their
-quasipoisson scale and smoothing parameters. The screening \code{phi} is retained
-in diagnostics, whereas the null-fit scale enters the marginal score test
-and the full-fit scale enters the working variance. In the \strong{INLA} path a routed gene keeps plain Poisson,
-because INLA has no quasi-likelihood families.
-
-The Poisson and quasipoisson GLM point estimates agree, so the Poisson fit
-supplies the routing statistic. The screen selects a family; it does not
-provide an initial value or fixed scale for the subsequent spatial fit.
+quasipoisson scale and smoothing parameters. In the \strong{INLA} path a routed
+gene keeps plain Poisson, because INLA has no quasi-likelihood families.
 }
 
 \keyword{internal}

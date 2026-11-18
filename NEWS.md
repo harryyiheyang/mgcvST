@@ -1,3 +1,24 @@
+# mgcvST 0.0.1.9046
+
+* The default Poisson routing of a negative-binomial model
+  (`poisson_screen_phi`, both `mgcvST.estimate()` and `inlaST.estimate()`)
+  is now the exact rule `"score"`: a feature is routed when the overdispersion
+  score `sum((y - mu)^2 - y) / 2` of its offset-and-covariate-only Poisson fit
+  is not positive, i.e. exactly when its NB2 maximum-likelihood fit is the
+  Poisson fit. The Poisson fits are batched in C++ (`src/nb_null.cpp`). A
+  number restores the Pearson-dispersion threshold and `0` disables the
+  routing, as before. In 0.0.1.9045 the INLA control default (`1.01`) kept
+  the scan from ever using the exact rule unless `NULL` was passed.
+* Progress lines for the slow steps: the null and spatial chunks of
+  `inlaST.estimate()` and `mgcvST.estimate()`, and the pair evaluation of
+  `mgcvST.test()` and `inlaST.test()`. A line is printed with `message()`
+  each time another tenth of the work completes, and at least every 60
+  seconds while work completes, e.g.
+  `[null] 4,480 / 11,184 features (40%) | 12m 05s elapsed | ETA 18m 10s | 6.2 features/s`.
+  Work restored from a checkpoint counts as done but not towards the rate.
+  Plain lines keep batch logs readable; `options(mgcvST.progress = FALSE)`
+  silences them.
+
 # mgcvST 0.0.1.9045
 
 * `spde.scan`: the Stage 1 null fits of `inlaST.estimate()` no longer call

@@ -1,7 +1,7 @@
 test_that("both control paths share the default and preserve explicit thresholds", {
   skip_if_not_installed("INLA")
-  expect_identical(mgcvST:::.mgcvst_prescreen_threshold(NULL), 1.01)
-  expect_identical(mgcvST:::.inlast_control()$poisson_screen_phi, 1.01)
+  expect_identical(mgcvST:::.mgcvst_prescreen_threshold(NULL), "score")
+  expect_identical(mgcvST:::.inlast_control()$poisson_screen_phi, "score")
   for (value in c(0, 1.005, 1.1)) {
     expected <- if (value == 0) NULL else value
     expect_identical(mgcvST:::.mgcvst_prescreen_threshold(value), expected)
@@ -10,17 +10,33 @@ test_that("both control paths share the default and preserve explicit thresholds
     expect_identical(mgcvST:::.mgcvst_prescreen_threshold(control$poisson_screen_phi), expected)
   }
   control <- mgcvST:::.inlast_control(list(poisson_screen_phi = NULL))
-  expect_identical(mgcvST:::.mgcvst_prescreen_threshold(control$poisson_screen_phi), 1.01)
+  expect_identical(mgcvST:::.mgcvst_prescreen_threshold(control$poisson_screen_phi), "score")
 })
 
-test_that("actual Poisson GLMs route at the tighter default", {
+test_that("the threshold knob accepts the score rule and rejects other strings", {
+  expect_identical(mgcvST:::.mgcvst_prescreen_threshold("score"), "score")
+  expect_error(mgcvST:::.mgcvst_prescreen_threshold("phi"), "score")
+  expect_error(mgcvST:::.mgcvst_prescreen_threshold(-1), "score")
+})
+
+test_that("the default routes exactly when the NB2 fit is the Poisson fit", {
   Y <- rbind(below = c(rep(c(0, 2), 49), 1, 1),
     between = rep(c(0, 2), 50), above = rep(c(0, 4), 50))
   X <- matrix(1, ncol(Y), 1L)
   threshold <- mgcvST:::.mgcvst_prescreen_threshold(NULL)
   z <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), threshold, TRUE)
   expect_equal(unname(z$phi), c(98, 100, 200) / 99, tolerance = 1e-8)
-  expect_identical(unname(z$poisson), c(TRUE, FALSE, FALSE))
+  # score = (sum (y - mu)^2 - sum y) / 2: -1, 0 and 100; 0 is the end point.
+  expect_equal(unname(z$score), c(-1, 0, 100), tolerance = 1e-8)
+  expect_identical(unname(z$poisson), c(TRUE, TRUE, FALSE))
+  sparse <- mgcvST:::.mgcvst_prescreen_route(Matrix::Matrix(Y, sparse = TRUE), X,
+    NULL, threshold, TRUE, threads = 2L)
+  expect_equal(sparse$score, z$score)
+  no_x <- mgcvST:::.mgcvst_prescreen_route(Y, matrix(numeric(), ncol(Y), 0L),
+    numeric(ncol(Y)), threshold, TRUE)
+  expect_equal(unname(no_x$score), c(-1, 0, 150), tolerance = 1e-8)
+  tight <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), 1.01, TRUE)
+  expect_identical(unname(tight$poisson), c(TRUE, FALSE, FALSE))
   old <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)), 1.1, TRUE)
   expect_identical(unname(old$poisson), c(TRUE, TRUE, FALSE))
   off <- mgcvST:::.mgcvst_prescreen_route(Y, X, numeric(ncol(Y)),
@@ -67,16 +83,16 @@ test_that("public mgcv and INLA entries apply the same routing controls", {
   Y <- rbind(below = c(rep(c(0, 2), 49), 1, 1), between = rep(c(0, 2), 50))
   route <- mgcvST:::.mgcvst_prescreen_route
   captured <- new.env(parent = emptyenv())
-  testthat::local_mocked_bindings(.mgcvst_prescreen_route = function(Y, X, offset, threshold, active) {
-    captured$result <- route(Y, X, offset, threshold, active)
+  testthat::local_mocked_bindings(.mgcvst_prescreen_route = function(Y, X, offset, threshold, active, threads = 1L) {
+    captured$result <- route(Y, X, offset, threshold, active, threads)
     captured$threshold <- threshold
     stop("prescreen captured before model fitting")
   }, .package = "mgcvST")
   controls <- list(list(), list(poisson_screen_phi = NULL),
     list(poisson_screen_phi = 1.1), list(poisson_screen_phi = 0))
   for (k in seq_along(controls)) {
-    expected <- if (k == 3L) c(TRUE, TRUE) else if (k == 4L) c(FALSE, FALSE) else c(TRUE, FALSE)
-    threshold <- if (k == 3L) 1.1 else if (k == 4L) NULL else 1.01
+    expected <- if (k == 4L) c(FALSE, FALSE) else c(TRUE, TRUE)
+    threshold <- if (k == 3L) 1.1 else if (k == 4L) NULL else "score"
     control <- utils::modifyList(mgcv::gam.control(), controls[[k]], keep.null = TRUE)
     for (setup in list(model, model$G)) {
       expect_error(mgcvST.estimate(Y, setup, control = control,

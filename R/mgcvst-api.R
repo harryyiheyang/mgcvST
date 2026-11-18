@@ -326,16 +326,18 @@
 #'   to avoid BAM's one-column QR dimension error.
 #' @param control An `mgcv::gam.control()` object. Internal thread counts are
 #'   always forced to one. It may additionally carry `poisson_screen_phi`
-#'   (default `1.01`), the Poisson prescreen threshold: with a negative-binomial
-#'   family, each feature first gets an offset-and-covariate-only Poisson GLM,
-#'   and a feature whose Pearson dispersion
-#'   `phi = sum((y - mu)^2 / mu) / (n - p)` is at most the threshold is fitted
-#'   with `stats::quasipoisson(link = "log")` instead. The Poisson and
+#'   (default `"score"`), the Poisson routing of a negative-binomial family:
+#'   each feature first gets an offset-and-covariate-only Poisson GLM and is
+#'   fitted with `stats::quasipoisson(link = "log")` when its overdispersion
+#'   score `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
+#'   maximum-likelihood fit is the Poisson fit. A number restores the earlier
+#'   rule (route when the Pearson dispersion
+#'   `phi = sum((y - mu)^2 / mu) / (n - p)` is at most that number). The Poisson and
 #'   quasipoisson point estimates agree. The null score fit and the full
 #'   spatial fit both estimate their own scale and smoothing parameters. The
 #'   screening phi is retained in diagnostics and is not passed as a fixed
-#'   `fit$sig2`. In the INLA path, routed features use plain Poisson. Set the
-#'   threshold to `0` to disable the screen (`NULL` restores the default);
+#'   `fit$sig2`. In the INLA path, routed features use plain Poisson. Set it
+#'   to `0` to disable the routing (`NULL` restores the default);
 #'   other families ignore it. The entry is removed before `control` reaches
 #'   `mgcv::bam()`. Per-feature `prescreen_phi` and `family_used` are reported
 #'   in the diagnostics, and `family_used` reads `"quasipoisson"` for a routed

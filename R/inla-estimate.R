@@ -288,21 +288,19 @@
 #'   objective corresponds to density proportional to `1/parameter` on its
 #'   positive scale.
 #'   `control.inla` accepts supported numerical tuning, with Gaussian latent
-#'   strategy and EB integration enforced. `poisson_screen_phi` (default `1.01`)
-#'   is the Poisson prescreen threshold: with a negative-binomial family, each
-#'   feature first gets an offset-and-covariate-only Poisson GLM, and a feature
-#'   whose Pearson dispersion `phi = sum((y - mu)^2 / mu) / (n - p)` is at most
-#'   the threshold is fitted with the Poisson family instead. Set it to `0` to
-#'   disable the screen (`NULL` restores the default); other families ignore it.
-#'   When the null model has fixed effects only (no random blocks) and neither
-#'   `poisson_screen_phi` nor `nb_size` is given, the null fits are the
-#'   batched maximum-likelihood fits of `spde.scan` and the routing is exact:
-#'   a feature is fitted with the Poisson family when its overdispersion score
-#'   `sum((y - mu)^2 - y) / 2` at the Poisson fit is not positive, i.e. when
-#'   the NB2 maximum-likelihood fit is the Poisson end point
-#'   (`options(mgcvST.scan_null = FALSE)` restores the INLA null fits and the
-#'   `phi` screen). The per-feature
-#'   `phi` and the family actually used are reported in the diagnostics as
+#'   strategy and EB integration enforced. `poisson_screen_phi` selects the
+#'   Poisson routing of a negative-binomial model (R/family-prescreen.R). The
+#'   default `"score"` fits each feature's offset-and-covariate-only Poisson
+#'   GLM and routes it to the Poisson family when its overdispersion score
+#'   `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
+#'   maximum-likelihood fit is the Poisson fit. A number restores the earlier
+#'   rule (route when the Pearson dispersion `phi = sum((y - mu)^2 / mu) /
+#'   (n - p)` is at most that number); `0` disables the routing. Other families
+#'   ignore it. When the null model has fixed effects only, the null fits are
+#'   the batched maximum-likelihood fits of `spde.scan`
+#'   (`options(mgcvST.scan_null = FALSE)` restores the INLA null fits). The
+#'   per-feature `phi` and the family actually used are reported in the
+#'   diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
 #' @param retain_smooth Retain estimated score-component coefficients.
 #' @param diagnostics Retain the per-feature INLA optimizer/hyperparameter
@@ -416,23 +414,13 @@ inlaST.estimate <- function(
   screen_offset <- if (is.null(offset)) model$offset else
     if (is.matrix(offset)) sweep(offset, 2L, model$offset, "+") else
       model$offset + offset
+  prescreen <- .mgcvst_prescreen_route(
+    Y, X = model$inla_spec$fixed$X, offset = screen_offset,
+    threshold = screen_threshold,
+    active = identical(model$inla_spec$family, "negative_binomial"),
+    threads = threads
+  )
   null_spec <- .inlast_null_spec(model$inla_spec)
-  # spde.scan (R/spde-scan.R): with a fixed-effects-only NB null and no
-  # explicit threshold, a feature is Poisson exactly when its NB2
-  # maximum-likelihood fit is (overdispersion score <= 0), not by a phi cutoff.
-  exact_route <- .inlast_scan_eligible(null_spec) &&
-    identical(model$inla_spec$family, "negative_binomial") &&
-    is.null(control[["poisson_screen_phi", exact = TRUE]]) &&
-    is.null(control[["nb_size", exact = TRUE]])
-  prescreen <- if (exact_route) {
-    .inlast_scan_route(Y, model$inla_spec$fixed$X, screen_offset, threads)
-  } else {
-    .mgcvst_prescreen_route(
-      Y, X = model$inla_spec$fixed$X, offset = screen_offset,
-      threshold = screen_threshold,
-      active = identical(model$inla_spec$family, "negative_binomial")
-    )
-  }
   # Validate the twin once in the parent so a spec the switch cannot handle
   # fails here rather than inside every affected worker.
   if (any(prescreen$poisson)) .inlast_poisson_spec(model$inla_spec)

@@ -272,10 +272,11 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
   # An old BiocParallel returned results in completion order. The mock runs
   # the tasks and returns them reversed, which is what a fully reversed
   # completion looks like.
-  reversed <- function(ITER, FUN, ..., BPPARAM) {
+  reversed <- function(ITER, FUN, ..., REDUCE, init, BPPARAM) {
     out <- list()
     while (!is.null(payload <- ITER())) out[[length(out) + 1L]] <- FUN(payload, ...)
-    rev(out)
+    out <- rev(out)
+    if (missing(REDUCE)) out else Reduce(REDUCE, out, init)
   }
   res <- testthat::with_mocked_bindings(
     mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "spatial",

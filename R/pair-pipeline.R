@@ -468,6 +468,8 @@
   }
 
   if (all_pairs) {
+    progress <- .mgcvst_progress("pairs", length(used) * (length(used) - 1) / 2,
+                                 "pairs")
     capacity <- max(2L, min(length(used), floor(cache_bytes / state_estimate)))
     schedule <- .mgcvst_all_pair_schedule(pair_dir, length(used), capacity,
                                           chunk_size)
@@ -477,8 +479,10 @@
       window <- cbind(used[pos[, 1L]], used[pos[, 2L]])
       if (.mgcvst_shard_complete(pair_dir, b, window[, 1L], window[, 2L])) {
         resumed_pairs <- resumed_pairs + nrow(window)
+        progress$add(nrow(window), fresh = FALSE)
       } else {
         evaluate(window, sort(unique(as.vector(window))), b)
+        progress$add(nrow(window))
       }
       shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, b))
       shard_rows <- c(shard_rows, nrow(window))
@@ -487,6 +491,7 @@
         message("Evaluated pair block ", b, " of ", nrow(blocks), ".")
       }
     }
+    progress$done()
     n_pairs <- sum(shard_rows)
     pair_schedule <- "resident_gene_tiles"
   } else {
@@ -494,6 +499,7 @@
       max(2L, floor(cache_bytes / state_estimate)), pair_dir)
     index <- index[ord, , drop = FALSE]
     n_pairs <- nrow(index)
+    progress <- .mgcvst_progress("pairs", n_pairs, "pairs")
     first <- 1L
     last_probe <- proc.time()[["elapsed"]]
     while (first <= n_pairs) {
@@ -504,6 +510,7 @@
         shard_rows <- c(shard_rows, saved)
         chunks <- chunks + 1L
         first <- first + saved
+        progress$add(saved, fresh = FALSE)
         next
       }
       if (proc.time()[["elapsed"]] - last_probe >= 2) {
@@ -524,6 +531,7 @@
       } else cap
       window <- index[seq.int(first, last), , drop = FALSE]
       evaluate(window, sort(unique(as.vector(window))), first)
+      progress$add(nrow(window))
       shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, first))
       shard_rows <- c(shard_rows, nrow(window))
       chunks <- chunks + 1L
@@ -532,6 +540,7 @@
       }
       first <- last + 1L
     }
+    progress$done()
     pair_schedule <- "resident_gene_blocks"
   }
 
