@@ -1,3 +1,32 @@
+# mgcvST 0.0.1.9045
+
+* `spde.scan`: the Stage 1 null fits of `inlaST.estimate()` no longer call
+  INLA when the null model has fixed effects only and a count family. All
+  features of a chunk are fitted by one batched maximum-likelihood kernel
+  (`src/nb_null.cpp`, OpenMP over features), whose working error and variance
+  feed the same sparse score kernel. Under the flat priors of the branch this
+  fit is the INLA conditional mode up to the Laplace correction of the size.
+  `options(mgcvST.scan_null = FALSE)` restores the per-feature INLA null fits.
+* The negative binomial of the scan is parameterised by its overdispersion
+  `alpha = 1/size` (NB2), so Poisson is the end point `alpha = 0` of a bounded
+  search. The Poisson fit gives the overdispersion score
+  `sum((y - mu)^2 - y) / 2` (Cameron and Trivedi): when it is not positive
+  the maximum-likelihood fit is the Poisson fit, with no size search;
+  otherwise `alpha` is found by mgcv's nested scheme (IRLS for the
+  coefficients at fixed `alpha`, safeguarded Newton on `alpha` outside). The
+  gamma-function terms are summed exactly through the tail counts
+  `#{i : y_i > j}`, `O(n + max y)` per step. With this route the Poisson
+  routing uses the same criterion in place of the `phi` threshold, unless
+  `poisson_screen_phi` or `nb_size` is given. Against `MASS::glm.nb()` the
+  coefficients, size and log-likelihood agree to about `1e-10`; 2,000
+  features on 20,000 observations take 11.3 s on one thread and 2.8 s on
+  four (at most 6 outer steps, all converged).
+* The positive spectrum of the Stage 1 null score (`M = C'(A'WA - U Vp U')C`)
+  is computed by LAPACK `dsyevd` (eigenvalues only) instead of Eigen's
+  `SelfAdjointEigenSolver`, so it runs on the R BLAS/LAPACK (OpenBLAS or MKL
+  with their own run-time CPU dispatch); about 2.3 times faster at
+  `m = 1962` on OpenBLAS.
+
 # mgcvST 0.0.1.9044
 
 * `screen = TRUE` of `mgcvST.test()` and `inlaST.test()` also applies to

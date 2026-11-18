@@ -61,10 +61,17 @@
   out <- vector("list", k)
   for (first in seq.int(1L, k, by = block)) {
     rows <- first:min(k, first + block - 1L)
-    fits <- .inlast_fit_chunk(
-      rows, payload$Y, null_spec, base_offset, payload$extra_offset,
-      null_control, FALSE, payload$poisson
-    )
+    fits <- if (.inlast_scan_eligible(null_spec)) {
+      .inlast_scan_fits(
+        rows, payload$Y, null_spec, base_offset, payload$extra_offset,
+        null_control, payload$poisson, threads
+      )
+    } else {
+      .inlast_fit_chunk(
+        rows, payload$Y, null_spec, base_offset, payload$extra_offset,
+        null_control, FALSE, payload$poisson
+      )
+    }
     failed <- vapply(fits, inherits, logical(1L), what = "condition")
     ok <- !failed & vapply(fits, function(z) isTRUE(z$converged), logical(1L))
     dispersion <- rep(NA_real_, length(rows))
@@ -287,7 +294,14 @@
 #'   whose Pearson dispersion `phi = sum((y - mu)^2 / mu) / (n - p)` is at most
 #'   the threshold is fitted with the Poisson family instead. Set it to `0` to
 #'   disable the screen (`NULL` restores the default); other families ignore it.
-#'   The per-feature
+#'   When the null model has fixed effects only (no random blocks) and neither
+#'   `poisson_screen_phi` nor `nb_size` is given, the null fits are the
+#'   batched maximum-likelihood fits of `spde.scan` and the routing is exact:
+#'   a feature is fitted with the Poisson family when its overdispersion score
+#'   `sum((y - mu)^2 - y) / 2` at the Poisson fit is not positive, i.e. when
+#'   the NB2 maximum-likelihood fit is the Poisson end point
+#'   (`options(mgcvST.scan_null = FALSE)` restores the INLA null fits and the
+#'   `phi` screen). The per-feature
 #'   `phi` and the family actually used are reported in the diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
 #' @param retain_smooth Retain estimated score-component coefficients.
@@ -399,20 +413,31 @@ inlaST.estimate <- function(
   screen_threshold <- .mgcvst_prescreen_threshold(
     control[["poisson_screen_phi", exact = TRUE]]
   )
-  prescreen <- .mgcvst_prescreen_route(
-    Y, X = model$inla_spec$fixed$X,
-    offset = if (is.null(offset)) model$offset else
-      if (is.matrix(offset)) sweep(offset, 2L, model$offset, "+") else
-        model$offset + offset,
-    threshold = screen_threshold,
-    active = identical(model$inla_spec$family, "negative_binomial")
-  )
+  screen_offset <- if (is.null(offset)) model$offset else
+    if (is.matrix(offset)) sweep(offset, 2L, model$offset, "+") else
+      model$offset + offset
+  null_spec <- .inlast_null_spec(model$inla_spec)
+  # spde.scan (R/spde-scan.R): with a fixed-effects-only NB null and no
+  # explicit threshold, a feature is Poisson exactly when its NB2
+  # maximum-likelihood fit is (overdispersion score <= 0), not by a phi cutoff.
+  exact_route <- .inlast_scan_eligible(null_spec) &&
+    identical(model$inla_spec$family, "negative_binomial") &&
+    is.null(control[["poisson_screen_phi", exact = TRUE]]) &&
+    is.null(control[["nb_size", exact = TRUE]])
+  prescreen <- if (exact_route) {
+    .inlast_scan_route(Y, model$inla_spec$fixed$X, screen_offset, threads)
+  } else {
+    .mgcvst_prescreen_route(
+      Y, X = model$inla_spec$fixed$X, offset = screen_offset,
+      threshold = screen_threshold,
+      active = identical(model$inla_spec$family, "negative_binomial")
+    )
+  }
   # Validate the twin once in the parent so a spec the switch cannot handle
   # fails here rather than inside every affected worker.
   if (any(prescreen$poisson)) .inlast_poisson_spec(model$inla_spec)
   family_used <- rep(model$inla_spec$family, p)
   family_used[prescreen$poisson] <- "poisson"
-  null_spec <- .inlast_null_spec(model$inla_spec)
   null_control <- .inlast_null_control(control, model$inla_spec)
   if (any(prescreen$poisson)) .inlast_poisson_spec(null_spec)
 

@@ -1,3 +1,4 @@
+#define USE_FC_LEN_T
 #define EIGEN_DONT_PARALLELIZE
 #include "inla_sparse.h"
 #include "pca_reduce.h"
@@ -5,6 +6,8 @@
 #include <omp.h>
 #endif
 #include <cstring>
+#include <vector>
+#include <R_ext/Lapack.h>
 #include <memory>
 
 // [[Rcpp::depends(RcppEigen)]]
@@ -18,11 +21,27 @@ namespace {
 // exceed 1e-12 times the largest one. This drops the constraint direction and
 // the numerical null space before the Davies calibration.
 Vec positive_spectrum(const Mat& value) {
-  Eigen::SelfAdjointEigenSolver<Mat> eig(value, Eigen::EigenvaluesOnly);
-  if (eig.info() != Eigen::Success) {
+  // Eigenvalues only through LAPACK dsyevd, which runs the reduction on the
+  // linked (optimised) BLAS; Eigen's own tridiagonalisation is unblocked.
+  Mat work_matrix = value;
+  int n = static_cast<int>(work_matrix.rows());
+  int info = 0, lwork = -1, liwork = -1, iwork_query = 0;
+  double work_query = 0;
+  Vec values(n);
+  F77_CALL(dsyevd)("N", "L", &n, work_matrix.data(), &n, values.data(),
+                   &work_query, &lwork, &iwork_query, &liwork, &info FCONE FCONE);
+  if (info != 0) {
     throw std::runtime_error("The marginal curvature eigendecomposition failed.");
   }
-  const Vec& values = eig.eigenvalues();
+  lwork = static_cast<int>(work_query);
+  liwork = iwork_query;
+  std::vector<double> work(std::max(1, lwork));
+  std::vector<int> iwork(std::max(1, liwork));
+  F77_CALL(dsyevd)("N", "L", &n, work_matrix.data(), &n, values.data(),
+                   work.data(), &lwork, iwork.data(), &liwork, &info FCONE FCONE);
+  if (info != 0 || !values.allFinite()) {
+    throw std::runtime_error("The marginal curvature eigendecomposition failed.");
+  }
   const double cutoff = 1e-12 * values.maxCoeff();
   int kept = 0;
   for (int j = 0; j < values.size(); ++j) {

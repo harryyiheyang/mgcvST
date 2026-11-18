@@ -5,7 +5,7 @@ CXX_STD = CXX17
 # AVX registers must use unaligned moves (the assembler flag below).
 LA_OBJECTS = la_generic.o la_avx2.o la_avx512.o
 OBJECTS = RcppExports.o adjust_pvalues.o dense_prepare.o inla_sparse.o \
-  inla_working_state.o memory_status.o pca_learning.o score_pair.o spa_pair.o \
+  inla_working_state.o memory_status.o nb_null.o pca_learning.o score_pair.o spa_pair.o \
   $(LA_OBJECTS)
 PKG_CPPFLAGS = -DMGCVST_LA_X86
 PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS) -Wa,-mbig-obj -Wa,-muse-unaligned-vector-move
