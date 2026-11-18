@@ -74,8 +74,22 @@
 })
 
 # Identical estimates: every field the tests read, without timings.
+# Wall-clock fields (`*_seconds`) differ from run to run, also inside the
+# per-feature null states (the spde.scan null fits are not memoized, they are
+# deterministic apart from their timing).
+.ts_strip_seconds <- function(x) {
+  if (is.list(x) && !is.data.frame(x)) {
+    if (!is.null(names(x))) x <- x[!grepl("_seconds$", names(x))]
+    x[] <- lapply(x, .ts_strip_seconds)
+  }
+  x
+}
+
 .ts_same_estimates <- function(a, b, fields) {
-  for (name in fields) expect_identical(a[[name]], b[[name]], info = name)
+  for (name in fields) {
+    expect_identical(.ts_strip_seconds(a[[name]]), .ts_strip_seconds(b[[name]]),
+                     info = name)
+  }
   keep <- !grepl("_seconds$", names(a$diagnostics))
   expect_identical(a$diagnostics[, keep], b$diagnostics[, keep])
 }
