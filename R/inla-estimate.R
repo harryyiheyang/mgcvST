@@ -36,6 +36,11 @@
       if (!same) try(unloadNamespace("mgcvST"), silent = TRUE)
     }
     fun <- get(fun_name, envir = asNamespace("mgcvST"))
+    # A worker process keeps one BLAS/OpenMP thread for its life, so that the
+    # LAPACK calls of the sparse kernels never oversubscribe the node.
+    if (!identical(manager, Sys.getpid())) {
+      get(".mgcvst_thread_limit", envir = asNamespace("mgcvST"))()
+    }
     do.call(fun, c(list(payload), args))
   }
   environment(task) <- baseenv()
@@ -379,6 +384,10 @@ inlaST.estimate <- function(
   adjust <- match.arg(adjust)
   q.value <- .mgcvst_check_q_value(q.value)
   threads <- .inlast_check_threads(threads)
+  # One BLAS thread in this process before any worker is forked, so that a
+  # forked worker never inherits a threaded BLAS; restored on exit.
+  old_threads <- .mgcvst_thread_limit()
+  on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
   checked <- .inlast_validate_estimate(
     Y, model, feature_id, BPPARAM, chunk_size, offset, control,
     retain_smooth, diagnostics
@@ -634,6 +643,10 @@ inlaST.estimate_spatial <- function(
   q.value <- if (missing(q.value)) fit$stage1$q.value else
     .mgcvst_check_q_value(q.value)
   threads <- .inlast_check_threads(threads)
+  # One BLAS thread in this process before any worker is forked, so that a
+  # forked worker never inherits a threaded BLAS; restored on exit.
+  old_threads <- .mgcvst_thread_limit()
+  on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
   if (!inherits(BPPARAM, "BiocParallelParam")) {
     stop("BPPARAM must inherit from 'BiocParallelParam'.")
   }

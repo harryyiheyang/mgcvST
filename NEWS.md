@@ -1,3 +1,12 @@
+# mgcvST 0.0.1.9048
+
+* `inlaST.estimate()` and `inlaST.estimate_spatial()` now hold the BLAS and
+  OpenMP libraries at one thread in the calling process and in every worker,
+  as `mgcvST.estimate()` already did. Since 0.0.1.9045 the null spectrum of
+  Stage 1 calls LAPACK (`dsyevd`), and forked workers that inherited a
+  multithreaded OpenBLAS oversubscribed the node: a 40-worker Stage 1 ran
+  for hours without finishing a chunk.
+
 # mgcvST 0.0.1.9047
 
 * The `poisson_screen_phi` control is removed from `mgcvST.estimate()` and
