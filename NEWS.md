@@ -1,3 +1,12 @@
+# spdeST 0.0.1.9056
+
+* The Stage 1 diagnostics of an `mgcvST.set()` model gain `null_converged`
+  (the spde.scan null size search, or the `gam`/`bam` null fit, converged),
+  as those of `inlaST.set()` already had. `converged` stays the Stage 2
+  convergence and is `FALSE` until the feature is fitted by
+  `spdeST.estimate()`. Stage 1 checkpoints written by earlier versions are
+  recomputed.
+
 # spdeST 0.0.1.9055
 
 * inst/ keeps only the data examples written for the spdeST pipeline
