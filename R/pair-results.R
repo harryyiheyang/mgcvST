@@ -2,7 +2,9 @@
 # multiple-testing adjustment.
 #
 # Every pair of a test is one row of integer feature indices i < j, the signed
-# score, the natural-log two-sided, positive and negative p-values, the
+# score U, its information t1 = tr(M_i M_j) (exact on the exact route, c_i' c_j
+# on the PCAlearning route; U / t1 is the Haseman-Elston-type estimate of the
+# pair and 1 / sqrt(t1) its null standard error), the natural-log two-sided, positive and negative p-values, the
 # adjusted two-sided log q-value, the kind of remainder used by the
 # calibration (0 none, 1 one node, 2 two nodes, 3 Gaussian) and a status code.
 # Feature names are looked up from the `feature_id` vector stored beside the
@@ -10,7 +12,7 @@
 # are evaluated, so a run never holds a per-pair table of all pairs in memory.
 
 .mgcvst_final_columns <- c(
-  "i", "j", "score", "log_p_two_sided", "log_p_positive", "log_p_negative",
+  "i", "j", "score", "t1", "log_p_two_sided", "log_p_positive", "log_p_negative",
   "log_q", "remainder_kind", "status"
 )
 
@@ -47,7 +49,7 @@
   out <- list(calibration_contract = "spa_v1", route = route, k = as.integer(k),
        remainder_order = if (identical(route, "exact")) 4L else 2L,
        basis_sha = as.character(basis_sha), kernel_version = 7L,
-       schema = "compact_v1")
+       schema = "compact_v2")
   # A screened run is another contract (its screening value is part of it); an
   # unscreened run keeps the contract of earlier versions.
   if (screen_z > 0) out$screen_z <- as.numeric(screen_z)
@@ -83,11 +85,12 @@ mgcvst_harmonic <- function(m) {
 .mgcvst_pairs_frame <- function(i, j, score = NA_real_, log_p_two_sided = NA_real_,
                                 log_p_positive = NA_real_,
                                 log_p_negative = NA_real_, remainder_kind = 0L,
-                                status = 0L) {
+                                status = 0L, t1 = NA_real_) {
   n <- length(i)
   data.frame(
     i = as.integer(i), j = as.integer(j),
     score = rep_len(as.numeric(score), n),
+    t1 = rep_len(as.numeric(t1), n),
     log_p_two_sided = rep_len(as.numeric(log_p_two_sided), n),
     log_p_positive = rep_len(as.numeric(log_p_positive), n),
     log_p_negative = rep_len(as.numeric(log_p_negative), n),
@@ -107,7 +110,7 @@ mgcvst_harmonic <- function(m) {
 # Bytes of the adjustment vectors per pair: log p, log q and the ranking.
 .mgcvst_adjust_bytes_per_pair <- 24
 # Bytes of one compact result row held in memory.
-.mgcvst_result_bytes_per_pair <- 56
+.mgcvst_result_bytes_per_pair <- 64
 
 # Memory guard: does `bytes_per_pair * n_pairs` stay below `fraction` of the
 # memory available to the process? Unknown memory passes. Memory the run has
@@ -303,7 +306,7 @@ mgcvst_harmonic <- function(m) {
     columns <- new.env(parent = emptyenv())
     columns$i <- integer(n_pairs)
     columns$j <- integer(n_pairs)
-    for (name in c("score", "log_p_two_sided", "log_p_positive",
+    for (name in c("score", "t1", "log_p_two_sided", "log_p_positive",
                    "log_p_negative", "log_q")) {
       columns[[name]] <- numeric(n_pairs)
     }

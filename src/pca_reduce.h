@@ -96,15 +96,17 @@ inline std::string reduce_feature(const Mat& M, int q,
                                   const Eigen::Map<const Mat>& V, bool pack,
                                   Vec& h, double& scale, double& fro2,
                                   Eigen::Ref<Vec> c, std::vector<float>& packed,
-                                  Eigen::Ref<Vec> Rcol) {
+                                  Eigen::Ref<Vec> Rcol, double& trace) {
   const Index L = static_cast<Index>(q) * (q + 1) / 2;
   auto fail = [&](const char* why) {
     fro2 = NA_REAL;
+    trace = NA_REAL;
     c.setConstant(NA_REAL);
     Rcol.setConstant(NA_REAL);
     std::vector<float>().swap(packed);
     return std::string(why);
   };
+  trace = M.trace();
   scale = matrix_scale(M);
   if (!(std::isfinite(scale) && scale > 0)) {
     return fail("The curvature matrix is zero or not finite.");

@@ -288,6 +288,14 @@
     class = "mgcvST_test"
   )
   if (!is.null(pca_learning)) ans$pca_learning <- pca_learning
+  # Per-feature traces of the score curvature M_g of every feature in a tested
+  # pair: tr(M_g) (the expected a_g' a_g) and tr(M_g^2). With the per-pair t1
+  # they are the inputs of the Haseman-Elston-type estimates U / t1.
+  if (!is.null(routed$features)) {
+    ans$features <- data.frame(
+      feature_id = fit$feature_id[routed$features$feature_index],
+      routed$features, stringsAsFactors = FALSE)
+  }
   ans
 }
 
@@ -331,7 +339,9 @@
 #' returned with status 3 and missing p-values.
 #'
 #' The result is compact. Each pair is one row of the integer feature indices
-#' `i < j` (positions in `$feature_id`), the signed `score`, the natural-log
+#' `i < j` (positions in `$feature_id`), the signed `score` `U`, its
+#' information `t1 = tr(M_i M_j)` (exact on the exact route, `c_i' c_j` on the
+#' PCAlearning route), the natural-log
 #' two-sided, positive and negative p-values `log_p_two_sided`,
 #' `log_p_positive` and `log_p_negative`, the adjusted two-sided
 #' log q-value `log_q`, the integer `remainder_kind` of the calibration (0:
@@ -345,6 +355,13 @@
 #' | 2 | invalid p-value | 1 |
 #' | 3 | a feature of the pair has no usable score state | missing, not adjusted |
 #' | 4 | screened (`screen = TRUE`) | lower bounds |
+#'
+#' `U / t1` is the Haseman-Elston-type estimate of the cross-feature
+#' covariance of the pair, with null standard error `1 / sqrt(t1)`, and
+#' `sum(U) / sum(t1)` pools pairs. `$features` holds, for every feature of a
+#' tested pair, `trace_M = tr(M_g)` (the expected `a_g' a_g`) and
+#' `trace_M2 = tr(M_g^2)`; the PCAlearning route also keeps the coefficients
+#' `c_g` in `$pca_learning$coefficients`.
 #'
 #' A pair with status 1 or 2 has p = 1 (`log_p_two_sided`, `log_p_positive` and
 #' `log_p_negative` are all 0), the conservative choice, and stays in the

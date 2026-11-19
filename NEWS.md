@@ -1,3 +1,16 @@
+# mgcvST 0.0.1.9049
+
+* Pair results (`mgcvST.test()`, `inlaST.test()`) carry a `t1` column, the
+  information `tr(M_i M_j)` of each pair score (exact on the exact route,
+  `c_i' c_j` on the PCAlearning route). `score / t1` is the
+  Haseman-Elston-type estimate of the pair, `1 / sqrt(t1)` its null standard
+  error, and `sum(score) / sum(t1)` pools pairs.
+* The test result holds `$features` with `trace_M = tr(M_g)` and
+  `trace_M2 = tr(M_g^2)` for every feature of a tested pair; the PCAlearning
+  per-gene table also reports `trace`.
+* The result schema is `compact_v2`: pair checkpoints written by earlier
+  versions are refused (their rows have no `t1`).
+
 # mgcvST 0.0.1.9048
 
 * `inlaST.estimate()` and `inlaST.estimate_spatial()` now hold the BLAS and

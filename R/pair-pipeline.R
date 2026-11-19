@@ -123,6 +123,7 @@
   if (!is.null(res$screened)) attr(out, "screened") <- res$screened
   at <- rows[perm]
   out$score[at] <- res$score
+  out$t1[at] <- res$t1
   out$log_p_two_sided[at] <- res$log_p_two_sided
   out$log_p_positive[at] <- res$log_p_positive
   out$log_p_negative[at] <- res$log_p_negative
@@ -376,15 +377,23 @@
     path = if (isTRUE(store$temporary)) NULL else store$path,
     sum = running, batch_size = read_batch, verbose = verbose)
   rm(running)
-  # Pair bases G_g = H_g^(1/2) V of every used feature, resident.
+  # Pair bases G_g = H_g^(1/2) V of every used feature, resident, and the
+  # traces tr(M_g) and tr(M_g^2) of each state, kept with the test.
   G <- vector("list", length(fit$feature_id))
+  trace_M <- trace_M2 <- rep(NA_real_, length(used))
   for (first in seq.int(1L, length(used), by = read_batch)) {
-    ids <- used[first:min(length(used), first + read_batch - 1L)]
+    at <- first:min(length(used), first + read_batch - 1L)
+    ids <- used[at]
     states <- lapply(ids, function(id) .mgcvst_store_read(store, id))
     good <- vapply(states, function(z) is.null(z$error), logical(1L))
     if (any(good)) {
       G[ids[good]] <- mgcvst_pair_basis_cpp(lapply(states[good], `[[`, "M"),
                                             shared$V, threads)
+      for (g in which(good)) {
+        M <- states[[g]]$M
+        trace_M[at[g]] <- sum(diag(M))
+        trace_M2[at[g]] <- sum(M * t(M))
+      }
     }
   }
   preparation_elapsed <- proc.time()[["elapsed"]] - preparation_started
@@ -564,6 +573,8 @@
       cache_evictions = cache$evictions, cache_bytes = cache_bytes,
       resident_bytes = cache$bytes, preparation_elapsed = preparation_elapsed,
       signature = signature, contract = contract
-    )
+    ),
+    features = data.frame(feature_index = used, trace_M = trace_M,
+                          trace_M2 = trace_M2)
   )
 }

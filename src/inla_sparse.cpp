@@ -459,7 +459,7 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   const std::vector<ReconstructionUnit> parsed = parse_units(units, m);
   const Vec g = constraint;
   Mat A(q, features), C(features, r);
-  Vec fro2(features), statistic(features);
+  Vec fro2(features), statistic(features), trace(features);
   Rcpp::NumericMatrix Rout((Eigen::Index)kv * kv, features);
   Eigen::Map<Mat> Rall(Rout.begin(), (Eigen::Index)kv * kv, features);
   Rcpp::NumericVector scale(features, NA_REAL);
@@ -482,11 +482,12 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
         const Mat M = 0.5 * (Mraw + Mraw.transpose());
         A.col(f) = coordinate.transpose() * unit.a;
         statistic[f] = A.col(f).squaredNorm();
-        double sc = NA_REAL, f2 = NA_REAL;
+        double sc = NA_REAL, f2 = NA_REAL, tr = NA_REAL;
         error[f] = mgcvst_pca::reduce_feature(M, q, PB, Vm, pack[f] != 0, h, sc, f2,
-                                              ccol, packed[f], rcol);
+                                              ccol, packed[f], rcol, tr);
         scalep[f] = sc;
         fro2[f] = f2;
+        trace[f] = tr;
         C.row(f) = ccol.transpose();
         if (kv) Rall.col(f) = rcol;
         if (!error[f].empty()) {
@@ -499,7 +500,7 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
         A.col(f).setConstant(NA_REAL);
         C.row(f).setConstant(NA_REAL);
         if (kv) Rall.col(f).setConstant(NA_REAL);
-        fro2[f] = statistic[f] = NA_REAL;
+        fro2[f] = statistic[f] = trace[f] = NA_REAL;
         failed += 1;
       }
     }
@@ -511,7 +512,7 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   }
   return Rcpp::List::create(
     Rcpp::Named("a") = A, Rcpp::Named("C") = C, Rcpp::Named("fro2") = fro2,
-    Rcpp::Named("statistic") = statistic, Rcpp::Named("packed") = packed_out,
+    Rcpp::Named("trace") = trace, Rcpp::Named("statistic") = statistic, Rcpp::Named("packed") = packed_out,
     Rcpp::Named("R") = Rout, Rcpp::Named("scale") = scale,
     Rcpp::Named("error") = error_out, Rcpp::Named("failed") = failed,
     Rcpp::Named("width") = q

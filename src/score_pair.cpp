@@ -291,11 +291,12 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
   }
 
   Rcpp::NumericVector score(N), log_p_two_sided(N), log_p_positive(N),
-    log_p_negative(N);
+    log_p_negative(N), t1_out(N);
   Rcpp::IntegerVector remainder_kind(N), status(N);
   const int* rightp = right.begin();
   Eigen::Map<const Eigen::MatrixXd> A(a.begin(), q, n);
   double* scorep = score.begin();
+  double* t1p = t1_out.begin();
   double* lp2p = log_p_two_sided.begin();
   double* lp1p = log_p_positive.begin();
   double* lp0p = log_p_negative.begin();
@@ -329,6 +330,8 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
       for (R_xlen_t j = task.first; j < task.last; ++j) {
         const int r = rightp[j] - 1;
         scorep[j] = A.col(l).dot(A.col(r));
+        // t1 = tr(M_l M_r) in public units: the information of the pair score.
+        t1p[j] = la.trace1(Hptr[l], Hptr[r], q);
         lp2p[j] = lp1p[j] = lp0p[j] = NA_REAL;
         kindp[j] = 0;
         statusp[j] = 1;
@@ -346,7 +349,7 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
         // not computed, and the lower bound 2 Phibar(max(z, 2)) is returned
         // with status 4.
         if (screen_z > 0) {
-          const double t1 = la.trace1(Hptr[l], Hptr[r], q) / (scales[l] * scales[r]);
+          const double t1 = t1p[j] / (scales[l] * scales[r]);
           const double z = t1 > 0 ? std::fabs(sc) / std::sqrt(t1) : R_PosInf;
           if (std::isfinite(z) && z < screen_z) {
             const double one = R::pnorm(std::max(z, 2.0), 0.0, 1.0, 0, 1);
@@ -407,6 +410,7 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
 
   return Rcpp::List::create(
     Rcpp::Named("score") = score,
+    Rcpp::Named("t1") = t1_out,
     Rcpp::Named("log_p_two_sided") = log_p_two_sided,
     Rcpp::Named("log_p_positive") = log_p_positive,
     Rcpp::Named("log_p_negative") = log_p_negative,

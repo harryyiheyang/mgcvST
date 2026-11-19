@@ -17,10 +17,11 @@
 #' `timing$route`.
 #'
 #' The result has the compact shape described in [mgcvST.test()]: integer
-#' feature indices `i < j`, the signed `score`, the natural-log two-sided,
+#' feature indices `i < j`, the signed `score`, its information `t1`, the
+#' natural-log two-sided,
 #' positive and negative p-values, the adjusted two-sided `log_q`, the
 #' calibration's `remainder_kind` and a `status` code, streamed to Parquet
-#' shards. With `pairs = NULL` every pair of the available genes is tested, one
+#' shards, and the per-feature traces in `$features`. With `pairs = NULL` every pair of the available genes is tested, one
 #' block of left genes at a time. The multiple-testing adjustment is applied
 #' once to the two-sided family, in log space, and positive and negative
 #' discoveries are split by the sign of the score.

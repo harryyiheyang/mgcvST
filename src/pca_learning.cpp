@@ -466,7 +466,7 @@ Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::Mat
     Hptr[g] = current.begin();
   }
   MatD C(n, r), Aout = a;
-  VecD fro2(n);
+  VecD fro2(n), trace(n);
   Rcpp::NumericMatrix Rout((Index)k * k, n);
   Eigen::Map<MatD> Rall(Rout.begin(), (Index)k * k, n);
   Rcpp::NumericVector scale(n, NA_REAL);
@@ -485,11 +485,12 @@ Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::Mat
     for (int g = 0; g < n; ++g) {
       Eigen::Map<const MatD> Mraw(Hptr[g], q, q);
       const MatD M = 0.5 * (Mraw + Mraw.transpose());
-      double s = NA_REAL, f2 = NA_REAL;
+      double s = NA_REAL, f2 = NA_REAL, tr = NA_REAL;
       error[g] = mgcvst_pca::reduce_feature(M, q, PB, Vm, pack[g] != 0, h, s, f2,
-                                            ccol, packed[g], rcol);
+                                            ccol, packed[g], rcol, tr);
       sp[g] = s;
       fro2[g] = f2;
+      trace[g] = tr;
       C.row(g) = ccol.transpose();
       if (k) Rall.col(g) = rcol;
       if (!error[g].empty()) Aout.col(g).setConstant(NA_REAL);
@@ -504,7 +505,8 @@ Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::Mat
   }
   return Rcpp::List::create(
     Rcpp::Named("a") = Rcpp::wrap(Aout), Rcpp::Named("C") = Rcpp::wrap(C),
-    Rcpp::Named("fro2") = Rcpp::wrap(fro2), Rcpp::Named("packed") = packed_out,
+    Rcpp::Named("fro2") = Rcpp::wrap(fro2), Rcpp::Named("trace") = Rcpp::wrap(trace),
+    Rcpp::Named("packed") = packed_out,
     Rcpp::Named("R") = Rout, Rcpp::Named("scale") = scale,
     Rcpp::Named("error") = error_out, Rcpp::Named("failed") = failed,
     Rcpp::Named("width") = q);

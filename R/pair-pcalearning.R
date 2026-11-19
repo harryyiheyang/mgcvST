@@ -108,7 +108,7 @@
 # How the PCAlearning route obtains the curvature matrices of the used genes.
 # `materialize(ids, B, V, pack)` returns, for genes `ids` in blocks of 32: the
 # score coordinates a_j (q x n), the coefficients c_j = B' vech_w(H_j) when `B`
-# is given, ||H_j||_F^2, the scale max|H_j|, with `pack = TRUE` the float32
+# is given, ||H_j||_F^2 (= tr(H_j^2)), tr(H_j), the scale max|H_j|, with `pack = TRUE` the float32
 # weighted-vech H_j and, when the shared basis `V` is given, the factors R_j
 # (k^2 x n). Failed genes carry `error`.
 .mgcvst_pca_producer <- function(fit, used, basis, threads) {
@@ -165,7 +165,7 @@
     A <- matrix(NA_real_, q, n)
     C <- matrix(NA_real_, n, r)
     R <- matrix(NA_real_, k * k, n)
-    fro2 <- scale <- rep(NA_real_, n)
+    fro2 <- trace <- scale <- rep(NA_real_, n)
     error <- rep(NA_character_, n)
     packed <- vector("list", n)
     for (first in if (n) seq.int(1L, n, by = 32L) else integer()) {
@@ -178,12 +178,13 @@
       A[, kg] <- z$a
       if (r) C[kg, ] <- z$C
       fro2[kg] <- z$fro2
+      trace[kg] <- z$trace
       scale[kg] <- z$scale
       if (k) R[, kg] <- z$R
       if (pack) packed[kg] <- z$packed
     }
-    list(A = A, C = C, fro2 = fro2, error = error, packed = packed, R = R,
-         scale = scale)
+    list(A = A, C = C, fro2 = fro2, trace = trace, error = error,
+         packed = packed, R = R, scale = scale)
   }
   list(width = q, materialize = materialize)
 }
@@ -227,6 +228,7 @@
        train = train[ok], tau = tau[ok], values = eg$values,
        rotation = rotation, A = z$A[, ok, drop = FALSE],
        C = (gram %*% rotation) / tau[ok], fro2 = z$fro2[ok],
+       trace = z$trace[ok],
        R = proj$R, scale = proj$scale, error = proj$error,
        elapsed = c(materialize = t1 - t0, gram = t2 - t1, eigen = t3 - t2,
                    basis = t4 - t3, shared = t5 - t4))
@@ -251,16 +253,18 @@
   invisible(NULL)
 }
 
-# Completed projection blocks: feature_index, A, C, fro2, error, R and scale per
-# gene.
+# Completed projection blocks: feature_index, A, C, fro2, trace, error, R and
+# scale per gene. A block written before trace was kept has no trace (NA).
 .mgcvst_pca_blocks_read <- function(path) {
   files <- sort(list.files(path, "^pca-projection-[0-9]{6}\\.rds$"))
   lapply(files, function(file) {
     z <- readRDS(file.path(path, file))
-    body <- z[c("feature_index", "A", "C", "fro2", "error", "R", "scale")]
+    fields <- c("feature_index", "A", "C", "fro2", "trace", "error", "R", "scale")
+    body <- z[intersect(fields, names(z))]
     if (!identical(z$checksum, digest::digest(body, algo = "sha256"))) {
       stop("The PCAlearning checkpoint block is damaged: ", file, ".")
     }
+    if (is.null(body$trace)) body$trace <- rep(NA_real_, length(body$feature_index))
     body
   })
 }
@@ -358,7 +362,7 @@
     ids <- missing[first:min(length(missing), first + 255L)]
     z <- producer$materialize(ids, B = learned$B, V = learned$V)
     block <- list(feature_index = ids, A = z$A, C = z$C, fro2 = z$fro2,
-                  error = z$error, R = z$R, scale = z$scale)
+                  trace = z$trace, error = z$error, R = z$R, scale = z$scale)
     if (!is.null(path)) {
       next_block <- next_block + 1L
       .mgcvst_pca_save(c(block, list(checksum = digest::digest(block, algo = "sha256"))),
@@ -373,6 +377,7 @@
     A = do.call(cbind, c(list(matrix(0, q, 0L)), lapply(blocks, `[[`, "A"))),
     C = do.call(rbind, c(list(matrix(0, 0L, rank)), lapply(blocks, `[[`, "C"))),
     fro2 = unlist(lapply(blocks, `[[`, "fro2")),
+    trace = unlist(lapply(blocks, `[[`, "trace")),
     error = unlist(lapply(blocks, `[[`, "error")),
     R = do.call(cbind, c(list(matrix(0, kv * kv, 0L)), lapply(blocks, `[[`, "R"))),
     scale = unlist(lapply(blocks, `[[`, "scale"))
@@ -394,6 +399,9 @@
   scale[tr] <- learned$scale[kt[tr]]
   scale[!tr] <- proj$scale[kr[!tr]]
   fro2 <- ifelse(tr, learned$fro2[kt], proj$fro2[kr])
+  learned_trace <- if (is.null(learned$trace)) rep(NA_real_, length(learned$train)) else
+    learned$trace
+  trace_M <- ifelse(tr, learned_trace[kt], proj$trace[kr])
   gene_error <- ifelse(tr, learned$error[kt], proj$error[kr])
   learned$A <- NULL
   learned$R <- NULL
@@ -420,6 +428,7 @@
                        round(tables$timing[["total"]], 2), " s.")
   list(A = A, C = C, C_out = C_out, K2 = K2, T2 = T2, R = R, scale = scale,
        used = used, k = kv, V = learned$V, V_sha = learned$V_sha, fro2 = fro2,
+       trace = trace_M,
        gene_error = gene_error, failed_gene = failed_gene, trained = tr,
        sampled = sampled, scales = scales, learned = learned, tables = tables,
        basis_check = basis_check, basis_resumed = basis_resumed,
@@ -527,6 +536,7 @@
                               k_requested, threads, path, verbose, started)
   A <- prep$A; C <- prep$C; C_out <- prep$C_out; K2 <- prep$K2; T2 <- prep$T2
   R <- prep$R; scale <- prep$scale; kv <- prep$k; fro2 <- prep$fro2
+  trace_M <- prep$trace
   gene_error <- prep$gene_error; tr <- prep$trained; sampled <- prep$sampled
   scales <- prep$scales; learned <- prep$learned; tables <- prep$tables
   t_sample <- prep$t_sample; t_project <- prep$t_project
@@ -541,7 +551,8 @@
     frame <- .mgcvst_pairs_frame(
       used[li], used[lj], out[, "U"], out[, "logp_two_sided"],
       out[, "logp_positive"], out[, "logp_negative"],
-      remainder_kind = out[, "remainder_kind"], status = out[, "status"]
+      remainder_kind = out[, "remainder_kind"], status = out[, "status"],
+      t1 = out[, "t1"]
     )
     invalid <- !(frame$status %in% c(.mgcvst_pair_status[["ok"]],
                                      .mgcvst_pair_status[["screened"]]))
@@ -549,7 +560,7 @@
     bad <- !ok[li] | !ok[lj]
     frame$status[bad] <- .mgcvst_pair_status[["feature"]]
     frame$remainder_kind[bad] <- 0L
-    frame[bad, c("score", "log_p_two_sided", "log_p_positive",
+    frame[bad, c("score", "t1", "log_p_two_sided", "log_p_positive",
                  "log_p_negative")] <- NA_real_
     frame
   }
@@ -646,7 +657,7 @@
     feature_id = fit$feature_id[used], feature_index = used,
     training = tr, cell = sampled$cell[used],
     sigma_g2 = scales$sigma_g2[used], sigma_e2 = scales$sigma_e2[used],
-    tau = scales$tau[used], fro2 = fro2, e2 = e2,
+    tau = scales$tau[used], fro2 = fro2, trace = trace_M, e2 = e2,
     e2_relative = e2 / fro2, error_message = gene_error,
     stringsAsFactors = FALSE
   )
@@ -663,6 +674,8 @@
     pair_dir = pair_dir, shards = shard_files, rows = shard_rows,
     n_pairs = sum(shard_rows), temporary = is.null(path), failed = failed,
     elapsed = pair_elapsed,
+    features = data.frame(feature_index = used, trace_M = trace_M,
+                          trace_M2 = fro2),
     metadata = list(
       preparation_backend = if (sparse) "sparse" else "model_native",
       pair_schedule = if (all_pairs) "pcalearning_gene_blocks" else
