@@ -21,11 +21,7 @@ The default `kappa = 0.05` gives about 57 unit lengths in 2D and 40 in 3D, a
 very smooth global field. The examples below use `kappa = 0.1`.
 
 The primary analysis uses frequentist `mgcv` estimation, including `bam` for
-larger data. INLA supplies a supplementary sparse SPDE estimator. Paired
-validation holds the data, geometry and model terms fixed, then compares
-scientific outputs while retaining estimator differences and convergence
-diagnostics. See the [paired validation report](inst/notes/inla-bam-validation.md)
-and [recorded results](inst/validation/inla-bam/).
+larger data. INLA supplies a supplementary sparse SPDE estimator.
 
 ## Pipeline
 
@@ -134,9 +130,7 @@ dispatches to that same sparse kernel. Module labels are local to each gene
 block; label zero indicates an unassigned gene. The result retains score coordinates, covariance,
 correlation, adjacency, TOM and the clustering tree for further analysis.
 
-See `help("mgcvST.wgcna")` for the interface and
-[the source reconciliation record](inst/notes/wgcna-integration.md) for the
-relationship between the earlier local WGCNA implementation and this release.
+See `help("mgcvST.wgcna")` for the interface.
 
 ## INLA estimation with mandatory mean-zero spatial fields
 
@@ -171,8 +165,8 @@ remains Gaussian. Each prior can be replaced explicitly with a validated INLA
 prior. INLA and mgcv REML use distinct estimation procedures. Feature estimation uses
 raw sparse precision matrices. The default score backend also uses sparse
 precision solves for a single global SPDE; shared model setup and marginal
-testing retain dense geometry. See [implementation and statistical details](inst/notes/inla-estimator.md)
-and the [runnable data example](inst/examples/inla_estimator.R).
+testing retain dense geometry. A runnable data example is
+`system.file("examples", "inla_estimator.R", package = "spdeST")`.
 
 The nuisance `Vp` now comes directly from INLA's constrained conditional
 posterior covariance; the previous expected-Fisher reconstruction is retained
@@ -191,14 +185,10 @@ log-prior is applied after normalizing the constrained field to unit average
 observation variance. This changes the parameterization and optimizer start
 on the FEM multiplier.
 `precision_scale = "raw"` remains the default. Fixed precisions and returned
-smoothing multipliers retain original FEM units. See the
-[mechanism investigation](inst/notes/inla-lowcount-investigation.md) and
-[earlier simulation interpretation](inst/notes/inla-estimated-null-interpretation.md).
+smoothing multipliers retain original FEM units.
 The INLA path uses the native sparse score kernel for a single global SPDE with
 fixed nuisance terms. A model with additional random blocks is rejected by
-`inlaST.set()` with the reason from the sparse capability gate. The separate
-[raw-kernel research helper](inst/benchmarks/inla-raw-kernel-sparse.R) is not
-the production method.
+`inlaST.set()` with the reason from the sparse capability gate.
 
 The complete formula above is prepared through the same mgcv geometry used by
 `mgcvST.set()`. Existing code may instead supply the legacy `basis`
@@ -214,8 +204,7 @@ spatial score components.
 
 Flat priors are improper hyperpriors used for empirical-Bayes optimization;
 they do not certify a proper hyperparameter posterior or an interior maximum.
-Mean-zero constraints remain mandatory. See the
-[flat-prior and large-spot investigation](inst/notes/inla-flat-prior.md).
+Mean-zero constraints remain mandatory.
 
 The production score uses the SPDE kernel already conditioned on the
 observation-mean constraint. Centering that conditioned kernel again does not
@@ -656,16 +645,4 @@ values above the 98th percentile (4.62) share the darkest colour.
 
 The fitted expression comes from the saved full-data, spatial-only INLA model
 with flat hyperparameter priors and the historical integral constraint.
-Section-level random effects remain an ongoing investigation. See the
-[marker and section-effect exploration](inst/notes/magic-slide-exploration.md)
-and [data construction instructions](inst/notes/magic-data.md).
-Reproduce this figure with `inst/examples/magic-readme-3d.R` after preparing
-the local MAGIC data and saved fits. A separate current-native-API simulation
-is available in `inst/examples/inla3d-visualization-native-demo.R`.
-
-The [3D feasibility study](inst/notes/inla3d-adaptive.md) records the
-geometry-adaptive mesh experiments, and the
-[transfer notes](inst/notes/inla3d-transfer.md) describe the real-data geometry.
-The [flat-prior stress study](inst/notes/inla-stress-validation.md) and
-[spectrum diagnostics](inst/notes/inla-score-spectrum.md) retain the
-experimental score results and their subsequent sensitivity analyses.
+Section-level random effects remain an ongoing investigation.

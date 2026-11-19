@@ -1,3 +1,13 @@
+# spdeST 0.0.1.9055
+
+* inst/ keeps only the data examples written for the spdeST pipeline
+  (inst/examples/MISO_E13.R, Visium_B.R, inla_estimator.R) and COPYRIGHTS.
+  The research benchmarks (inst/benchmarks), notes (inst/notes), validation
+  records (inst/validation), HPC helpers (inst/hpc), ACCELERATION.md,
+  PROJECTOR.md and the other examples, which call removed or internal
+  functions, are deleted; they remain in the git history. The README no
+  longer links to them.
+
 # spdeST 0.0.1.9054
 
 * Code that no entry point reaches is deleted:

@@ -1,10 +1,10 @@
 The RDS contains the 17 unique BAM pairs identified by
-`inst/validation/inla-bam/bam-pair-degeneracy-cases.csv`: four Gaussian spatial
+`inst/validation/inla-bam/bam-pair-degeneracy-cases.csv` (removed in 0.0.1.9055; in git history): four Gaussian spatial
 null, eleven negative-binomial spatial null, and two low-count examples.
 The original 9005 validation library reconstructed their saved `a` and `H`
 states from `artifacts/inla-bam-validation/inference/*/bam-compact-fit.rds`.
 No model was refitted. Scores and information were checked against
-`inst/validation/inla-bam/inference-paired-results.csv`.
+`inst/validation/inla-bam/inference-paired-results.csv` (removed in 0.0.1.9055).
 
 Each record retains its original missing Liu/Davies result, score, information,
 simulation identifiers, both covariance matrices and score vectors. Reference
