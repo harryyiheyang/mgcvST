@@ -9,7 +9,7 @@ test_that("PCAlearning strata and draws reproduce the approx-liu-p training set"
   fx <- readRDS(test_path("fixtures", "pcalearning-sampling.rds"))
   G <- length(fx$cell)
   scales <- data.frame(nb = fx$nb, sigma_g2 = fx$sigma_g2, sigma_e2 = fx$sigma_e2)
-  cell <- mgcvST:::.mgcvst_pca_cells(scales, seq_len(G))
+  cell <- spdeST:::.mgcvst_pca_cells(scales, seq_len(G))
   expect_identical(cell, fx$cell)
 
   # The experiment first drew its 150 test genes from the same RNG stream.
@@ -25,7 +25,7 @@ test_that("PCAlearning strata and draws reproduce the approx-liu-p training set"
     Tset <- c(Tset, cand[sample.int(length(cand), qT[k])])
   }
   expect_identical(sort(Tset), fx$T)
-  S <- mgcvST:::.mgcvst_pca_draw(cell, setdiff(elig, Tset), 3L)
+  S <- spdeST:::.mgcvst_pca_draw(cell, setdiff(elig, Tset), 3L)
   expect_identical(sort(S), fx$S)
 })
 
@@ -36,9 +36,9 @@ test_that("PCAlearning training sampling reallocates sparse cells and restores R
                        sigma_e2 = 1 + exp(rnorm(G, -2)))
   scales$sigma_e2[!scales$nb] <- 1
   before <- .Random.seed
-  a <- mgcvST:::.mgcvst_pca_training(scales, seq_len(G), 3L, 11L)
+  a <- spdeST:::.mgcvst_pca_training(scales, seq_len(G), 3L, 11L)
   expect_identical(.Random.seed, before)
-  b <- mgcvST:::.mgcvst_pca_training(scales, seq_len(G), 3L, 11L)
+  b <- spdeST:::.mgcvst_pca_training(scales, seq_len(G), 3L, 11L)
   expect_identical(a, b)
   expect_length(a$train, 300L)
   expect_false(anyDuplicated(a$train) > 0L)
@@ -46,7 +46,7 @@ test_that("PCAlearning training sampling reallocates sparse cells and restores R
   drawn <- tabulate(a$cell[a$train], 100L)
   expect_true(all(drawn <= N))
   expect_true(all(drawn >= pmin(3L, N)))
-  small <- mgcvST:::.mgcvst_pca_training(scales, seq_len(50L), 3L, 11L)
+  small <- spdeST:::.mgcvst_pca_training(scales, seq_len(50L), 3L, 11L)
   expect_identical(small$train, seq_len(50L))
 })
 
@@ -87,18 +87,18 @@ test_that("approximate inlaST.test() builds the observation basis once", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
-  r <- mgcvST:::.inlast_sparse_observation_basis(
-    mgcvST:::.inlast_sparse_prepare(fit)
+  r <- spdeST:::.inlast_sparse_observation_basis(
+    spdeST:::.inlast_sparse_prepare(fit)
   )$rank
   calls <- new.env(parent = emptyenv())
   calls$basis <- 0L
-  observation_basis <- mgcvST:::.inlast_sparse_observation_basis
+  observation_basis <- spdeST:::.inlast_sparse_observation_basis
   testthat::local_mocked_bindings(
     .inlast_sparse_observation_basis = function(fit) {
       calls$basis <- calls$basis + 1L
       observation_basis(fit)
     },
-    .package = "mgcvST")
+    .package = "spdeST")
   for (moments in c("pcalearning", "exact")) {
     calls$basis <- 0L
     out <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L,
@@ -136,7 +136,7 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
   expect_identical(names(formals(inlaST.test)), c("fitinlaST", shared, controls))
   expect_identical(names(formals(mgcvST.test)), c("fitmgcvST", shared, controls))
   expect_identical(formals(inlaST.test)[controls], formals(mgcvST.test)[controls])
-  expect_equal(unlist(mgcvST:::.mgcvst_pca_defaults),
+  expect_equal(unlist(spdeST:::.mgcvst_pca_defaults),
                c(rank = 100, n_per_cell = 3, seed = 1, k = 80))
   expect_identical(eval(formals(inlaST.test)$rank), 100L)
   # The route has no default: a call without it stops, whatever else is wrong.
@@ -152,9 +152,9 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
   expect_error(inlaST.test(fit, pairs = pair, adjust = "holm", moments = "exact"), "should be one of")
   expect_error(inlaST.test(fit, pairs = pair, moments = "liu"), "moments must be one of")
   expect_error(inlaST.test(fit, pairs = pair, k = 0L, moments = "exact"), "k must be NULL or one positive")
-  expect_false(exists(".mgcvst_conditional_test", asNamespace("mgcvST"),
+  expect_false(exists(".mgcvst_conditional_test", asNamespace("spdeST"),
                       inherits = FALSE))
-  expect_false(exists("mgcvst_liu_logp_cpp", asNamespace("mgcvST"), inherits = FALSE))
+  expect_false(exists("mgcvst_liu_logp_cpp", asNamespace("spdeST"), inherits = FALSE))
 })
 
 test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlepoint", {
@@ -179,7 +179,7 @@ test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlep
   expect_equal(pca$results$score, exact$score, tolerance = 1e-10)
   expect_equal(-pca$results$log_p_two_sided / log(10), -exact$log_p / log(10),
                tolerance = 1e-3)
-  expect_equal(pca$results$log_q, mgcvST:::.mgcvst_log_adjust(
+  expect_equal(pca$results$log_q, spdeST:::.mgcvst_log_adjust(
     pca$results$log_p_two_sided, "BY")$log_q, tolerance = 1e-12)
   expect_equal(exp(pca$results$log_q), p.adjust(exp(pca$results$log_p_two_sided), "BY"),
                tolerance = 1e-12)
@@ -187,9 +187,9 @@ test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlep
   expect_true("total" %in% names(z$table_timing))
 
   # Gene blocks of 32: more genes than one block are all materialized.
-  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
-  basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
-  producer <- mgcvST:::.mgcvst_pca_producer(prepared, seq_len(G), basis, 2L)
+  prepared <- spdeST:::.inlast_sparse_prepare(fit)
+  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
+  producer <- spdeST:::.mgcvst_pca_producer(prepared, seq_len(G), basis, 2L)
   many <- producer$materialize(rep(seq_len(G), 5L), pack = TRUE)
   expect_false(anyNA(many$A))
   expect_false(any(vapply(many$packed, is.null, logical(1L))))
@@ -236,7 +236,7 @@ test_that("rank-10 trace tables reproduce brute-force projected traces", {
     M[lower.tri(M)] <- t(M)[lower.tri(M)]
     M
   }
-  tables <- mgcvST:::mgcvst_pca_tables_cpp(B, q, 2L)
+  tables <- spdeST:::mgcvst_pca_tables_cpp(B, q, 2L)
   # Only the level the saddlepoint needs; for an orthonormal basis t_1 is the
   # inner product of the coefficients, so there is no level-1 table.
   expect_false(any(c("Tsym1", "Tsym3", "Tsym4", "ms1") %in% names(tables)))
@@ -244,12 +244,12 @@ test_that("rank-10 trace tables reproduce brute-force projected traces", {
   d2 <- as.integer(choose(r + 1L, 2L))
   expect_identical(dim(tables$Tsym2), c(d2, d2))
   C <- matrix(rnorm(6L * r), 6L, r)
-  K2 <- mgcvST:::mgcvst_pca_monomials_cpp(C)
+  K2 <- spdeST:::mgcvst_pca_monomials_cpp(C)
   expect_identical(dim(K2), c(d2, 6L))
   A <- matrix(rnorm(3L * 6L), 3L, 6L)
   i <- c(1L, 2L, 3L, 5L)
   j <- c(2L, 4L, 6L, 1L)
-  out <- mgcvST:::mgcvst_pca_spa_pairs_cpp(A, C, K2, tables$Tsym2, matrix(1, 1L, 6L),
+  out <- spdeST:::mgcvst_pca_spa_pairs_cpp(A, C, K2, tables$Tsym2, matrix(1, 1L, 6L),
                                             rep(1, 6L), i, j, 2L)
   H <- lapply(seq_len(nrow(C)), function(k) unpack(B %*% C[k, ]))
   brute <- t(vapply(seq_along(i), function(k) {
@@ -260,11 +260,11 @@ test_that("rank-10 trace tables reproduce brute-force projected traces", {
   expect_equal(unname(out[, "t1"]), rowSums(C[i, ] * C[j, ]), tolerance = 1e-12)
   expect_equal(out[, "U"], colSums(A[, i] * A[, j]), tolerance = 1e-12)
   # The block kernel gives the same values for every pair of a range of genes.
-  block <- mgcvST:::mgcvst_pca_spa_block_cpp(A, C, K2, tables$Tsym2, matrix(1, 1L, 6L),
+  block <- spdeST:::mgcvst_pca_spa_block_cpp(A, C, K2, tables$Tsym2, matrix(1, 1L, 6L),
                                              rep(1, 6L), 1L, 5L, 2L)
   pair_index <- t(utils::combn(6L, 2L))
   pair_index <- pair_index[pair_index[, 1L] <= 5L, , drop = FALSE]
-  single <- mgcvST:::mgcvst_pca_spa_pairs_cpp(A, C, K2, tables$Tsym2, matrix(1, 1L, 6L),
+  single <- spdeST:::mgcvst_pca_spa_pairs_cpp(A, C, K2, tables$Tsym2, matrix(1, 1L, 6L),
                                               rep(1, 6L), pair_index[, 1L],
                                               pair_index[, 2L], 1L)
   expect_equal(block, single, tolerance = 1e-12)
@@ -273,11 +273,11 @@ test_that("rank-10 trace tables reproduce brute-force projected traces", {
 test_that(".mgcvst_pca_prepare gives the arrays of the pair kernels and an orthonormal basis", {
   skip_on_cran()
   fit <- .pca_nb_fit()
-  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
-  basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
+  prepared <- spdeST:::.inlast_sparse_prepare(fit)
+  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
   G <- length(fit$feature_id)
   q <- basis$rank
-  prep <- mgcvST:::.mgcvst_pca_prepare(prepared, seq_len(G), basis, q = q, rank = 3L,
+  prep <- spdeST:::.mgcvst_pca_prepare(prepared, seq_len(G), basis, q = q, rank = 3L,
                                        n_per_cell = 3L, seed = 4L, k = 50L, threads = 2L)
   # The basis is orthonormal to roundoff: t_1 = c_i' c_j needs no level-1 table.
   expect_lt(prep$basis_check, 1e-10)
@@ -306,8 +306,8 @@ test_that("PCAlearning pair kernel reproduces the approx-liu-p rank-10 traces", 
   T2 <- .pca_unpack(fx$tables$Tsym2, d2)
   P <- fx$pairs
   n <- nrow(fx$C)
-  K2 <- mgcvST:::mgcvst_pca_monomials_cpp(fx$C)
-  out <- mgcvST:::mgcvst_pca_spa_pairs_cpp(fx$A, fx$C, K2, T2, matrix(1, 1L, n),
+  K2 <- spdeST:::mgcvst_pca_monomials_cpp(fx$C)
+  out <- spdeST:::mgcvst_pca_spa_pairs_cpp(fx$A, fx$C, K2, T2, matrix(1, 1L, n),
                                             rep(1, n), P$i, P$j, 2L)
   expect_equal(out[, "U"], P$U, tolerance = 1e-10)
   approx <- as.matrix(P[c("t1_approx", "t2_approx")])
@@ -324,11 +324,11 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
     .mgcvst_pca_training = function(scales, universe, n_per_cell, seed) {
       list(train = universe[c(1L, 3L, 5L, 7L)], cell = rep(1L, nrow(scales)))
     },
-    .package = "mgcvST"
+    .package = "spdeST"
   )
-  basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
   run <- function(index, dir, rank = 3L, resume = TRUE, n_per_cell = 3L, k = NULL) {
-    mgcvST:::.mgcvst_pair_pcalearning(
+    spdeST:::.mgcvst_pair_pcalearning(
       fit, index, 2L, 1000L, FALSE, basis, rank = rank, k = k,
       n_per_cell = n_per_cell, seed = 1L, checkpoint_dir = dir, resume = resume
     )
@@ -434,10 +434,10 @@ test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory",
   skip_on_cran()
   fit <- .pca_nb_fit()
   G <- length(fit$feature_id)
-  basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
   run <- function(rank, n_per_cell = 3L, seed = 1L, k = 50L) {
     index <- t(combn(G, 2L))
-    mgcvST:::.mgcvst_pair_pcalearning(
+    spdeST:::.mgcvst_pair_pcalearning(
       fit, index, 2L, 1000L, FALSE, basis, rank = rank,
       n_per_cell = n_per_cell, seed = seed, k = k
     )
@@ -453,10 +453,10 @@ test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory",
   # GiB when the transposes are stored as well). q = 1961, r = 30: 465
   # products, 7.7 GiB (7.52 GiB measured for the products, 0.21 for
   # the panel).
-  expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1404, 20) / 1024^3, 1.90, tolerance = 1e-2)
-  expect_equal(mgcvST:::.mgcvst_pca_table_bytes(1961, 30) / 1024^3, 7.74, tolerance = 1e-2)
+  expect_equal(spdeST:::.mgcvst_pca_table_bytes(1404, 20) / 1024^3, 1.90, tolerance = 1e-2)
+  expect_equal(spdeST:::.mgcvst_pca_table_bytes(1961, 30) / 1024^3, 7.74, tolerance = 1e-2)
   local_mocked_bindings(.mgcvst_memory_probe = function(...) list(available = 1e3),
-                        .package = "mgcvST")
+                        .package = "spdeST")
   expect_error(run(3L), "trace tables for rank = 3 .* use a smaller rank")
 })
 
@@ -468,11 +468,11 @@ test_that("a PCAlearning resume follows the stored schedule whatever chunk_size 
     .mgcvst_pca_training = function(scales, universe, n_per_cell, seed) {
       list(train = universe[c(1L, 3L, 5L, 7L)], cell = rep(1L, nrow(scales)))
     },
-    .package = "mgcvST"
+    .package = "spdeST"
   )
-  basis <- mgcvST:::.inlast_sparse_observation_basis(mgcvST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
   run <- function(index, dir, chunk_size) {
-    mgcvST:::.mgcvst_pair_pcalearning(
+    spdeST:::.mgcvst_pair_pcalearning(
       fit, index, 2L, chunk_size, FALSE, basis, rank = 3L, n_per_cell = 3L,
       seed = 1L, checkpoint_dir = dir
     )
@@ -493,11 +493,11 @@ test_that("a PCAlearning resume follows the stored schedule whatever chunk_size 
   }
   # The stored schedule is checked against the universe it was written for.
   schedule <- file.path(first$metadata$pair_dir, "schedule.rds")
-  stored <- mgcvST:::.mgcvst_schedule_load(schedule)
+  stored <- spdeST:::.mgcvst_schedule_load(schedule)
   expect_identical(stored$kind, "pcalearning")
   stored$n <- stored$n + 1L
   unlink(schedule)
-  mgcvST:::.mgcvst_schedule_save(schedule, stored)
+  spdeST:::.mgcvst_schedule_save(schedule, stored)
   expect_error(run(index, dir, 5L), "pair schedule is damaged or incompatible")
 })
 
@@ -505,13 +505,13 @@ test_that("PCAlearning controls fail before the basis, and the pair directory fo
   skip_on_cran()
   fit <- .pca_nb_fit()
   calls <- 0L
-  observation_basis <- mgcvST:::.inlast_sparse_observation_basis
+  observation_basis <- spdeST:::.inlast_sparse_observation_basis
   local_mocked_bindings(
     .inlast_sparse_observation_basis = function(fit) {
       calls <<- calls + 1L
       observation_basis(fit)
     },
-    .package = "mgcvST")
+    .package = "spdeST")
   expect_error(inlaST.test(fit, rank = 0L, moments = "exact"), "rank must be one positive integer")
   expect_error(inlaST.test(fit, n_per_cell = 1.5, moments = "exact"), "n_per_cell must be one positive")
   expect_error(inlaST.test(fit, seed = -1, moments = "exact"), "seed must be one non-negative integer")
@@ -522,7 +522,7 @@ test_that("PCAlearning controls fail before the basis, and the pair directory fo
   dir <- tempfile("mgcvst-pca-order-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
   local_mocked_bindings(.mgcvst_pca_basis = function(...) stop("basis failure"),
-                        .package = "mgcvST")
+                        .package = "spdeST")
   expect_error(inlaST.test(fit, rank = 3L, checkpoint_dir = dir, moments = "pcalearning"),
                "basis failure")
   expect_length(list.files(dir, "^pairs-"), 0L)
@@ -534,18 +534,18 @@ test_that("the PCAlearning Gram matrix and basis are bitwise identical for 1 and
   L <- 5000L
   packed <- lapply(seq_len(n), function(j) writeBin(rnorm(L), raw(), size = 4L))
   tau <- runif(n, 0.5, 2)
-  gram1 <- mgcvST:::mgcvst_pca_gram_cpp(packed, tau, 1L, 256L)
-  gram4 <- mgcvST:::mgcvst_pca_gram_cpp(packed, tau, 4L, 256L)
+  gram1 <- spdeST:::mgcvst_pca_gram_cpp(packed, tau, 1L, 256L)
+  gram4 <- spdeST:::mgcvst_pca_gram_cpp(packed, tau, 4L, 256L)
   expect_identical(gram1, gram4)
   dense <- vapply(packed, function(x) readBin(x, "numeric", n = L, size = 4L), numeric(L))
   expect_equal(gram1, (tau %o% tau) * crossprod(dense), tolerance = 1e-12)
   rotation <- qr.Q(qr(matrix(rnorm(n * 4L), n, 4L)))
-  expect_identical(mgcvST:::mgcvst_pca_basis_cpp(packed, tau, rotation, 1L, 256L),
-                   mgcvST:::mgcvst_pca_basis_cpp(packed, tau, rotation, 4L, 256L))
+  expect_identical(spdeST:::mgcvst_pca_basis_cpp(packed, tau, rotation, 1L, 256L),
+                   spdeST:::mgcvst_pca_basis_cpp(packed, tau, rotation, 4L, 256L))
   # The partial sums of fixed row chunks are added in chunk order: a chunk size
   # that does not divide the rows gives the same result for every thread count.
-  expect_identical(mgcvST:::mgcvst_pca_gram_cpp(packed, tau, 1L, 999L),
-                   mgcvST:::mgcvst_pca_gram_cpp(packed, tau, 3L, 999L))
+  expect_identical(spdeST:::mgcvst_pca_gram_cpp(packed, tau, 1L, 999L),
+                   spdeST:::mgcvst_pca_gram_cpp(packed, tau, 3L, 999L))
 })
 
 test_that("PCAlearning tests are bitwise identical for 1 and 4 threads", {
@@ -570,9 +570,9 @@ test_that("a zero-matrix gene is reported as unusable and does not disturb the o
         list(a = c(i, i + 0.25), width = 2L,
              M = if (i == 3L) matrix(0, 2L, 2L) else diag(c(i + 0.5, i + 1)))
       })
-    }, .package = "mgcvST")
+    }, .package = "spdeST")
   fit <- .pair_pipeline_fit(6L)
-  z <- mgcvST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L)
+  z <- spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L)
   out <- .pca_pairs(z)
   bad <- out$i == 3L | out$j == 3L
   expect_true(all(out$status[bad] == 3L))
@@ -586,8 +586,8 @@ test_that("a zero-matrix gene is reported as unusable and does not disturb the o
     .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
       lapply(ids, function(i) list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)),
                                    width = 2L))
-    }, .package = "mgcvST")
-  full <- .pca_pairs(mgcvST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L))
+    }, .package = "spdeST")
+  full <- .pca_pairs(spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L))
   keep <- !bad
   expect_equal(out$log_p_two_sided[keep], full$log_p_two_sided[full$i != 3L & full$j != 3L],
                tolerance = 1e-3)
@@ -596,9 +596,9 @@ test_that("a zero-matrix gene is reported as unusable and does not disturb the o
 test_that("an mgcv fit takes the PCAlearning route and agrees with the exact route", {
   .pair_pipeline_mocks()
   fit <- .pair_pipeline_fit(6L)
-  exact <- mgcvST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 100L, FALSE, k = 2L)
-  pca <- mgcvST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L, k = 2L)
-  a <- do.call(rbind, lapply(exact$shards, mgcvST:::.mgcvst_read_shard))
+  exact <- spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 100L, FALSE, k = 2L)
+  pca <- spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L, k = 2L)
+  a <- do.call(rbind, lapply(exact$shards, spdeST:::.mgcvst_read_shard))
   b <- .pca_pairs(pca)
   a <- a[order(a$i, a$j), ]
   expect_identical(a$i, b$i)

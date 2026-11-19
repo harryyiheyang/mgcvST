@@ -8,7 +8,7 @@
   for (sm in fit$smooth) {
     cl <- class(sm)[1L]
     if (!(cl %in% known)) return(NULL)
-    package <- if (identical(cl, "spde.smooth")) "mgcvST" else "mgcv"
+    package <- if (identical(cl, "spde.smooth")) "spdeST" else "mgcv"
     registered <- utils::getS3method("Predict.matrix", cl, optional = TRUE,
                                     envir = asNamespace("mgcv"))
     expected <- get0(paste0("Predict.matrix.", cl), asNamespace(package))

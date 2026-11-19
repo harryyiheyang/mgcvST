@@ -6,7 +6,7 @@
   if (x %in% c("binomial", "quasibinomial")) return(x)
   if (x %in% c("poisson", "quasipoisson", "gaussian", "gamma")) return(x)
   stop(
-    "mgcvST IRLS extraction currently supports Gaussian, Poisson, ",
+    "spdeST IRLS extraction currently supports Gaussian, Poisson, ",
     "quasi-Poisson, negative-binomial, Tweedie, binomial, ",
     "quasi-binomial, and Gamma fits."
   )

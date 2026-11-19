@@ -4,9 +4,9 @@ test_that("recomputed training predictors agree with the old implementation", {
   sm <- f$G$smooth[[1L]]
   method <- "Predict.matrix.spde.smooth"
   old_pred <- old[[method]](sm, f$data)
-  new_pred <- get(method, asNamespace("mgcvST"))(sm, f$data)
+  new_pred <- get(method, asNamespace("spdeST"))(sm, f$data)
   expect_equal(new_pred, old_pred, tolerance = 1e-12)
-  expect_equal(mgcvST:::.spde_basis_at(f$basis, f$basis$coordinates), old_pred,
+  expect_equal(spdeST:::.spde_basis_at(f$basis, f$basis$coordinates), old_pred,
                tolerance = 1e-12)
 })
 
@@ -15,17 +15,17 @@ test_that("new, reordered, subset and empty coordinates use the correct space", 
   basis <- f$basis
   new <- rbind(c(.123, .456), c(.891, .654))
   mesh <- list(xy = basis$mesh_vertices, tv = basis$mesh_triangles)
-  A <- mgcvST:::.spde_basis_project(mesh, new)
+  A <- spdeST:::.spde_basis_project(mesh, new)
   Z <- basis$projection
-  expect_equal(mgcvST:::.spde_basis_at(basis, new), as.matrix(A %*% Z), tolerance = 1e-13)
+  expect_equal(spdeST:::.spde_basis_at(basis, new), as.matrix(A %*% Z), tolerance = 1e-13)
   for (rows in list(2L, c(8L, 1L), rev(seq_len(nrow(basis$B))))) {
-    expect_equal(mgcvST:::.spde_basis_at(basis, basis$coordinates[rows, , drop = FALSE]),
+    expect_equal(spdeST:::.spde_basis_at(basis, basis$coordinates[rows, , drop = FALSE]),
                  basis$B[rows, , drop = FALSE], tolerance = 1e-12)
   }
-  expect_identical(dim(mgcvST:::.spde_basis_at(basis, matrix(numeric(), 0, 2))),
+  expect_identical(dim(spdeST:::.spde_basis_at(basis, matrix(numeric(), 0, 2))),
                    c(0L, ncol(basis$B)))
-  expect_error(mgcvST:::.spde_basis_at(basis, matrix(c(-10, 10), 1, 2)), "outside")
-  expect_error(mgcvST:::.spde_basis_at(basis, matrix(c(NA, 1), 1, 2)), "finite")
+  expect_error(spdeST:::.spde_basis_at(basis, matrix(c(-10, 10), 1, 2)), "outside")
+  expect_error(spdeST:::.spde_basis_at(basis, matrix(c(NA, 1), 1, 2)), "finite")
 })
 
 test_that("raw new coordinates use the saved nontrivial transform", {
@@ -38,8 +38,8 @@ test_that("raw new coordinates use the saved nontrivial transform", {
   basis <- spde_basis(mesh, raw, kappa = .7)
   scaled <- rbind(c(.21, .41), c(.52, .18), c(.62, .82))
   raw_new <- sweep(scaled * transform$scale, 2, transform$center, "+")
-  A <- mgcvST:::.spde_basis_project(list(xy = basis$mesh_vertices, tv = basis$mesh_triangles), scaled)
-  expect_equal(mgcvST:::.spde_basis_at(basis, raw_new), as.matrix(A %*% basis$projection),
+  A <- spdeST:::.spde_basis_project(list(xy = basis$mesh_vertices, tv = basis$mesh_triangles), scaled)
+  expect_equal(spdeST:::.spde_basis_at(basis, raw_new), as.matrix(A %*% basis$projection),
                tolerance = 1e-12)
 })
 
@@ -47,28 +47,28 @@ test_that("the basis carries no principal-component decomposition", {
   f <- st_fixture()
   expect_false(any(grepl("^pc_", names(f$basis))))
   expect_false("pc_cutoff" %in% names(formals(spde_basis)))
-  expect_false(exists("smooth.construct.spdePC.smooth.spec", asNamespace("mgcvST"),
+  expect_false(exists("smooth.construct.spdePC.smooth.spec", asNamespace("spdeST"),
                       inherits = FALSE))
 })
 
 test_that("prediction never rebuilds FEM, precision or eigensystems", {
   f <- st_fixture()
   testthat::local_mocked_bindings(.spde_basis_fem = function(...) stop("FEM recomputed"),
-                                  .package = "mgcvST")
+                                  .package = "spdeST")
   testthat::local_mocked_bindings(matrixEigen = function(...) stop("eigendecomposition recomputed"),
                                   matrixSolve = function(...) stop("precision recomputed"),
                                   .package = "CppMatrix")
   new <- matrix(c(.33, .71), 1, 2)
-  expect_true(is.matrix(mgcvST:::.spde_basis_at(f$basis, new)))
-  project <- mgcvST:::.spde_basis_project
+  expect_true(is.matrix(spdeST:::.spde_basis_at(f$basis, new)))
+  project <- spdeST:::.spde_basis_project
   calls <- 0L
   testthat::local_mocked_bindings(.spde_basis_project = function(...) {
     calls <<- calls + 1L
     project(...)
-  }, .package = "mgcvST")
-  expect_equal(mgcvST:::.spde_basis_at(f$basis, f$basis$coordinates), f$basis$B,
+  }, .package = "spdeST")
+  expect_equal(spdeST:::.spde_basis_at(f$basis, f$basis$coordinates), f$basis$B,
                tolerance = 1e-12)
-  expect_equal(mgcvST:::.spde_basis_at(f$basis, f$basis$coordinates[1:2, ]),
+  expect_equal(spdeST:::.spde_basis_at(f$basis, f$basis$coordinates[1:2, ]),
                f$basis$B[1:2, ], tolerance = 1e-12)
   expect_identical(calls, 2L)
 })
@@ -79,7 +79,7 @@ test_that("predict.gam works on new locations and prediction blocks", {
   new <- data.frame(x = c(.132, .254, .815), y = c(.271, .724, .158),
                     z = c(-.2, .1, .3), offset0 = c(.1, 0, -.1))
   L <- predict(fit, newdata = new, type = "lpmatrix", block.size = 1L)
-  B <- mgcvST:::.spde_basis_at(f$basis, as.matrix(new[, c("x", "y")]))
+  B <- spdeST:::.spde_basis_at(f$basis, as.matrix(new[, c("x", "y")]))
   cols <- fit$smooth[[1]]$first.para:fit$smooth[[1]]$last.para
   expect_equal(unname(L[, cols, drop = FALSE]), unname(B), tolerance = 1e-12)
   expect_equal(as.numeric(predict(fit, newdata = new, type = "link", block.size = 1L)),

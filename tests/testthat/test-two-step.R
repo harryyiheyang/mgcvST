@@ -28,7 +28,7 @@
 .ts_memo <- new.env(parent = emptyenv())
 
 .ts_memoize_fits <- function(env = parent.frame()) {
-  real <- mgcvST:::.inlast_fit_feature
+  real <- spdeST:::.inlast_fit_feature
   testthat::local_mocked_bindings(
     .inlast_fit_feature = function(spec, y, offset = NULL, control = list(),
                                    diagnostics = FALSE) {
@@ -40,7 +40,7 @@
       }
       .ts_memo[[key]]
     },
-    .package = "mgcvST", .env = env
+    .package = "spdeST", .env = env
   )
 }
 
@@ -99,7 +99,7 @@
 test_that("spatial selection resolves discoveries, all, none, IDs, indices and logicals", {
   ids <- paste0("f", 1:5)
   q <- c(0.001, 0.2, NA, 0.04, 0.5)
-  sel <- function(x, qv = 0.05) mgcvST:::.mgcvst_select_spatial(x, ids, q, qv)
+  sel <- function(x, qv = 0.05) spdeST:::.mgcvst_select_spatial(x, ids, q, qv)
   expect_identical(sel("discoveries"), c(1L, 4L))
   expect_identical(sel("discoveries", 0.3), c(1L, 2L, 4L))
   expect_identical(sel("all"), 1:5)
@@ -118,15 +118,15 @@ test_that("spatial selection resolves discoveries, all, none, IDs, indices and l
 test_that("Stage 1 q-values are the log-space adjustment of the null p-values", {
   p <- c(1e-6, 0.3, NA, 0.02, 1e-3, 0.9)
   for (adjust in c("BY", "BH", "none")) {
-    expect_equal(mgcvST:::.mgcvst_stage1_q(p, adjust), p.adjust(p, adjust),
+    expect_equal(spdeST:::.mgcvst_stage1_q(p, adjust), p.adjust(p, adjust),
                  tolerance = 1e-12)
   }
-  expect_true(is.na(mgcvST:::.mgcvst_stage1_q(p, "BY")[3L]))
-  expect_equal(mgcvST:::.mgcvst_stage1_q(c(0, 0.5), "BH"), c(0, 0.5))
-  expect_error(mgcvST:::.mgcvst_check_q_value(0), "q.value")
-  expect_error(mgcvST:::.mgcvst_check_q_value(1.5), "q.value")
-  expect_error(mgcvST:::.mgcvst_check_q_value(c(0.1, 0.2)), "q.value")
-  expect_identical(mgcvST:::.mgcvst_check_q_value(1), 1)
+  expect_true(is.na(spdeST:::.mgcvst_stage1_q(p, "BY")[3L]))
+  expect_equal(spdeST:::.mgcvst_stage1_q(c(0, 0.5), "BH"), c(0, 0.5))
+  expect_error(spdeST:::.mgcvst_check_q_value(0), "q.value")
+  expect_error(spdeST:::.mgcvst_check_q_value(1.5), "q.value")
+  expect_error(spdeST:::.mgcvst_check_q_value(c(0.1, 0.2)), "q.value")
+  expect_identical(spdeST:::.mgcvst_check_q_value(1), 1)
 })
 
 # ---- chunk checkpoints ------------------------------------------------------
@@ -134,20 +134,20 @@ test_that("Stage 1 q-values are the log-space adjustment of the null p-values", 
 test_that("chunk checkpoints are resumed, and refused when they do not match", {
   dir <- tempfile("mgcvst-chunks-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)
   digest <- c("a", "b", "c", "d")
   calls <- 0L
   work <- function(payload, scale) {
     calls <<- calls + length(payload$index)
     out <- as.list(payload$index * scale)
-    mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    spdeST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
     out
   }
   groups <- list(1:2, 3:4)
   make_payload <- function(index) list(index = index)
   sp <- BiocParallel::SerialParam()
   run <- function(step, dig, route, grp) {
-    mgcvST:::.mgcvst_run_chunks(grp, make_payload, step, store, dig, route,
+    spdeST:::.mgcvst_run_chunks(grp, make_payload, step, store, dig, route,
                                 sp, work, scale = 10)
   }
   digest_a <- digest
@@ -177,52 +177,52 @@ test_that("chunk checkpoints are resumed, and refused when they do not match", {
   expect_identical(spatial$resumed, 0L)
 
   # A damaged chunk is reported, not recomputed silently.
-  victim <- mgcvST:::.mgcvst_chunk_file(store, "null",
-    mgcvST:::.mgcvst_chunk_key("null", groups_a[[1L]], digest_a, NULL))
+  victim <- spdeST:::.mgcvst_chunk_file(store, "null",
+    spdeST:::.mgcvst_chunk_key("null", groups_a[[1L]], digest_a, NULL))
   expect_true(file.exists(victim))
   writeBin(as.raw(1:20), victim)
   expect_error(run("null", digest_a, NULL, groups_a), "damaged")
   unlink(victim)
 
   # The manifest ties the directory to one estimator, format and signature.
-  expect_error(mgcvST:::.mgcvst_chunk_store(dir, "mgcv", "signature-a", TRUE),
+  expect_error(spdeST:::.mgcvst_chunk_store(dir, "mgcv", "signature-a", TRUE),
                "another estimator or by a version before 0.0.1.9032")
-  expect_error(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-b", TRUE),
+  expect_error(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-b", TRUE),
                "different model, offset or controls")
-  expect_error(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", FALSE),
+  expect_error(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", FALSE),
                "already exists")
   manifest <- file.path(dir, "estimation-manifest.rds")
   record <- readRDS(manifest)
   earlier <- record
   earlier$format <- 1L
   saveRDS(earlier, manifest)
-  expect_error(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE),
+  expect_error(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE),
                "before 0.0.1.9032")
   saveRDS(record, manifest)
-  expect_identical(mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)$kind,
+  expect_identical(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)$kind,
                    "inla")
   # Files left by an interrupted write are removed when a run resumes.
   stray <- file.path(dir, c("chunk-1a2b.tmp", "manifest-3c4d.tmp"))
   writeLines("x", stray[1L])
   writeLines("y", stray[2L])
-  mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)
+  spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)
   expect_false(any(file.exists(stray)))
   expect_true(file.exists(manifest))
   loose <- tempfile("mgcvst-loose-")
   dir.create(loose)
   on.exit(unlink(loose, recursive = TRUE), add = TRUE)
   writeLines("x", file.path(loose, "other.txt"))
-  expect_error(mgcvST:::.mgcvst_chunk_store(loose, "inla", "signature-a", TRUE),
+  expect_error(spdeST:::.mgcvst_chunk_store(loose, "inla", "signature-a", TRUE),
                "no manifest")
-  expect_null(mgcvST:::.mgcvst_chunk_store(NULL, "inla", "signature-a", TRUE))
-  expect_error(mgcvST:::.mgcvst_chunk_store(c("a", "b"), "inla", "s", TRUE),
+  expect_null(spdeST:::.mgcvst_chunk_store(NULL, "inla", "signature-a", TRUE))
+  expect_error(spdeST:::.mgcvst_chunk_store(c("a", "b"), "inla", "s", TRUE),
                "checkpoint_dir")
 })
 
 test_that("chunk payloads are built lazily, only for the chunks that are computed", {
   dir <- tempfile("mgcvst-lazy-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
   digest <- letters[1:6]
   groups <- list(1:2, 3:4, 5:6)
   built <- integer()
@@ -232,11 +232,11 @@ test_that("chunk payloads are built lazily, only for the chunks that are compute
   }
   work <- function(payload, scale) {
     out <- as.list(payload$index * scale)
-    mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    spdeST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
     out
   }
   run <- function() {
-    mgcvST:::.mgcvst_run_chunks(groups, make_payload, "null", store, digest, NULL,
+    spdeST:::.mgcvst_run_chunks(groups, make_payload, "null", store, digest, NULL,
                                 BiocParallel::SerialParam(), work, scale = 1)
   }
   first <- run()
@@ -260,7 +260,7 @@ test_that("chunk payloads are built lazily, only for the chunks that are compute
   skip_on_cran()
   sink_dir <- tempfile("mgcvst-lazy-snow-")
   on.exit(unlink(sink_dir, recursive = TRUE), add = TRUE)
-  store2 <- mgcvST:::.mgcvst_chunk_store(sink_dir, "inla", "signature", TRUE)
+  store2 <- spdeST:::.mgcvst_chunk_store(sink_dir, "inla", "signature", TRUE)
   calls <- new.env()
   calls$n <- 0L
   make2 <- function(index) {
@@ -273,7 +273,7 @@ test_that("chunk payloads are built lazily, only for the chunks that are compute
     list(payload$index)
   }
   environment(fun) <- baseenv()
-  res <- mgcvST:::.mgcvst_run_chunks(wide, make2, "null", store2, as.character(1:8), NULL,
+  res <- spdeST:::.mgcvst_run_chunks(wide, make2, "null", store2, as.character(1:8), NULL,
     BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE), fun)
   expect_identical(calls$n, 8L)
   expect_identical(unlist(res$results), 1:8)
@@ -293,7 +293,7 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
     if (missing(REDUCE)) out else Reduce(REDUCE, out, init)
   }
   res <- testthat::with_mocked_bindings(
-    mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "spatial",
+    spdeST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "spatial",
                                 NULL, digest, NULL, BiocParallel::SerialParam(),
                                 work, scale = 10),
     bpiterate = reversed, .package = "BiocParallel")
@@ -305,25 +305,25 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
   # features and a resumed run reads the same values back.
   dir <- tempfile("mgcvst-keyed-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
   saving <- function(payload, scale) {
     out <- as.list(payload$index * scale)
-    mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    spdeST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
     out
   }
   testthat::with_mocked_bindings(
-    mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "null",
+    spdeST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "null",
                                 store, digest, NULL, BiocParallel::SerialParam(),
                                 saving, scale = 10),
     bpiterate = reversed, .package = "BiocParallel")
-  again <- mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "null",
+  again <- spdeST:::.mgcvst_run_chunks(groups, function(i) list(index = i), "null",
                                        store, digest, NULL,
                                        BiocParallel::SerialParam(), saving, scale = 10)
   expect_identical(again$resumed, 4L)
   expect_identical(unlist(again$results), as.numeric(1:8) * 10)
 
   # A result that cannot be matched to a dispatched chunk is an error.
-  place <- mgcvST:::.mgcvst_place_by_key
+  place <- spdeST:::.mgcvst_place_by_key
   ok <- list(list(key = "b", result = 2), list(key = "a", result = 1))
   expect_identical(place(ok, c("a", "b")), list(1, 2))
   expect_error(place(list(list(key = "a", result = 1)), c("a", "b")), "No result returned")
@@ -332,7 +332,7 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
   expect_error(place(list(list(result = 1), ok[[2L]]), c("a", "b")), "without the key")
   expect_error(place(list(simpleError("x"), ok[[2L]]), c("a", "b")), "without the key")
   expect_error(
-    mgcvST:::.mgcvst_run_chunks(list(1:2, 1:2), function(i) list(index = i),
+    spdeST:::.mgcvst_run_chunks(list(1:2, 1:2), function(i) list(index = i),
                                 "null", NULL, digest, NULL,
                                 BiocParallel::SerialParam(), work, scale = 1),
     "distinct")
@@ -348,7 +348,7 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
   environment(slow) <- baseenv()
   snow <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
   on.exit(BiocParallel::bpstop(snow), add = TRUE)
-  res <- mgcvST:::.mgcvst_run_chunks(many, function(i) list(index = i), "null",
+  res <- spdeST:::.mgcvst_run_chunks(many, function(i) list(index = i), "null",
                                      NULL, as.character(1:6), NULL, snow, slow)
   expect_identical(unlist(res$results), (1:6) * 100L)
   expect_identical(res$built, 6L)
@@ -357,7 +357,7 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
 test_that("a chunk that holds a failed feature is computed again on resume", {
   dir <- tempfile("mgcvst-failed-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- mgcvST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
   digest <- letters[1:4]
   groups <- list(1:2, 3:4)
   attempts <- 0L
@@ -367,10 +367,10 @@ test_that("a chunk that holds a failed feature is computed again on resume", {
       if (j == 3L && attempts <= 2L) list(error = list(class = "e", message = "m", call = ""))
       else list(value = j)
     })
-    mgcvST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    spdeST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
     out
   }
-  run <- function() mgcvST:::.mgcvst_run_chunks(groups, function(i) list(index = i),
+  run <- function() spdeST:::.mgcvst_run_chunks(groups, function(i) list(index = i),
     "spatial", store, digest, NULL, BiocParallel::SerialParam(), work)
   first <- run()
   expect_identical(attempts, 2L)
@@ -382,12 +382,12 @@ test_that("a chunk that holds a failed feature is computed again on resume", {
   third <- run()
   expect_identical(c(third$resumed, third$built), c(2L, 0L))
   # The failed null step of an mgcv feature counts as a failure as well.
-  expect_true(mgcvST:::.mgcvst_chunk_has_error(list(list(marginal_error = list(message = "m")))))
-  expect_false(mgcvST:::.mgcvst_chunk_has_error(list(list(marginal_error = NULL, value = 1))))
+  expect_true(spdeST:::.mgcvst_chunk_has_error(list(list(marginal_error = list(message = "m")))))
+  expect_false(spdeST:::.mgcvst_chunk_has_error(list(list(marginal_error = NULL, value = 1))))
 })
 
 test_that("the response matrix is checked in blocks and kept as given", {
-  check <- mgcvST:::.mgcvst_check_response_matrix
+  check <- spdeST:::.mgcvst_check_response_matrix
   Y <- matrix(as.integer(c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)), 4L, 3L)
   expect_identical(check(Y, counts = TRUE), Y)
   expect_identical(typeof(check(Y)), "integer")
@@ -411,19 +411,19 @@ test_that("the response matrix is checked in blocks and kept as given", {
   expect_error(check(wide, counts = TRUE, block_elements = 10), "non-negative")
   expect_identical(check(matrix(1, 7L, 5L), counts = TRUE, block_elements = 10), matrix(1, 7L, 5L))
   # A block of rows is converted to double only when a payload is made.
-  block <- mgcvST:::.mgcvst_double_rows(Y, 2:3)
+  block <- spdeST:::.mgcvst_double_rows(Y, 2:3)
   expect_identical(typeof(block), "double")
   expect_equal(block, Y[2:3, ] + 0)
-  expect_identical(mgcvST:::.mgcvst_double_rows(D, 2:3), D[2:3, , drop = FALSE])
+  expect_identical(spdeST:::.mgcvst_double_rows(D, 2:3), D[2:3, , drop = FALSE])
   # The digest of a row does not depend on names or on the storage type.
   named <- D
   dimnames(named) <- list(letters[1:4], LETTERS[1:3])
-  expect_identical(mgcvST:::.mgcvst_row_digests(named), mgcvST:::.mgcvst_row_digests(D))
-  expect_identical(mgcvST:::.mgcvst_row_digests(Y), mgcvST:::.mgcvst_row_digests(D))
+  expect_identical(spdeST:::.mgcvst_row_digests(named), spdeST:::.mgcvst_row_digests(D))
+  expect_identical(spdeST:::.mgcvst_row_digests(Y), spdeST:::.mgcvst_row_digests(D))
 })
 
 test_that("chunk_size is one positive integer in every entry point", {
-  check <- mgcvST:::.mgcvst_check_chunk_size
+  check <- spdeST:::.mgcvst_check_chunk_size
   expect_null(check(NULL))
   expect_identical(check(3), 3L)
   expect_identical(check(3L), 3L)
@@ -455,15 +455,15 @@ test_that("step-1 chunks are the same whatever the number of workers when chunk_
   serial <- BiocParallel::SerialParam()
   many <- BiocParallel::SnowParam(5L, type = "SOCK", progressbar = FALSE)
   for (checkpoint in c(FALSE, TRUE)) {
-    expect_identical(mgcvST:::.mgcvst_feature_chunks(features, 3L, serial, checkpoint),
-                     mgcvST:::.mgcvst_feature_chunks(features, 3L, many, checkpoint))
+    expect_identical(spdeST:::.mgcvst_feature_chunks(features, 3L, serial, checkpoint),
+                     spdeST:::.mgcvst_feature_chunks(features, 3L, many, checkpoint))
   }
   # Without chunk_size they follow the workers, which is why a resumable run
   # passes it explicitly.
-  expect_false(identical(mgcvST:::.mgcvst_feature_chunks(features, NULL, serial),
-                         mgcvST:::.mgcvst_feature_chunks(features, NULL, many)))
+  expect_false(identical(spdeST:::.mgcvst_feature_chunks(features, NULL, serial),
+                         spdeST:::.mgcvst_feature_chunks(features, NULL, many)))
   digest <- as.character(features)
-  key <- function(index, route = NULL) mgcvST:::.mgcvst_chunk_key("null", index, digest, route)
+  key <- function(index, route = NULL) spdeST:::.mgcvst_chunk_key("null", index, digest, route)
   expect_identical(key(1:3), key(1:3))
   expect_false(identical(key(1:3), key(1:4)))
   expect_false(identical(key(1:3, rep(FALSE, 11L)), key(1:3, c(FALSE, TRUE, rep(FALSE, 9L)))))
@@ -471,16 +471,16 @@ test_that("step-1 chunks are the same whatever the number of workers when chunk_
 
 test_that("a fit estimated before the two-step estimators is refused only where it lacks data", {
   inla_old <- list(estimator = "INLA")
-  expect_error(mgcvST:::.mgcvst_check_fit_format(inla_old), "before mgcvST 0.0.1.9032")
+  expect_error(spdeST:::.mgcvst_check_fit_format(inla_old), "before mgcvST 0.0.1.9032")
   inla_old$format <- 1L
-  expect_error(mgcvST:::.mgcvst_check_fit_format(inla_old), "re-run inlaST.estimate")
+  expect_error(spdeST:::.mgcvst_check_fit_format(inla_old), "re-run inlaST.estimate")
   inla_new <- list(estimator = "INLA", format = 2L, mu_bar = c(1, 2))
-  expect_identical(mgcvST:::.mgcvst_check_fit_format(inla_new), inla_new)
-  expect_error(mgcvST:::.mgcvst_check_fit_format(list(estimator = "INLA", format = 2L)),
+  expect_identical(spdeST:::.mgcvst_check_fit_format(inla_new), inla_new)
+  expect_error(spdeST:::.mgcvst_check_fit_format(list(estimator = "INLA", format = 2L)),
                "re-run inlaST.estimate")
   # An mgcv fit of the earlier format holds everything the mgcv tests read.
-  expect_silent(mgcvST:::.mgcvst_check_fit_format(list(feature_id = "a")))
-  expect_error(mgcvST:::.mgcvst_check_fit_format(list(format = 99L)), "newer version")
+  expect_silent(spdeST:::.mgcvst_check_fit_format(list(feature_id = "a")))
+  expect_error(spdeST:::.mgcvst_check_fit_format(list(format = 99L)), "newer version")
 })
 
 # ---- mgcv branch ------------------------------------------------------------
@@ -492,7 +492,7 @@ test_that("mgcvST.estimate fits the spatial model of the Stage 1 discoveries onl
   q <- all$diagnostics$marginal_q_value
   expect_equal(q, p.adjust(all$diagnostics$marginal_p_value, "BY"), tolerance = 1e-12)
   expect_true(all(all$diagnostics$spatial_selected & all$diagnostics$spatial_fitted))
-  expect_true(all(mgcvST:::.mgcvst_feature_available(all)))
+  expect_true(all(spdeST:::.mgcvst_feature_available(all)))
   # A threshold between the second and the third q-value selects two features.
   ordered <- sort(q)
   cut <- sqrt(ordered[2L] * ordered[3L])
@@ -508,7 +508,7 @@ test_that("mgcvST.estimate fits the spatial model of the Stage 1 discoveries onl
   expect_true(all(is.na(fit$working_error[, rest])))
   expect_true(all(is.na(fit$working_variance[, rest])))
   expect_true(all(is.na(fit$dispersion[rest])) && all(is.na(fit$lambda[rest])))
-  expect_identical(unname(mgcvST:::.mgcvst_feature_available(fit)), q <= cut)
+  expect_identical(unname(spdeST:::.mgcvst_feature_available(fit)), q <= cut)
   expect_false(fit$diagnostics$converged[rest])
   # Selected features are the fits of the one-step run.
   expect_identical(fit$working_error[, chosen], all$working_error[, chosen])
@@ -655,7 +655,7 @@ test_that("mgcv null chunks hold no observation-length vector and resume exactly
     checkpoint_dir = dir, resume = FALSE)), "already exists")
   inla_dir <- tempfile("mgcvst-two-step-inla-")
   on.exit(unlink(inla_dir, recursive = TRUE), add = TRUE)
-  mgcvST:::.mgcvst_chunk_store(inla_dir, "inla", "x", TRUE)
+  spdeST:::.mgcvst_chunk_store(inla_dir, "inla", "x", TRUE)
   expect_error(suppressWarnings(mgcvST.estimate(
     f$Y, f$model, BPPARAM = sp, checkpoint_dir = inla_dir)), "another estimator")
   # Other responses recompute their chunks; none of the old ones is reused.
@@ -674,7 +674,7 @@ test_that("fits and estimation checkpoints of format 2 (0.0.1.9032 and later) ar
   sp <- BiocParallel::SerialParam()
   dir <- tempfile("mgcvst-format2-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  expect_identical(mgcvST:::.mgcvst_fit_format, 2L)
+  expect_identical(spdeST:::.mgcvst_fit_format, 2L)
   first <- suppressWarnings(mgcvST.estimate(
     f$Y, f$model, BPPARAM = sp, spatial = "none", chunk_size = 2L, checkpoint_dir = dir))
   expect_identical(first$format, 2L)
@@ -687,7 +687,7 @@ test_that("fits and estimation checkpoints of format 2 (0.0.1.9032 and later) ar
     again, f$Y, "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir))
   z <- mgcvST.test(full, moments = "exact")
   expect_true(all(z$results$status == 0L))
-  expect_no_error(mgcvST:::.mgcvst_check_fit_format(list(format = 2L)))
+  expect_no_error(spdeST:::.mgcvst_check_fit_format(list(format = 2L)))
 })
 
 # ---- INLA branch ------------------------------------------------------------
@@ -720,7 +720,7 @@ test_that("inlaST.estimate fits the null model of every feature and the spatial 
   expect_true(all(is.na(fit$score_a[, rest])))
   expect_true(all(is.na(fit$dispersion[rest])) && all(is.na(fit$mu_bar[rest])))
   expect_true(all(is.na(fit$target_coefficients[, rest])))
-  expect_identical(unname(mgcvST:::.mgcvst_feature_available(fit)), q <= cut)
+  expect_identical(unname(spdeST:::.mgcvst_feature_available(fit)), q <= cut)
   for (name in c("score_a", "target_coefficients", "nuisance_coefficients")) {
     expect_identical(fit[[name]][, chosen], all[[name]][, chosen], info = name)
   }
@@ -851,7 +851,7 @@ test_that("INLA workers return compact results and a checkpoint resumes exactly"
     chunk_size = 2L, checkpoint_dir = dir, resume = FALSE), "already exists")
   mgcv_dir <- tempfile("mgcvst-two-step-mgcv-")
   on.exit(unlink(mgcv_dir, recursive = TRUE), add = TRUE)
-  mgcvST:::.mgcvst_chunk_store(mgcv_dir, "mgcv", "x", TRUE)
+  spdeST:::.mgcvst_chunk_store(mgcv_dir, "mgcv", "x", TRUE)
   expect_error(inlaST.estimate(d$Y, d$model, BPPARAM = sp, checkpoint_dir = mgcv_dir),
                "another estimator")
 })
@@ -862,10 +862,10 @@ test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
   .ts_memoize_fits()
   fit <- inlaST.estimate(d$Y, d$model, BPPARAM = BiocParallel::SerialParam(),
                          spatial = "all")
-  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
-  state <- mgcvST:::.inlast_working_state(prepared, seq_along(fit$feature_id))
+  prepared <- spdeST:::.inlast_sparse_prepare(fit)
+  state <- spdeST:::.inlast_working_state(prepared, seq_along(fit$feature_id))
   expect_equal(unname(fit$mu_bar), colMeans(state$mu), tolerance = 1e-10)
-  scales <- mgcvST:::.mgcvst_pca_scales(fit)
+  scales <- spdeST:::.mgcvst_pca_scales(fit)
   expect_identical(scales$mu_bar, unname(fit$mu_bar))
   nb <- fit$diagnostics$family_used == "negative_binomial"
   theta <- vapply(fit$family_parameters, function(x) x[1L], numeric(1L))
@@ -875,10 +875,10 @@ test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
   # that lacks it is refused instead of being recomputed silently.
   altered <- fit
   altered$mu_bar[] <- 2 * altered$mu_bar
-  expect_equal(mgcvST:::.mgcvst_pca_scales(altered)$mu_bar, 2 * unname(fit$mu_bar))
+  expect_equal(spdeST:::.mgcvst_pca_scales(altered)$mu_bar, 2 * unname(fit$mu_bar))
   missing <- fit
   missing$mu_bar <- NULL
-  expect_error(mgcvST:::.mgcvst_pca_scales(missing), "does not store mu_bar")
+  expect_error(spdeST:::.mgcvst_pca_scales(missing), "does not store mu_bar")
   for (old in list(missing, local({ x <- fit; x$format <- NULL; x }),
                    local({ x <- fit; x$format <- 1L; x }))) {
     expect_error(inlaST.test(old, rank = 2L, moments = "exact"), "before mgcvST 0.0.1.9032|re-run inlaST.estimate")
@@ -893,8 +893,8 @@ test_that("the observation basis is full rank and enters the pair signature", {
   .ts_memoize_fits()
   fit <- inlaST.estimate(d$Y, d$model, BPPARAM = BiocParallel::SerialParam(),
                          spatial = "all")
-  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
-  basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
+  prepared <- spdeST:::.inlast_sparse_prepare(fit)
+  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
   expect_identical(basis$kind, "full_rank")
   expect_identical(basis$rank, d$m - 1L)
   expect_identical(ncol(basis$coordinate), d$m - 1L)
@@ -905,7 +905,7 @@ test_that("the observation basis is full rank and enters the pair signature", {
   expect_identical(tested$timing$inla_projection$r, d$m - 1L)
   expect_identical(tested$timing$inla_projection$basis_kind, "full_rank")
   # WGCNA uses the same basis, and its normalizer is q - 1.
-  scores <- mgcvST:::.mgcvst_inla_wgcna_scores(fit, 1:3, 1L, FALSE)
+  scores <- spdeST:::.mgcvst_inla_wgcna_scores(fit, 1:3, 1L, FALSE)
   expect_identical(scores$normalization, d$m - 1L)
   expect_equal(unname(scores$A),
                unname(crossprod(basis$coordinate, fit$score_a[, 1:3])),
@@ -915,18 +915,18 @@ test_that("the observation basis is full rank and enters the pair signature", {
   changed <- fit
   changed$basis_spec$kind <- "truncated"
   expect_error(inlaST.test(changed, rank = 3L, seed = 4L, moments = "exact"), "differs from the one recorded")
-  expect_error(mgcvST:::.mgcvst_inla_wgcna_scores(changed, 1:3, 1L, FALSE),
+  expect_error(spdeST:::.mgcvst_inla_wgcna_scores(changed, 1:3, 1L, FALSE),
                "differs from the one recorded")
   expect_error(inlaST.test(local({ x <- fit; x$basis_spec <- NULL; x }), rank = 3L, moments = "exact"),
                "recorded by the estimation (none)", fixed = TRUE)
   # The pair signature, and with it every pair checkpoint, depends on the basis.
-  signature <- mgcvST:::.mgcvst_pair_signature(prepared, basis)
+  signature <- spdeST:::.mgcvst_pair_signature(prepared, basis)
   other <- basis
   other$kind <- "truncated"
-  expect_false(identical(signature, mgcvST:::.mgcvst_pair_signature(prepared, other)))
+  expect_false(identical(signature, spdeST:::.mgcvst_pair_signature(prepared, other)))
   fewer <- basis
   fewer$rank <- basis$rank - 1L
-  expect_false(identical(signature, mgcvST:::.mgcvst_pair_signature(prepared, fewer)))
+  expect_false(identical(signature, spdeST:::.mgcvst_pair_signature(prepared, fewer)))
 })
 
 # ---- resume, lazy payloads and multi-process runs ----------------------------

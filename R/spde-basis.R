@@ -81,7 +81,7 @@
 
 .spde_kappa_check <- function(kappa) {
   if (is.null(kappa)) {
-    stop("kappa = NULL is not supported: mgcvST never estimates kappa. ",
+    stop("kappa = NULL is not supported: spdeST never estimates kappa. ",
          "Supply one positive unit-scale kappa; the default is 0.05.",
          call. = FALSE)
   }
@@ -132,7 +132,7 @@
   k <- x$kappa_internal
   if (is.null(x$kappa_unit) || length(k) != 1L || !is.finite(k) || k <= 0) {
     stop("xt has no fixed unit-scale kappa; rebuild it with spde_basis(). ",
-         "mgcvST never estimates kappa.")
+         "spdeST never estimates kappa.")
   }
   if (!is.null(loc) && (!is.numeric(loc) || ncol(as.matrix(loc)) != 2L ||
       any(!is.finite(loc)))) {

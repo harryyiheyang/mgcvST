@@ -1,7 +1,7 @@
 test_that("progress lines appear at each tenth and at the end", {
   withr::local_options(mgcvST.progress = TRUE)
   msgs <- testthat::capture_messages({
-    p <- mgcvST:::.mgcvst_progress("null", 100, "features")
+    p <- spdeST:::.mgcvst_progress("null", 100, "features")
     for (i in 1:20) p$add(5)
     p$done()
   })
@@ -15,7 +15,7 @@ test_that("progress lines appear at each tenth and at the end", {
 test_that("restored work counts as done and the option silences progress", {
   withr::local_options(mgcvST.progress = TRUE)
   msgs <- testthat::capture_messages({
-    p <- mgcvST:::.mgcvst_progress("pairs", 1e6, "pairs", resumed = 5e5)
+    p <- spdeST:::.mgcvst_progress("pairs", 1e6, "pairs", resumed = 5e5)
     p$add(1e5)
     p$add(4e5, fresh = FALSE)
     p$done()
@@ -25,7 +25,7 @@ test_that("restored work counts as done and the option silences progress", {
   expect_length(msgs, 3L)
   withr::local_options(mgcvST.progress = FALSE)
   expect_silent({
-    p <- mgcvST:::.mgcvst_progress("null", 10)
+    p <- spdeST:::.mgcvst_progress("null", 10)
     p$add(10)
     p$done()
   })
@@ -34,7 +34,7 @@ test_that("restored work counts as done and the option silences progress", {
 test_that("a heartbeat line appears between tenths", {
   withr::local_options(mgcvST.progress = TRUE)
   msgs <- testthat::capture_messages({
-    p <- mgcvST:::.mgcvst_progress("spatial", 1000, heartbeat = 0)
+    p <- spdeST:::.mgcvst_progress("spatial", 1000, heartbeat = 0)
     p$add(1)
     p$add(1)
   })
@@ -47,7 +47,7 @@ test_that("the chunk runner reports features as chunks complete", {
   groups <- split(1:30, rep(1:3, each = 10))
   worker <- function(payload) as.list(payload$index)
   msgs <- testthat::capture_messages(
-    out <- mgcvST:::.mgcvst_run_chunks(groups, function(index) list(index = index),
+    out <- spdeST:::.mgcvst_run_chunks(groups, function(index) list(index = index),
       "null", NULL, "digest", rep(FALSE, 30), BiocParallel::SerialParam(),
       worker)
   )

@@ -14,7 +14,7 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 
 // mgcvst_log_adjust_cpp
 Rcpp::List mgcvst_log_adjust_cpp(const Rcpp::NumericVector& log_p, const std::string& method);
-RcppExport SEXP _mgcvST_mgcvst_log_adjust_cpp(SEXP log_pSEXP, SEXP methodSEXP) {
+RcppExport SEXP _spdeST_mgcvst_log_adjust_cpp(SEXP log_pSEXP, SEXP methodSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -26,7 +26,7 @@ END_RCPP
 }
 // mgcvst_dense_score_batch_cpp
 Rcpp::List mgcvst_dense_score_batch_cpp(const arma::mat& T0, const arma::mat& variance, const arma::mat& error, const arma::vec& scale, const arma::mat& X, const Rcpp::List& nuisance, int threads, bool score_only);
-RcppExport SEXP _mgcvST_mgcvst_dense_score_batch_cpp(SEXP T0SEXP, SEXP varianceSEXP, SEXP errorSEXP, SEXP scaleSEXP, SEXP XSEXP, SEXP nuisanceSEXP, SEXP threadsSEXP, SEXP score_onlySEXP) {
+RcppExport SEXP _spdeST_mgcvst_dense_score_batch_cpp(SEXP T0SEXP, SEXP varianceSEXP, SEXP errorSEXP, SEXP scaleSEXP, SEXP XSEXP, SEXP nuisanceSEXP, SEXP threadsSEXP, SEXP score_onlySEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -44,7 +44,7 @@ END_RCPP
 }
 // mgcvst_inla_sparse_prepare_cpp
 SEXP mgcvst_inla_sparse_prepare_cpp(const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_prepare_cpp(SEXP Q_mapSEXP, SEXP constraintSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_sparse_prepare_cpp(SEXP Q_mapSEXP, SEXP constraintSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -56,7 +56,7 @@ END_RCPP
 }
 // mgcvst_inla_sparse_prepared_valid_cpp
 bool mgcvst_inla_sparse_prepared_valid_cpp(SEXP prepared);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_prepared_valid_cpp(SEXP preparedSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_sparse_prepared_valid_cpp(SEXP preparedSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -67,7 +67,7 @@ END_RCPP
 }
 // mgcvst_inla_sparse_observation_basis_cpp
 Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::Map<Eigen::VectorXd> constraint, SEXP prepared);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_observation_basis_cpp(SEXP A_mapSEXP, SEXP constraintSEXP, SEXP preparedSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_sparse_observation_basis_cpp(SEXP A_mapSEXP, SEXP constraintSEXP, SEXP preparedSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -80,7 +80,7 @@ END_RCPP
 }
 // mgcvst_inla_sparse_batch_cpp
 Rcpp::List mgcvst_inla_sparse_batch_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> E, const Eigen::Map<Eigen::MatrixXd> D, const Eigen::Map<Eigen::VectorXd> tau, int threads, bool null_target, int block_size, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_batch_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP ESEXP, SEXP DSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP null_targetSEXP, SEXP block_sizeSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_sparse_batch_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP ESEXP, SEXP DSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP null_targetSEXP, SEXP block_sizeSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -102,7 +102,7 @@ END_RCPP
 }
 // mgcvst_inla_sparse_materialize_reduced_cpp
 Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(const Rcpp::List& units, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> coordinate, const Eigen::Map<Eigen::MatrixXd> basis, int threads, SEXP prepared);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp(SEXP unitsSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP coordinateSEXP, SEXP basisSEXP, SEXP threadsSEXP, SEXP preparedSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_sparse_materialize_reduced_cpp(SEXP unitsSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP coordinateSEXP, SEXP basisSEXP, SEXP threadsSEXP, SEXP preparedSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -119,7 +119,7 @@ END_RCPP
 }
 // mgcvst_inla_sparse_materialize_pca_cpp
 Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(const Rcpp::List& units, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> coordinate, const Eigen::Map<Eigen::MatrixXd> basis, Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis, const Rcpp::LogicalVector& pack, int threads, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> V);
-RcppExport SEXP _mgcvST_mgcvst_inla_sparse_materialize_pca_cpp(SEXP unitsSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP coordinateSEXP, SEXP basisSEXP, SEXP pca_basisSEXP, SEXP packSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP VSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_sparse_materialize_pca_cpp(SEXP unitsSEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP coordinateSEXP, SEXP basisSEXP, SEXP pca_basisSEXP, SEXP packSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP VSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -139,7 +139,7 @@ END_RCPP
 }
 // mgcvst_inla_working_state_cpp
 Rcpp::List mgcvst_inla_working_state_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& X, const Rcpp::NumericMatrix& B, const Rcpp::NumericMatrix& C, const Rcpp::NumericMatrix& O, const Rcpp::IntegerVector& family, const Rcpp::NumericVector& size, const Rcpp::NumericVector& dispersion, int threads);
-RcppExport SEXP _mgcvST_mgcvst_inla_working_state_cpp(SEXP ASEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP threadsSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_working_state_cpp(SEXP ASEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -158,7 +158,7 @@ END_RCPP
 }
 // mgcvst_inla_compact_units_cpp
 Rcpp::List mgcvst_inla_compact_units_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::MappedSparseMatrix<double>& X, const Rcpp::NumericMatrix& B, const Rcpp::NumericMatrix& C, const Rcpp::NumericMatrix& O, const Rcpp::IntegerVector& family, const Rcpp::NumericVector& size, const Rcpp::NumericVector& dispersion, const Eigen::Map<Eigen::VectorXd> tau, const Eigen::Map<Eigen::MatrixXd> a, int threads, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision);
-RcppExport SEXP _mgcvST_mgcvst_inla_compact_units_cpp(SEXP ASEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP tauSEXP, SEXP aSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
+RcppExport SEXP _spdeST_mgcvst_inla_compact_units_cpp(SEXP ASEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP tauSEXP, SEXP aSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -183,7 +183,7 @@ END_RCPP
 }
 // mgcvst_memory_status_cpp
 Rcpp::NumericVector mgcvst_memory_status_cpp();
-RcppExport SEXP _mgcvST_mgcvst_memory_status_cpp() {
+RcppExport SEXP _spdeST_mgcvst_memory_status_cpp() {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -193,7 +193,7 @@ END_RCPP
 }
 // mgcvst_nb_null_batch_cpp
 Rcpp::List mgcvst_nb_null_batch_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, double alpha_max, double alpha_fixed, double tol, int maxit_outer, int maxit_inner, int threads);
-RcppExport SEXP _mgcvST_mgcvst_nb_null_batch_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_maxSEXP, SEXP alpha_fixedSEXP, SEXP tolSEXP, SEXP maxit_outerSEXP, SEXP maxit_innerSEXP, SEXP threadsSEXP) {
+RcppExport SEXP _spdeST_mgcvst_nb_null_batch_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_maxSEXP, SEXP alpha_fixedSEXP, SEXP tolSEXP, SEXP maxit_outerSEXP, SEXP maxit_innerSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -213,7 +213,7 @@ END_RCPP
 }
 // mgcvst_pca_gram_cpp
 Rcpp::NumericMatrix mgcvst_pca_gram_cpp(const Rcpp::List& packed, const Rcpp::NumericVector& tau, int threads, int chunk);
-RcppExport SEXP _mgcvST_mgcvst_pca_gram_cpp(SEXP packedSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP chunkSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_gram_cpp(SEXP packedSEXP, SEXP tauSEXP, SEXP threadsSEXP, SEXP chunkSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -227,7 +227,7 @@ END_RCPP
 }
 // mgcvst_pca_basis_cpp
 Rcpp::NumericMatrix mgcvst_pca_basis_cpp(const Rcpp::List& packed, const Rcpp::NumericVector& tau, const Eigen::Map<Eigen::MatrixXd> R, int threads, int chunk);
-RcppExport SEXP _mgcvST_mgcvst_pca_basis_cpp(SEXP packedSEXP, SEXP tauSEXP, SEXP RSEXP, SEXP threadsSEXP, SEXP chunkSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_basis_cpp(SEXP packedSEXP, SEXP tauSEXP, SEXP RSEXP, SEXP threadsSEXP, SEXP chunkSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -242,7 +242,7 @@ END_RCPP
 }
 // mgcvst_pca_tables_cpp
 Rcpp::List mgcvst_pca_tables_cpp(const Rcpp::NumericMatrix& B, int q, int threads, int block, int tile);
-RcppExport SEXP _mgcvST_mgcvst_pca_tables_cpp(SEXP BSEXP, SEXP qSEXP, SEXP threadsSEXP, SEXP blockSEXP, SEXP tileSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_tables_cpp(SEXP BSEXP, SEXP qSEXP, SEXP threadsSEXP, SEXP blockSEXP, SEXP tileSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -257,7 +257,7 @@ END_RCPP
 }
 // mgcvst_pca_monomials_cpp
 Rcpp::NumericMatrix mgcvst_pca_monomials_cpp(const Eigen::Map<Eigen::MatrixXd> C);
-RcppExport SEXP _mgcvST_mgcvst_pca_monomials_cpp(SEXP CSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_monomials_cpp(SEXP CSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -268,7 +268,7 @@ END_RCPP
 }
 // mgcvst_pca_packed_sum_cpp
 Rcpp::NumericMatrix mgcvst_pca_packed_sum_cpp(const Rcpp::List& packed, int q);
-RcppExport SEXP _mgcvST_mgcvst_pca_packed_sum_cpp(SEXP packedSEXP, SEXP qSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_packed_sum_cpp(SEXP packedSEXP, SEXP qSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -280,7 +280,7 @@ END_RCPP
 }
 // mgcvst_pca_packed_project_cpp
 Rcpp::List mgcvst_pca_packed_project_cpp(const Rcpp::List& packed, const Eigen::Map<Eigen::MatrixXd> V, int threads);
-RcppExport SEXP _mgcvST_mgcvst_pca_packed_project_cpp(SEXP packedSEXP, SEXP VSEXP, SEXP threadsSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_packed_project_cpp(SEXP packedSEXP, SEXP VSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -293,7 +293,7 @@ END_RCPP
 }
 // mgcvst_pca_dense_cpp
 Rcpp::List mgcvst_pca_dense_cpp(const Rcpp::List& H, const Eigen::Map<Eigen::MatrixXd> a, Rcpp::Nullable<Rcpp::NumericMatrix> pca_basis, const Rcpp::LogicalVector& pack, Rcpp::Nullable<Rcpp::NumericMatrix> V, int threads);
-RcppExport SEXP _mgcvST_mgcvst_pca_dense_cpp(SEXP HSEXP, SEXP aSEXP, SEXP pca_basisSEXP, SEXP packSEXP, SEXP VSEXP, SEXP threadsSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_dense_cpp(SEXP HSEXP, SEXP aSEXP, SEXP pca_basisSEXP, SEXP packSEXP, SEXP VSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -309,7 +309,7 @@ END_RCPP
 }
 // mgcvst_pca_spa_pairs_cpp
 Rcpp::NumericMatrix mgcvst_pca_spa_pairs_cpp(const Eigen::Map<Eigen::MatrixXd> A, const Eigen::Map<Eigen::MatrixXd> C, const Eigen::Map<Eigen::MatrixXd> K2, const Eigen::Map<Eigen::MatrixXd> T2, const Eigen::Map<Eigen::MatrixXd> R, const Rcpp::NumericVector& scale, const Rcpp::IntegerVector& i, const Rcpp::IntegerVector& j, int threads, double screen_z);
-RcppExport SEXP _mgcvST_mgcvst_pca_spa_pairs_cpp(SEXP ASEXP, SEXP CSEXP, SEXP K2SEXP, SEXP T2SEXP, SEXP RSEXP, SEXP scaleSEXP, SEXP iSEXP, SEXP jSEXP, SEXP threadsSEXP, SEXP screen_zSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_spa_pairs_cpp(SEXP ASEXP, SEXP CSEXP, SEXP K2SEXP, SEXP T2SEXP, SEXP RSEXP, SEXP scaleSEXP, SEXP iSEXP, SEXP jSEXP, SEXP threadsSEXP, SEXP screen_zSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -329,7 +329,7 @@ END_RCPP
 }
 // mgcvst_pca_spa_block_cpp
 Rcpp::NumericMatrix mgcvst_pca_spa_block_cpp(const Eigen::Map<Eigen::MatrixXd> A, const Eigen::Map<Eigen::MatrixXd> C, const Eigen::Map<Eigen::MatrixXd> K2, const Eigen::Map<Eigen::MatrixXd> T2, const Eigen::Map<Eigen::MatrixXd> R, const Rcpp::NumericVector& scale, int first, int last, int threads, int gene_block, int pair_block, double screen_z);
-RcppExport SEXP _mgcvST_mgcvst_pca_spa_block_cpp(SEXP ASEXP, SEXP CSEXP, SEXP K2SEXP, SEXP T2SEXP, SEXP RSEXP, SEXP scaleSEXP, SEXP firstSEXP, SEXP lastSEXP, SEXP threadsSEXP, SEXP gene_blockSEXP, SEXP pair_blockSEXP, SEXP screen_zSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pca_spa_block_cpp(SEXP ASEXP, SEXP CSEXP, SEXP K2SEXP, SEXP T2SEXP, SEXP RSEXP, SEXP scaleSEXP, SEXP firstSEXP, SEXP lastSEXP, SEXP threadsSEXP, SEXP gene_blockSEXP, SEXP pair_blockSEXP, SEXP screen_zSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -351,7 +351,7 @@ END_RCPP
 }
 // mgcvst_pair_trace_powers_cpp
 Rcpp::NumericMatrix mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList, const Rcpp::IntegerMatrix& pairs, int maxPower, int threads);
-RcppExport SEXP _mgcvST_mgcvst_pair_trace_powers_cpp(SEXP matrixListSEXP, SEXP pairsSEXP, SEXP maxPowerSEXP, SEXP threadsSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pair_trace_powers_cpp(SEXP matrixListSEXP, SEXP pairsSEXP, SEXP maxPowerSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -365,7 +365,7 @@ END_RCPP
 }
 // mgcvst_pair_basis_sum_cpp
 Rcpp::NumericMatrix mgcvst_pair_basis_sum_cpp(const Rcpp::List& H, Rcpp::Nullable<Rcpp::NumericMatrix> init);
-RcppExport SEXP _mgcvST_mgcvst_pair_basis_sum_cpp(SEXP HSEXP, SEXP initSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pair_basis_sum_cpp(SEXP HSEXP, SEXP initSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -377,7 +377,7 @@ END_RCPP
 }
 // mgcvst_pair_basis_cpp
 Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix& V, int threads);
-RcppExport SEXP _mgcvST_mgcvst_pair_basis_cpp(SEXP HSEXP, SEXP VSEXP, SEXP threadsSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pair_basis_cpp(SEXP HSEXP, SEXP VSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -390,7 +390,7 @@ END_RCPP
 }
 // mgcvst_pair_spa_cpp
 Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G, const Rcpp::NumericMatrix& a, const Rcpp::IntegerVector& left, const Rcpp::IntegerVector& right, int threads, int order, Rcpp::Nullable<Rcpp::NumericVector> x, double screen_z);
-RcppExport SEXP _mgcvST_mgcvst_pair_spa_cpp(SEXP HSEXP, SEXP GSEXP, SEXP aSEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP threadsSEXP, SEXP orderSEXP, SEXP xSEXP, SEXP screen_zSEXP) {
+RcppExport SEXP _spdeST_mgcvst_pair_spa_cpp(SEXP HSEXP, SEXP GSEXP, SEXP aSEXP, SEXP leftSEXP, SEXP rightSEXP, SEXP threadsSEXP, SEXP orderSEXP, SEXP xSEXP, SEXP screen_zSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -409,7 +409,7 @@ END_RCPP
 }
 // mgcvst_simd_cpp
 std::string mgcvst_simd_cpp();
-RcppExport SEXP _mgcvST_mgcvst_simd_cpp() {
+RcppExport SEXP _spdeST_mgcvst_simd_cpp() {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -419,7 +419,7 @@ END_RCPP
 }
 // mgcvst_spa_cpp
 Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U, const Rcpp::NumericMatrix& S, const Rcpp::NumericMatrix& Tm, int order, int threads);
-RcppExport SEXP _mgcvST_mgcvst_spa_cpp(SEXP USEXP, SEXP SSEXP, SEXP TmSEXP, SEXP orderSEXP, SEXP threadsSEXP) {
+RcppExport SEXP _spdeST_mgcvst_spa_cpp(SEXP USEXP, SEXP SSEXP, SEXP TmSEXP, SEXP orderSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -434,7 +434,7 @@ END_RCPP
 }
 // mgcvst_spde_score_cpp
 Rcpp::List mgcvst_spde_score_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> offset, const Eigen::Map<Eigen::MatrixXd> beta, const Eigen::Map<Eigen::VectorXd> alpha, int threads, int block_size, double spectrum_tol);
-RcppExport SEXP _mgcvST_mgcvst_spde_score_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP XSEXP, SEXP YtSEXP, SEXP offsetSEXP, SEXP betaSEXP, SEXP alphaSEXP, SEXP threadsSEXP, SEXP block_sizeSEXP, SEXP spectrum_tolSEXP) {
+RcppExport SEXP _spdeST_mgcvst_spde_score_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP XSEXP, SEXP YtSEXP, SEXP offsetSEXP, SEXP betaSEXP, SEXP alphaSEXP, SEXP threadsSEXP, SEXP block_sizeSEXP, SEXP spectrum_tolSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -454,38 +454,38 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_mgcvST_mgcvst_log_adjust_cpp", (DL_FUNC) &_mgcvST_mgcvst_log_adjust_cpp, 2},
-    {"_mgcvST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_dense_score_batch_cpp, 8},
-    {"_mgcvST_mgcvst_inla_sparse_prepare_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepare_cpp, 2},
-    {"_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp, 1},
-    {"_mgcvST_mgcvst_inla_sparse_observation_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_observation_basis_cpp, 3},
-    {"_mgcvST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_batch_cpp, 12},
-    {"_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp, 7},
-    {"_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp, 10},
-    {"_mgcvST_mgcvst_inla_working_state_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_working_state_cpp, 9},
-    {"_mgcvST_mgcvst_inla_compact_units_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_compact_units_cpp, 15},
-    {"_mgcvST_mgcvst_memory_status_cpp", (DL_FUNC) &_mgcvST_mgcvst_memory_status_cpp, 0},
-    {"_mgcvST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_nb_null_batch_cpp, 10},
-    {"_mgcvST_mgcvst_pca_gram_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_gram_cpp, 4},
-    {"_mgcvST_mgcvst_pca_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_basis_cpp, 5},
-    {"_mgcvST_mgcvst_pca_tables_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_tables_cpp, 5},
-    {"_mgcvST_mgcvst_pca_monomials_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_monomials_cpp, 1},
-    {"_mgcvST_mgcvst_pca_packed_sum_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_packed_sum_cpp, 2},
-    {"_mgcvST_mgcvst_pca_packed_project_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_packed_project_cpp, 3},
-    {"_mgcvST_mgcvst_pca_dense_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_dense_cpp, 6},
-    {"_mgcvST_mgcvst_pca_spa_pairs_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_spa_pairs_cpp, 10},
-    {"_mgcvST_mgcvst_pca_spa_block_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_spa_block_cpp, 12},
-    {"_mgcvST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_trace_powers_cpp, 4},
-    {"_mgcvST_mgcvst_pair_basis_sum_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_sum_cpp, 2},
-    {"_mgcvST_mgcvst_pair_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_basis_cpp, 3},
-    {"_mgcvST_mgcvst_pair_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_spa_cpp, 9},
-    {"_mgcvST_mgcvst_simd_cpp", (DL_FUNC) &_mgcvST_mgcvst_simd_cpp, 0},
-    {"_mgcvST_mgcvst_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_spa_cpp, 5},
-    {"_mgcvST_mgcvst_spde_score_cpp", (DL_FUNC) &_mgcvST_mgcvst_spde_score_cpp, 10},
+    {"_spdeST_mgcvst_log_adjust_cpp", (DL_FUNC) &_spdeST_mgcvst_log_adjust_cpp, 2},
+    {"_spdeST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_dense_score_batch_cpp, 8},
+    {"_spdeST_mgcvst_inla_sparse_prepare_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_prepare_cpp, 2},
+    {"_spdeST_mgcvst_inla_sparse_prepared_valid_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_prepared_valid_cpp, 1},
+    {"_spdeST_mgcvst_inla_sparse_observation_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_observation_basis_cpp, 3},
+    {"_spdeST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_batch_cpp, 12},
+    {"_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp, 7},
+    {"_spdeST_mgcvst_inla_sparse_materialize_pca_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_materialize_pca_cpp, 10},
+    {"_spdeST_mgcvst_inla_working_state_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_working_state_cpp, 9},
+    {"_spdeST_mgcvst_inla_compact_units_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_compact_units_cpp, 15},
+    {"_spdeST_mgcvst_memory_status_cpp", (DL_FUNC) &_spdeST_mgcvst_memory_status_cpp, 0},
+    {"_spdeST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_nb_null_batch_cpp, 10},
+    {"_spdeST_mgcvst_pca_gram_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_gram_cpp, 4},
+    {"_spdeST_mgcvst_pca_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_basis_cpp, 5},
+    {"_spdeST_mgcvst_pca_tables_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_tables_cpp, 5},
+    {"_spdeST_mgcvst_pca_monomials_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_monomials_cpp, 1},
+    {"_spdeST_mgcvst_pca_packed_sum_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_packed_sum_cpp, 2},
+    {"_spdeST_mgcvst_pca_packed_project_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_packed_project_cpp, 3},
+    {"_spdeST_mgcvst_pca_dense_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_dense_cpp, 6},
+    {"_spdeST_mgcvst_pca_spa_pairs_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_spa_pairs_cpp, 10},
+    {"_spdeST_mgcvst_pca_spa_block_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_spa_block_cpp, 12},
+    {"_spdeST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_trace_powers_cpp, 4},
+    {"_spdeST_mgcvst_pair_basis_sum_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_basis_sum_cpp, 2},
+    {"_spdeST_mgcvst_pair_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_basis_cpp, 3},
+    {"_spdeST_mgcvst_pair_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_spa_cpp, 9},
+    {"_spdeST_mgcvst_simd_cpp", (DL_FUNC) &_spdeST_mgcvst_simd_cpp, 0},
+    {"_spdeST_mgcvst_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_cpp, 5},
+    {"_spdeST_mgcvst_spde_score_cpp", (DL_FUNC) &_spdeST_mgcvst_spde_score_cpp, 10},
     {NULL, NULL, 0}
 };
 
-RcppExport void R_init_mgcvST(DllInfo *dll) {
+RcppExport void R_init_spdeST(DllInfo *dll) {
     R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
     R_useDynamicSymbols(dll, FALSE);
 }

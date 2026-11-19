@@ -182,7 +182,7 @@
   spec
 }
 
-#' Prepare a sparse INLA estimator for mgcvST
+#' Prepare a sparse INLA estimator for spdeST
 #'
 #' Constructs the same fixed-kappa SPDE score geometry as [model.set()] while
 #' retaining raw sparse mesh precision matrices for INLA. Each spatial field is
@@ -286,7 +286,7 @@ inlaST.set <- function(
   kappa <- .spde_kappa_check(kappa)
   if (!identical(setting, "global")) {
     stop("setting must be \"global\". The second \"local\" geographic process ",
-         "(setting = \"global_local\") was removed from mgcvST; supply one ",
+         "(setting = \"global_local\") was removed from spdeST; supply one ",
          "spatial SPDE term.")
   }
   family_supplied <- .family_supplied

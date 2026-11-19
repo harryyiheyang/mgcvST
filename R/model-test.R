@@ -91,7 +91,7 @@
   .mgcvst_check_fit_format(fit)
   if (!is.null(fit$diagnostics$spatial_fitted) && !any(fit$diagnostics$spatial_fitted)) {
     stop("The fit has no spatial model; add spatial models with ",
-         if (.mgcvst_inla_downstream(fit)) "inlaST" else "mgcvST",
+         if (.mgcvst_inla_downstream(fit)) "inlaST" else "spdeST",
          ".estimate_spatial().", call. = FALSE)
   }
   # Validated before any basis is built.

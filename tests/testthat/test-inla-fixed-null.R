@@ -2,10 +2,10 @@ test_that("latent modes retain empty random blocks and validate mismatches", {
   tags <- paste0(".inlast_x", 1:6)
   fit <- list(mode = list(x = c(99, 98, seq_len(6L))),
               summary.fixed = data.frame(mean = seq_len(6L), row.names = tags))
-  modes <- mgcvST:::.inlast_latent_modes(fit, tags, character(), integer())
+  modes <- spdeST:::.inlast_latent_modes(fit, tags, character(), integer())
   expect_identical(modes$fixed, stats::setNames(as.numeric(1:6), tags))
   expect_length(modes$random, 0L)
-  expect_error(mgcvST:::.inlast_latent_modes(
+  expect_error(spdeST:::.inlast_latent_modes(
     fit, tags, ".inlast_r", integer()), "block specification is invalid")
 })
 
@@ -21,7 +21,7 @@ test_that("fixed-only NB modes preserve covariates and offsets", {
     X <- stats::model.matrix(formula, d)
     spec <- list(fixed = list(X = X, names = colnames(X)),
                   random = list(), family = "negative_binomial")
-    fit <- mgcvST:::.inlast_fit_feature(spec, y, offset = d$offset0,
+    fit <- spdeST:::.inlast_fit_feature(spec, y, offset = d$offset0,
       control = list(nb_size = 2, num_threads = 1L))
     objective <- function(beta) {
       -sum(stats::dnbinom(y, mu = exp(d$offset0 + X %*% beta),

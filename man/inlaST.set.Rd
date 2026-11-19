@@ -2,7 +2,7 @@
 % Please edit documentation in R/inla-api.R
 \name{inlaST.set}
 \alias{inlaST.set}
-\title{Prepare a sparse INLA estimator for mgcvST}
+\title{Prepare a sparse INLA estimator for spdeST}
 \usage{
 inlaST.set(
   formula = NULL,

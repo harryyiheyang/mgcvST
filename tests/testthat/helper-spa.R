@@ -42,7 +42,7 @@
 .spa_powers <- function(s) vapply(1:4, function(r) sum(s^(2 * r)), numeric(1L))
 
 .spa_kernel <- function(x, s, Tm, order = 4L) {
-  mgcvST:::mgcvst_spa_cpp(x, matrix(s, ncol = 1L), matrix(Tm, 4L, 1L), order, 1L)
+  spdeST:::mgcvst_spa_cpp(x, matrix(s, ncol = 1L), matrix(Tm, 4L, 1L), order, 1L)
 }
 
 .spa_sqrtm <- function(M) {

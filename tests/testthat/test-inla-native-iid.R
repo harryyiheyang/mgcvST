@@ -26,7 +26,7 @@ test_that("native iid design preserves multiple random-effect terms in order", {
   d <- .native_iid_data(n = 18L, levels = 3L)
   f <- response ~ cell + age + offset(offset0) +
     s(slide, bs = "re") + s(batch, bs = "re")
-  design <- mgcvST:::.inlast_native_design(f, d)
+  design <- spdeST:::.inlast_native_design(f, d)
   d$response <- 0
   fixed <- stats::model.frame(response ~ cell + age + offset(offset0), d,
                               na.action = stats::na.fail)
@@ -94,7 +94,7 @@ test_that("native iid maps fixed and random nuisance columns in combined order",
     vapply(spec$nuisance_map[-seq_len(p)], `[[`, integer(1L), "block"),
     c(rep(2L, 93L), rep(3L, 4L))
   )
-  expect_true(mgcvST:::.inlast_sparse_score_capability(model6)$eligible)
+  expect_true(spdeST:::.inlast_sparse_score_capability(model6)$eligible)
 })
 
 test_that("native iid modes follow the nuisance coefficient map", {
@@ -113,7 +113,7 @@ test_that("native iid modes follow the nuisance coefficient map", {
     random_mode = list(global = c(9, 8), slide = c(0.1, 0.3))
   )
   expect_equal(
-    mgcvST:::.inlast_nuisance_mode(fit, spec),
+    spdeST:::.inlast_nuisance_mode(fit, spec),
     c(fixed1 = 0.5, fixed2 = -0.25, iid1 = 0.1, iid2 = 0.3)
   )
 })
@@ -140,13 +140,13 @@ test_that("native iid modes survive inlaST estimate compaction", {
     matrix(y, nrow = 1L, dimnames = list("gene", NULL)), model,
     BPPARAM = BiocParallel::SerialParam(), control = control, threads = 1L, spatial = "all"
   )
-  direct <- mgcvST:::.inlast_fit_feature(
+  direct <- spdeST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset, control = control
   )
   expected <- unname(c(direct$fixed_mode, direct$random_mode[[2L]]))
   expect_equal(as.numeric(fit$nuisance_coefficients[, 1L]), expected,
                tolerance = 1e-8)
-  working <- mgcvST:::.inlast_working_state(fit, 1L, threads = 1L)
+  working <- spdeST:::.inlast_working_state(fit, 1L, threads = 1L)
   expect_equal(as.numeric(working$eta), direct$eta, tolerance = 1e-8)
 })
 
@@ -154,23 +154,23 @@ test_that("native iid rejects unsupported grouping structures", {
   d <- .native_iid_data()
   d$numeric_group <- seq_len(nrow(d))
   d$slide2 <- factor(rep(c("a", "b"), length.out = nrow(d)))
-  expect_error(mgcvST:::.inlast_native_design(
+  expect_error(spdeST:::.inlast_native_design(
     response ~ s(slide, bs = "rw1"), d), "nuisance term")
-  expect_error(mgcvST:::.inlast_native_design(
+  expect_error(spdeST:::.inlast_native_design(
     response ~ s(slide, bs = "rw2"), d), "nuisance term")
-  expect_error(mgcvST:::.inlast_native_design(
+  expect_error(spdeST:::.inlast_native_design(
     response ~ s(numeric_group, bs = "re"), d), "factor or character")
-  expect_error(mgcvST:::.inlast_native_design(
+  expect_error(spdeST:::.inlast_native_design(
     response ~ s(slide, bs = "re", by = age), d), "does not support by")
-  expect_length(mgcvST:::.inlast_native_design(
+  expect_length(spdeST:::.inlast_native_design(
     response ~ s(slide, bs = "re") + s(slide2, bs = "re"), d
   )$nuisance, 2L)
-  ignored <- mgcvST:::.inlast_native_design(
+  ignored <- spdeST:::.inlast_native_design(
     response ~ s(slide, bs = "re", k = 2, xt = list(dummy = TRUE),
                  id = "shared", fx = TRUE), d
   )
   expect_identical(ignored$nuisance[[1L]]$levels, paste0("slide", 1:3))
-  repeated_re <- mgcvST:::.inlast_native_design(
+  repeated_re <- spdeST:::.inlast_native_design(
     response ~ s(slide, bs = "re", k = 2) +
       s(slide, bs = "re", k = 3, id = "second"), d
   )
@@ -180,15 +180,15 @@ test_that("native iid rejects unsupported grouping structures", {
   )
   expect_equal(repeated_re$nuisance[[1L]]$Z,
                repeated_re$nuisance[[2L]]$Z)
-  expect_error(mgcvST:::.inlast_native_design(
+  expect_error(spdeST:::.inlast_native_design(
     response ~ s(age, bs = "gp"), d), "full-rank-penalty")
-  expect_error(mgcvST:::.inlast_native_design(
+  expect_error(spdeST:::.inlast_native_design(
     response ~ s(age, bs = "gp", m = -2, by = offset0), d),
     "does not support by")
-  expect_error(mgcvST:::.inlast_native_design(
+  expect_error(spdeST:::.inlast_native_design(
     response ~ s(age, bs = "gp", m = -2, fx = TRUE), d),
     "full-rank-penalty")
-  repeated <- mgcvST:::.inlast_native_design(
+  repeated <- spdeST:::.inlast_native_design(
     response ~ s(age, bs = "gp", k = 8, m = -2) +
       s(age, bs = "gp", k = 10, m = c(-2, .3)), d
   )
@@ -208,7 +208,7 @@ test_that("the GP bridge projects the intercept and whitens the penalty", {
   raw <- mgcv::smoothCon(
     split$smooth.spec[[1L]], mf, absorb.cons = FALSE, scale.penalty = TRUE
   )[[1L]]
-  bridge <- mgcvST:::.inlast_native_gp_bridge(
+  bridge <- spdeST:::.inlast_native_gp_bridge(
     split$smooth.spec[[1L]], mf, "s(age, bs = 'gp')"
   )[[1L]]
 
@@ -275,7 +275,7 @@ test_that("a fixed GP precision reproduces the mgcv REML smooth", {
     f, d, family = gaussian(), mesh = .native_iid_mesh3d(), kappa = .8,
     coordinates = c("x", "y", "z")
   )
-  engine <- mgcvST:::.inlast_fit_feature(
+  engine <- spdeST:::.inlast_fit_feature(
     model$inla_spec, d$response, offset = model$offset,
     control = list(
       fixed_precision = c(1e10, unname(reference$sp) / phi),
@@ -332,7 +332,7 @@ test_that("estimated re and GP smooths agree with mgcv REML", {
     d, family = gaussian(), mesh = mesh, kappa = 1.1,
     coordinates = c("x", "y")
   )
-  engine <- mgcvST:::.inlast_fit_feature(
+  engine <- spdeST:::.inlast_fit_feature(
     model$inla_spec, d$response, offset = model$offset,
     control = list(gaussian_precision = 1 / phi)
   )

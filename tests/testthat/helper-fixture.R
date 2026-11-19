@@ -23,7 +23,7 @@ st_fixture <- function(n = 90L, family = mgcv::nb(), nuisance = FALSE) {
 old_st <- function() {
   repo <- Sys.getenv("MGCVST_BASELINE")
   skip_if(!dir.exists(file.path(repo, "R")), "Set MGCVST_BASELINE for pinned-source equivalence checks")
-  e <- new.env(parent = asNamespace("mgcvST"))
+  e <- new.env(parent = asNamespace("spdeST"))
   for (f in list.files(file.path(repo, "R"), full.names = TRUE, pattern = "\\.R$")) sys.source(f, e)
   e
 }
@@ -61,6 +61,6 @@ local_poisson_route <- function(value, env = parent.frame()) {
       list(phi = rep(NA_real_, p), score = rep(NA_real_, p),
            poisson = rep(isTRUE(value) && isTRUE(active), p))
     },
-    .package = "mgcvST", .env = env
+    .package = "spdeST", .env = env
   )
 }

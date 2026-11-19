@@ -29,7 +29,7 @@ test_that("flat log-precision prior supports custom starts and retains mean zero
   model <- inlaST.set(
     response ~ z + offset(offset0), d, f$basis, family = gaussian()
   )
-  engine <- mgcvST:::.inlast_fit_feature(
+  engine <- spdeST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset,
     control = list(
       precision_prior = list(
@@ -69,12 +69,12 @@ test_that("flat prior controls reject parameters and non-finite starts", {
   for (field in fields) {
     bad_param <- list()
     bad_param[[field]] <- list(prior = "flat", param = 0, initial = 0)
-    expect_error(mgcvST:::.inlast_control(bad_param), "flat")
+    expect_error(spdeST:::.inlast_control(bad_param), "flat")
 
     bad_initial <- list()
     bad_initial[[field]] <- list(
       prior = "flat", param = numeric(), initial = Inf
     )
-    expect_error(mgcvST:::.inlast_control(bad_initial), "finite")
+    expect_error(spdeST:::.inlast_control(bad_initial), "finite")
   }
 })

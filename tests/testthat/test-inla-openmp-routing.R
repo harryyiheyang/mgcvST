@@ -17,7 +17,7 @@
     score_backend = "sparse",
     test_engine = "single_model", score_components = "global",
     estimator = "INLA"
-  ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
+  ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "spdeST"))
 }
 
 test_that("mgcvST.test() rejects sparse INLA fits for every pair universe", {

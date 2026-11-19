@@ -44,7 +44,7 @@ test_that("spdeST.scan and spdeST.estimate run the mgcv implementation in two ca
   seen <- NULL
   testthat::local_mocked_bindings(
     mgcvST.test = function(fitmgcvST, ...) { seen <<- list(...); "mgcv test" },
-    .package = "mgcvST")
+    .package = "spdeST")
   expect_identical(spdeST.test(fit, pairs = matrix(c(2L, 4L), 1L), moments = "exact"),
                    "mgcv test")
   expect_identical(seen$moments, "exact")
@@ -65,7 +65,7 @@ test_that("mgcvST.set fixes the estimation settings with the model", {
   calls <- NULL
   testthat::local_mocked_bindings(
     mgcvST.estimate = function(...) { calls <<- list(...); structure(list(), class = "mgcvST_model_fit") },
-    .package = "mgcvST")
+    .package = "spdeST")
   spdeST.scan(f$Y, model, chunk_size = 2L)
   expect_identical(calls$gamma, 1.2)
   expect_true(calls$retain_smooth)
@@ -101,7 +101,7 @@ test_that("spdeST.scan and spdeST.estimate run the INLA implementation in two ca
   seen <- NULL
   testthat::local_mocked_bindings(
     inlaST.test = function(fitinlaST, ...) { seen <<- list(...); "inla test" },
-    .package = "mgcvST")
+    .package = "spdeST")
   expect_identical(spdeST.test(fit, moments = "exact"), "inla test")
   expect_identical(seen$moments, "exact")
 })

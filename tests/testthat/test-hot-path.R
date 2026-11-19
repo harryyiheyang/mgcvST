@@ -30,7 +30,7 @@ test_that("diagnostics FALSE does not invoke summary.gam", {
 
 test_that("model batches reuse the prepared GAM design without lpmatrix", {
   f <- st_fixture(nuisance = TRUE)
-  original <- mgcvST:::.gam_training_lpmatrix
+  original <- spdeST:::.gam_training_lpmatrix
   old_options <- options(mgcvST.test_lpmatrix = original,
                          mgcvST.test_lpmatrix_count = 0L)
   on.exit(options(old_options), add = TRUE)
@@ -40,7 +40,7 @@ test_that("model batches reuse the prepared GAM design without lpmatrix", {
                 getOption("mgcvST.test_lpmatrix_count") + 1L)
       getOption("mgcvST.test_lpmatrix")(fit)
     },
-    .package = "mgcvST"
+    .package = "spdeST"
   )
   fit <- mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
@@ -52,8 +52,8 @@ test_that("model batches reuse the prepared GAM design without lpmatrix", {
 
 test_that("prepared GAM designs do not depend on later prediction methods", {
   f <- st_fixture(nuisance = TRUE)
-  original_lpmatrix <- mgcvST:::.gam_training_lpmatrix
-  original_predictor <- mgcvST:::Predict.matrix.spde.smooth
+  original_lpmatrix <- spdeST:::.gam_training_lpmatrix
+  original_predictor <- spdeST:::Predict.matrix.spde.smooth
   old_options <- options(
     mgcvST.test_lpmatrix = original_lpmatrix,
     mgcvST.test_lpmatrix_count = 0L,
@@ -69,7 +69,7 @@ test_that("prepared GAM designs do not depend on later prediction methods", {
                 getOption("mgcvST.test_lpmatrix_count") + 1L)
       getOption("mgcvST.test_lpmatrix")(fit)
     },
-    .package = "mgcvST"
+    .package = "spdeST"
   )
   fit <- mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,

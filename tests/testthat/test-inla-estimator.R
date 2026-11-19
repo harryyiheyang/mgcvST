@@ -27,7 +27,7 @@
 
 test_that("INLA defaults estimated precision and NB size hyperparameters to flat", {
   skip_if_not_installed("INLA")
-  control <- mgcvST:::.inlast_control()
+  control <- spdeST:::.inlast_control()
   fields <- c("precision_prior", "gaussian_precision_prior", "nb_size_prior")
   for (field in fields) {
     expect_identical(control[[field]]$prior, "flat")
@@ -38,13 +38,13 @@ test_that("INLA defaults estimated precision and NB size hyperparameters to flat
     bad[[field]] <- list(
       prior = "not-an-INLA-prior", param = numeric(), initial = 0
     )
-    expect_error(mgcvST:::.inlast_control(bad), "Unknown INLA")
+    expect_error(spdeST:::.inlast_control(bad), "Unknown INLA")
 
     flat <- list()
     flat[[field]] <- list(
       prior = "flat", param = numeric(), initial = -1.25
     )
-    flat_control <- mgcvST:::.inlast_control(flat)
+    flat_control <- spdeST:::.inlast_control(flat)
     expect_identical(flat_control[[field]]$prior, "flat")
     expect_length(flat_control[[field]]$param, 0L)
     expect_identical(flat_control[[field]]$initial, -1.25)
@@ -53,14 +53,14 @@ test_that("INLA defaults estimated precision and NB size hyperparameters to flat
     bad_flat[[field]] <- list(
       prior = "flat", param = 0, initial = 0
     )
-    expect_error(mgcvST:::.inlast_control(bad_flat), "flat")
+    expect_error(spdeST:::.inlast_control(bad_flat), "flat")
   }
-  normal_nb <- mgcvST:::.inlast_control(list(nb_size_prior = list(
+  normal_nb <- spdeST:::.inlast_control(list(nb_size_prior = list(
     prior = "normal", param = c(0, 1 / 9), initial = 0
   )))
   expect_identical(normal_nb$nb_size_prior$prior, "normal")
   expect_equal(normal_nb$nb_size_prior$param, c(0, 1 / 9), tolerance = 0)
-  expect_identical(mgcvST:::.inlast_control(control), control)
+  expect_identical(spdeST:::.inlast_control(control), control)
 })
 
 test_that("default Gaussian variance agrees with a restricted likelihood oracle", {
@@ -113,7 +113,7 @@ test_that("NB joint mode satisfies the fixed-hyperparameter penalized score equa
     family = mgcv::nb(theta = 4)
   )
   tau <- 2
-  engine <- mgcvST:::.inlast_fit_feature(
+  engine <- spdeST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset,
     control = list(
       fixed_precision = tau, nb_size = 4
@@ -153,24 +153,24 @@ test_that("INLA null specifications reindex fixed and iid nuisance coefficients"
            kind = "nuisance", subtype = "iid", sp_index = 2L)
     ), nuisance_index = c(1L, 4L, 5L)
   )
-  null <- mgcvST:::.inlast_null_spec(spec)
+  null <- spdeST:::.inlast_null_spec(spec)
   expect_length(null$random, 1L)
   expect_identical(null$random[[1L]]$name, "batch")
   expect_identical(null$random[[1L]]$sp_index, 2L)
   expect_identical(null$nuisance_index, 1:3)
   expect_identical(
-    mgcvST:::.inlast_null_control(list(fixed_precision = c(2, 3)), spec)$fixed_precision,
+    spdeST:::.inlast_null_control(list(fixed_precision = c(2, 3)), spec)$fixed_precision,
     3
   )
   expect_identical(
-    mgcvST:::.inlast_null_control(list(fixed_precision = 2), spec)$fixed_precision,
+    spdeST:::.inlast_null_control(list(fixed_precision = 2), spec)$fixed_precision,
     2
   )
   fixed_only <- spec
   fixed_only$random <- spec$random[1L]
-  fixed_only <- mgcvST:::.inlast_null_spec(fixed_only)
+  fixed_only <- spdeST:::.inlast_null_spec(fixed_only)
   fixed_only$family <- "gaussian"
-  expect_length(mgcvST:::.inlast_validate_spec(fixed_only, c(1, 2), c(0, 0))$random, 0L)
+  expect_length(spdeST:::.inlast_validate_spec(fixed_only, c(1, 2), c(0, 0))$random, 0L)
 })
 
 test_that("constrained SPDE tau mode uses the m-minus-one normalizer", {
@@ -185,7 +185,7 @@ test_that("constrained SPDE tau mode uses the m-minus-one normalizer", {
     response ~ z + offset(offset0), d, f$basis,
     family = gaussian()
   )
-  engine <- mgcvST:::.inlast_fit_feature(
+  engine <- spdeST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset,
     control = list(
       gaussian_precision = 1 / phi,

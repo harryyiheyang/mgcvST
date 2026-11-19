@@ -2,14 +2,14 @@ test_that("bounded pair blocks stream every pair once whatever the state budget"
   .pair_pipeline_mocks()
   fit <- .pair_pipeline_fit()
   pairs <- t(utils::combn(4L, 2L))
-  original <- mgcvST:::.mgcvst_spa_pairs
+  original <- spdeST:::.mgcvst_spa_pairs
   seen <- list()
   testthat::local_mocked_bindings(
     .mgcvst_spa_pairs = function(index, active, states, G, threads, order = 4L) {
       seen[[length(seen) + 1L]] <<- c(rows = nrow(index), features = length(active))
       original(index, active, states, G, threads, order)
     },
-    .package = "mgcvST"
+    .package = "spdeST"
   )
   # The resident-state budget is 0.7 of the available memory less a reserve;
   # the mocked probe sets it to `cache_bytes`. The reserve repeats the formula
@@ -20,10 +20,10 @@ test_that("bounded pair blocks stream every pair once whatever the state budget"
       256 * min(6, chunk_size) + 64 * 1024^2 + 8 * 2 * 2 * 4
     testthat::local_mocked_bindings(
       .mgcvst_memory_probe = function(...) list(available = (cache_bytes + reserve) / 0.7),
-      .package = "mgcvST")
-    z <- mgcvST:::.mgcvst_pair_pipeline(fit, index, threads = 1L,
+      .package = "spdeST")
+    z <- spdeST:::.mgcvst_pair_pipeline(fit, index, threads = 1L,
       chunk_size = chunk_size, verbose = FALSE)
-    out <- do.call(rbind, lapply(z$shards, mgcvST:::.mgcvst_read_shard))
+    out <- do.call(rbind, lapply(z$shards, spdeST:::.mgcvst_read_shard))
     expect_identical(sum(z$rows), nrow(out))
     out[order(out$i, out$j), ]
   }
@@ -53,10 +53,10 @@ test_that("a pair of a failed state is returned with status 3, never a p-value",
         if (i == 2L) list(error = "state failed") else
           list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
       })
-    }, .package = "mgcvST"
+    }, .package = "spdeST"
   )
-  z <- mgcvST:::.mgcvst_pair_pipeline(.pair_pipeline_fit(3L), NULL, 1L, 10L, FALSE)
-  out <- mgcvST:::.mgcvst_read_shard(z$shards[1L])
+  z <- spdeST:::.mgcvst_pair_pipeline(.pair_pipeline_fit(3L), NULL, 1L, 10L, FALSE)
+  out <- spdeST:::.mgcvst_read_shard(z$shards[1L])
   bad <- out$i == 2L | out$j == 2L
   expect_true(all(out$status[bad] == 3L))
   expect_true(all(is.na(out$score[bad]) & is.na(out$log_p_two_sided[bad])))
@@ -81,11 +81,11 @@ test_that("shared preparation keeps dense native state contracts", {
   }
   testthat::local_mocked_bindings(
     mgcvst_dense_score_batch_cpp = native_batch,
-    .package = "mgcvST"
+    .package = "spdeST"
   )
   native <- list(T0 = matrix(1, 3L, 2L), X = matrix(1, 3L, 1L),
                  sp_index = 1L, width = c(global = 2L))
-  model <- mgcvST:::.mgcvst_pair_build_batch(fit, 1:2, 2L, native)
+  model <- spdeST:::.mgcvst_pair_build_batch(fit, 1:2, 2L, native)
   expect_equal(seen$scale, c(0.5, 0.5))
   expect_identical(model[[1L]]$a, c(1, 2))
   expect_equal(model[[2L]]$M, diag(c(2, 3)))
@@ -109,8 +109,8 @@ test_that("the fused exact pair kernel matches the trace powers and the full-spe
   left <- left[ord]
   right <- right[ord]
 
-  G <- mgcvST:::mgcvst_pair_basis_cpp(H, diag(q), 1L)
-  new <- mgcvST:::mgcvst_pair_spa_cpp(H, G, a, left, right, threads = 1L)
+  G <- spdeST:::mgcvst_pair_basis_cpp(H, diag(q), 1L)
+  new <- spdeST:::mgcvst_pair_spa_cpp(H, G, a, left, right, threads = 1L)
   old_score <- colSums(a[, left, drop = FALSE] * a[, right, drop = FALSE])
   expect_equal(new$score, old_score, tolerance = 1e-12)
   expect_true(all(new$status == 0L))
@@ -118,7 +118,7 @@ test_that("the fused exact pair kernel matches the trace powers and the full-spe
   # The saddlepoint of each pair from the trace powers of the product, which
   # are the power sums of the singular spectrum.
   pairs <- cbind(left, right)
-  moments <- mgcvST:::mgcvst_pair_trace_powers_cpp(H, pairs, maxPower = 4L, threads = 1L)
+  moments <- spdeST:::mgcvst_pair_trace_powers_cpp(H, pairs, maxPower = 4L, threads = 1L)
   spectra <- lapply(seq_along(left), function(p) {
     svd(.spa_sqrtm(H[[left[p]]]) %*% .spa_sqrtm(H[[right[p]]]))$d
   })
@@ -134,8 +134,8 @@ test_that("the fused exact pair kernel matches the trace powers and the full-spe
   # log_p_two_sided well below log(1e-300).
   strong_H <- lapply(1:2, function(k) diag(rep(100, q)))
   strong_a <- cbind(rep(600, q), rep(600, q))
-  strong_G <- mgcvST:::mgcvst_pair_basis_cpp(strong_H, diag(q), 1L)
-  strong <- mgcvST:::mgcvst_pair_spa_cpp(strong_H, strong_G, strong_a, 1L, 2L,
+  strong_G <- spdeST:::mgcvst_pair_basis_cpp(strong_H, diag(q), 1L)
+  strong <- spdeST:::mgcvst_pair_spa_cpp(strong_H, strong_G, strong_a, 1L, 2L,
                                          threads = 1L)
   expect_identical(strong$status, 0L)
   expect_true(is.finite(strong$log_p_two_sided))
@@ -149,9 +149,9 @@ test_that("an invalid exact-route p-value is p = 1, keeps its status and stays i
       list(score = c(1, 2), log_p_two_sided = c(-Inf, -3),
            log_p_positive = c(-Inf, -3.7), log_p_negative = c(-Inf, -0.02),
            remainder_kind = c(0L, 2L), status = c(2L, 0L), t1 = c(1, 1))
-    }, .package = "mgcvST")
+    }, .package = "spdeST")
   states <- lapply(1:3, function(i) list(a = c(i, 1), M = diag(2)))
-  out <- mgcvST:::.mgcvst_spa_pairs(rbind(c(1L, 2L), c(1L, 3L)), 1:3, states,
+  out <- spdeST:::.mgcvst_spa_pairs(rbind(c(1L, 2L), c(1L, 3L)), 1:3, states,
                                     vector("list", 3L), 1L)
   expect_identical(out$status, c(2L, 0L))
   expect_equal(out$score, c(1, 2))
@@ -159,7 +159,7 @@ test_that("an invalid exact-route p-value is p = 1, keeps its status and stays i
   expect_identical(unlist(out[1L, c("log_p_two_sided", "log_p_positive",
                                     "log_p_negative")], use.names = FALSE), c(0, 0, 0))
   expect_equal(out$log_p_two_sided[2L], -3)
-  adjusted <- mgcvST:::.mgcvst_log_adjust(out$log_p_two_sided, "BY")
+  adjusted <- spdeST:::.mgcvst_log_adjust(out$log_p_two_sided, "BY")
   expect_equal(adjusted$n, 2)
   expect_equal(exp(adjusted$log_q), stats::p.adjust(exp(out$log_p_two_sided), "BY"),
                tolerance = 1e-12)
@@ -173,11 +173,11 @@ test_that("stale pair results are refused before work and the pair directory fol
       built <<- built + length(ids)
       lapply(ids, function(i) list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)),
                                    width = 2L))
-    }, .package = "mgcvST")
+    }, .package = "spdeST")
   fit <- .pair_pipeline_fit()
   dir <- tempfile("mgcvst-pair-open-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  mgcvST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE, checkpoint_dir = dir)
+  spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE, checkpoint_dir = dir)
   expect_identical(built, 4L)
   # Leave one missing state and a pair directory of another contract.
   unlink(list.files(dir, "^pairs-", full.names = TRUE), recursive = TRUE)
@@ -186,7 +186,7 @@ test_that("stale pair results are refused before work and the pair directory fol
   dir.create(stale)
   saveRDS(list(), file.path(stale, "block-0000000001.rds"))
   built <- 0L
-  expect_error(mgcvST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
+  expect_error(spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
                                               checkpoint_dir = dir),
                "different algorithm contract")
   expect_identical(built, 0L)
@@ -196,8 +196,8 @@ test_that("stale pair results are refused before work and the pair directory fol
   # A run whose state preparation fails leaves no pair directory behind.
   testthat::local_mocked_bindings(
     .mgcvst_pair_build_batch = function(fit, ids, threads, native) stop("state failure"),
-    .package = "mgcvST")
-  expect_error(mgcvST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
+    .package = "spdeST")
+  expect_error(spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
                                               checkpoint_dir = dir),
                "state failure")
   expect_length(list.files(dir, "^pairs-"), 0L)

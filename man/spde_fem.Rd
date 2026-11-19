@@ -2,7 +2,7 @@
 % Please edit documentation in R/spde-smooth.R
 \name{spde_fem}
 \alias{spde_fem}
-\title{Construct the finite-element matrices used by mgcvST}
+\title{Construct the finite-element matrices used by spdeST}
 \usage{
 spde_fem(mesh, order = 2L)
 }

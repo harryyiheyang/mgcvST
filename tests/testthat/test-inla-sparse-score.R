@@ -77,7 +77,7 @@ test_that("a nuisance smooth is rejected at set() on both INLA paths", {
     ),
     "nuisance term must be"
   )
-  expect_match(mgcvST:::.INLAST_NUISANCE_SMOOTH_MESSAGE,
+  expect_match(spdeST:::.INLAST_NUISANCE_SMOOTH_MESSAGE,
                "Native mesh setup")
 })
 
@@ -89,7 +89,7 @@ test_that("parametric covariates remain fully supported on both INLA paths", {
     response ~ lu + offset(offset0), f$data, f$basis, family = gaussian()
   )
   expect_length(legacy$inla_spec$random, 1L)
-  expect_true(mgcvST:::.inlast_sparse_score_capability(legacy)$eligible)
+  expect_true(spdeST:::.inlast_sparse_score_capability(legacy)$eligible)
   expect_identical(legacy$inla_spec$fixed$names, c("(Intercept)", "lu"))
   expect_equal(unname(as.matrix(legacy$inla_spec$fixed$X)),
                unname(as.matrix(legacy$inla_spec$nuisance_design)))
@@ -127,9 +127,9 @@ test_that("a second spatial SPDE term is still rejected at set()", {
 })
 
 test_that("a wide parametric nuisance design is rejected with a dedicated message", {
-  expect_error(mgcvST:::.inlast_check_nuisance_width(1001L),
+  expect_error(spdeST:::.inlast_check_nuisance_width(1001L),
                "dedicated implementation")
-  expect_silent(mgcvST:::.inlast_check_nuisance_width(1000L))
+  expect_silent(spdeST:::.inlast_check_nuisance_width(1000L))
   skip_on_cran()
   f <- .inlast_sparse_fixture(n = 1100L, seed = 1725L)
   # A factor with many levels expands to a wide dense nuisance design.

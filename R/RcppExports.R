@@ -2,114 +2,114 @@
 # Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 mgcvst_log_adjust_cpp <- function(log_p, method) {
-    .Call(`_mgcvST_mgcvst_log_adjust_cpp`, log_p, method)
+    .Call(`_spdeST_mgcvst_log_adjust_cpp`, log_p, method)
 }
 
 mgcvst_dense_score_batch_cpp <- function(T0, variance, error, scale, X, nuisance, threads = 1L, score_only = FALSE) {
-    .Call(`_mgcvST_mgcvst_dense_score_batch_cpp`, T0, variance, error, scale, X, nuisance, threads, score_only)
+    .Call(`_spdeST_mgcvst_dense_score_batch_cpp`, T0, variance, error, scale, X, nuisance, threads, score_only)
 }
 
 mgcvst_inla_sparse_prepare_cpp <- function(Q_map, constraint) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_prepare_cpp`, Q_map, constraint)
+    .Call(`_spdeST_mgcvst_inla_sparse_prepare_cpp`, Q_map, constraint)
 }
 
 mgcvst_inla_sparse_prepared_valid_cpp <- function(prepared) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_prepared_valid_cpp`, prepared)
+    .Call(`_spdeST_mgcvst_inla_sparse_prepared_valid_cpp`, prepared)
 }
 
 mgcvst_inla_sparse_observation_basis_cpp <- function(A_map, constraint, prepared = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_observation_basis_cpp`, A_map, constraint, prepared)
+    .Call(`_spdeST_mgcvst_inla_sparse_observation_basis_cpp`, A_map, constraint, prepared)
 }
 
 mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, null_target = FALSE, block_size = 32L, prepared = NULL, nuisance_precision = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, null_target, block_size, prepared, nuisance_precision)
+    .Call(`_spdeST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, null_target, block_size, prepared, nuisance_precision)
 }
 
 mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint, coordinate, basis, threads = 1L, prepared = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_materialize_reduced_cpp`, units, Q_map, constraint, coordinate, basis, threads, prepared)
+    .Call(`_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp`, units, Q_map, constraint, coordinate, basis, threads, prepared)
 }
 
 mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads = 1L, prepared = NULL, V = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V)
+    .Call(`_spdeST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V)
 }
 
 mgcvst_inla_working_state_cpp <- function(A, X, B, C, O, family, size, dispersion, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_inla_working_state_cpp`, A, X, B, C, O, family, size, dispersion, threads)
+    .Call(`_spdeST_mgcvst_inla_working_state_cpp`, A, X, B, C, O, family, size, dispersion, threads)
 }
 
 mgcvst_inla_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
-    .Call(`_mgcvST_mgcvst_inla_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
+    .Call(`_spdeST_mgcvst_inla_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
 }
 
 mgcvst_memory_status_cpp <- function() {
-    .Call(`_mgcvST_mgcvst_memory_status_cpp`)
+    .Call(`_spdeST_mgcvst_memory_status_cpp`)
 }
 
 mgcvst_nb_null_batch_cpp <- function(Yt, X, offset, poisson, alpha_max = 1e4, alpha_fixed = -1, tol = 1e-10, maxit_outer = 100L, maxit_inner = 100L, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_nb_null_batch_cpp`, Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, threads)
+    .Call(`_spdeST_mgcvst_nb_null_batch_cpp`, Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, threads)
 }
 
 mgcvst_pca_gram_cpp <- function(packed, tau, threads = 1L, chunk = 8192L) {
-    .Call(`_mgcvST_mgcvst_pca_gram_cpp`, packed, tau, threads, chunk)
+    .Call(`_spdeST_mgcvst_pca_gram_cpp`, packed, tau, threads, chunk)
 }
 
 mgcvst_pca_basis_cpp <- function(packed, tau, R, threads = 1L, chunk = 8192L) {
-    .Call(`_mgcvST_mgcvst_pca_basis_cpp`, packed, tau, R, threads, chunk)
+    .Call(`_spdeST_mgcvst_pca_basis_cpp`, packed, tau, R, threads, chunk)
 }
 
 mgcvst_pca_tables_cpp <- function(B, q, threads = 1L, block = 32L, tile = 192L) {
-    .Call(`_mgcvST_mgcvst_pca_tables_cpp`, B, q, threads, block, tile)
+    .Call(`_spdeST_mgcvst_pca_tables_cpp`, B, q, threads, block, tile)
 }
 
 mgcvst_pca_monomials_cpp <- function(C) {
-    .Call(`_mgcvST_mgcvst_pca_monomials_cpp`, C)
+    .Call(`_spdeST_mgcvst_pca_monomials_cpp`, C)
 }
 
 mgcvst_pca_packed_sum_cpp <- function(packed, q) {
-    .Call(`_mgcvST_mgcvst_pca_packed_sum_cpp`, packed, q)
+    .Call(`_spdeST_mgcvst_pca_packed_sum_cpp`, packed, q)
 }
 
 mgcvst_pca_packed_project_cpp <- function(packed, V, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_pca_packed_project_cpp`, packed, V, threads)
+    .Call(`_spdeST_mgcvst_pca_packed_project_cpp`, packed, V, threads)
 }
 
 mgcvst_pca_dense_cpp <- function(H, a, pca_basis, pack, V, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_pca_dense_cpp`, H, a, pca_basis, pack, V, threads)
+    .Call(`_spdeST_mgcvst_pca_dense_cpp`, H, a, pca_basis, pack, V, threads)
 }
 
 mgcvst_pca_spa_pairs_cpp <- function(A, C, K2, T2, R, scale, i, j, threads = 1L, screen_z = 0) {
-    .Call(`_mgcvST_mgcvst_pca_spa_pairs_cpp`, A, C, K2, T2, R, scale, i, j, threads, screen_z)
+    .Call(`_spdeST_mgcvst_pca_spa_pairs_cpp`, A, C, K2, T2, R, scale, i, j, threads, screen_z)
 }
 
 mgcvst_pca_spa_block_cpp <- function(A, C, K2, T2, R, scale, first, last, threads = 1L, gene_block = 32L, pair_block = 256L, screen_z = 0) {
-    .Call(`_mgcvST_mgcvst_pca_spa_block_cpp`, A, C, K2, T2, R, scale, first, last, threads, gene_block, pair_block, screen_z)
+    .Call(`_spdeST_mgcvst_pca_spa_block_cpp`, A, C, K2, T2, R, scale, first, last, threads, gene_block, pair_block, screen_z)
 }
 
 mgcvst_pair_trace_powers_cpp <- function(matrixList, pairs, maxPower = 4L, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_pair_trace_powers_cpp`, matrixList, pairs, maxPower, threads)
+    .Call(`_spdeST_mgcvst_pair_trace_powers_cpp`, matrixList, pairs, maxPower, threads)
 }
 
 mgcvst_pair_basis_sum_cpp <- function(H, init = NULL) {
-    .Call(`_mgcvST_mgcvst_pair_basis_sum_cpp`, H, init)
+    .Call(`_spdeST_mgcvst_pair_basis_sum_cpp`, H, init)
 }
 
 mgcvst_pair_basis_cpp <- function(H, V, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_pair_basis_cpp`, H, V, threads)
+    .Call(`_spdeST_mgcvst_pair_basis_cpp`, H, V, threads)
 }
 
 mgcvst_pair_spa_cpp <- function(H, G, a, left, right, threads = 1L, order = 4L, x = NULL, screen_z = 0) {
-    .Call(`_mgcvST_mgcvst_pair_spa_cpp`, H, G, a, left, right, threads, order, x, screen_z)
+    .Call(`_spdeST_mgcvst_pair_spa_cpp`, H, G, a, left, right, threads, order, x, screen_z)
 }
 
 mgcvst_simd_cpp <- function() {
-    .Call(`_mgcvST_mgcvst_simd_cpp`)
+    .Call(`_spdeST_mgcvst_simd_cpp`)
 }
 
 mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
-    .Call(`_mgcvST_mgcvst_spa_cpp`, U, S, Tm, order, threads)
+    .Call(`_spdeST_mgcvst_spa_cpp`, U, S, Tm, order, threads)
 }
 
 mgcvst_spde_score_cpp <- function(A_map, Q_map, X, Yt, offset, beta, alpha, threads = 1L, block_size = 32L, spectrum_tol = 1e-12) {
-    .Call(`_mgcvST_mgcvst_spde_score_cpp`, A_map, Q_map, X, Yt, offset, beta, alpha, threads, block_size, spectrum_tol)
+    .Call(`_spdeST_mgcvst_spde_score_cpp`, A_map, Q_map, X, Yt, offset, beta, alpha, threads, block_size, spectrum_tol)
 }
 

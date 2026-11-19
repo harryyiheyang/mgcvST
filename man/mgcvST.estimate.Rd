@@ -52,7 +52,7 @@ source once per worker. Use this for sourced custom S3 smooth methods.}
 per worker after \code{source_files}.}
 
 \item{marginal_test}{Optional function implementing the corrected marginal
-spatial score interface. \code{NULL} uses mgcvST's package-local implementation.
+spatial score interface. \code{NULL} uses spdeST's package-local implementation.
 A custom function is used only when explicitly supplied.}
 
 \item{marginal_args}{Named list of additional marginal-score arguments.

@@ -8,7 +8,7 @@ test_that("nuisance rankdef travels with the block spec", {
       Q = Q, kind = "nuisance", target = FALSE, rankdef = 2L,
       sp_index = 1L)), offset = rep(0, 8L)
   )
-  z <- mgcvST:::.inlast_validate_spec(spec, rnorm(8L), rep(0, 8L))
+  z <- spdeST:::.inlast_validate_spec(spec, rnorm(8L), rep(0, 8L))
   expect_identical(z$random[[1L]]$rankdef, 2L)
 })
 
@@ -22,6 +22,6 @@ test_that("an unsupplied rankdef defaults to zero", {
       Q = Q, kind = "nuisance", target = FALSE,
       sp_index = 1L)), offset = rep(0, 8L)
   )
-  z <- mgcvST:::.inlast_validate_spec(spec, rnorm(8L), rep(0, 8L))
+  z <- spdeST:::.inlast_validate_spec(spec, rnorm(8L), rep(0, 8L))
   expect_identical(z$random[[1L]]$rankdef, 0L)
 })

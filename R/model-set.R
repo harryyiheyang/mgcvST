@@ -45,7 +45,7 @@ model.set <- function(
     setting = "global", coordinates = c("x", "y"), ...) {
   if (!identical(setting, "global")) {
     stop("setting must be \"global\". The second \"local\" geographic process ",
-         "(setting = \"global_local\") was removed from mgcvST; supply one ",
+         "(setting = \"global_local\") was removed from spdeST; supply one ",
          "spde_basis() object.")
   }
   if (!inherits(formula, "formula") || length(formula) != 3L) {

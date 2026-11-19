@@ -1,4 +1,4 @@
-#' Construct the finite-element matrices used by mgcvST
+#' Construct the finite-element matrices used by spdeST
 #'
 #' This helper belongs to the basis-construction path. Fitting a prepared
 #' basis does not call it.
@@ -9,7 +9,7 @@
 #' @export
 spde_fem <- function(mesh, order = 2L) {
   if (!identical(as.integer(order), 2L)) {
-    stop("The current mgcvST basis requires order = 2.")
+    stop("The current spdeST basis requires order = 2.")
   }
   .spde_basis_fem(.spde_basis_mesh(mesh))
 }
@@ -40,10 +40,10 @@ spde_project <- function(mesh, loc) {
 #' @export
 spde_model <- function(mesh, alpha = 2, constr = FALSE, ...) {
   if (!identical(as.numeric(alpha), 2)) {
-    stop("The current mgcvST basis requires alpha = 2.")
+    stop("The current spdeST basis requires alpha = 2.")
   }
   if (!identical(constr, FALSE)) {
-    stop("The current mgcvST basis requires constr = FALSE.")
+    stop("The current spdeST basis requires constr = FALSE.")
   }
   list(param.inla = spde_fem(mesh))
 }

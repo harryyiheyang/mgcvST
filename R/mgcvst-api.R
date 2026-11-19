@@ -77,12 +77,12 @@
   } else {
     "no-worker-init"
   }
-  paste("mgcvST", source_key, init_key, sep = "::")
+  paste("spdeST", source_key, init_key, sep = "::")
 }
 
 # Apply thread limits and source custom methods once for each worker/key pair.
 .mgcvst_worker_initialize <- function(source_files, worker_init, init_key) {
-  loadNamespace("mgcvST")
+  loadNamespace("spdeST")
   .mgcvst_thread_limit()
   state <- getOption("mgcvST.worker_initialization")
   if (!is.list(state) || !identical(state$pid, Sys.getpid()) ||
@@ -302,7 +302,7 @@
 #' @param worker_init Optional zero-argument initialization function run once
 #'   per worker after `source_files`.
 #' @param marginal_test Optional function implementing the corrected marginal
-#'   spatial score interface. `NULL` uses mgcvST's package-local implementation.
+#'   spatial score interface. `NULL` uses spdeST's package-local implementation.
 #'   A custom function is used only when explicitly supplied.
 #' @param offset Optional additional log/link-scale offset for a model prepared
 #'   by [mgcvST.set()] (or a `gam(fit = FALSE)` setup passed as `G`): a shared

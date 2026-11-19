@@ -12,15 +12,15 @@ screen_fixture <- function(n = 30L, q = 16L, seed = 5L) {
   })
   a[, 2L] <- a[, 2L] + 5 * a[, 1L]
   a[, 7L] <- a[, 7L] - 4 * a[, 3L]
-  list(H = H, a = a, G = mgcvST:::mgcvst_pair_basis_cpp(H, diag(q), 1L),
+  list(H = H, a = a, G = spdeST:::mgcvst_pair_basis_cpp(H, diag(q), 1L),
        pr = t(combn(n, 2L)))
 }
 
 test_that("screened pairs have exact p-values above the Gaussian bound", {
   f <- screen_fixture()
   z0 <- 2.6
-  full <- mgcvST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L, 4L)
-  scr <- mgcvST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L, 4L,
+  full <- spdeST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L, 4L)
+  scr <- spdeST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L, 4L,
                                       NULL, z0)
   skipped <- scr$status == 4L
   expect_true(any(skipped) && any(!skipped))
@@ -31,7 +31,7 @@ test_that("screened pairs have exact p-values above the Gaussian bound", {
   expect_true(all(scr$log_p_two_sided[skipped] <= full$log_p_two_sided[skipped] + 1e-12))
   expect_true(all(scr$log_p_two_sided[skipped] > log(2 * pnorm(-z0))))
   expect_true(all(full$log_p_two_sided[skipped] > log(2 * pnorm(-z0))))
-  expect_error(mgcvST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L],
+  expect_error(spdeST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L],
                                             1L, 4L, NULL, 1.5), "screen_z")
 })
 
@@ -52,26 +52,26 @@ test_that("the Gaussian tail bounds the exact tail from z = 2 on", {
 })
 
 test_that("the screening value follows the adjustment", {
-  by <- mgcvST:::.mgcvst_screen_z("BY", 0.05, 3736011)
+  by <- spdeST:::.mgcvst_screen_z("BY", 0.05, 3736011)
   expect_equal(by$theta, 0.05 / sum(1 / seq_len(3736011)), tolerance = 1e-10)
   expect_equal(by$z, qnorm(by$theta, lower.tail = FALSE))
   expect_gte(by$z, 2)
-  expect_identical(mgcvST:::.mgcvst_screen_z("BH", 0.05, 1000)$z, 0)
-  expect_gt(mgcvST:::.mgcvst_screen_z("BH", 0.01, 1000)$z, 2)
-  expect_gt(mgcvST:::.mgcvst_screen_z("Sidak", 0.05, 1000)$z, 2)
+  expect_identical(spdeST:::.mgcvst_screen_z("BH", 0.05, 1000)$z, 0)
+  expect_gt(spdeST:::.mgcvst_screen_z("BH", 0.01, 1000)$z, 2)
+  expect_gt(spdeST:::.mgcvst_screen_z("Sidak", 0.05, 1000)$z, 2)
 })
 
 test_that("discoveries and their q-values do not change with the screen", {
   f <- screen_fixture(n = 40L)
   m <- nrow(f$pr)
-  full <- mgcvST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L, 4L)
+  full <- spdeST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L, 4L)
   for (adjust in c("BY", "Sidak")) {
-    z0 <- mgcvST:::.mgcvst_screen_z(adjust, 0.05, m)$z
+    z0 <- spdeST:::.mgcvst_screen_z(adjust, 0.05, m)$z
     expect_gte(z0, 2)
-    scr <- mgcvST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L,
+    scr <- spdeST:::mgcvst_pair_spa_cpp(f$H, f$G, f$a, f$pr[, 1L], f$pr[, 2L], 1L,
                                         4L, NULL, z0)
-    qf <- mgcvST:::.mgcvst_log_adjust(full$log_p_two_sided, adjust)$log_q
-    qs <- mgcvST:::.mgcvst_log_adjust(scr$log_p_two_sided, adjust)$log_q
+    qf <- spdeST:::.mgcvst_log_adjust(full$log_p_two_sided, adjust)$log_q
+    qs <- spdeST:::.mgcvst_log_adjust(scr$log_p_two_sided, adjust)$log_q
     found <- qf <= log(0.05)
     expect_true(any(found))
     expect_identical(qs <= log(0.05), found)

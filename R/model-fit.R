@@ -163,7 +163,7 @@
   null_setup <- .mgcvst_null_score_setup(G0, target_index, attr(G0, "null_spec"))
   # spde.scan (R/spde-scan.R): the Stage 1 of the chunk, as inlaST.estimate().
   if (isTRUE(scan)) {
-    out <- do.call(get(".mgcvst_scan_chunk", envir = asNamespace("mgcvST")),
+    out <- do.call(get(".mgcvst_scan_chunk", envir = asNamespace("spdeST")),
                    c(list(payload, G0, target_index, null_setup$X0),
                      marginal_args[setdiff(names(marginal_args), "method")]))
     .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
@@ -488,7 +488,7 @@
       ),
       call = call
     ),
-    class = c("mgcvST_model_fit", "mgcvST_fit", "mgcvST")
+    class = c("mgcvST_model_fit", "mgcvST_fit", "spdeST")
   )
   kappa <- .spde_kappa_fields(model)
   ans[names(kappa)] <- kappa

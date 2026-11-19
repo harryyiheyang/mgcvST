@@ -23,7 +23,7 @@ test_that("set expands factor interactions once for shared BAM null and full des
     expect_match(paste(deparse(model$null_formula), collapse = " "), "s\\(w")
     sm <- model$G$smooth[[2L]]
     expect_true(sm$timing$basis_calls >= 1L)
-    expected <- mgcvST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")]))
+    expected <- spdeST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")]))
     expect_equal(unname(model$L[, sm$first.para:sm$last.para]), expected, tolerance = 1e-8)
     offset <- matrix(seq(-.15, .2, length.out = length(f$Y)), nrow(f$Y))
     fit <- testthat::with_mocked_bindings(
@@ -44,7 +44,7 @@ test_that("set expands factor interactions once for shared BAM null and full des
         list(phi = rep(NA_real_, p), score = rep(NA_real_, p),
              poisson = rep(FALSE, p))
       },
-      .package = "mgcvST"
+      .package = "spdeST"
     )
     expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
     expect_equal(fit$offset, sweep(offset, 2L, model$offset, "+"))
@@ -67,12 +67,12 @@ test_that("set expands factor interactions once for shared BAM null and full des
         family = unserialize(family_raw), offset = offset[i, ],
         method = "fREML", discrete = TRUE, nthreads = 1L, control = control
       )
-      setup <- mgcvST:::.mgcvst_null_score_setup(
+      setup <- spdeST:::.mgcvst_null_score_setup(
         model$G, which(vapply(model$G$smooth, function(s) identical(s$score.component, "global"), logical(1L))),
         list(formula = model$null_formula, data = model$null_data,
              response = model$null_response, X0 = model$null_X)
       )
-      p <- mgcvST:::.mgcvst_null_score_test(null_fit, setup)
+      p <- spdeST:::.mgcvst_null_score_test(null_fit, setup)
       expect_equal(unname(fit$diagnostics$marginal_p_value[i]), p$smooth.pvalue, tolerance = 1e-7)
     }
     pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L), moments = "exact")
@@ -96,10 +96,10 @@ test_that("set rejects gene-specific designs and invalid offsets", {
 
 test_that("null formula keeps leading tensor nuisance smooths", {
   for (term in list(quote(te(z, x)), quote(ti(z, x)), quote(t2(z, x)))) {
-    full <- mgcvST:::.mgcvst_rebuild_formula(
+    full <- spdeST:::.mgcvst_rebuild_formula(
       response ~ 1, list(term, quote(s(x, y, bs = "spde", xt = basis)))
     )
-    null <- mgcvST:::.mgcvst_null_formula(full, 2L)
+    null <- spdeST:::.mgcvst_null_formula(full, 2L)
     expect_match(paste(deparse(null), collapse = " "), as.character(term[[1L]]))
     expect_false(grepl("spde", paste(deparse(null), collapse = " ")))
   }
@@ -115,7 +115,7 @@ test_that("both constructors and predictions evaluate every supplied coordinate 
     form <- response ~ s(x, y, bs = "spde", xt = basis)
     G <- mgcv::gam(form, data = d, fit = FALSE)
     fit <- mgcv::gam(G = G)
-    L <- mgcvST:::.gam_training_lpmatrix(fit)
+    L <- spdeST:::.gam_training_lpmatrix(fit)
     expect_equal(as.numeric(G$X), as.numeric(L), tolerance = 1e-14)
     sm <- fit$smooth[[1L]]
     calls <- sm$timing$prediction_calls

@@ -1,3 +1,3 @@
 library(testthat)
-library(mgcvST)
-test_check("mgcvST")
+library(spdeST)
+test_check("spdeST")

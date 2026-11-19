@@ -192,7 +192,7 @@
       !fit$diagnostics$spatial_fitted[used]
     if (any(!valid & unfitted)) {
       stop("Selected features have no spatial fit; add one with ",
-           if (.mgcvst_inla_downstream(fit)) "inlaST" else "mgcvST",
+           if (.mgcvst_inla_downstream(fit)) "inlaST" else "spdeST",
            ".estimate_spatial(): ",
            paste(ids[used[!valid & unfitted]], collapse = ", "), ".")
     }

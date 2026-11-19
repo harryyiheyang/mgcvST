@@ -13,7 +13,7 @@ test_that("INLA control merges prior objects atomically and preserves NULL", {
     nb_size = NULL,
     control.inla = list(tolerance = 2e-4)
   )
-  merged <- mgcvST:::.inlast_merge_control(base, override)
+  merged <- spdeST:::.inlast_merge_control(base, override)
   expect_identical(
     merged$precision_prior,
     list(prior = "normal", param = c(-1.25, 0.4))
@@ -25,23 +25,23 @@ test_that("INLA control merges prior objects atomically and preserves NULL", {
     list(tolerance = 2e-4, h = 0.004)
   )
 
-  checked <- mgcvST:::.inlast_control(merged)
+  checked <- spdeST:::.inlast_control(merged)
   expect_identical(
     checked$precision_prior,
     list(prior = "normal", param = c(-1.25, 0.4), initial = 0)
   )
   expect_error(
-    mgcvST:::.inlast_merge_control(
+    spdeST:::.inlast_merge_control(
       list(), structure(list(FALSE, TRUE), names = c("verbose", "verbose"))
     ),
     "unique"
   )
-  expect_error(mgcvST:::.inlast_merge_control(list(), list(FALSE)), "names")
+  expect_error(spdeST:::.inlast_merge_control(list(), list(FALSE)), "names")
 })
 
 test_that("native INLA tuning is validated and EB Gaussian strategy is forced", {
   skip_if_not_installed("INLA")
-  control <- mgcvST:::.inlast_control(list(
+  control <- spdeST:::.inlast_control(list(
     control.inla = list(
       tolerance = 1e-4, tolerance.f = 5e-5,
       strategy = "gaussian", int.strategy = "eb"
@@ -54,26 +54,26 @@ test_that("native INLA tuning is validated and EB Gaussian strategy is forced", 
       strategy = "gaussian", int.strategy = "eb"
     )
   )
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     control.inla = list(strategy = "simplified.laplace")
   )), "gaussian")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     control.inla = list(int.strategy = "grid")
   )), "eb")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     control.inla = list(reordering = "default")
   )), "Unsupported")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     control.inla = list(tolerance = -1)
   )), "must be positive")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     control.inla = structure(list(1, 2), names = c("h", "h"))
   )), "unique")
 })
 
 test_that("registered and custom INLA prior specifications are validated", {
   skip_if_not_installed("INLA")
-  checked <- mgcvST:::.inlast_control(list(
+  checked <- spdeST:::.inlast_control(list(
     precision_prior = list(
       prior = "normal", param = c(-1.5, 0.25), initial = 1.2
     ),
@@ -101,7 +101,7 @@ test_that("registered and custom INLA prior specifications are validated", {
     "prec = 0.5;",
     "return(0.5*log(prec/(2*pi))-0.5*prec*(log_precision-mu)^2);"
   )
-  expression_control <- mgcvST:::.inlast_control(list(
+  expression_control <- spdeST:::.inlast_control(list(
     precision_prior = list(prior = expression_prior, initial = -0.2)
   ))
   expect_identical(
@@ -109,26 +109,26 @@ test_that("registered and custom INLA prior specifications are validated", {
     list(prior = expression_prior, param = numeric(), initial = -0.2)
   )
 
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     precision_prior = list(prior = "normal")
   )), "explicit param")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     precision_prior = list(prior = "normal", param = c(0, 0))
   )), "positive precision")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     precision_prior = list(prior = "loggamma", param = c(1, -0.1))
   )), "positive shape and rate")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     precision_prior = list(prior = "not-an-INLA-prior", param = numeric())
   )), "Unknown INLA")
-  expect_error(mgcvST:::.inlast_control(list(
+  expect_error(spdeST:::.inlast_control(list(
     precision_prior = list(prior = "flat", fixed = TRUE)
   )), "fixed_precision")
 })
 
 test_that("prior metadata records the actual family, parameters, and starts", {
   skip_if_not_installed("INLA")
-  control <- mgcvST:::.inlast_control(list(
+  control <- spdeST:::.inlast_control(list(
     precision_prior = list(
       prior = "loggamma", param = c(1.7, 0.08), initial = -0.7
     ),
@@ -136,7 +136,7 @@ test_that("prior metadata records the actual family, parameters, and starts", {
       prior = "gaussian", param = c(1.2, 0.25), initial = 0.4
     )
   ))
-  metadata <- mgcvST:::.inlast_prior_metadata(
+  metadata <- spdeST:::.inlast_prior_metadata(
     control, family = "gaussian", fixed_precision = NULL
   )
   expect_identical(metadata$latent_precision$type, "INLA_hyperprior")
@@ -150,8 +150,8 @@ test_that("prior metadata records the actual family, parameters, and starts", {
   expect_match(metadata$observation$statement, "N\\(1.2, 2\\^2\\)")
   expect_false(metadata$any_improper)
 
-  nb_metadata <- mgcvST:::.inlast_prior_metadata(
-    mgcvST:::.inlast_control(), family = "negative_binomial",
+  nb_metadata <- spdeST:::.inlast_prior_metadata(
+    spdeST:::.inlast_control(), family = "negative_binomial",
     fixed_precision = NULL
   )
   expect_true(nb_metadata$any_improper)
@@ -207,7 +207,7 @@ test_that("INLA accepts validated loggamma and expression precision priors", {
     expression = list(prior = expression_prior, initial = 0)
   )
   for (name in names(controls)) {
-    engine <- mgcvST:::.inlast_fit_feature(
+    engine <- spdeST:::.inlast_fit_feature(
       model$inla_spec, f$y, offset = model$offset,
       control = list(
         precision_prior = controls[[name]],
@@ -223,7 +223,7 @@ test_that("INLA accepts validated loggamma and expression precision priors", {
     )
     expect_identical(
       engine$estimation$hyperpriors$latent_precision$prior,
-      mgcvST:::.inlast_control(list(
+      spdeST:::.inlast_control(list(
         precision_prior = controls[[name]]
       ))$precision_prior$prior
     )

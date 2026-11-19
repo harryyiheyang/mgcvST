@@ -57,9 +57,9 @@ test_that("raw constrained marginal spectrum equals the projected TAPS reference
   expect_equal(stat_raw, stat_projected, tolerance = 1e-10)
   expect_length(lambda_raw, q - 1L)
   expect_equal(lambda_raw, lambda, tolerance = 1e-9)
-  raw <- mgcvST:::.mgcvst_marginal_davies(
+  raw <- spdeST:::.mgcvst_marginal_davies(
     list(statistic = stat_raw, lambda = lambda_raw), 1e-8, 1e5)
-  projected <- mgcvST:::.mgcvst_marginal_davies(
+  projected <- spdeST:::.mgcvst_marginal_davies(
     list(statistic = stat_projected, lambda = lambda), 1e-8, 1e5)
   expect_identical(raw$method_used, "davies")
   expect_equal(raw, projected, tolerance = 1e-10)
@@ -87,12 +87,12 @@ test_that("INLA Stage 1 p-values match a dense eigenvalue and Davies reference",
     list(working_error = E[, j], working_variance = V[, j])
   })
   marginal <- function() {
-    mgcvST:::.inlast_null_marginal(paste0("g", seq_len(k)), geometry, X, fits,
+    spdeST:::.inlast_null_marginal(paste0("g", seq_len(k)), geometry, X, fits,
                                    list(random = list()), rep(1, k),
                                    matrix(1, k, 1L), seq_len(k))
   }
   got <- marginal()
-  kernel <- mgcvST:::.inlast_sparse_null_batch(geometry, X, E, V, NULL)
+  kernel <- spdeST:::.inlast_sparse_null_batch(geometry, X, E, V, NULL)
 
   # Dense reference built from M on the constrained complement of g.
   G <- qr.Q(qr(matrix(g, ncol = 1L)), complete = TRUE)[, -1L, drop = FALSE]
@@ -122,7 +122,7 @@ test_that("INLA Stage 1 p-values match a dense eigenvalue and Davies reference",
   expect_identical(got$fallback_used, rep(FALSE, k))
   expect_identical(got$davies_ifault, rep(0L, k))
   expect_true(all(is.na(got$error_message)))
-  expect_null(mgcvST:::mgcvst_inla_sparse_batch_cpp(
+  expect_null(spdeST:::mgcvst_inla_sparse_batch_cpp(
     geometry$A, geometry$Q, g, X, E, V, rep(1, k))[[1L]]$lambda)
 
   local({
@@ -132,7 +132,7 @@ test_that("INLA Stage 1 p-values match a dense eigenvalue and Davies reference",
     expect_identical(failed$method_used, rep("saddlepoint", k))
     expect_identical(failed$fallback_used, rep(TRUE, k))
     expect_equal(failed$p_value, vapply(seq_len(k), function(j) {
-      mgcvST:::.mgcvst_marginal_saddlepoint(statistic[j], lambda[[j]])
+      spdeST:::.mgcvst_marginal_saddlepoint(statistic[j], lambda[[j]])
     }, numeric(1L)), tolerance = 1e-8)
   })
   local({
@@ -158,8 +158,8 @@ test_that("sparse observation basis matches an independent QR reference", {
   Q <- Matrix::Matrix(Q0, sparse = TRUE)
   g <- as.numeric(colMeans(A0))
   fit <- list(score_sparse = list(A = A, Q = Q, constraint = g))
-  fit <- mgcvST:::.inlast_sparse_prepare(fit)
-  got <- mgcvST:::.inlast_sparse_observation_basis(fit)
+  fit <- spdeST:::.inlast_sparse_prepare(fit)
+  got <- spdeST:::.inlast_sparse_observation_basis(fit)
 
   Q2 <- qr.Q(qr(matrix(g, ncol = 1L)), complete = TRUE)[, -1L, drop = FALSE]
   qp <- crossprod(Q2, Q0 %*% Q2)

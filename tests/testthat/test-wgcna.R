@@ -3,7 +3,7 @@ test_that("WGCNA parameters and gene blocks have explicit contracts", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  parameters <- mgcvST:::.mgcvst_wgcna_parameters
+  parameters <- spdeST:::.mgcvst_wgcna_parameters
   defaults <- parameters(NULL)
   expect_identical(defaults, parameters(list()))
   expect_identical(parameters(list(power = 4))$power, 4)
@@ -42,11 +42,11 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
 
   used <- match(ids, fit$feature_id)
   ref_fit <- fit
-  ref_fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(ref_fit)
-  native <- mgcvST:::.mgcvst_model_dense_preparation(ref_fit, used)
+  ref_fit$.mgcvst_fixed_factors <- spdeST:::.mgcvst_model_fixed_factors(ref_fit)
+  native <- spdeST:::.mgcvst_model_dense_preparation(ref_fit, used)
   phi <- fit$dispersion[used]
   sp <- fit$smoothing_parameters[used, , drop = FALSE]
-  z <- mgcvST:::mgcvst_dense_score_batch_cpp(
+  z <- spdeST:::mgcvst_dense_score_batch_cpp(
     native$T0, fit$working_variance[, used, drop = FALSE],
     fit$working_error[, used, drop = FALSE],
     phi / sp[, native$sp_index], native$X,
@@ -112,10 +112,10 @@ test_that("WGCNA preserves overlapping block order", {
 
   used <- match(W$score$feature_id, ids)
   ref_fit <- fit
-  ref_fit$.mgcvst_fixed_factors <- mgcvST:::.mgcvst_model_fixed_factors(ref_fit)
-  native <- mgcvST:::.mgcvst_model_dense_preparation(ref_fit, used)
+  ref_fit$.mgcvst_fixed_factors <- spdeST:::.mgcvst_model_fixed_factors(ref_fit)
+  native <- spdeST:::.mgcvst_model_dense_preparation(ref_fit, used)
   T0 <- native$T0
-  z <- mgcvST:::mgcvst_dense_score_batch_cpp(
+  z <- spdeST:::mgcvst_dense_score_batch_cpp(
     T0, fit$working_variance[, used, drop = FALSE],
     fit$working_error[, used, drop = FALSE],
     fit$dispersion[used] / fit$smoothing_parameters[used, native$sp_index],
@@ -172,8 +172,8 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   used <- match(ids, fit$feature_id)
 
   W <- inlaST.wgcna(fit, ids)
-  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
-  basis_r <- mgcvST:::.inlast_sparse_observation_basis(prepared)
+  prepared <- spdeST:::.inlast_sparse_prepare(fit)
+  basis_r <- spdeST:::.inlast_sparse_observation_basis(prepared)
   A <- crossprod(basis_r$coordinate, fit$score_a[, used, drop = FALSE])
   dimnames(A) <- list(NULL, ids)
   expect_equal(W$score$A, A, tolerance = 1e-12)

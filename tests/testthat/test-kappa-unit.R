@@ -36,7 +36,7 @@
   ratio
 }
 
-test_that("kappa = NULL is an error because mgcvST never estimates kappa", {
+test_that("kappa = NULL is an error because spdeST never estimates kappa", {
   skip_if_not_installed("geometry")
   mesh <- .kappa_unit_mesh2d()
   d <- .kappa_unit_data2d()
@@ -79,7 +79,7 @@ test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_uni
   expect_equal(model$coordinate_span, span)
   expect_equal(model$kappa_internal, 0.05 / L)
   expect_equal(model$spde$range_unit, sqrt(8) / 0.05)
-  fem <- mgcvST:::.spde_basis_fem(mgcvST:::.spde_basis_mesh(mesh))
+  fem <- spdeST:::.spde_basis_fem(spdeST:::.spde_basis_mesh(mesh))
   k <- 0.05 / L
   expect_equal(as.matrix(model$inla_spec$random[[1L]]$Q),
                as.matrix(k^4 * fem$M0 + 2 * k^2 * fem$M1 + fem$M2),
@@ -132,7 +132,7 @@ test_that("the mgcv path uses kappa_internal = kappa_unit * transform_scale / L"
   expect_equal(unname(b$coordinate_span), unname(span))
   expect_equal(b$kappa_internal, 0.3 * scale / L)
   expect_equal(a$kappa_internal, 0.3 / L)
-  fem <- mgcvST:::.spde_basis_fem(mgcvST:::.spde_basis_mesh(normalized))
+  fem <- spdeST:::.spde_basis_fem(spdeST:::.spde_basis_mesh(normalized))
   k <- 0.3 * scale / L
   Qraw <- as.matrix(k^4 * fem$M0 + 2 * k^2 * fem$M1 + fem$M2)
   expect_equal(b$Q, crossprod(b$projection, Qraw %*% b$projection),
@@ -192,16 +192,16 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
   E <- cbind(rnorm(n), sin(mm$x) + rnorm(n, sd = 0.2))
   V <- cbind(rep(1, n), runif(n, 0.5, 2))
   X <- m_mm$geometry$nuisance_design
-  s_mm <- mgcvST:::.inlast_sparse_null_batch(
-    mgcvST:::.inlast_sparse_score_geometry(m_mm), X, E, V, NULL)
-  s_um <- mgcvST:::.inlast_sparse_null_batch(
-    mgcvST:::.inlast_sparse_score_geometry(m_um), X, E, V, NULL)
+  s_mm <- spdeST:::.inlast_sparse_null_batch(
+    spdeST:::.inlast_sparse_score_geometry(m_mm), X, E, V, NULL)
+  s_um <- spdeST:::.inlast_sparse_null_batch(
+    spdeST:::.inlast_sparse_score_geometry(m_um), X, E, V, NULL)
   for (j in seq_len(ncol(E))) {
     expect_equal(s_um[[j]]$statistic, s_mm[[j]]$statistic, tolerance = 1e-8)
     expect_equal(s_um[[j]]$lambda, s_mm[[j]]$lambda, tolerance = 1e-8)
     expect_equal(
-      mgcvST:::.mgcvst_marginal_davies(s_um[[j]], 1e-8, 1e5)$p_value,
-      mgcvST:::.mgcvst_marginal_davies(s_mm[[j]], 1e-8, 1e5)$p_value,
+      spdeST:::.mgcvst_marginal_davies(s_um[[j]], 1e-8, 1e5)$p_value,
+      spdeST:::.mgcvst_marginal_davies(s_mm[[j]], 1e-8, 1e5)$p_value,
       tolerance = 1e-8
     )
   }

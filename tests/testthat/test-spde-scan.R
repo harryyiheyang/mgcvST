@@ -16,7 +16,7 @@ scan_kernel <- function(data, poisson = rep(FALSE, nrow(data$Y)), ...) {
   Yt <- methods::as(methods::as(methods::as(
     Matrix::Matrix(t(data$Y), sparse = TRUE), "CsparseMatrix"),
     "generalMatrix"), "dMatrix")
-  mgcvST:::mgcvst_nb_null_batch_cpp(Yt, data$X, matrix(data$offset),
+  spdeST:::mgcvst_nb_null_batch_cpp(Yt, data$X, matrix(data$offset),
                                     poisson, ...)
 }
 
@@ -122,7 +122,7 @@ scan_field <- function(n = 300L, seed = 9052L) {
   mesh <- list(loc = xy, graph = list(tv = geometry::delaunayn(xy)))
   coords <- cbind(stats::runif(n, .01, .99), stats::runif(n, .01, .99))
   basis <- spde_basis(mesh, coords, kappa = .8)
-  field <- mgcvST:::.spde_scan_field(basis)
+  field <- spdeST:::.spde_scan_field(basis)
   list(basis = basis, A = field$A, Q = field$Q, coords = coords)
 }
 
@@ -190,9 +190,9 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
   Y <- rbind(Y, f$Y[2L, ])
   target <- which(vapply(f$model$G$smooth, function(s)
     identical(s$score.component, "global"), logical(1L)))
-  expect_true(mgcvST:::.mgcvst_scan_eligible(
+  expect_true(spdeST:::.mgcvst_scan_eligible(
     f$model$G, target, f$model$null_formula, f$model$G$family, NULL, list(), list()))
-  expect_false(mgcvST:::.mgcvst_scan_eligible(
+  expect_false(spdeST:::.mgcvst_scan_eligible(
     f$model$G, target, f$model$null_formula, mgcv::nb(theta = 3), NULL, list(), list()))
   sp <- BiocParallel::SerialParam()
   withr::local_options(mgcvST.progress = FALSE)
@@ -200,22 +200,22 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
   expect_identical(fit$stage1$null_engine, "spde.scan")
 
   # The Stage 1 of inlaST.estimate() on the same field and null design.
-  raw <- mgcvST:::.inlast_prepare_basis(f$basis, f$basis$coordinates)$raw
+  raw <- spdeST:::.inlast_prepare_basis(f$basis, f$basis$coordinates)$raw
   X0 <- as.matrix(f$model$null_X)
   spec <- list(random = list(list(A = raw$A, Q = raw$Q)))
   null_spec <- list(fixed = list(X = X0), random = list(),
                     family = "negative_binomial")
-  expect_true(mgcvST:::.inlast_scan_eligible(null_spec))
+  expect_true(spdeST:::.inlast_scan_eligible(null_spec))
   payload <- list(index = 1:4, feature_id = as.character(1:4),
                   Y = Y, extra_offset = NULL,
                   poisson = fit$diagnostics$family_used != "negative_binomial")
-  inla <- mgcvST:::.inlast_scan_chunk(payload, spec, null_spec,
+  inla <- spdeST:::.inlast_scan_chunk(payload, spec, null_spec,
                                       f$data$offset0, list())
   p_inla <- vapply(inla, function(z) z$marginal$p_value, numeric(1L))
   expect_equal(fit$diagnostics$marginal_p_value, p_inla, tolerance = 1e-5)
 
   withr::local_options(mgcvST.scan_null = FALSE)
-  expect_false(mgcvST:::.inlast_scan_eligible(null_spec))
+  expect_false(spdeST:::.inlast_scan_eligible(null_spec))
   gam <- suppressWarnings(mgcvST.estimate(Y, f$model, BPPARAM = sp, spatial = "none"))
   expect_identical(gam$stage1$null_engine, "gam")
   # The GAM null uses the intercept-projected field: close, not equal.

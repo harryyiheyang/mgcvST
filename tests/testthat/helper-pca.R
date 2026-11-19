@@ -29,7 +29,7 @@
 })
 
 .pca_pairs <- function(z) {
-  out <- do.call(rbind, lapply(z$shards, mgcvST:::.mgcvst_read_shard))
+  out <- do.call(rbind, lapply(z$shards, spdeST:::.mgcvst_read_shard))
   out[order(out$i, out$j), , drop = FALSE]
 }
 
@@ -37,10 +37,10 @@
 # coordinates: the reference that a full-rank PCAlearning basis and the exact
 # route with k = q reproduce.
 .pca_exact_reference <- function(fit, pairs) {
-  prepared <- mgcvST:::.inlast_sparse_prepare(fit)
-  basis <- mgcvST:::.inlast_sparse_observation_basis(prepared)
-  units <- mgcvST:::.inlast_sparse_units(prepared, seq_along(fit$feature_id), threads = 1L)
-  states <- mgcvST:::.inlast_sparse_materialize_reduced(prepared, units, basis, threads = 1L)
+  prepared <- spdeST:::.inlast_sparse_prepare(fit)
+  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
+  units <- spdeST:::.inlast_sparse_units(prepared, seq_along(fit$feature_id), threads = 1L)
+  states <- spdeST:::.inlast_sparse_materialize_reduced(prepared, units, basis, threads = 1L)
   local <- matrix(match(pairs, fit$feature_id), ncol = 2L)
   roots <- lapply(states, function(z) .spa_sqrtm(z$M))
   score <- vapply(seq_len(nrow(local)), function(j) {
@@ -85,7 +85,7 @@
         list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
       })
     },
-    .package = "mgcvST", .env = env
+    .package = "spdeST", .env = env
   )
 }
 

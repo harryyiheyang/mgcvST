@@ -52,8 +52,8 @@ test_that("model-set null BAM includes a feature offset", {
   target <- which(vapply(
     G$smooth, function(s) identical(s$score.component, "global"), logical(1L)
   ))
-  setup <- mgcvST:::.mgcvst_null_score_setup(G, target, attr(G, "null_spec"))
-  expected <- mgcvST:::.mgcvst_null_score_test(null_fit, setup)
+  setup <- spdeST:::.mgcvst_null_score_setup(G, target, attr(G, "null_spec"))
+  expected <- spdeST:::.mgcvst_null_score_test(null_fit, setup)
   expect_equal(fit$diagnostics$marginal_p_value, expected$smooth.pvalue,
                tolerance = 1e-8)
 })
@@ -75,11 +75,11 @@ test_that("single-coefficient null scores agree with direct GAM fits", {
     direct <- mgcv::gam(model$null_formula, data = data,
                         family = unserialize(serialize(family, NULL)),
                         method = "REML", control = mgcv::gam.control(nthreads = 1L))
-    setup <- mgcvST:::.mgcvst_null_score_setup(model$G, 1L, list(
+    setup <- spdeST:::.mgcvst_null_score_setup(model$G, 1L, list(
       formula = model$null_formula, data = model$null_data,
       response = model$null_response, X0 = model$null_X
     ))
-    expected <- mgcvST:::.mgcvst_null_score_test(direct, setup)
+    expected <- spdeST:::.mgcvst_null_score_test(direct, setup)
     for (G in list(model, model$G)) {
       fit <- mgcvST.estimate(
         f$Y[1L, , drop = FALSE], G, control = control,
@@ -111,7 +111,7 @@ test_that("one slope without an intercept retains per-feature null offsets", {
     BPPARAM = BiocParallel::SerialParam(), spatial = "all"
   )
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-  setup <- mgcvST:::.mgcvst_null_score_setup(model$G, 1L, list(
+  setup <- spdeST:::.mgcvst_null_score_setup(model$G, 1L, list(
     formula = model$null_formula, data = model$null_data,
     response = model$null_response, X0 = model$null_X
   ))
@@ -121,7 +121,7 @@ test_that("one slope without an intercept retains per-feature null offsets", {
     direct <- mgcv::gam(model$null_formula, data = data, family = mgcv::nb(),
                         offset = offset[j, ], method = "REML",
                         control = mgcv::gam.control(nthreads = 1L))
-    expected <- mgcvST:::.mgcvst_null_score_test(direct, setup)
+    expected <- spdeST:::.mgcvst_null_score_test(direct, setup)
     expect_equal(fit$diagnostics$marginal_p_value[j], expected$smooth.pvalue,
                  tolerance = 1e-8)
   }
@@ -157,7 +157,7 @@ test_that("parametric null fitting preserves weights and rejects unsupported AR"
   control <- mgcv::gam.control(nthreads = 1L)
   for (family in list(stats::gaussian(), stats::quasipoisson(), mgcv::nb())) {
     family_raw <- serialize(family, NULL)
-    fit <- mgcvST:::.mgcvst_fit_null(setup, d, unserialize(family_raw), offset, control,
+    fit <- spdeST:::.mgcvst_fit_null(setup, d, unserialize(family_raw), offset, control,
       list(weights = weights, gamma = 1.2, chunk.size = 10L))
     expected <- mgcv::gam(response ~ offset(off), data = d,
       family = unserialize(family_raw), offset = offset,
@@ -167,6 +167,6 @@ test_that("parametric null fitting preserves weights and rejects unsupported AR"
     expect_equal(fit$offset, expected$offset, tolerance = 1e-12)
     expect_equal(fit$prior.weights, weights)
   }
-  expect_error(mgcvST:::.mgcvst_fit_null(setup, d, stats::gaussian(), offset,
+  expect_error(spdeST:::.mgcvst_fit_null(setup, d, stats::gaussian(), offset,
     control, list(rho = 0.5)), "cannot preserve BAM's nonzero rho")
 })

@@ -24,7 +24,7 @@ test_that("native crash fallback preserves null nuisance states and raw precisio
       observation_spatial_mean = c(group = NA_real_), estimation = list())
     offset <- seq(-.2, .2, length.out = n)
     y <- 1:8
-    z <- mgcvST:::.inlast_spatial_fallback(.spatial_crash(), null, spec, y, offset)
+    z <- spdeST:::.inlast_spatial_fallback(.spatial_crash(), null, spec, y, offset)
     expect_identical(z$fixed_mode, null$fixed_mode)
     expect_identical(z$random_mode$group, null$random_mode$group)
     expect_identical(z$random_mode$global, numeric(n))
@@ -52,11 +52,11 @@ test_that("native crash fallback preserves null nuisance states and raw precisio
 
 test_that("fallback leaves input errors and unsuccessful null fits unchanged", {
   e <- simpleError("Invalid input")
-  expect_identical(mgcvST:::.inlast_spatial_fallback(e, list(converged = TRUE),
+  expect_identical(spdeST:::.inlast_spatial_fallback(e, list(converged = TRUE),
     NULL, NULL, NULL), e)
   e <- .spatial_crash()
   for (null in list(simpleError("null failed"), list(converged = FALSE))) {
-    expect_identical(mgcvST:::.inlast_spatial_fallback(e, null, NULL, NULL, NULL), e)
+    expect_identical(spdeST:::.inlast_spatial_fallback(e, null, NULL, NULL, NULL), e)
   }
 })
 
@@ -81,7 +81,7 @@ test_that("public native crash recovery reuses null fits without replacing p-val
   calls <- new.env(parent = emptyenv())
   calls$null <- list()
   calls$spatial <- 0L
-  native <- mgcvST:::.inlast_fit_feature
+  native <- spdeST:::.inlast_fit_feature
   testthat::local_mocked_bindings(.inlast_fit_feature = function(spec, y, offset, control, diagnostics) {
     if (any(vapply(spec$random, function(z) isTRUE(z$target), logical(1L)))) {
       calls$spatial <- calls$spatial + 1L
@@ -90,7 +90,7 @@ test_that("public native crash recovery reuses null fits without replacing p-val
     z <- native(spec, y, offset, control, diagnostics)
     calls$null[[length(calls$null) + 1L]] <- z
     z
-  }, .package = "mgcvST")
+  }, .package = "spdeST")
   fit <- inlaST.estimate(Y, model, offset = extra, retain_smooth = TRUE,
     diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
   expect_length(calls$null, 2L)
@@ -106,8 +106,8 @@ test_that("public native crash recovery reuses null fits without replacing p-val
   expect_equal(fit$offset, sweep(extra, 2, model$offset, "+"), tolerance = 0)
   expect_true(all(is.finite(fit$score_a)))
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-  S <- mgcvST:::.inlast_null_spec(model$inla_spec)
-  expected <- mgcvST:::.inlast_null_marginal(fit$feature_id, fit$score_sparse,
+  S <- spdeST:::.inlast_null_spec(model$inla_spec)
+  expected <- spdeST:::.inlast_null_marginal(fit$feature_id, fit$score_sparse,
     model$geometry$nuisance_design, calls$null, S,
     vapply(calls$null, `[[`, numeric(1), "dispersion"),
     do.call(rbind, lapply(calls$null, `[[`, "smoothing_parameters")),

@@ -1,8 +1,8 @@
 test_that("packed dense score states restore exactly", {
   M <- crossprod(matrix(seq_len(20), 5L, 4L))
   state <- list(a = as.numeric(seq_len(4)), M = M, width = c(global = 4L))
-  restored <- mgcvST:::.mgcvst_unpack_score_state(
-    mgcvST:::.mgcvst_pack_score_state(state)
+  restored <- spdeST:::.mgcvst_unpack_score_state(
+    spdeST:::.mgcvst_pack_score_state(state)
   )
   expect_identical(restored, state)
 })
@@ -31,13 +31,13 @@ test_that("model pair states are constructed once per unique feature", {
   pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
   count <- new.env(parent = emptyenv())
   count$features <- 0L
-  original_batch <- mgcvST:::mgcvst_dense_score_batch_cpp
+  original_batch <- spdeST:::mgcvst_dense_score_batch_cpp
   testthat::local_mocked_bindings(
     mgcvst_dense_score_batch_cpp = function(T0, variance, error, scale, X,
                                             nuisance, threads) {
       count$features <- count$features + ncol(variance)
       original_batch(T0, variance, error, scale, X, nuisance, threads)
-    }, .package = "mgcvST"
+    }, .package = "spdeST"
   )
   ans <- mgcvST.test(fit, pairs = pairs, chunk_size = 1L, moments = "exact")
   expect_identical(count$features, 3L)

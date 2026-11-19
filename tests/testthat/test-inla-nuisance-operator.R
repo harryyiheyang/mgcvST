@@ -24,20 +24,20 @@ test_that("multiple iid nuisance penalties match dense Woodbury operators", {
   D <- exp(-(A0 %*% b0 + U %*% c0))
   tau <- c(0.8, 1.3)
   tau_b <- matrix(c(1.7, 0.9, 2.1, 1.2), nrow = 2L, byrow = TRUE)
-  Sn <- mgcvST:::.inlast_iid_nuisance_precision(
+  Sn <- spdeST:::.inlast_iid_nuisance_precision(
     ncol(X), c(ncol(Z1), ncol(Z2)), tau_b, features
   )
 
-  observed <- mgcvST:::mgcvst_inla_sparse_batch_cpp(
+  observed <- spdeST:::mgcvst_inla_sparse_batch_cpp(
     A, Q, g, U, E, D, tau, threads = 1L,
     nuisance_precision = Sn
   )
   # The fitted-model curvature is rebuilt from Poisson coefficients, whose
   # working variance is D, and reduced on a full Q-orthonormal constrained basis.
-  prepared <- mgcvST:::mgcvst_inla_sparse_prepare_cpp(Q, g)
+  prepared <- spdeST:::mgcvst_inla_sparse_prepare_cpp(Q, g)
   Us <- methods::as(methods::as(Matrix::Matrix(U, sparse = TRUE),
                                 "generalMatrix"), "CsparseMatrix")
-  units <- mgcvST:::mgcvst_inla_compact_units_cpp(
+  units <- spdeST:::mgcvst_inla_compact_units_cpp(
     A, Q, g, Us, b0, c0, matrix(0, n, 1L), rep(1L, features),
     rep(NA_real_, features), rep(1, features), tau,
     vapply(observed, `[[`, numeric(q), "a"), threads = 1L,
@@ -45,7 +45,7 @@ test_that("multiple iid nuisance penalties match dense Woodbury operators", {
   )
   Bq <- backsolve(chol(Q0), diag(q))
   coordinate <- qr.Q(qr(crossprod(Bq, g)), complete = TRUE)[, -1L, drop = FALSE]
-  curvature <- mgcvST:::mgcvst_inla_sparse_materialize_reduced_cpp(
+  curvature <- spdeST:::mgcvst_inla_sparse_materialize_reduced_cpp(
     units, Q, g, coordinate, Bq %*% coordinate, threads = 1L,
     prepared = prepared
   )
@@ -98,10 +98,10 @@ test_that("iid nuisance marginal null keeps the nuisance covariance", {
   d <- matrix(runif(n, 0.6, 1.5), n, 1L)
   tau <- 1 / 2.3
   tau_b <- 1.4
-  Sn <- mgcvST:::.inlast_iid_nuisance_precision(
+  Sn <- spdeST:::.inlast_iid_nuisance_precision(
     ncol(X), ncol(Z), matrix(tau_b), 1L
   )
-  observed <- mgcvST:::mgcvst_inla_sparse_batch_cpp(
+  observed <- spdeST:::mgcvst_inla_sparse_batch_cpp(
     A, Q, g, U, e, d, tau, threads = 1L, null_target = TRUE,
     nuisance_precision = Sn
   )[[1L]]
@@ -139,10 +139,10 @@ test_that("zero nuisance precision preserves the old sparse score", {
   E <- matrix(rnorm(2L * n), n, 2L)
   D <- matrix(runif(2L * n, 0.7, 1.4), n, 2L)
   tau <- c(0.9, 1.2)
-  old <- mgcvST:::mgcvst_inla_sparse_batch_cpp(
+  old <- spdeST:::mgcvst_inla_sparse_batch_cpp(
     A, Q, g, X, E, D, tau, threads = 1L
   )
-  new <- mgcvST:::mgcvst_inla_sparse_batch_cpp(
+  new <- spdeST:::mgcvst_inla_sparse_batch_cpp(
     A, Q, g, X, E, D, tau, threads = 1L,
     nuisance_precision = matrix(0, ncol(X), ncol(E))
   )

@@ -1,3 +1,13 @@
+# spdeST 0.0.1.9053
+
+* The package is renamed from mgcvST to spdeST: `library(spdeST)`,
+  `spdeST::`, and the compiled symbols `_spdeST_*`. The user functions keep
+  their names (`mgcvST.set()`, `inlaST.set()`, `spdeST.scan()`,
+  `spdeST.estimate()`, `spdeST.test()`), as do the classes (`mgcvST_model`,
+  `mgcvST_model_fit`, `inlaST_model`, `inlaST_fit`) and the options
+  (`mgcvST.progress`, `mgcvST.scan_null`), which name the mgcv
+  implementation or predate the rename.
+
 # mgcvST 0.0.1.9052
 
 * User interface `spdeST.*`, one pipeline for the mgcv and INLA

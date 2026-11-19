@@ -13,13 +13,13 @@ test_that("the route is chosen by the user: moments has no default and no automa
   expect_error(test(moments = "auto"), "moments must be one of")
   expect_error(test(moments = c("exact", "pcalearning")), "moments must be one of")
   expect_error(test(moments = NA_character_), "moments must be one of")
-  expect_false(exists(".mgcvst_route_resolve", asNamespace("mgcvST"), inherits = FALSE))
-  expect_false(exists(".mgcvst_route_limits", asNamespace("mgcvST"), inherits = FALSE))
+  expect_false(exists(".mgcvst_route_resolve", asNamespace("spdeST"), inherits = FALSE))
+  expect_false(exists(".mgcvst_route_limits", asNamespace("spdeST"), inherits = FALSE))
 })
 
 test_that("mgcvST.test reports its route and k, and the contract records them", {
   fit <- .routing_fit()
-  q <- mgcvST:::.mgcvst_state_width(fit)
+  q <- spdeST:::.mgcvst_state_width(fit)
   messages <- testthat::capture_messages(exact <- mgcvST.test(fit, moments = "exact",
                                                               verbose = TRUE))
   expect_match(paste(messages, collapse = ""),
@@ -124,8 +124,8 @@ test_that("an INLA fit takes either route and the exact route agrees with the fu
 test_that("a pair the kernel cannot evaluate has p = 1, keeps its status and stays in the family", {
   skip_on_cran()
   fit <- .routing_fit()
-  exact_kernel <- mgcvST:::mgcvst_pair_spa_cpp
-  pca_kernel <- mgcvST:::mgcvst_pca_spa_pairs_cpp
+  exact_kernel <- spdeST:::mgcvst_pair_spa_cpp
+  pca_kernel <- spdeST:::mgcvst_pca_spa_pairs_cpp
   # The first two pairs of the kernel output become status 2 (invalid p-value)
   # and status 1 (non-finite moments).
   testthat::local_mocked_bindings(
@@ -143,7 +143,7 @@ test_that("a pair the kernel cannot evaluate has p = 1, keeps its status and sta
       out[1:2, "status"] <- c(2, 1)
       out
     },
-    .package = "mgcvST")
+    .package = "spdeST")
   pcols <- c("log_p_two_sided", "log_p_positive", "log_p_negative")
   pairs <- t(combn(fit$feature_id, 2L))
   for (moments in c("exact", "pcalearning")) {

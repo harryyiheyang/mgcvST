@@ -24,22 +24,22 @@
     # option under SnowParam's exportglobals) loads the namespace by name
     # BEFORE this body runs, resolving against the worker's default paths.
     # A stale build then shadows the manager's; reload from the right path.
-    expected <- find.package("mgcvST", lib.loc = .libPaths(), quiet = TRUE)
+    expected <- find.package("spdeST", lib.loc = .libPaths(), quiet = TRUE)
     # The manager process itself (a serial backend) keeps its namespace: it is
     # the build that made this call, and under devtools::load_all() or
     # testthat::test_local() unloading it would drop the caller's own objects.
     if (!identical(manager, Sys.getpid()) &&
-        "mgcvST" %in% loadedNamespaces() && length(expected)) {
-      current <- getNamespaceInfo(asNamespace("mgcvST"), "path")
+        "spdeST" %in% loadedNamespaces() && length(expected)) {
+      current <- getNamespaceInfo(asNamespace("spdeST"), "path")
       same <- identical(normalizePath(current, winslash = "/", mustWork = FALSE),
                         normalizePath(expected[[1L]], winslash = "/", mustWork = FALSE))
-      if (!same) try(unloadNamespace("mgcvST"), silent = TRUE)
+      if (!same) try(unloadNamespace("spdeST"), silent = TRUE)
     }
-    fun <- get(fun_name, envir = asNamespace("mgcvST"))
+    fun <- get(fun_name, envir = asNamespace("spdeST"))
     # A worker process keeps one BLAS/OpenMP thread for its life, so that the
     # LAPACK calls of the sparse kernels never oversubscribe the node.
     if (!identical(manager, Sys.getpid())) {
-      get(".mgcvst_thread_limit", envir = asNamespace("mgcvST"))()
+      get(".mgcvst_thread_limit", envir = asNamespace("spdeST"))()
     }
     do.call(fun, c(list(payload), args))
   }
@@ -656,7 +656,7 @@ inlaST.estimate <- function(
     stage1 = list(adjust = adjust, q.value = q.value,
                   null_engine = if (.inlast_scan_eligible(null_spec)) "spde.scan" else "inla"),
     call = match.call()
-  ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
+  ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "spdeST"))
   kappa <- .spde_kappa_fields(model)
   ans[names(kappa)] <- kappa
   rm(step1)

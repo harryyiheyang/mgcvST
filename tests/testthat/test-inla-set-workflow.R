@@ -150,7 +150,7 @@ test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geo
                as.matrix(legacy$inla_spec$random[[1L]]$Q), tolerance = 1e-12)
   expect_equal(native$inla_spec$random[[1L]]$constraint,
                legacy$inla_spec$random[[1L]]$constraint, tolerance = 1e-12)
-  native_score <- mgcvST:::.inlast_sparse_score_geometry(native)
+  native_score <- spdeST:::.inlast_sparse_score_geometry(native)
   expect_identical(native_score$normalization,
                    ncol(native$inla_spec$random[[1L]]$Q) - 1L)
 
@@ -169,7 +169,7 @@ test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geo
   expect_s3_class(native3, "inlaST_native_model")
   expect_identical(native3$spde$dim, 3L)
   expect_identical(ncol(native3$inla_spec$random[[1L]]$A), nrow(xyz))
-  native3_score <- mgcvST:::.inlast_sparse_score_geometry(native3)
+  native3_score <- spdeST:::.inlast_sparse_score_geometry(native3)
   expect_identical(native3_score$normalization, nrow(xyz) - 1L)
 })
 

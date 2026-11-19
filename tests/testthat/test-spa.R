@@ -187,14 +187,14 @@ test_that("without positive leading values the existing one-node calculation rem
 test_that("invalid saddlepoint inputs return a status and no p-value", {
   s <- c(1, 0.6)
   Tm <- .spa_powers(s)
-  bad <- mgcvST:::mgcvst_spa_cpp(c(NA, 1), matrix(s, ncol = 1L),
+  bad <- spdeST:::mgcvst_spa_cpp(c(NA, 1), matrix(s, ncol = 1L),
                                  matrix(Tm, 4L, 1L), 4L, 1L)
   expect_identical(unname(bad[1L, "status"]), 1)
   expect_true(is.na(bad[1L, "log_p_two_sided"]))
-  nonpositive <- mgcvST:::mgcvst_spa_cpp(1, matrix(s, ncol = 1L),
+  nonpositive <- spdeST:::mgcvst_spa_cpp(1, matrix(s, ncol = 1L),
                                          matrix(c(0, Tm[2:4]), 4L, 1L), 4L, 1L)
   expect_identical(unname(nonpositive[1L, "status"]), 1)
-  expect_error(mgcvST:::mgcvst_spa_cpp(1, matrix(s, ncol = 1L), matrix(Tm, 4L, 1L),
+  expect_error(spdeST:::mgcvst_spa_cpp(1, matrix(s, ncol = 1L), matrix(Tm, 4L, 1L),
                                        3L, 1L), "order")
 })
 
@@ -212,8 +212,8 @@ test_that("invalid saddlepoint inputs return a status and no p-value", {
 
 test_that("with k = q the exact pair kernel equals the full-spectrum saddlepoint", {
   f <- .spa_pair_fixture()
-  G <- mgcvST:::mgcvst_pair_basis_cpp(f$H, diag(f$q), 1L)
-  z <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G, f$a, f$left, f$right, 1L, 4L)
+  G <- spdeST:::mgcvst_pair_basis_cpp(f$H, diag(f$q), 1L)
+  z <- spdeST:::mgcvst_pair_spa_cpp(f$H, G, f$a, f$left, f$right, 1L, 4L)
   expect_true(all(z$status == 0L))
   expect_identical(unique(z$remainder_kind), 0L)
   U <- colSums(f$a[, f$left, drop = FALSE] * f$a[, f$right, drop = FALSE])
@@ -231,14 +231,14 @@ test_that("with k = q the exact pair kernel equals the full-spectrum saddlepoint
 
 test_that("the four-moment remainder of a shared basis matches an R reference", {
   f <- .spa_pair_fixture(n = 6L, q = 12L, seed = 5L)
-  S <- mgcvST:::mgcvst_pair_basis_sum_cpp(f$H)
+  S <- spdeST:::mgcvst_pair_basis_sum_cpp(f$H)
   V <- eigen(S, symmetric = TRUE)$vectors[, 1:3, drop = FALSE]
-  G <- mgcvST:::mgcvst_pair_basis_cpp(f$H, V, 1L)
+  G <- spdeST:::mgcvst_pair_basis_cpp(f$H, V, 1L)
   # G_g = H_g^{1/2} V of the normalized matrix, symmetric square root.
   H1 <- f$H[[1L]]
   expect_equal(G[[1L]], .spa_sqrtm(H1 / max(abs(H1))) %*% V, tolerance = 1e-10)
   for (order in c(4L, 2L)) {
-    z <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G, f$a, f$left, f$right, 1L, order)
+    z <- spdeST:::mgcvst_pair_spa_cpp(f$H, G, f$a, f$left, f$right, 1L, order)
     expect_true(all(z$status == 0L))
     U <- z$score
     ref <- vapply(seq_along(U), function(p) {
@@ -261,52 +261,52 @@ test_that("the four-moment remainder of a shared basis matches an R reference", 
 test_that("a zero-matrix gene gets status 1 and no p-value, and does not disturb the others", {
   f <- .spa_pair_fixture(n = 4L)
   f$H[[2L]][] <- 0
-  S <- mgcvST:::mgcvst_pair_basis_sum_cpp(f$H)
+  S <- spdeST:::mgcvst_pair_basis_sum_cpp(f$H)
   expect_identical(attr(S, "used"), 3L)
   V <- eigen(S, symmetric = TRUE)$vectors[, 1:3, drop = FALSE]
-  G <- mgcvST:::mgcvst_pair_basis_cpp(f$H, V, 1L)
+  G <- spdeST:::mgcvst_pair_basis_cpp(f$H, V, 1L)
   expect_true(all(is.na(G[[2L]])))
-  z <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G, f$a, f$left, f$right, 1L, 4L)
+  z <- spdeST:::mgcvst_pair_spa_cpp(f$H, G, f$a, f$left, f$right, 1L, 4L)
   bad <- f$left == 2L | f$right == 2L
   expect_true(all(z$status[bad] == 1L))
   expect_true(all(is.na(z$log_p_two_sided[bad])))
   expect_true(all(z$status[!bad] == 0L))
   expect_true(all(is.finite(z$log_p_two_sided[!bad])))
-  none <- mgcvST:::mgcvst_pair_spa_cpp(f$H[-2L], G[-2L], f$a[, -2L], c(1L, 1L, 2L),
+  none <- spdeST:::mgcvst_pair_spa_cpp(f$H[-2L], G[-2L], f$a[, -2L], c(1L, 1L, 2L),
                                        c(2L, 3L, 3L), 1L, 4L)
   expect_identical(none$log_p_two_sided[1:3], z$log_p_two_sided[!bad])
 })
 
 test_that("pair results are bitwise identical for 1 and 4 threads, and whatever the batching", {
   f <- .spa_pair_fixture(n = 14L, q = 10L, seed = 3L)
-  S <- mgcvST:::mgcvst_pair_basis_sum_cpp(f$H)
+  S <- spdeST:::mgcvst_pair_basis_sum_cpp(f$H)
   # The shared-basis sum is accumulated in feature order whatever the batches.
-  head <- mgcvST:::mgcvst_pair_basis_sum_cpp(f$H[1:5])
-  batched <- mgcvST:::mgcvst_pair_basis_sum_cpp(f$H[6:14], head)
+  head <- spdeST:::mgcvst_pair_basis_sum_cpp(f$H[1:5])
+  batched <- spdeST:::mgcvst_pair_basis_sum_cpp(f$H[6:14], head)
   attr(S, "used") <- attr(batched, "used") <- NULL
   expect_identical(S, batched)
   V <- eigen(S, symmetric = TRUE)$vectors[, 1:4, drop = FALSE]
-  G1 <- mgcvST:::mgcvst_pair_basis_cpp(f$H, V, 1L)
-  G4 <- mgcvST:::mgcvst_pair_basis_cpp(f$H, V, 4L)
+  G1 <- spdeST:::mgcvst_pair_basis_cpp(f$H, V, 1L)
+  G4 <- spdeST:::mgcvst_pair_basis_cpp(f$H, V, 4L)
   expect_identical(G1, G4)
-  one <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G1, f$a, f$left, f$right, 1L, 4L)
-  four <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G4, f$a, f$left, f$right, 4L, 4L)
+  one <- spdeST:::mgcvst_pair_spa_cpp(f$H, G1, f$a, f$left, f$right, 1L, 4L)
+  four <- spdeST:::mgcvst_pair_spa_cpp(f$H, G4, f$a, f$left, f$right, 4L, 4L)
   expect_identical(one, four)
   # A pair does not depend on the other pairs of its call.
   last <- length(f$left)
-  alone <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G1, f$a, f$left[last], f$right[last], 1L, 4L)
+  alone <- spdeST:::mgcvst_pair_spa_cpp(f$H, G1, f$a, f$left[last], f$right[last], 1L, 4L)
   expect_identical(alone$log_p_two_sided, one$log_p_two_sided[last])
 })
 
 test_that("pair results are symmetric in the two genes and the sign follows the score", {
   f <- .spa_pair_fixture(n = 3L, q = 8L, seed = 9L)
-  G <- mgcvST:::mgcvst_pair_basis_cpp(f$H, diag(f$q), 1L)
-  one <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G, f$a, 1L, 2L, 1L, 4L)
-  swapped <- mgcvST:::mgcvst_pair_spa_cpp(rev(f$H[1:2]), rev(G[1:2]), f$a[, 2:1], 1L, 2L, 1L, 4L)
+  G <- spdeST:::mgcvst_pair_basis_cpp(f$H, diag(f$q), 1L)
+  one <- spdeST:::mgcvst_pair_spa_cpp(f$H, G, f$a, 1L, 2L, 1L, 4L)
+  swapped <- spdeST:::mgcvst_pair_spa_cpp(rev(f$H[1:2]), rev(G[1:2]), f$a[, 2:1], 1L, 2L, 1L, 4L)
   expect_equal(swapped$log_p_two_sided, one$log_p_two_sided, tolerance = 1e-12)
   a <- f$a
   a[, 2L] <- -a[, 2L]
-  negative <- mgcvST:::mgcvst_pair_spa_cpp(f$H, G, a, 1L, 2L, 1L, 4L)
+  negative <- spdeST:::mgcvst_pair_spa_cpp(f$H, G, a, 1L, 2L, 1L, 4L)
   expect_equal(negative$score, -one$score, tolerance = 1e-12)
   expect_equal(negative$log_p_positive, one$log_p_negative, tolerance = 1e-12)
   expect_equal(negative$log_p_two_sided, one$log_p_two_sided, tolerance = 1e-12)
@@ -314,7 +314,7 @@ test_that("pair results are symmetric in the two genes and the sign follows the 
   scale <- c(1e-120, 1e120)
   H <- list(f$H[[1L]] * scale[1L], f$H[[2L]] * scale[2L])
   as <- sweep(f$a[, 1:2], 2L, sqrt(scale), "*")
-  Gs <- mgcvST:::mgcvst_pair_basis_cpp(H, diag(f$q), 1L)
-  scaled <- mgcvST:::mgcvst_pair_spa_cpp(H, Gs, as, 1L, 2L, 1L, 4L)
+  Gs <- spdeST:::mgcvst_pair_basis_cpp(H, diag(f$q), 1L)
+  scaled <- spdeST:::mgcvst_pair_spa_cpp(H, Gs, as, 1L, 2L, 1L, 4L)
   expect_equal(scaled$log_p_two_sided, one$log_p_two_sided, tolerance = 1e-9)
 })
