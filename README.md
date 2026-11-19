@@ -21,11 +21,6 @@ in 2D and 40 in 3D, a very smooth global field. The examples below use
 
 The primary analysis uses frequentist `mgcv` estimation, including `bam`
 for larger data. INLA supplies a supplementary sparse SPDE estimator.
-Paired validation holds the data, geometry and model terms fixed, then
-compares scientific outputs while retaining estimator differences and
-convergence diagnostics. See the [paired validation
-report](inst/notes/inla-bam-validation.md) and [recorded
-results](inst/validation/inla-bam/).
 
 ## Pipeline
 
@@ -138,10 +133,7 @@ labels are local to each gene block; label zero indicates an unassigned
 gene. The result retains score coordinates, covariance, correlation,
 adjacency, TOM and the clustering tree for further analysis.
 
-See `help("mgcvST.wgcna")` for the interface and [the source
-reconciliation record](inst/notes/wgcna-integration.md) for the
-relationship between the earlier local WGCNA implementation and this
-release.
+See `help("mgcvST.wgcna")` for the interface.
 
 ## INLA estimation with mandatory mean-zero spatial fields
 
@@ -177,9 +169,8 @@ explicitly with a validated INLA prior. INLA and mgcv REML use distinct
 estimation procedures. Feature estimation uses raw sparse precision
 matrices. The default score backend also uses sparse precision solves
 for a single global SPDE; shared model setup and marginal testing retain
-dense geometry. See [implementation and statistical
-details](inst/notes/inla-estimator.md) and the [runnable data
-example](inst/examples/inla_estimator.R).
+dense geometry. A runnable data example is
+`system.file("examples", "inla_estimator.R", package = "spdeST")`.
 
 The nuisance `Vp` now comes directly from INLA’s constrained conditional
 posterior covariance; the previous expected-Fisher reconstruction is
@@ -198,16 +189,10 @@ flat log-prior is applied after normalizing the constrained field to
 unit average observation variance. This changes the parameterization and
 optimizer start on the FEM multiplier. `precision_scale = "raw"` remains
 the default. Fixed precisions and returned smoothing multipliers retain
-original FEM units. See the [mechanism
-investigation](inst/notes/inla-lowcount-investigation.md) and [earlier
-simulation
-interpretation](inst/notes/inla-estimated-null-interpretation.md). The
-INLA path uses the native sparse score kernel for a single global SPDE
-with fixed nuisance terms. A model with additional random blocks is
-rejected by `inlaST.set()` with the reason from the sparse capability
-gate. The separate [raw-kernel research
-helper](inst/benchmarks/inla-raw-kernel-sparse.R) is not the production
-method.
+original FEM units. The INLA path uses the native sparse score kernel
+for a single global SPDE with fixed nuisance terms. A model with
+additional random blocks is rejected by `inlaST.set()` with the reason
+from the sparse capability gate.
 
 The complete formula above is prepared through the same mgcv geometry
 used by `mgcvST.set()`. Existing code may instead supply the legacy
@@ -223,9 +208,7 @@ additional spatial score components.
 
 Flat priors are improper hyperpriors used for empirical-Bayes
 optimization; they do not certify a proper hyperparameter posterior or
-an interior maximum. Mean-zero constraints remain mandatory. See the
-[flat-prior and large-spot
-investigation](inst/notes/inla-flat-prior.md).
+an interior maximum. Mean-zero constraints remain mandatory.
 
 The production score uses the SPDE kernel already conditioned on the
 observation-mean constraint. Centering that conditioned kernel again
@@ -417,19 +400,19 @@ scan_pair_miso <- spdeST.scan(
   Y_miso_pair, mgcvST.set(G = G_miso), BPPARAM = BiocParallel::SerialParam()
 )
 #> [null] 2 features
-#> [null] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 9.48 features/s
+#> [null] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 14.7 features/s
 fit_pair_miso <- spdeST.estimate(
   scan_pair_miso, Y_miso_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
 )
 #> [spatial] 2 features
-#> [spatial] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 7.66 features/s
+#> [spatial] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 6.27 features/s
 score_miso <- spdeST.test(
   fit_pair_miso, pairs = matrix(c("Mapt", "Map1b"), nrow = 1L),
   adjust = "none", threads = 1L,
   moments = "exact"
 )
 #> [pairs] 1 pairs
-#> [pairs] 1 / 1 pairs (100%) | 3s elapsed | ETA 0s | 0.338 pairs/s
+#> [pairs] 1 / 1 pairs (100%) | 2s elapsed | ETA 0s | 0.524 pairs/s
 data.frame(
   pair = "Mapt--Map1b",
   signed_score = score_miso$results$score,
@@ -520,19 +503,19 @@ scan_pair_visium <- spdeST.scan(
   Y_visium_pair, mgcvST.set(G = G_visium), BPPARAM = BiocParallel::SerialParam()
 )
 #> [null] 2 features
-#> [null] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 41.7 features/s
+#> [null] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 37 features/s
 fit_pair_visium <- spdeST.estimate(
   scan_pair_visium, Y_visium_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
 )
 #> [spatial] 2 features
-#> [spatial] 2 / 2 features (100%) | 4s elapsed | ETA 0s | 0.495 features/s
+#> [spatial] 2 / 2 features (100%) | 5s elapsed | ETA 0s | 0.424 features/s
 score_visium <- spdeST.test(
   fit_pair_visium, pairs = matrix(c("mt_co3", "BRAFhuman"), nrow = 1L),
   adjust = "none", threads = 1L,
   moments = "exact"
 )
 #> [pairs] 1 pairs
-#> [pairs] 1 / 1 pairs (100%) | 0s elapsed | ETA 0s | 55.6 pairs/s
+#> [pairs] 1 / 1 pairs (100%) | 0s elapsed | ETA 0s | 47.6 pairs/s
 data.frame(
   pair = "mt_co3--BRAFhuman",
   signed_score = score_visium$results$score,
@@ -621,19 +604,19 @@ scan_batch_miso <- spdeST.scan(
   BPPARAM = BiocParallel::SerialParam()
 )
 #> [null] 3 features
-#> [null] 3 / 3 features (100%) | 0s elapsed | ETA 0s | 107 features/s
+#> [null] 3 / 3 features (100%) | 0s elapsed | ETA 0s | 93.7 features/s
 fit_batch_miso <- spdeST.estimate(
   scan_batch_miso, Y_miso, features = "all",
   BPPARAM = BiocParallel::SerialParam()
 )
 #> [spatial] 3 features
-#> [spatial] 3 / 3 features (100%) | 0s elapsed | ETA 0s | 10.5 features/s
+#> [spatial] 3 / 3 features (100%) | 0s elapsed | ETA 0s | 8.8 features/s
 test_batch_miso <- spdeST.test(
   fit_batch_miso, pairs = t(combn(genes_miso, 2L)), threads = 1L,
   moments = "exact"
 )
 #> [pairs] 3 pairs
-#> [pairs] 3 / 3 pairs (100%) | 0s elapsed | ETA 0s | 375 pairs/s
+#> [pairs] 3 / 3 pairs (100%) | 0s elapsed | ETA 0s | 300 pairs/s
 cbind(
   feature1 = test_batch_miso$feature_id[test_batch_miso$results$i],
   feature2 = test_batch_miso$feature_id[test_batch_miso$results$j],
@@ -697,16 +680,4 @@ share the darkest colour.
 The fitted expression comes from the saved full-data, spatial-only INLA
 model with flat hyperparameter priors and the historical integral
 constraint. Section-level random effects remain an ongoing
-investigation. See the [marker and section-effect
-exploration](inst/notes/magic-slide-exploration.md) and [data
-construction instructions](inst/notes/magic-data.md). Reproduce this
-figure with `inst/examples/magic-readme-3d.R` after preparing the local
-MAGIC data and saved fits. A separate current-native-API simulation is
-available in `inst/examples/inla3d-visualization-native-demo.R`.
-
-The [3D feasibility study](inst/notes/inla3d-adaptive.md) records the
-geometry-adaptive mesh experiments, and the [transfer
-notes](inst/notes/inla3d-transfer.md) describe the real-data geometry.
-The [flat-prior stress study](inst/notes/inla-stress-validation.md) and
-[spectrum diagnostics](inst/notes/inla-score-spectrum.md) retain the
-experimental score results and their subsequent sensitivity analyses.
+investigation.
