@@ -1,7 +1,7 @@
 
-# mgcvST
+# spdeST
 
-`mgcvST` provides proper Matérn SPDE smooths for `mgcv`, finite-element
+`spdeST` provides proper Matérn SPDE smooths for `mgcv`, finite-element
 mesh construction, and covariance score tests for pairs of spatial
 features. The SPDE `kappa` is fixed by design and never estimated, so
 all features share one Gaussian-process kernel shape and differ only in
@@ -29,24 +29,23 @@ results](inst/validation/inla-bam/).
 
 ## Pipeline
 
-One pipeline serves the mgcv and INLA implementations. The model object from
-`mgcvST.set()` or `inlaST.set()` carries the implementation and every setting
-that can be fixed in advance; the `spdeST.*` functions take only the
-arguments of their own stage.
+One pipeline serves the mgcv and INLA implementations. The model object
+from `mgcvST.set()` or `inlaST.set()` carries the implementation and
+every setting that can be fixed in advance; the `spdeST.*` functions
+take only the arguments of their own stage.
 
-```r
+``` r
 model <- mgcvST.set(formula, data, family = mgcv::nb())  # or inlaST.set(...)
 scan  <- spdeST.scan(Y, model, offset = NULL, adjust = "BY", q.value = 0.05)
 fit   <- spdeST.estimate(scan, Y, features = "discoveries")
 res   <- spdeST.test(fit, pairs = NULL, moments = "pcalearning")
 ```
 
-`spdeST.scan()` is Stage 1 for both implementations (GLM nulls and the SPDE
-score test), `spdeST.estimate()` fits the spatial model of the chosen
-features only, and `spdeST.test()` tests their pairs. The sections below call
-the implementation functions (`mgcvST.estimate()`, `inlaST.estimate()`,
-`mgcvST.test()`, `inlaST.test()`) that these entry points dispatch to; they are
-internal from 0.0.1.9052.
+`spdeST.scan()` is Stage 1 for both implementations (GLM nulls and the
+SPDE score test), `spdeST.estimate()` fits the spatial model of the
+chosen features only, and `spdeST.test()` tests their pairs. The
+functions of the two implementations behind these entry points are
+internal.
 
 The package provides the `mgcv` smooth `bs = "spde"`, which fits the
 full projected SPDE basis.
@@ -60,10 +59,8 @@ from the larger local data and saved fits.
 
 ## Installation
 
-`mgcvST` uses CRAN, Bioconductor, and INLA dependencies. The
-high-throughput `mgcvST.estimate()` workflow includes its corrected
-marginal score calculation; the fitted-field figures below use
-`ggplot2`.
+`spdeST` uses CRAN, Bioconductor, and INLA dependencies; the
+fitted-field figures below use `ggplot2`.
 
 ``` r
 install.packages("remotes")
@@ -83,46 +80,46 @@ remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 
 ## Two-step estimation
 
-`mgcvST.estimate()` and `inlaST.estimate()` estimate in two steps. Step 1 fits
-only the null model of every feature and computes its Stage 1 null-first
-p-value (Davies, with the saddlepoint approximation when Davies fails); the
-p-values are adjusted by `adjust` (`"BY"` by default) into
-`diagnostics$marginal_q_value`. Step 2 fits the spatial model of the features
-chosen by `spatial` only. The default, `spatial = "discoveries"`, selects the
-Stage 1 discoveries at `q.value = 0.05`; `"all"`, `"none"`, a vector of feature
-IDs or indices, and a logical vector are the alternatives. A null fit keeps no
-working vector, and the INLA workers compute the score vector and the mean of
-the fitted mean themselves, so the manager holds compact per-feature results
-only. Features without a spatial model are marked `spatial_fitted = FALSE` in
-the diagnostics, and `pairs = NULL` in `mgcvST.test()` and `inlaST.test()`
-tests the pairs among the features that have one.
+`spdeST.scan()` fits only the null model of every feature and computes
+its Stage 1 null-first p-value (Davies, with the saddlepoint
+approximation when Davies fails); the p-values are adjusted by `adjust`
+(`"BY"` by default) into `diagnostics$marginal_q_value`.
+`spdeST.estimate()` then fits the spatial model of the features chosen
+by `features`: `"discoveries"` (the default; the Stage 1 discoveries at
+`q.value`), `"all"`, a vector of feature IDs or indices, or a logical
+vector. Stage 1 is not recomputed, and a second call adds features to an
+earlier estimate. A null fit keeps no working vector, and the INLA
+workers compute the score vector and the mean of the fitted mean
+themselves, so the manager holds compact per-feature results only.
+Features without a spatial model are marked `spatial_fitted = FALSE` in
+the diagnostics, and `pairs = NULL` in `spdeST.test()` tests the pairs
+among the features that have one.
 
-```r
-fit <- inlaST.estimate(Y, model)                    # Stage 1 discoveries
-fit <- inlaST.estimate(Y, model, spatial = "all")   # every feature
-fit <- inlaST.estimate_spatial(fit, Y, features = c("Mapt", "Map1b"))
-fit <- inlaST.estimate(Y, model, checkpoint_dir = "estimation-checkpoint")
+``` r
+scan <- spdeST.scan(Y, model, checkpoint_dir = "estimation-checkpoint")
+fit  <- spdeST.estimate(scan, Y)                                  # discoveries
+fit  <- spdeST.estimate(fit, Y, features = c("Mapt", "Map1b"))    # add two
+fit  <- spdeST.estimate(scan, Y, features = "all")                # every feature
 ```
 
-With `checkpoint_dir`, each worker saves its chunk when it completes, and a
-repeated call resumes from the saved chunks. `inlaST.estimate_spatial()` and
-`mgcvST.estimate_spatial()` add spatial models after step 1; `Y` must be the
-matrix of step 1, which is checked.
+With `checkpoint_dir`, each worker saves its chunk when it completes,
+and a repeated call resumes from the saved chunks. `Y` must be the
+matrix given to `spdeST.scan()`, which is checked.
 
 ## WGCNA modules from fitted score covariance
 
 `mgcvST.wgcna()` identifies modules within gene blocks selected for
-downstream analysis. It accepts a fitted `mgcvST.estimate()` or
-`inlaST.estimate()` result and preserves the current fit’s score
-definition, including its nuisance adjustment. Each block uses the
-uncentered score covariance `crossprod(A) / q`, where `q` is the number
-of selected score coordinates, followed by correlation, WGCNA adjacency,
-topological overlap and dynamic tree cutting.
+downstream analysis. It accepts a result of `spdeST.estimate()` and
+preserves the current fit’s score definition, including its nuisance
+adjustment. Each block uses the uncentered score covariance
+`crossprod(A) / q`, where `q` is the number of selected score
+coordinates, followed by correlation, WGCNA adjacency, topological
+overlap and dynamic tree cutting.
 
 ``` r
 install.packages(c("WGCNA", "dynamicTreeCut", "fastcluster"))
 
-# fit is an existing estimate; genes contains the selected feature IDs.
+# fit is a result of spdeST.estimate(); genes contains the selected feature IDs.
 W <- mgcvST.wgcna(fit, indices = genes)
 W$modules
 W$networks$selected$TOM
@@ -133,13 +130,13 @@ W <- mgcvST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2), wgcna.p
 
 The defaults are signed adjacency, power 6, signed TOM, average linkage,
 minimum module size 20 and `deepSplit = 1`. A named `wgcna.para` list
-overrides only the supplied settings. For a fit from `inlaST.estimate()`
-use `inlaST.wgcna()`, the sparse-kernel sibling with the same arguments
-and the same downstream splitting; `mgcvST.wgcna()` also accepts an INLA
-fit and dispatches to that same sparse kernel. Module labels are local
-to each gene block; label zero indicates an unassigned gene. The result
-retains score coordinates, covariance, correlation, adjacency, TOM and
-the clustering tree for further analysis.
+overrides only the supplied settings. For a fit of the INLA
+implementation use `inlaST.wgcna()`, the sparse-kernel sibling with the
+same arguments and the same downstream splitting; `mgcvST.wgcna()` also
+accepts an INLA fit and dispatches to that same sparse kernel. Module
+labels are local to each gene block; label zero indicates an unassigned
+gene. The result retains score coordinates, covariance, correlation,
+adjacency, TOM and the clustering tree for further analysis.
 
 See `help("mgcvST.wgcna")` for the interface and [the source
 reconciliation record](inst/notes/wgcna-integration.md) for the
@@ -148,14 +145,13 @@ release.
 
 ## INLA estimation with mandatory mean-zero spatial fields
 
-`inlaST.set()` and `inlaST.estimate()` provide an INLA estimator with
-the existing marginal and pairwise score-test interfaces. Every spatial
-field is constrained to average zero over the model observations for the
-global spatial score process.
+`inlaST.set()` selects the INLA implementation of the same pipeline.
+Every spatial field is constrained to average zero over the model
+observations for the global spatial score process.
 
 ``` r
-library(mgcvST)
-data(MISO_E13, package = "mgcvST")
+library(spdeST)
+data(MISO_E13, package = "spdeST")
 d <- MISO_E13$covariates
 basis <- spde_basis(MISO_E13$meshes$spde, as.matrix(d[c("x", "y")]),
                     kappa = 0.1, project_intercept = TRUE)
@@ -165,10 +161,11 @@ model <- inlaST.set(
   control = list(control.inla = list(tolerance = 1e-4))
 )
 Y <- t(as.matrix(MISO_E13$expression))
-fit <- inlaST.estimate(Y, model, spatial = "all")
+scan <- spdeST.scan(Y, model)
+fit <- spdeST.estimate(scan, Y, features = "all")
 marginal <- fit$diagnostics[c("feature_id", "marginal_p_value", "marginal_method")]
 pairs <- t(combn(rownames(Y), 2L))
-result <- inlaST.test(fit, pairs = pairs, moments = "exact")
+result <- spdeST.test(fit, pairs = pairs, moments = "exact")
 ```
 
 The backend uses fixed `kappa`, full SPDE bases and INLA empirical-Bayes
@@ -216,10 +213,9 @@ The complete formula above is prepared through the same mgcv geometry
 used by `mgcvST.set()`. Existing code may instead supply the legacy
 `basis` argument, or pass a prepared design as
 `inlaST.set(G = prepared$G)`. Estimator controls supplied to
-`inlaST.set(..., control = ...)` are stored in the model;
-`inlaST.estimate(..., control = ...)` overrides named values. Prior
-specifications are replaced as complete objects. For example, the
-historical normal prior can be requested with
+`inlaST.set(..., control = ...)` are stored in the model and used by
+every stage. Prior specifications are replaced as complete objects. For
+example, the historical normal prior can be requested with
 `precision_prior = list(prior = "normal", param = c(0, 1/9))`. The
 public model interface uses one global SPDE score process. Additional
 smooth terms may be included as nuisance structure, but they are not
@@ -239,42 +235,42 @@ need not satisfy `P %*% 1 = 0` numerically. This does not make the
 conditioned kernel equivalent to either the raw kernel or a separately
 formed `C %*% G_raw %*% C`.
 
-`mgcvST.test()` and `inlaST.test()` test each gene pair by the signed
-cross-gene score `U = sum(s_i x_i y_i)`, where `s_i` are the singular
-values of the product of the square roots of the two score-covariance
-matrices. The tail of `U` is a Lugannani-Rice saddlepoint approximation
-computed in log space on the `k` leading singular values of a basis
-shared by all genes, plus a remainder that matches the remaining power
-sums of the spectrum, so that p-values below the double range keep their
-ordering. Two routes provide the shared basis and the remainder, and the
-argument `moments` selects one of them: `"exact"` or `"pcalearning"`. It
-has no default, and both routes serve both estimators (an INLA fit takes
-the exact route through its reduced observation-kernel states, and an
-mgcv fit takes the PCAlearning route through the dense score kernel);
+`spdeST.test()` tests each gene pair by the signed cross-gene score
+`U = sum(s_i x_i y_i)`, where `s_i` are the singular values of the
+product of the square roots of the two score-covariance matrices. The
+tail of `U` is a Lugannani-Rice saddlepoint approximation computed in
+log space on the `k` leading singular values of a basis shared by all
+genes, plus a remainder that matches the remaining power sums of the
+spectrum, so that p-values below the double range keep their ordering.
+Two routes provide the shared basis and the remainder, and the argument
+`moments` selects one of them: `"exact"` or `"pcalearning"`. It has no
+default, and both routes serve both estimators (an INLA fit takes the
+exact route through its reduced observation-kernel states, and an mgcv
+fit takes the PCAlearning route through the dense score kernel);
 `verbose = TRUE` prints the route and `k`.
 
-- `moments = "exact"` uses the `k = 20` leading eigenvectors of the
-  summed, normalized score covariances, the four exact trace moments of
-  every pair, and two moment-matched nodes as the remainder. In the
-  1,025-gene Visium-B universe (`q = 298`), the 25,853 pairs of the
-  shared-basis study stay within 0.0015 of the full-spectrum saddlepoint
-  in `-log10(p)` down to `p = 1e-30`, and `k = q` reproduces it. Its
-  cost is cubic in `q` for every pair (about 5 ms per pair and thread at
-  `q = 298`).
-- `moments = "pcalearning"` projects every score covariance `H_j` onto
-  an orthonormal basis of `rank = 100` symmetric matrices learned from
-  training genes drawn by stratified sampling on the fitted spatial and
-  observation variance scales. Each tested gene is summarized by its
-  basis coefficients `c_j`, the two pair traces `tr(H_i H_j)` and
-  `tr((H_i H_j)^2)` come from contractions with trace tables computed
-  once, the shared basis holds the `k = 80` leading eigenvectors of the
-  training genes, and the remainder is one node. On 1,225 held-out pairs
-  of the full-rank MAGIC fit (`q = 1961`), the route stays within 0.018
-  of the full-spectrum saddlepoint at `p = 1e-12` and within 0.035 at
-  `p = 1e-20`. Per-gene residuals `e_j^2 / ||H_j||_F^2` are returned in
-  `result$pca_learning$genes`. The Gram matrix of the training genes is
-  summed in a fixed block order, so one and several threads give
-  identical results.
+-   `moments = "exact"` uses the `k = 20` leading eigenvectors of the
+    summed, normalized score covariances, the four exact trace moments
+    of every pair, and two moment-matched nodes as the remainder. In the
+    1,025-gene Visium-B universe (`q = 298`), the 25,853 pairs of the
+    shared-basis study stay within 0.0015 of the full-spectrum
+    saddlepoint in `-log10(p)` down to `p = 1e-30`, and `k = q`
+    reproduces it. Its cost is cubic in `q` for every pair (about 5 ms
+    per pair and thread at `q = 298`).
+-   `moments = "pcalearning"` projects every score covariance `H_j` onto
+    an orthonormal basis of `rank = 100` symmetric matrices learned from
+    training genes drawn by stratified sampling on the fitted spatial
+    and observation variance scales. Each tested gene is summarized by
+    its basis coefficients `c_j`, the two pair traces `tr(H_i H_j)` and
+    `tr((H_i H_j)^2)` come from contractions with trace tables computed
+    once, the shared basis holds the `k = 80` leading eigenvectors of
+    the training genes, and the remainder is one node. On 1,225 held-out
+    pairs of the full-rank MAGIC fit (`q = 1961`), the route stays
+    within 0.018 of the full-spectrum saddlepoint at `p = 1e-12` and
+    within 0.035 at `p = 1e-20`. Per-gene residuals
+    `e_j^2 / ||H_j||_F^2` are returned in `result$pca_learning$genes`.
+    The Gram matrix of the training genes is summed in a fixed block
+    order, so one and several threads give identical results.
 
 Both tests share one argument list and one compact result. With
 `pairs = NULL`, every pair of the available genes is tested in blocks
@@ -306,10 +302,10 @@ knitr::opts_chunk$set(
 
 library(mgcv)
 library(ggplot2)
-library(mgcvST)
+library(spdeST)
 
-data(MISO_E13, package = "mgcvST")
-data(Visium_B, package = "mgcvST")
+data(MISO_E13, package = "spdeST")
+data(Visium_B, package = "spdeST")
 
 D_miso <- MISO_E13$covariates
 D_visium <- Visium_B$covariates
@@ -370,7 +366,6 @@ grid::popViewport()
 
 <img src="README_files/figure-gfm/observed-spots-1.png" alt="Spatial spot maps for the MISO E13 and Visium B examples, with horizontal legends below."  />
 <p class="caption">
-
 All observed spots in the two bundled slices. Each horizontal scale
 shows linear raw counts for its named gene, with white at zero.
 </p>
@@ -382,8 +377,7 @@ shows linear raw counts for its named gene, with white at zero.
 The following chunk fits `Mapt` and `Map1b` on the MISO mesh. It fixes
 the unit-scale `kappa = 0.1`, estimates only the smoothing parameter by
 REML, and uses the full projected SPDE basis. For the pairwise test, the
-raw `gam(..., fit = FALSE)` setup is passed directly to
-`mgcvST.estimate()`, which prepares it with `mgcvST.set()`.
+raw `gam(..., fit = FALSE)` setup is prepared by `mgcvST.set(G = ...)`.
 
 ``` r
 D_miso_mapt <- D_miso
@@ -419,14 +413,23 @@ G_miso <- gam(
   control = gam.control(nthreads = 1L, ncv.threads = 1L)
 )
 Y_miso_pair <- t(as.matrix(MISO_E13$expression[, c("Mapt", "Map1b")]))
-fit_pair_miso <- mgcvST.estimate(
-  Y_miso_pair, G_miso, BPPARAM = BiocParallel::SerialParam(), spatial = "all"
+scan_pair_miso <- spdeST.scan(
+  Y_miso_pair, mgcvST.set(G = G_miso), BPPARAM = BiocParallel::SerialParam()
 )
-score_miso <- mgcvST.test(
+#> [null] 2 features
+#> [null] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 9.48 features/s
+fit_pair_miso <- spdeST.estimate(
+  scan_pair_miso, Y_miso_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
+)
+#> [spatial] 2 features
+#> [spatial] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 7.66 features/s
+score_miso <- spdeST.test(
   fit_pair_miso, pairs = matrix(c("Mapt", "Map1b"), nrow = 1L),
   adjust = "none", threads = 1L,
   moments = "exact"
 )
+#> [pairs] 1 pairs
+#> [pairs] 1 / 1 pairs (100%) | 3s elapsed | ETA 0s | 0.338 pairs/s
 data.frame(
   pair = "Mapt--Map1b",
   signed_score = score_miso$results$score,
@@ -436,7 +439,7 @@ data.frame(
   calibration = score_miso$calibration
 )
 #>          pair signed_score quadratic_statistic log_p_two_sided      p_value
-#> 1 Mapt--Map1b     28.18242            794.2486       -12.81543 2.718505e-06
+#> 1 Mapt--Map1b     28.18242            794.2486       -12.81543 2.718499e-06
 #>   calibration
 #> 1 saddlepoint
 ```
@@ -468,7 +471,6 @@ print(p_miso)
 
 <img src="README_files/figure-gfm/miso-random-field-1.png" alt="Fitted spatial random field for Mapt in MISO E13, with a horizontal legend below."  />
 <p class="caption">
-
 MISO E13 Mapt fitted SPDE random field, evaluated inside the supplied
 mesh.
 </p>
@@ -514,14 +516,23 @@ G_visium <- gam(
   control = gam.control(nthreads = 1L, ncv.threads = 1L)
 )
 Y_visium_pair <- t(as.matrix(Visium_B$expression[, c("mt_co3", "BRAFhuman")]))
-fit_pair_visium <- mgcvST.estimate(
-  Y_visium_pair, G_visium, BPPARAM = BiocParallel::SerialParam(), spatial = "all"
+scan_pair_visium <- spdeST.scan(
+  Y_visium_pair, mgcvST.set(G = G_visium), BPPARAM = BiocParallel::SerialParam()
 )
-score_visium <- mgcvST.test(
+#> [null] 2 features
+#> [null] 2 / 2 features (100%) | 0s elapsed | ETA 0s | 41.7 features/s
+fit_pair_visium <- spdeST.estimate(
+  scan_pair_visium, Y_visium_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
+)
+#> [spatial] 2 features
+#> [spatial] 2 / 2 features (100%) | 4s elapsed | ETA 0s | 0.495 features/s
+score_visium <- spdeST.test(
   fit_pair_visium, pairs = matrix(c("mt_co3", "BRAFhuman"), nrow = 1L),
   adjust = "none", threads = 1L,
   moments = "exact"
 )
+#> [pairs] 1 pairs
+#> [pairs] 1 / 1 pairs (100%) | 0s elapsed | ETA 0s | 55.6 pairs/s
 data.frame(
   pair = "mt_co3--BRAFhuman",
   signed_score = score_visium$results$score,
@@ -531,9 +542,9 @@ data.frame(
   calibration = score_visium$calibration
 )
 #>                pair signed_score quadratic_statistic log_p_two_sided
-#> 1 mt_co3--BRAFhuman    -62.19882            3868.693       -26.27784
+#> 1 mt_co3--BRAFhuman    -62.19882            3868.693       -26.27758
 #>        p_value calibration
-#> 1 3.869733e-12 saddlepoint
+#> 1 3.870738e-12 saddlepoint
 ```
 
 ``` r
@@ -575,8 +586,7 @@ print(p_visium)
 
 <img src="README_files/figure-gfm/visium-random-field-1.png" alt="Fitted spatial random field for mt_co3 in Visium B, with two excluded interior holes in grey and a horizontal legend below."  />
 <p class="caption">
-
-Visium B mt_co3 fitted SPDE random field. Grey polygons are the two
+Visium B mt\_co3 fitted SPDE random field. Grey polygons are the two
 interior holes excluded by the manual SPDE boundary.
 </p>
 
@@ -584,7 +594,7 @@ interior holes excluded by the manual SPDE boundary.
 
 ## High-throughput baseline-SPDE workflow
 
-`mgcvST.estimate()` and `mgcvST.test()` retain only the compact
+`spdeST.estimate()` and `spdeST.test()` retain only the compact
 summaries needed for the tested pair universe. Their high-throughput
 implementation uses the positive-definite `spde` precision. The
 following executable chunk fits all three MISO E13 genes and tests all
@@ -606,23 +616,33 @@ G_miso <- gam(
 )
 Y_miso <- t(as.matrix(MISO_E13$expression[, genes_miso, drop = FALSE]))
 
-fit_batch_miso <- mgcvST.estimate(
-  Y_miso, G_miso, feature_id = genes_miso,
-  BPPARAM = BiocParallel::SerialParam(), spatial = "all"
+scan_batch_miso <- spdeST.scan(
+  Y_miso, mgcvST.set(G = G_miso), feature_id = genes_miso,
+  BPPARAM = BiocParallel::SerialParam()
 )
-test_batch_miso <- mgcvST.test(
+#> [null] 3 features
+#> [null] 3 / 3 features (100%) | 0s elapsed | ETA 0s | 107 features/s
+fit_batch_miso <- spdeST.estimate(
+  scan_batch_miso, Y_miso, features = "all",
+  BPPARAM = BiocParallel::SerialParam()
+)
+#> [spatial] 3 features
+#> [spatial] 3 / 3 features (100%) | 0s elapsed | ETA 0s | 10.5 features/s
+test_batch_miso <- spdeST.test(
   fit_batch_miso, pairs = t(combn(genes_miso, 2L)), threads = 1L,
   moments = "exact"
 )
+#> [pairs] 3 pairs
+#> [pairs] 3 / 3 pairs (100%) | 0s elapsed | ETA 0s | 375 pairs/s
 cbind(
   feature1 = test_batch_miso$feature_id[test_batch_miso$results$i],
   feature2 = test_batch_miso$feature_id[test_batch_miso$results$j],
   test_batch_miso$results[, c("score", "log_p_two_sided", "log_q")]
 )
 #>   feature1  feature2     score log_p_two_sided      log_q
-#> 1     Mapt     Map1b  28.18242      -12.815394 -11.110646
-#> 2     Mapt Hist1h2ao -10.56698       -3.801462  -3.195326
-#> 3    Map1b Hist1h2ao -18.58114       -8.019222  -7.007621
+#> 1     Mapt     Map1b  28.18242      -12.815431 -11.110683
+#> 2     Mapt Hist1h2ao -10.56698       -3.801463  -3.195327
+#> 3    Map1b Hist1h2ao -18.58114       -8.019250  -7.007649
 ```
 
 For the packaged three-core versions, set an output directory and source
@@ -630,13 +650,13 @@ the two scripts below. Each script writes fit diagnostics, pair results,
 and compact R objects to `MGCVST_EXAMPLE_OUTPUT`.
 
 ``` r
-dir.create("mgcvST-results", showWarnings = FALSE)
+dir.create("spdeST-results", showWarnings = FALSE)
 Sys.setenv(
-  MGCVST_EXAMPLE_OUTPUT = normalizePath("mgcvST-results")
+  MGCVST_EXAMPLE_OUTPUT = normalizePath("spdeST-results")
 )
 
-source(system.file("examples", "MISO_E13.R", package = "mgcvST"))
-source(system.file("examples", "Visium_B.R", package = "mgcvST"))
+source(system.file("examples", "MISO_E13.R", package = "spdeST"))
+source(system.file("examples", "Visium_B.R", package = "spdeST"))
 ```
 
 ## Construct a mesh from a boundary
@@ -661,13 +681,9 @@ mesh has 1,962 nodes and 7,676 tetrahedra. Tfap2b is one of the regional
 markers displayed in Figure 5d of the [source
 paper](https://doi.org/10.1038/s41588-024-01906-4).
 
-<figure>
-<img src="man/figures/magic-3d-overview.png"
-alt="MAGIC section stack, tetrahedral mesh and three-dimensional fitted Tfap2b expression, shown as static projections with horizontal legends below." />
-<figcaption aria-hidden="true">MAGIC section stack, tetrahedral mesh and
-three-dimensional fitted Tfap2b expression, shown as static projections
-with horizontal legends below.</figcaption>
-</figure>
+![MAGIC section stack, tetrahedral mesh and three-dimensional fitted
+Tfap2b expression, shown as static projections with horizontal legends
+below.](man/figures/magic-3d-overview.png)
 
 The panels show the observed section stack, the supplied mesh with its
 nodes and triangular boundary faces, and fitted Tfap2b expression at the
