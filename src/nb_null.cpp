@@ -101,46 +101,57 @@ double deviance(const Vec& y, const Vec& mu, double alpha) {
 // factor level with zero counts) then stops where its fitted means are
 // negligible instead of failing. Returns the number of iterations, or -1 on
 // failure.
+// Weighted least squares min ||sw .* (X b - z)|| by column-pivoted QR, as
+// glm.fit() solves it: a column whose pivot falls below rank_tol (relative)
+// is aliased and its entry is 0, so a direction the data do not inform (a
+// factor level whose fitted means have vanished) does not move.
+Vec wls(const Mat& X, const Vec& sw, const Vec& z, double rank_tol) {
+  Eigen::ColPivHouseholderQR<Mat> qr(sw.asDiagonal() * X);
+  qr.setThreshold(rank_tol);
+  return qr.solve((sw.array() * z.array()).matrix());
+}
+
 int irls(const Mat& X, const Vec& offset, const Vec& y, double alpha,
          Vec& beta, Vec& eta, Vec& mu, double tol, int maxit,
-         int maxit_halving, double eta_max) {
+         int maxit_halving, double eta_max, double rank_tol) {
   const int n = X.rows();
-  Vec w(n), r(n);
+  Vec sw(n), z(n);
   eta.noalias() = X * beta;
   eta += offset;
   mu = eta.array().exp();
   double dev_old = deviance(y, mu, alpha);
   for (int it = 1; it <= maxit; ++it) {
-    // Fisher weights mu / (1 + alpha mu) and score X'(y - mu) / (1 + alpha mu).
+    // Fisher scoring: weights w = mu / (1 + alpha mu), working residual
+    // (y - mu) / mu, so X'WX step = X'(y - mu) / (1 + alpha mu).
     for (int i = 0; i < n; ++i) {
-      const double f = 1.0 / (1.0 + alpha * mu[i]);
-      w[i] = mu[i] * f;
-      r[i] = (y[i] - mu[i]) * f;
+      sw[i] = std::sqrt(mu[i] / (1.0 + alpha * mu[i]));
+      z[i] = (y[i] - mu[i]) / mu[i];
     }
-    const Mat J = X.transpose() * w.asDiagonal() * X;
-    const Vec g = X.transpose() * r;
-    Eigen::LDLT<Mat> ldlt(J);
-    if (ldlt.info() != Eigen::Success || !ldlt.isPositive()) return -1;
-    const Vec step = ldlt.solve(g);
+    const Vec step = wls(X, sw, z, rank_tol);
     if (!step.allFinite()) return -1;
-    // Halve a step that would overflow the mean.
-    double scale = 1.0;
+    // Halve a step that would overflow the mean or raise the deviance (as
+    // mgcv's gam.fit3 does); a rise below the stopping tolerance is accepted.
+    const double dev_cap = dev_old + tol * (std::abs(dev_old) + 0.1);
+    double scale = 1.0, dev = NA_REAL;
     bool moved = false;
     for (int h = 0; h < maxit_halving; ++h) {
       const Vec trial = beta + scale * step;
-      if (((X * trial + offset).array() < eta_max).all()) {
-        beta = trial;
-        moved = true;
-        break;
+      const Vec eta_t = X * trial + offset;
+      if ((eta_t.array() < eta_max).all()) {
+        const Vec mu_t = eta_t.array().exp();
+        const double dev_t = deviance(y, mu_t, alpha);
+        if (std::isfinite(dev_t) && dev_t <= dev_cap) {
+          beta = trial;
+          eta = eta_t;
+          mu = mu_t;
+          dev = dev_t;
+          moved = true;
+          break;
+        }
       }
       scale *= 0.5;
     }
     if (!moved) return -1;
-    eta.noalias() = X * beta;
-    eta += offset;
-    mu = eta.array().exp();
-    const double dev = deviance(y, mu, alpha);
-    if (!std::isfinite(dev)) return -1;
     if (std::abs(dev - dev_old) / (std::abs(dev) + 0.1) < tol) return it;
     dev_old = dev;
   }
@@ -215,6 +226,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
     double step_fallback = 2,
     int maxit_halving = 30,
     double eta_max = 700,
+    double rank_tol = 1e-11,
     int threads = 1) {
   const int n = Yt.rows();
   const int features = Yt.cols();
@@ -240,7 +252,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
     NullFit& out = fit[f];
     try {
       Vec y = Vec::Zero(n);
-      double ysum = 0, lfact = 0, ymax = 0;
+      double lfact = 0, ymax = 0;
       for (MSpMat::InnerIterator it(Yt, f); it; ++it) {
         const double v = it.value();
         if (v == 0) continue;
@@ -248,11 +260,12 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
           throw std::runtime_error("The counts must be non-negative integers.");
         }
         y[it.row()] = v;
-        ysum += v;
         lfact += R::lgammafn(v + 1.0);
         ymax = std::max(ymax, v);
       }
       if (ymax > 1e8) throw std::runtime_error("A count is too large.");
+      // No count: the Poisson MLE is at mu = 0, with no score to test.
+      if (ymax == 0) throw std::runtime_error("All counts are zero.");
       // Tail counts c_j = #{i : y_i > j}, j = 0, ..., max y - 1.
       std::vector<double> c(static_cast<size_t>(ymax), 0.0);
       for (int i = 0; i < n; ++i) {
@@ -262,12 +275,17 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
       for (int j = static_cast<int>(c.size()) - 2; j >= 0; --j) c[j] += c[j + 1];
 
       const Vec off = offset.cols() == 1 ? Vec(offset.col(0)) : Vec(offset.col(f));
-      // Start: the constant that matches the total count, projected on X.
-      const double base = std::log((ysum + 0.5) / off.array().exp().sum());
-      Vec beta = (Xd.transpose() * Xd).ldlt().solve(
-        Xd.transpose() * Vec::Constant(n, base));
+      // Start as glm.fit() does for the Poisson family: mu = y + 0.1, then
+      // one weighted least-squares step on the working response.
+      Vec beta;
+      {
+        const Vec m0 = (y.array() + 0.1).matrix();
+        const Vec z = (m0.array().log() - off.array() + (y - m0).array() / m0.array()).matrix();
+        beta = wls(Xd, m0.array().sqrt().matrix(), z, rank_tol);
+        if (!beta.allFinite()) throw std::runtime_error("The start of the Poisson fit failed.");
+      }
       Vec eta(n), mu(n);
-      int it = irls(Xd, off, y, 0.0, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
+      int it = irls(Xd, off, y, 0.0, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max, rank_tol);
       if (it < 0) throw std::runtime_error("The Poisson fit did not converge.");
       out.inner += it;
       // Boundary score and the Pearson dispersion of the Poisson fit.
@@ -288,7 +306,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
       } else if (alpha_fixed >= 0) {
         alpha = alpha_fixed;
         if (alpha > 0) {
-          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
+          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max, rank_tol);
           if (it < 0) throw std::runtime_error("The fixed-size IRLS did not converge.");
           out.inner += it;
         }
@@ -299,7 +317,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
         double ll_old = NA_REAL;
         for (int outer = 1; outer <= maxit_outer; ++outer) {
           out.outer = outer;
-          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
+          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max, rank_tol);
           if (it < 0) throw std::runtime_error("The fixed-size IRLS did not converge.");
           out.inner += it;
           // Stop on the relative change of the profile log-likelihood, the
@@ -321,7 +339,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
           if (alpha == alpha_max && g > 0) { converged = true; break; }
           alpha = next;
         }
-        if (!converged) it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
+        if (!converged) it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max, rank_tol);
         if (it < 0) throw std::runtime_error("The final IRLS did not converge.");
         out.inner += it;
       }

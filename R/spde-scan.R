@@ -45,7 +45,11 @@
 #'   `step_bound` of the current overdispersion; where the curvature is not
 #'   negative the step is a `step_fallback`-fold increase or decrease.
 #' @param maxit_halving,eta_max An IRLS step is halved at most `maxit_halving`
-#'   times to keep the linear predictor below `eta_max`.
+#'   times to keep the linear predictor below `eta_max` and the deviance from
+#'   rising.
+#' @param rank_tol Relative pivot below which the column-pivoted QR of an
+#'   IRLS step treats a column as aliased and leaves its coefficient where it
+#'   is; the default is that of [stats::glm.fit()] (`min(1e-7, epsilon / 1000)`).
 #' @param spectrum_tol Eigenvalues below `spectrum_tol` times the largest are
 #'   dropped from the mixture.
 #' @param spa_centre_tol,spa_root_tol,spa_root_maxit Saddlepoint controls:
@@ -63,7 +67,7 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
                       tol = 1e-8,
                       maxit_outer = 10L, maxit_inner = 25L,
                       alpha_min = 1e-12, step_bound = 10, step_fallback = 2,
-                      maxit_halving = 30L, eta_max = 700,
+                      maxit_halving = 30L, eta_max = 700, rank_tol = 1e-11,
                       spectrum_tol = 1e-12, spa_centre_tol = 1e-6,
                       spa_root_tol = 1e-12, spa_root_maxit = 100L) {
   X <- as.matrix(X)
@@ -106,6 +110,7 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
       maxit_outer = as.integer(maxit_outer), maxit_inner = as.integer(maxit_inner),
       alpha_min = alpha_min, step_bound = step_bound, step_fallback = step_fallback,
       maxit_halving = as.integer(maxit_halving), eta_max = eta_max,
+      rank_tol = rank_tol,
       threads = as.integer(threads)
     )
     ok <- is.na(fit$error) & fit$converged

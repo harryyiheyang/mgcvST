@@ -237,3 +237,30 @@ test_that("a factor level with zero counts (separation) equals dropping its spot
                     A[keep, ], Q)
   expect_equal(full$p_value, drop$p_value, tolerance = 1e-8)
 })
+
+test_that("a sparse feature with two empty factor levels and an all-zero feature", {
+  skip_if_not_installed("MASS")
+  # Counts only in one level: the Fisher information of the other levels
+  # vanishes. The pivoted QR leaves those directions still and the fit
+  # matches glm(); an all-zero feature is reported, not iterated.
+  set.seed(7)
+  n <- 3000L
+  ct <- factor(sample(c("muscle", "tumor", "other"), n, TRUE, prob = c(.6, .39, .01)))
+  X <- stats::model.matrix(~ ct)
+  off <- log(stats::rgamma(n, 2, 2))
+  y <- numeric(n)
+  y[which(ct == "tumor")[c(7, 14)]] <- c(2, 1)
+  Yt <- methods::as(methods::as(methods::as(
+    Matrix::Matrix(cbind(y, 0), sparse = TRUE), "CsparseMatrix"),
+    "generalMatrix"), "dMatrix")
+  f <- spdeST:::mgcvst_nb_null_batch_cpp(Yt, X, matrix(off), c(FALSE, FALSE))
+  expect_true(f$converged[1])
+  # 0.0.1.9059 failed here: X'WX was numerically singular.
+  ref <- suppressWarnings(stats::glm(
+    y ~ ct + offset(off), family = MASS::negative.binomial(f$size[1]),
+    control = stats::glm.control(epsilon = 1e-12, maxit = 200)))
+  expect_equal(f$loglik[1],
+               sum(stats::dnbinom(y, size = f$size[1], mu = stats::fitted(ref), log = TRUE)),
+               tolerance = 1e-7)
+  expect_identical(f$error[2], "All counts are zero.")
+})

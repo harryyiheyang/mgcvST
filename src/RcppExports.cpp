@@ -172,8 +172,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_nb_null_batch_cpp
-Rcpp::List mgcvst_nb_null_batch_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, double alpha_max, double alpha_fixed, double tol, int maxit_outer, int maxit_inner, double alpha_min, double step_bound, double step_fallback, int maxit_halving, double eta_max, int threads);
-RcppExport SEXP _spdeST_mgcvst_nb_null_batch_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_maxSEXP, SEXP alpha_fixedSEXP, SEXP tolSEXP, SEXP maxit_outerSEXP, SEXP maxit_innerSEXP, SEXP alpha_minSEXP, SEXP step_boundSEXP, SEXP step_fallbackSEXP, SEXP maxit_halvingSEXP, SEXP eta_maxSEXP, SEXP threadsSEXP) {
+Rcpp::List mgcvst_nb_null_batch_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, double alpha_max, double alpha_fixed, double tol, int maxit_outer, int maxit_inner, double alpha_min, double step_bound, double step_fallback, int maxit_halving, double eta_max, double rank_tol, int threads);
+RcppExport SEXP _spdeST_mgcvst_nb_null_batch_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_maxSEXP, SEXP alpha_fixedSEXP, SEXP tolSEXP, SEXP maxit_outerSEXP, SEXP maxit_innerSEXP, SEXP alpha_minSEXP, SEXP step_boundSEXP, SEXP step_fallbackSEXP, SEXP maxit_halvingSEXP, SEXP eta_maxSEXP, SEXP rank_tolSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -191,8 +191,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type step_fallback(step_fallbackSEXP);
     Rcpp::traits::input_parameter< int >::type maxit_halving(maxit_halvingSEXP);
     Rcpp::traits::input_parameter< double >::type eta_max(eta_maxSEXP);
+    Rcpp::traits::input_parameter< double >::type rank_tol(rank_tolSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_nb_null_batch_cpp(Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, alpha_min, step_bound, step_fallback, maxit_halving, eta_max, threads));
+    rcpp_result_gen = Rcpp::wrap(mgcvst_nb_null_batch_cpp(Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, alpha_min, step_bound, step_fallback, maxit_halving, eta_max, rank_tol, threads));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -467,7 +468,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp, 7},
     {"_spdeST_mgcvst_inla_sparse_materialize_pca_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_materialize_pca_cpp, 10},
     {"_spdeST_mgcvst_memory_status_cpp", (DL_FUNC) &_spdeST_mgcvst_memory_status_cpp, 0},
-    {"_spdeST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_nb_null_batch_cpp, 15},
+    {"_spdeST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_nb_null_batch_cpp, 16},
     {"_spdeST_mgcvst_pca_gram_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_gram_cpp, 4},
     {"_spdeST_mgcvst_pca_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_basis_cpp, 5},
     {"_spdeST_mgcvst_pca_tables_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_tables_cpp, 5},

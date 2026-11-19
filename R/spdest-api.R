@@ -28,7 +28,7 @@
   if (!is.list(scan_control)) stop("scan_control must be a named list.")
   if (!length(scan_control)) return(list())
   allowed <- c("tol", "maxit_outer", "maxit_inner", "alpha_max", "alpha_min",
-               "step_bound", "step_fallback", "maxit_halving", "eta_max",
+               "step_bound", "step_fallback", "maxit_halving", "eta_max", "rank_tol",
                "spectrum_tol", "spa_centre_tol", "spa_root_tol",
                "spa_root_maxit", "block_size")
   bad <- setdiff(names(scan_control), allowed)

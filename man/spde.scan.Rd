@@ -25,6 +25,7 @@ spde.scan(
   step_fallback = 2,
   maxit_halving = 30L,
   eta_max = 700,
+  rank_tol = 1e-11,
   spectrum_tol = 1e-12,
   spa_centre_tol = 1e-06,
   spa_root_tol = 1e-12,
@@ -73,7 +74,12 @@ converge gets no p-value.}
 negative the step is a \code{step_fallback}-fold increase or decrease.}
 
 \item{maxit_halving, eta_max}{An IRLS step is halved at most \code{maxit_halving}
-times to keep the linear predictor below \code{eta_max}.}
+times to keep the linear predictor below \code{eta_max} and the deviance from
+rising.}
+
+\item{rank_tol}{Relative pivot below which the column-pivoted QR of an
+IRLS step treats a column as aliased and leaves its coefficient where it
+is; the default is that of \code{\link[stats:glm]{stats::glm.fit()}} (\code{min(1e-7, epsilon / 1000)}).}
 
 \item{spectrum_tol}{Eigenvalues below \code{spectrum_tol} times the largest are
 dropped from the mixture.}

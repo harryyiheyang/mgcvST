@@ -1,3 +1,20 @@
+# spdeST 0.0.1.9060
+
+* The `spde.scan()` IRLS starts as `glm.fit()` does for the Poisson family
+  (`mu = y + 0.1`, one weighted least-squares step) instead of the constant
+  that matches the total count, which sent a rare factor level's coefficient
+  to about +35 on real data and needed more than 25 iterations to come back.
+* An IRLS step is halved while it raises the deviance (as in `mgcv`'s
+  `gam.fit3`), not only while it overflows the mean.
+* An IRLS step is the column-pivoted QR solve of `glm.fit()`
+  (`rank_tol = 1e-11`): a column whose information has vanished (counts in
+  one factor level only) is aliased and stays still, where the Cholesky
+  factor of X'WX failed as numerically singular.
+* A feature whose counts are all zero gets the error "All counts are zero."
+  On 3000 simulated features with a 1% factor level, 0.0.1.9059 failed 165
+  nulls and 0.0.1.9060 none (8 all-zero features aside); the log-likelihoods
+  of the others agree within 1.5e-6.
+
 # spdeST 0.0.1.9059
 
 * The `spde.scan()` size search stops on the relative change of the profile
