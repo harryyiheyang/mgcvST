@@ -41,7 +41,7 @@ mgcvst_memory_status_cpp <- function() {
     .Call(`_spdeST_mgcvst_memory_status_cpp`)
 }
 
-mgcvst_nb_null_batch_cpp <- function(Yt, X, offset, poisson, alpha_max = 1e4, alpha_fixed = -1, tol = 1e-8, maxit_outer = 10L, maxit_inner = 25L, alpha_min = 1e-12, step_bound = 10, step_fallback = 2, maxit_halving = 30L, eta_max = 700, rank_tol = 1e-11, threads = 1L) {
+mgcvst_nb_null_batch_cpp <- function(Yt, X, offset, poisson, alpha_max = 1e4, alpha_fixed = -1, tol = 1e-8, maxit_outer = 25L, maxit_inner = 25L, alpha_min = 1e-12, step_bound = 10, step_fallback = 2, maxit_halving = 30L, eta_max = 700, rank_tol = 1e-11, threads = 1L) {
     .Call(`_spdeST_mgcvst_nb_null_batch_cpp`, Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, alpha_min, step_bound, step_fallback, maxit_halving, eta_max, rank_tol, threads)
 }
 

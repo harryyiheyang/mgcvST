@@ -18,7 +18,7 @@ spde.scan(
   block_size = 32L,
   alpha_max = 10000,
   tol = 1e-08,
-  maxit_outer = 10L,
+  maxit_outer = 25L,
   maxit_inner = 25L,
   alpha_min = 1e-12,
   step_bound = 10,
@@ -63,9 +63,11 @@ p-values.}
 \code{\link[stats:glm]{stats::glm.fit()}} (whose default it is).}
 
 \item{maxit_outer, maxit_inner}{Iteration limits of the size search and of
-the IRLS (\code{maxit_inner = 25} is the \code{\link[stats:glm.control]{stats::glm.control()}} default; a
-factor level with zero counts needs about 20). A null that does not
-converge gets no p-value.}
+the IRLS, both 25 as in \code{\link[stats:glm.control]{stats::glm.control()}} and \code{MASS::glm.nb()} (a
+factor level with zero counts needs about 20 IRLS iterations; a very
+sparse feature with a large overdispersion needs about 12 size-search
+iterations, since the size and coefficient updates alternate and
+converge linearly). A null that does not converge gets no p-value.}
 
 \item{alpha_min}{Floor of the moment start of the overdispersion.}
 

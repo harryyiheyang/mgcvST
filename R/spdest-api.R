@@ -73,7 +73,7 @@
 #'   mgcv implementation runs one thread per worker.
 #' @param checkpoint_dir,resume Chunk checkpoints and their reuse.
 #' @param scan_control Named list of [spde.scan()] controls, for example
-#'   `list(tol = 1e-8, maxit_outer = 10)`.
+#'   `list(tol = 1e-8, maxit_outer = 25)`.
 #' @return An `spdeST_scan` object: the Stage 1 fit with
 #'   `diagnostics$marginal_p_value`, `diagnostics$marginal_q_value`,
 #'   `diagnostics$family_used` and `stage1`, carrying the model for

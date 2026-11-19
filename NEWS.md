@@ -1,3 +1,10 @@
+# spdeST 0.0.1.9061
+
+* `maxit_outer` is 25, the `glm.control()` and `MASS::glm.nb()` default. On
+  Visium-B (none), 3 of 12,965 features with 10 to 20 counts of 0 and 1 and
+  a large overdispersion reached the former limit of 10 within 1.6e-7 of the
+  optimum log-likelihood and stopped by the likelihood criterion at 11-12.
+
 # spdeST 0.0.1.9060
 
 * The `spde.scan()` IRLS starts as `glm.fit()` does for the Poisson family

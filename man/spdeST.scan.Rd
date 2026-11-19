@@ -44,7 +44,7 @@ mgcv implementation runs one thread per worker.}
 \item{checkpoint_dir, resume}{Chunk checkpoints and their reuse.}
 
 \item{scan_control}{Named list of \code{\link[=spde.scan]{spde.scan()}} controls, for example
-\code{list(tol = 1e-8, maxit_outer = 10)}.}
+\code{list(tol = 1e-8, maxit_outer = 25)}.}
 }
 \value{
 An \code{spdeST_scan} object: the Stage 1 fit with

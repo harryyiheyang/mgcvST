@@ -37,9 +37,11 @@
 #'   (profile log-likelihood) stop, `|l - l_old| / (|l| + 0.1) < tol`, as in
 #'   [stats::glm.fit()] (whose default it is).
 #' @param maxit_outer,maxit_inner Iteration limits of the size search and of
-#'   the IRLS (`maxit_inner = 25` is the [stats::glm.control()] default; a
-#'   factor level with zero counts needs about 20). A null that does not
-#'   converge gets no p-value.
+#'   the IRLS, both 25 as in [stats::glm.control()] and `MASS::glm.nb()` (a
+#'   factor level with zero counts needs about 20 IRLS iterations; a very
+#'   sparse feature with a large overdispersion needs about 12 size-search
+#'   iterations, since the size and coefficient updates alternate and
+#'   converge linearly). A null that does not converge gets no p-value.
 #' @param alpha_min Floor of the moment start of the overdispersion.
 #' @param step_bound,step_fallback A size-search step stays within a factor
 #'   `step_bound` of the current overdispersion; where the curvature is not
@@ -65,7 +67,7 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
                       feature_id = rownames(Y), threads = 1L,
                       chunk_size = 256L, block_size = 32L, alpha_max = 1e4,
                       tol = 1e-8,
-                      maxit_outer = 10L, maxit_inner = 25L,
+                      maxit_outer = 25L, maxit_inner = 25L,
                       alpha_min = 1e-12, step_bound = 10, step_fallback = 2,
                       maxit_halving = 30L, eta_max = 700, rank_tol = 1e-11,
                       spectrum_tol = 1e-12, spa_centre_tol = 1e-6,

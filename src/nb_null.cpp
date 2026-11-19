@@ -219,7 +219,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
     double alpha_max = 1e4,
     double alpha_fixed = -1,
     double tol = 1e-8,
-    int maxit_outer = 10,
+    int maxit_outer = 25,
     int maxit_inner = 25,
     double alpha_min = 1e-12,
     double step_bound = 10,
