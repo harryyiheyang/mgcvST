@@ -82,6 +82,16 @@ spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
 #' recomputed. The fit keeps the score vectors and the per-feature materials
 #' that [spdeST.test()] needs.
 #'
+#' With an [inlaST.set()] model, separate R processes can give slightly
+#' different Stage 2 results for the same input even with one thread: on a
+#' feature whose marginal likelihood is flat near its mode, the INLA
+#' optimiser can stop at one of two nearby points (in one MISO run, a
+#' relative difference of about 1.5e-3 in the smoothing parameter and 9e-4 in
+#' the log marginal likelihood, moving log p-values of tests that include the
+#' feature by about 0.09). Other features agree to about 1e-5. Repeated fits
+#' in one process are identical. Tightening `control.inla$tolerance` does not
+#' remove it; treat it as the precision of the INLA fit.
+#'
 #' @param scan Result of [spdeST.scan()], or of an earlier `spdeST.estimate()`
 #'   to add features.
 #' @param Y The response matrix given to [spdeST.scan()].

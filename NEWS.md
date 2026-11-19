@@ -8,6 +8,10 @@
   functions, are deleted; they remain in the git history. The README no
   longer links to them.
 
+* `spdeST.estimate()` documents the cross-process reproducibility of INLA
+  Stage 2 fits: on features with a flat marginal likelihood the INLA
+  optimiser can stop at one of two nearby points; the package is unchanged.
+
 # spdeST 0.0.1.9054
 
 * Code that no entry point reaches is deleted:

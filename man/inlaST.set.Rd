@@ -86,7 +86,7 @@ An \code{inlaST_model} for \code{\link[=spdeST.scan]{spdeST.scan()}}. It stores 
 estimation settings in \code{estimation}.
 }
 \description{
-Constructs the same fixed-kappa SPDE score geometry as \code{\link[=model.set]{model.set()}} while
+Constructs the same fixed-kappa SPDE score geometry as \code{\link[=mgcvST.set]{mgcvST.set()}} while
 retaining raw sparse mesh precision matrices for INLA. Each spatial field is
 always constrained to have zero mean at the observed locations.
 }
