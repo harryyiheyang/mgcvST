@@ -7,12 +7,14 @@ test_that("packed dense score states restore exactly", {
   expect_identical(restored, state)
 })
 
-test_that("a raw gam setup and a prepared model share one estimation and test path", {
+test_that("a prepared model gives the same pair results in one or many chunks", {
   f <- st_fixture()
   pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
-  for (design in list(f$G, f$model)) {
-    fit <- mgcvST.estimate(f$Y, design, diagnostics = FALSE,
-                          BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+  for (design in list(f$model)) {
+    fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, design, diagnostics = FALSE,
+                          BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
     expect_s3_class(fit, "mgcvST_model_fit")
     expect_identical(fit$test_engine, "single_model")
     expect_true(is.list(fit$geometry$smooth))
@@ -25,9 +27,10 @@ test_that("a raw gam setup and a prepared model share one estimation and test pa
 
 test_that("model pair states are constructed once per unique feature", {
   f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(
-    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), diagnostics = FALSE, spatial = "all"
-  )
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
+    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), diagnostics = FALSE),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   pairs <- rbind(c(1L, 2L), c(1L, 3L), c(2L, 3L))
   count <- new.env(parent = emptyenv())
   count$features <- 0L

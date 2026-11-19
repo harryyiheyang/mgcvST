@@ -292,12 +292,12 @@
 #' Fits one latent Gaussian model per feature with INLA and returns the compact
 #' working-model contract consumed by [inlaST.test()]. No GAM fit is used.
 #'
-#' Estimation has two steps. Step 1 fits only the null model (no spatial
-#' field) of every feature and computes the Stage 1 null-first p-value of its
-#' marginal score test inside the worker; the p-values are then adjusted by
-#' `adjust` into the Stage 1 q-values `diagnostics$marginal_q_value`. Step 2
-#' fits the spatial model of the features chosen by `spatial` only, and
-#' computes their score vector and the mean of the fitted mean in the worker.
+#' This function is Stage 1, the method behind [spdeST.scan()]: it fits only
+#' the null model (no spatial field) of every feature and computes the Stage 1
+#' null-first p-value of its marginal score test inside the worker; the
+#' p-values are then adjusted by `adjust` into the Stage 1 q-values
+#' `diagnostics$marginal_q_value`. Stage 2, [inlaST.estimate_spatial()],
+#' fits the spatial model of the chosen features and computes their score vector and the mean of the fitted mean in the worker.
 #' No worker returns an observation-length vector: the manager holds the
 #' compact per-feature estimates only, so its memory grows with the number of
 #' features and the mesh size, not with the number of observations. Features
@@ -376,12 +376,6 @@
 #'   diagnostics in `inla_diagnostics`.
 #' @param threads OpenMP threads per worker for the sparse marginal and score
 #'   computations of the workers.
-#' @param spatial Features that receive a spatial model in step 2:
-#'   `"discoveries"` (the default; the features with Stage 1 q-value at most
-#'   `q.value`), `"all"`, `"none"`, a vector of feature IDs or one-based
-#'   indices, or a logical vector with one value per feature. A user-given
-#'   vector allows, for example, a Stage 1 adjustment within a modality or a
-#'   family of features that the user performs outside this function.
 #' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
 #'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
 #' @param q.value Stage 1 discovery threshold in `(0, 1]`.
@@ -442,7 +436,7 @@ inlaST.estimate <- function(
     Y, model, feature_id = rownames(Y),
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
     offset = NULL, control = list(), retain_smooth = FALSE,
-    diagnostics = FALSE, threads = 1L, spatial = "discoveries",
+    diagnostics = FALSE, threads = 1L,
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
     checkpoint_dir = NULL, resume = TRUE) {
   if (!requireNamespace("INLA", quietly = TRUE)) {
@@ -470,11 +464,6 @@ inlaST.estimate <- function(
   feature_id <- checked$feature_id
   chunk_size <- checked$chunk_size
   p <- nrow(Y)
-  # Validate the spatial selection before any fit is paid for.
-  if (!(is.character(spatial) && length(spatial) == 1L &&
-        spatial %in% c("discoveries", "all", "none"))) {
-    .mgcvst_select_spatial(spatial, feature_id, rep(NA_real_, p), q.value)
-  }
   # Exact Poisson routing (R/family-prescreen.R): a feature whose NB2
   # maximum-likelihood fit is the Poisson fit (overdispersion score <= 0) is
   # fitted with the Poisson family. The family is fixed inside the spec, so a routed
@@ -660,10 +649,6 @@ inlaST.estimate <- function(
   kappa <- .spde_kappa_fields(model)
   ans[names(kappa)] <- kappa
   rm(step1)
-
-  index <- .mgcvst_select_spatial(spatial, feature_id, marginal_q, q.value)
-  ans$diagnostics$spatial_selected[index] <- TRUE
-  ans <- .inlast_apply_spatial(ans, Y, index, BPPARAM, chunk_size, threads, store)
   ans$timing$elapsed <- proc.time()[["elapsed"]] - t0
   ans
 }

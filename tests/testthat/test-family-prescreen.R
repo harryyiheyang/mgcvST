@@ -46,18 +46,24 @@ test_that("public mgcv and INLA entries apply the same routing", {
     captured$result <- route(Y, X, offset, active, threads)
     stop("prescreen captured before model fitting")
   }, .package = "spdeST")
-  for (setup in list(model, model$G)) {
-    expect_error(mgcvST.estimate(Y, setup, control = mgcv::gam.control(),
-      BPPARAM = BiocParallel::SerialParam(), spatial = "all"),
+  for (setup in list(model)) {
+    expect_error(spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(Y, setup, control = mgcv::gam.control(),
+      BPPARAM = BiocParallel::SerialParam()),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam()),
       "prescreen captured before model fitting")
     expect_identical(unname(captured$result$poisson), c(TRUE, FALSE))
   }
-  expect_error(inlaST.estimate(Y, model_inla,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"),
+  expect_error(spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(Y, model_inla,
+    BPPARAM = BiocParallel::SerialParam()),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam()),
     "prescreen captured before model fitting")
   expect_identical(unname(captured$result$poisson), c(TRUE, FALSE))
   control <- mgcv::gam.control()
   control$poisson_screen_phi <- 1.1
-  expect_error(mgcvST.estimate(Y, model, control = control,
-    BPPARAM = BiocParallel::SerialParam()), "removed")
+  expect_error(spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(Y, model, control = control,
+    BPPARAM = BiocParallel::SerialParam()),
+    Y, features = "discoveries", BPPARAM = BiocParallel::SerialParam()), "removed")
 })

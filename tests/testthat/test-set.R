@@ -27,7 +27,8 @@ test_that("set expands factor interactions once for shared BAM null and full des
     expect_equal(unname(model$L[, sm$first.para:sm$last.para]), expected, tolerance = 1e-8)
     offset <- matrix(seq(-.15, .2, length.out = length(f$Y)), nrow(f$Y))
     fit <- testthat::with_mocked_bindings(
-      mgcvST.estimate(f$Y, model, offset = offset,
+      spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, model, offset = offset,
         BPPARAM = BiocParallel::SerialParam(), chunk_size = 2L,
         # This test verifies the frozen design against direct mgcv fits with
         # the requested family; disable the Poisson prescreen so near-Poisson
@@ -36,8 +37,8 @@ test_that("set expands factor interactions once for shared BAM null and full des
           k <- mgcv::gam.control(nthreads = 1L)
           k$ncv.threads <- 1L
           k
-        }),
-        spatial = "all"),
+        })),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam(), chunk_size = 2L),
       .gam_training_lpmatrix = function(...) stop("L rebuilt during estimate"),
       .mgcvst_prescreen_route = function(Y, X, offset, active, threads = 1L) {
         p <- nrow(as.matrix(Y))
@@ -85,13 +86,19 @@ test_that("set rejects gene-specific designs and invalid offsets", {
   model <- mgcvST.set(G = f$G)
   expect_error(mgcvST.set(G = f$G, data = f$data), "Supply G alone")
   expect_error(mgcvST.set(response ~ response + x, f$data), "response cannot")
-  expect_error(mgcvST.estimate(f$Y, model, data = f$data, spatial = "all"), "Do not supply")
-  expect_true(all(is.finite(mgcvST.estimate(
-    f$Y, model, worker_init = function() NULL,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )$working_error)))
-  expect_error(mgcvST.estimate(f$Y, model, offset = matrix(0, 2, 3), spatial = "all"), "offset must")
-  expect_error(mgcvST.estimate(f$Y, model, offset = rep(NA_real_, ncol(f$Y)), spatial = "all"), "offset must")
+  expect_error(spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, model, data = f$data),
+    f$Y, features = "all"), "Do not supply")
+  expect_true(all(is.finite(spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
+    f$Y, model, BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())$working_error)))
+  expect_error(spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, model, offset = matrix(0, 2, 3)),
+    f$Y, features = "all"), "offset must")
+  expect_error(spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, model, offset = rep(NA_real_, ncol(f$Y))),
+    f$Y, features = "all"), "offset must")
 })
 
 test_that("null formula keeps leading tensor nuisance smooths", {
@@ -130,15 +137,21 @@ test_that("set shares L with SOCK workers and gene offsets", {
   f <- st_fixture()
   model <- mgcvST.set(G = f$G)
   offset <- matrix(seq(-.1, .1, length.out = length(f$Y)), nrow(f$Y))
-  a <- mgcvST.estimate(f$Y, model, offset = offset,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all")
-  b <- mgcvST.estimate(f$Y, model, offset = offset,
-    BPPARAM = BiocParallel::SnowParam(2L, type = "SOCK"), spatial = "all")
+  a <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, model, offset = offset,
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
+  b <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, model, offset = offset,
+    BPPARAM = BiocParallel::SnowParam(2L, type = "SOCK")),
+    f$Y, features = "all", BPPARAM = BiocParallel::SnowParam(2L, type = "SOCK"))
   expect_equal(a$working_error, b$working_error, tolerance = 1e-12)
   expect_equal(a$nuisance_covariance, b$nuisance_covariance, tolerance = 1e-12)
   expect_equal(a$diagnostics$marginal_p_value, b$diagnostics$marginal_p_value, tolerance = 1e-12)
   restored <- unserialize(serialize(model, NULL))
-  c <- mgcvST.estimate(f$Y, restored, offset = offset,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+  c <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, restored, offset = offset,
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_equal(a$working_error, c$working_error, tolerance = 1e-12)
 })

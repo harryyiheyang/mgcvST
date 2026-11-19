@@ -1,28 +1,12 @@
-test_that("mandatory marginal preserves existing fitting outputs", {
-  old <- old_st()
-  f <- st_fixture()
-  marginal_callback <- function(...) list(smooth.pvalue = .375)
-  for (G in list(f$model)) {
-    a <- old$mgcvST.estimate(f$Y, G, marginal_test = marginal_callback, retain_smooth = TRUE, spatial = "all")
-    b <- mgcvST.estimate(f$Y, G, diagnostics = TRUE,
-                         marginal_test = marginal_callback, retain_smooth = TRUE, spatial = "all")
-    expect_identical(strip_elapsed(b), strip_elapsed(a))
-    fast <- mgcvST.estimate(f$Y, G, diagnostics = FALSE,
-                            marginal_test = marginal_callback, spatial = "all")
-    expect_identical(fast$working_error, a$working_error)
-    expect_identical(fast$working_variance, a$working_variance)
-    expect_identical(fast$lambda, a$lambda)
-    expect_true(all(fast$diagnostics$marginal_p_value == .375))
-  }
-})
-
 test_that("diagnostics FALSE does not invoke summary.gam", {
   f <- st_fixture()
   trace("summary.gam", where = asNamespace("mgcv"),
         tracer = quote(stop("summary was called")), print = FALSE)
   on.exit(untrace("summary.gam", where = asNamespace("mgcv")), add = TRUE)
-  for (G in list(f$G, f$model)) {
-    fit <- mgcvST.estimate(f$Y, G, diagnostics = FALSE, spatial = "all")
+  for (G in list(f$model)) {
+    fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, G, diagnostics = FALSE),
+    f$Y, features = "all")
     expect_true(all(is.finite(fit$working_error)))
     if (!is.null(fit$diagnostics$wood_p_value)) expect_true(all(is.na(fit$diagnostics$wood_p_value)))
   }
@@ -42,10 +26,11 @@ test_that("model batches reuse the prepared GAM design without lpmatrix", {
     },
     .package = "spdeST"
   )
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
-    diagnostics = FALSE, spatial = "all"
-  )
+    diagnostics = FALSE),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L)
   expect_identical(getOption("mgcvST.test_lpmatrix_count"), 0L)
   expect_true(all(is.finite(fit$working_error)))
 })
@@ -71,28 +56,21 @@ test_that("prepared GAM designs do not depend on later prediction methods", {
     },
     .package = "spdeST"
   )
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
-    diagnostics = FALSE, spatial = "all"
-  )
+    diagnostics = FALSE),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L)
   expect_identical(getOption("mgcvST.test_lpmatrix_count"), 0L)
   expect_true(all(is.finite(fit$working_error)))
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
 })
 
-test_that("custom worker initialization retains shared prediction geometry", {
-  f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(
-    f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L,
-    worker_init = function() invisible(NULL), diagnostics = FALSE, spatial = "all"
-  )
-  expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
-  expect_true(all(is.finite(fit$working_error)))
-})
-
 test_that("pair universes are validated and duplicated tests are rejected", {
   f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(f$Y, f$model, spatial = "all")
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model),
+    f$Y, features = "all")
   pairs <- rbind(c(1L, 2L), c(3L, 1L), c(2L, 3L))
   expect_error(mgcvST.test(fit, pairs = rbind(pairs, c(2L, 1L)), moments = "exact"),
                "duplicated tests")
@@ -112,10 +90,11 @@ test_that("pair universes are validated and duplicated tests are rejected", {
 
 test_that("conditional nuisance state is compact and shared", {
   f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   LN <- fit$geometry$nuisance_design
   blocks <- fit$nuisance_covariance
   expect_true(is.matrix(LN))
@@ -134,35 +113,17 @@ test_that("ordinary overall low-rank smooths share the same Vp machinery", {
     response ~ offset(offset0) + s(z, k = 6) + s(w, k = 6),
     data, f$basis, family = mgcv::nb()
   )
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y, model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
 })
 
 test_that("new switches reject non-logical values", {
-  expect_false("marginal" %in% names(formals(mgcvST.estimate)))
-  expect_error(mgcvST.estimate(NULL, NULL, marginal_test = NULL,
-                               marginal_args = list(), marginal = NA, spatial = "all"), "always runs")
-  expect_error(mgcvST.estimate(NULL, NULL, diagnostics = 0, spatial = "all"), "diagnostics must")
-  expect_error(mgcvST.estimate(NULL, NULL, retain_marginal = TRUE, spatial = "all"),
-               "retain_marginal and mgcvST.marginal\\(\\) were removed")
+  expect_error(mgcvST.estimate(NULL, NULL, diagnostics = 0), "diagnostics must")
+  expect_error(mgcvST.estimate(NULL, NULL, retain_smooth = NA), "retain_smooth must")
 })
 
-test_that("a raw gam setup and the prepared model give identical estimates and tests", {
-  f <- st_fixture()
-  sp <- BiocParallel::SerialParam()
-  from_G <- suppressWarnings(mgcvST.estimate(f$Y, f$G, BPPARAM = sp, spatial = "all"))
-  from_model <- suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = sp, spatial = "all"))
-  # Only the stored setup object differs; every estimate is the same.
-  same <- function(x) {
-    x <- strip_elapsed(x)
-    x$model <- NULL
-    x$signature <- x$estimation_context <- NULL
-    x
-  }
-  expect_identical(same(from_G), same(from_model))
-  expect_identical(mgcvST.test(from_G, moments = "exact")$results, mgcvST.test(from_model, moments = "exact")$results)
-})

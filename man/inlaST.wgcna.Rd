@@ -59,7 +59,8 @@ coordinates), not \code{nrow(A)}.
 }
 \examples{
 \dontrun{
-fit <- inlaST.estimate(Y, model, spatial = "all")
+scan <- spdeST.scan(Y, model)
+fit <- spdeST.estimate(scan, Y, features = "all")
 W <- inlaST.wgcna(fit, indices = genes, threads = 4L)
 W$modules
 }

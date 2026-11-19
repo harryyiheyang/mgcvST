@@ -33,7 +33,7 @@
 #' @param fit A converged `mgcv::gam` fit.
 #' @return A list with working response, working variance, offset, family
 #'   metadata, and convergence information.
-#' @export
+#' @keywords internal
 rkhs_extract_working_model <- function(fit) {
   if (!inherits(fit, "gam")) stop("fit must inherit from class 'gam'.")
   family_id <- .working_family_id(fit$family$family)

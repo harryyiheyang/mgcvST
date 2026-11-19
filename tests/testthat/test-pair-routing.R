@@ -1,7 +1,8 @@
 .routing_fit <- function() {
   f <- st_fixture()
-  suppressWarnings(mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam(),
-                                   spatial = "all"))
+  suppressWarnings(spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam()))
 }
 
 test_that("the route is chosen by the user: moments has no default and no automatic value", {

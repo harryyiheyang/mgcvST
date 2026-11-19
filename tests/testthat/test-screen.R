@@ -98,8 +98,10 @@ test_that("mgcvST.test(screen = TRUE) keeps the discoveries of both routes", {
   rownames(Y) <- paste0("g", seq_len(p))
   data$response <- Y[1L, ]
   model <- model.set(response ~ z, data, basis, family = stats::poisson())
-  fit <- mgcvST.estimate(Y, model, spatial = "all",
-                         BPPARAM = BiocParallel::SerialParam())
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(Y, model,
+                         BPPARAM = BiocParallel::SerialParam()),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   full <- mgcvST.test(fit, moments = "exact")
   scr <- mgcvST.test(fit, moments = "exact", screen = TRUE)
   expect_gte(scr$timing$screen$z, 2)

@@ -50,3 +50,9 @@
   E$vectors %*% (sqrt(pmax(E$values, 0)) * t(E$vectors))
 }
 
+# Full-spectrum saddlepoint log p-value of one pair (U, H1, H2): the reference
+# of the pair kernels, on the singular values of F1'F2 with F F' = H.
+.pair_ref_log_p <- function(U, H1, H2) {
+  s <- svd(crossprod(.spa_sqrtm(H1), .spa_sqrtm(H2)))$d
+  .spa_ref(abs(U), s[s > 1e-12 * max(s)])
+}

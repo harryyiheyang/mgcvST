@@ -369,7 +369,8 @@ mgcvST.wgcna <- function(fitmgcvST, indices,
 #' @seealso [mgcvST.wgcna()] for `mgcvST.estimate()` fits.
 #' @examples
 #' \dontrun{
-#' fit <- inlaST.estimate(Y, model, spatial = "all")
+#' scan <- spdeST.scan(Y, model)
+#' fit <- spdeST.estimate(scan, Y, features = "all")
 #' W <- inlaST.wgcna(fit, indices = genes, threads = 4L)
 #' W$modules
 #' }
@@ -380,7 +381,7 @@ inlaST.wgcna <- function(fitmgcvST, indices,
   call <- match.call()
   if (!.mgcvst_inla_downstream(fitmgcvST)) {
     stop("inlaST.wgcna() requires a fit returned by inlaST.estimate(); use ",
-         "mgcvST.wgcna() for an mgcvST.estimate()/model.set() fit.")
+         "mgcvST.wgcna() for an mgcvST.estimate() fit.")
   }
   .mgcvst_inla_require_sparse(fitmgcvST)
   prepared <- .mgcvst_wgcna_prepare(fitmgcvST, indices, wgcna.para, verbose,

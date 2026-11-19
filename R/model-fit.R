@@ -75,10 +75,10 @@
   )
 }
 
-# Fit and reduce one feature under a model.set() setup.
-.mgcvst_model_fit_one <- function(response, G0, family_raw, method, control,
+# Fit and reduce one feature under an mgcvST.set() model.
+.mgcvst_model_fit_one <- function(response, G0, family_raw, control,
                                   gam_args, retain_smooth, diagnostics = TRUE,
-                                  geometry_cache = NULL, offset = NULL,
+                                  geometry_cache, offset = NULL,
                                   poisson = FALSE, routed_family_raw = NULL) {
   full_spec <- attr(G0, "full_spec")
   response_index <- attr(G0$terms, "response")
@@ -102,9 +102,7 @@
   )
   fit_seconds <- proc.time()[["elapsed"]] - t0
   W <- rkhs_extract_working_model(fit)
-  fit$.taps_score_X <- .mgcvst_training_design(fit, geometry_cache)
-  geometry <- .mgcvst_cached_model_geometry(fit, geometry_cache,
-                                           L = fit$.taps_score_X)
+  geometry <- .mgcvst_cached_model_geometry(fit, geometry_cache)
   nuisance <- .mgcvst_nuisance_state(fit, geometry, geometry_cache)
   if (!is.null(nuisance$error)) {
     stop("nuisance covariance unavailable: ", nuisance$error)
@@ -145,17 +143,14 @@
   )
 }
 
-# Step 1 worker for model.set() fits: the null fit and the corrected marginal
+# Step 1 worker for mgcvST.set() fits: the null fit and the corrected marginal
 # score test of every feature of a chunk. Only the marginal result is
 # returned: no working
 # vector of any null fit leaves the worker. The chunk is saved by the worker
 # when the payload names a checkpoint file.
 .mgcvst_null_chunk <- function(payload, G0, family_raw, control, gam_args,
-                               source_files, worker_init, init_key,
-                               marginal_test, marginal_args,
-                               routed_family_raw = NULL,
-                               scan = FALSE) {
-  .mgcvst_worker_initialize(source_files, worker_init, init_key)
+                               routed_family_raw = NULL, scan = FALSE) {
+  .mgcvst_worker_initialize()
   out <- vector("list", length(payload$index))
   target_index <- which(vapply(
     G0$smooth, function(s) identical(s$score.component, "global"), logical(1L)
@@ -163,9 +158,8 @@
   null_setup <- .mgcvst_null_score_setup(G0, target_index, attr(G0, "null_spec"))
   # spde.scan (R/spde-scan.R): the Stage 1 of the chunk, as inlaST.estimate().
   if (isTRUE(scan)) {
-    out <- do.call(get(".mgcvst_scan_chunk", envir = asNamespace("spdeST")),
-                   c(list(payload, G0, target_index, null_setup$X0),
-                     marginal_args[setdiff(names(marginal_args), "method")]))
+    out <- get(".mgcvst_scan_chunk", envir = asNamespace("spdeST"))(
+      payload, G0, target_index, null_setup$X0)
     .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
     return(out)
   }
@@ -181,10 +175,7 @@
           unserialize(if (isTRUE(payload$poisson[j])) routed_family_raw else family_raw),
           feature_offset, control, gam_args
         )
-        .mgcvst_marginal_score(
-          null_fit, marginal_test, marginal_args,
-          test_component = null_setup$target_index, setup = null_setup
-        )
+        .mgcvst_marginal_score(null_fit, null_setup)
       },
       error = function(e) e
     )
@@ -202,30 +193,22 @@
   out
 }
 
-# Step 2 worker for model.set() fits: the spatial fit of every feature of a
+# Step 2 worker for mgcvST.set() fits: the spatial fit of every feature of a
 # chunk, reduced to the compact working model. Chunk attributes carry the shared
 # prediction geometry.
-.mgcvst_spatial_chunk <- function(payload, G0, family_raw, method, control,
-                                  gam_args, source_files, worker_init,
-                                  init_key, retain_smooth,
-                                  diagnostics = TRUE,
-                                  geometry_seed = NULL,
-                                  allow_geometry_cache = TRUE,
+.mgcvst_spatial_chunk <- function(payload, G0, family_raw, control,
+                                  gam_args, retain_smooth,
+                                  diagnostics = TRUE, geometry_seed,
                                   routed_family_raw = NULL) {
-  .mgcvst_worker_initialize(source_files, worker_init, init_key)
+  .mgcvst_worker_initialize()
   out <- vector("list", length(payload$index))
-  geometry_cache <- if (allow_geometry_cache) {
-    list2env(if (is.null(geometry_seed)) list() else geometry_seed,
-             parent = emptyenv())
-  } else {
-    NULL
-  }
+  geometry_cache <- list2env(geometry_seed, parent = emptyenv())
   shared_geometry <- NULL
   for (j in seq_along(payload$index)) {
     feature_offset <- if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset
     fit <- tryCatch(
       .mgcvst_model_fit_one(
-        payload$Y[j, ], G0, family_raw, method, control, gam_args,
+        payload$Y[j, ], G0, family_raw, control, gam_args,
         retain_smooth, diagnostics = diagnostics, geometry_cache = geometry_cache,
         offset = feature_offset,
         poisson = isTRUE(payload$poisson[j]),
@@ -248,19 +231,15 @@
     }
   }
   attr(out, "model_geometry") <- shared_geometry
-  if (allow_geometry_cache && is.null(geometry_seed)) {
-    attr(out, "geometry_seed") <- as.list(geometry_cache)
-  }
   .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
   out
 }
 
 # Checkpoint signature of an mgcv estimation: the design, penalties, family,
 # offsets, controls and options that the chunk results depend on.
-.mgcvst_model_signature <- function(model, method, control, gam_args,
+.mgcvst_model_signature <- function(model, control, gam_args,
                                     offset, feature_id, retain_smooth,
-                                    diagnostics, marginal_args,
-                                    marginal_test) {
+                                    diagnostics) {
   # The family enters by name, link and fixed parameters: serialized closures
   # differ between sessions (byte code, environments) and would make a
   # checkpoint look foreign.
@@ -277,24 +256,18 @@
     smooth = smooth, null_X = model$null_X, family = family,
     formulas = c(paste(deparse(model$full_formula), collapse = ""),
                  paste(deparse(model$null_formula), collapse = "")),
-    method = method, control = control, gam_args = gam_args,
+    control = control, gam_args = gam_args,
     extra_offset = offset, feature_id = feature_id,
-    retain_smooth = retain_smooth, diagnostics = diagnostics,
-    marginal_args = marginal_args,
-    marginal_test = if (is.null(marginal_test)) NULL else
-      paste(deparse(marginal_test), collapse = "")
+    retain_smooth = retain_smooth, diagnostics = diagnostics
   ))
 }
 
-# Fit all features for a model.set() object in two steps: the null fits and
-# Stage 1 p-values of every feature, then the spatial fits of the selected
-# features.
+# Stage 1 of an mgcvST.set() model: the null fit and Stage 1 p-value of every
+# feature. The spatial fits are added by .mgcvst_apply_spatial().
 .mgcvst_estimate_model <- function(
-    Y, model, feature_id, BPPARAM, chunk_size, source_files, worker_init,
-    marginal_test, marginal_args, method, retain_smooth, control,
+    Y, model, feature_id, BPPARAM, chunk_size, retain_smooth, control,
     gam_args, call, diagnostics = TRUE, offset = NULL,
-    spatial = "discoveries", adjust = "BY", q.value = 0.05,
-    checkpoint_dir = NULL, resume = TRUE) {
+    adjust = "BY", q.value = 0.05, checkpoint_dir = NULL, resume = TRUE) {
   if (!is.matrix(Y)) Y <- as.matrix(Y)
   if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y)) {
     stop("Y must be a non-empty finite numeric feature-by-observation matrix.")
@@ -306,9 +279,7 @@
   # double or integer matrix.
   Y <- .mgcvst_check_response_matrix(Y)
   chunk_size <- .mgcvst_check_chunk_size(chunk_size)
-  frozen <- isTRUE(model$shared_design)
   if (!is.null(offset)) {
-    if (!frozen) stop("Additional offsets require a model prepared by mgcvST.set().")
     if (!is.numeric(offset) || any(!is.finite(offset)) ||
         (is.null(dim(offset)) && length(offset) != ncol(Y)) ||
         (!is.null(dim(offset)) && (!is.matrix(offset) || !identical(dim(offset), dim(Y))))) {
@@ -333,24 +304,15 @@
   if (!is.list(control)) stop("control must be returned by mgcv::gam.control().")
   p <- nrow(Y)
   n <- ncol(Y)
-  # Validate the spatial selection before any fit is paid for.
-  if (!(is.character(spatial) && length(spatial) == 1L &&
-        spatial %in% c("discoveries", "all", "none"))) {
-    .mgcvst_select_spatial(spatial, feature_id, rep(NA_real_, p), q.value)
-  }
   .mgcvst_refuse_screen_control(control)
   control$nthreads <- 1L
   control$ncv.threads <- 1L
-  forbidden <- intersect(names(gam_args), c("G", "family", "method", "control"))
-  if (frozen) {
-    forbidden <- union(forbidden, intersect(names(gam_args),
-      c("formula", "data", "weights", "subset", "na.action", "knots", "paraPen", "H")))
-  }
+  forbidden <- intersect(names(gam_args),
+    c("G", "family", "method", "control", "formula", "data", "weights",
+      "subset", "na.action", "knots", "paraPen", "H"))
   if (length(forbidden)) {
     stop("Do not supply these arguments through ...: ", paste(forbidden, collapse = ", "))
   }
-  source_files <- .mgcvst_source_files(source_files)
-  init_key <- .mgcvst_init_key(source_files, worker_init)
   family_raw <- serialize(model$G$family, NULL)
   # Routing target: Poisson (dispersion 1), as in inlaST.estimate().
   routed_family_raw <- serialize(stats::poisson(link = "log"), NULL)
@@ -368,14 +330,13 @@
   t0 <- proc.time()[["elapsed"]]
   y_digest <- .mgcvst_row_digests(Y)
   signature <- .mgcvst_model_signature(
-    model, method, control, gam_args, offset, feature_id, retain_smooth,
-    diagnostics, marginal_args, marginal_test
+    model, control, gam_args, offset, feature_id, retain_smooth, diagnostics
   )
   # spde.scan: batched maximum-likelihood nulls when the null has no smooth.
   scan <- .mgcvst_scan_eligible(
     model$G, which(vapply(model$G$smooth, function(s)
       identical(s$score.component, "global"), logical(1L))),
-    model$null_formula, model$G$family, marginal_test, marginal_args, gam_args)
+    model$null_formula, model$G$family, gam_args)
   if (scan) signature <- .mgcvst_pair_input_hash(list(signature, null = "spde.scan"))
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", signature, resume)
 
@@ -398,8 +359,6 @@
       null_spec = list(formula = model$null_formula, data = model$null_data,
         response = model$null_response, X0 = model$null_X)),
     family_raw = family_raw, control = control, gam_args = gam_args,
-    source_files = source_files, worker_init = worker_init, init_key = init_key,
-    marginal_test = marginal_test, marginal_args = marginal_args,
     routed_family_raw = routed_family_raw,
     scan = scan
   )
@@ -436,10 +395,8 @@
   }
   rm(nulls)
 
-  total_offset <- if (frozen) {
-    if (is.null(offset)) model$offset else if (is.matrix(offset))
-      sweep(offset, 2L, model$offset, "+") else model$offset + offset
-  } else model$offset
+  total_offset <- if (is.null(offset)) model$offset else if (is.matrix(offset))
+    sweep(offset, 2L, model$offset, "+") else model$offset + offset
   ans <- structure(
     list(
       feature_id = feature_id,
@@ -481,9 +438,8 @@
                     null_engine = if (scan) "spde.scan" else "gam"),
       estimation_context = list(
         family_raw = family_raw, routed_family_raw = routed_family_raw,
-        method = method, control = control, gam_args = gam_args,
-        source_files = source_files, worker_init = worker_init,
-        init_key = init_key, diagnostics = diagnostics, offset = offset,
+        control = control, gam_args = gam_args,
+        diagnostics = diagnostics, offset = offset,
         poisson = prescreen$poisson
       ),
       call = call
@@ -492,12 +448,8 @@
   )
   kappa <- .spde_kappa_fields(model)
   ans[names(kappa)] <- kappa
-  if (frozen) ans$timing$setup <- model$timing
+  ans$timing$setup <- model$timing
   rm(step1)
-
-  index <- .mgcvst_select_spatial(spatial, feature_id, marginal_q, q.value)
-  ans$diagnostics$spatial_selected[index] <- TRUE
-  ans <- .mgcvst_apply_spatial(ans, Y, index, BPPARAM, chunk_size, store)
   ans$timing$elapsed <- proc.time()[["elapsed"]] - t0
   ans
 }
@@ -515,11 +467,7 @@
   fit$row_id <- geometry$row_id
   fit$linear_design <- geometry$X
   fit$score_components <- geometry$score_components
-  if (isTRUE(model$shared_design)) {
-    fit$geometry$offset <- model$offset
-  } else {
-    fit$offset <- geometry$offset
-  }
+  fit$geometry$offset <- model$offset
   if (fit$retain_smooth) {
     coefficient <- lapply(geometry$score_components, function(name) {
       q <- ncol(geometry$smooth[[geometry$target[[name]]]]$B)
@@ -538,26 +486,20 @@
   model <- fit$model
   index <- setdiff(index, which(fit$diagnostics$spatial_fitted))
   if (!length(index)) return(fit)
-  frozen <- isTRUE(model$shared_design)
   offset <- context$offset
   worker_bundle <- .mgcvst_worker_bundle()
   fit_chunk <- get(".mgcvst_spatial_chunk", envir = worker_bundle, inherits = FALSE)
-  workers <- max(1L, min(length(index), BiocParallel::bpworkers(BPPARAM)))
-  cache_worthwhile <- workers == 1L || length(index) >= 2L * workers
   fit_args <- list(
     G0 = structure(model$G,
       null_spec = list(formula = model$null_formula, data = model$null_data,
         response = model$null_response, X0 = model$null_X),
       full_spec = list(formula = model$full_formula, data = model$full_data,
         response = model$null_response)),
-    family_raw = context$family_raw, method = context$method,
+    family_raw = context$family_raw,
     control = context$control, gam_args = context$gam_args,
-    source_files = context$source_files, worker_init = context$worker_init,
-    init_key = context$init_key, retain_smooth = fit$retain_smooth,
+    retain_smooth = fit$retain_smooth,
     diagnostics = context$diagnostics,
-    routed_family_raw = context$routed_family_raw,
-    allow_geometry_cache = frozen || (cache_worthwhile &&
-      !length(context$source_files) && is.null(context$worker_init))
+    routed_family_raw = context$routed_family_raw
   )
   payload_for <- function(i) list(
     index = i, feature_id = fit$feature_id[i], Y = .mgcvst_double_rows(Y, i),
@@ -571,31 +513,12 @@
       fit_args, list(...)))
   }
   fit_t0 <- proc.time()[["elapsed"]]
-  # Establish one formal prediction geometry before distributing the remaining
-  # fits. A failed first feature is retained; the next feature may seed the cache.
-  prefix <- list()
-  resumed <- 0L
-  built <- 0L
-  seed <- if (frozen) list(frozen = TRUE, L = model$L, geometry = model$geometry) else NULL
-  position <- 1L
-  if (!frozen) repeat {
-    first <- run(list(index[position]), BiocParallel::SerialParam())
-    prefix[[length(prefix) + 1L]] <- first$results[[1L]]
-    resumed <- resumed + first$resumed
-    built <- built + first$built
-    seed <- attr(first$results[[1L]], "geometry_seed")
-    position <- position + 1L
-    if (!is.null(attr(first$results[[1L]], "model_geometry")) ||
-        position > length(index)) break
-  }
-  remaining <- if (position <= length(index)) index[seq.int(position, length(index))] else
-    integer()
-  groups <- .mgcvst_feature_chunks(remaining, chunk_size, BPPARAM,
+  # The shared prediction geometry of the model seeds every worker.
+  seed <- list(frozen = TRUE, L = model$L, geometry = model$geometry)
+  groups <- .mgcvst_feature_chunks(index, chunk_size, BPPARAM,
                                    checkpoint = !is.null(store))
-  tail <- if (length(groups)) {
-    run(groups, BPPARAM, geometry_seed = seed)
-  } else list(results = list(), resumed = 0L, chunks = 0L, built = 0L)
-  chunks <- c(prefix, tail$results)
+  tail <- run(groups, BPPARAM, geometry_seed = seed)
+  chunks <- tail$results
   fit_elapsed <- proc.time()[["elapsed"]] - fit_t0
 
   if (is.null(fit$geometry)) {
@@ -660,10 +583,10 @@
   fit$lambda <- if ("global" %in% colnames(component_lambda))
     component_lambda[, "global"] else rep(NA_real_, length(fit$feature_id))
   fit$timing$fit_elapsed <- fit$timing$fit_elapsed + fit_elapsed
-  fit$timing$spatial_chunks <- fit$timing$spatial_chunks + length(prefix) + tail$chunks
+  fit$timing$spatial_chunks <- fit$timing$spatial_chunks + tail$chunks
   fit$timing$resumed_spatial_chunks <- fit$timing$resumed_spatial_chunks +
-    resumed + tail$resumed
-  fit$timing$spatial_payloads <- fit$timing$spatial_payloads + built + tail$built
+    tail$resumed
+  fit$timing$spatial_payloads <- fit$timing$spatial_payloads + tail$built
   fit
 }
 
@@ -734,11 +657,9 @@ mgcvST.estimate_spatial <- function(
 # the family is nb() with an estimated size and log link, and the tested smooth
 # is an spde smooth; options(mgcvST.scan_null = FALSE) keeps the GAM nulls.
 .mgcvst_scan_eligible <- function(G, target_index, null_formula, family,
-                                  marginal_test, marginal_args, gam_args) {
+                                  gam_args) {
   if (!isTRUE(getOption("mgcvST.scan_null", TRUE))) return(FALSE)
-  if (!is.null(marginal_test) || length(gam_args)) return(FALSE)
-  if (length(setdiff(names(marginal_args), c("max_eps", "max_iter", "method")))) return(FALSE)
-  if (!is.null(marginal_args$method) && !identical(marginal_args$method, "davies")) return(FALSE)
+  if (length(gam_args)) return(FALSE)
   if (length(target_index) != 1L ||
       !inherits(G$smooth[[target_index]], "spde.smooth")) return(FALSE)
   smooth <- tryCatch(length(mgcv::interpret.gam(null_formula)$smooth.spec),

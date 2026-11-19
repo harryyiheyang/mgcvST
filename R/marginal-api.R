@@ -97,26 +97,9 @@
   out
 }
 
-# Extract only frozen-fit data, not a GAM/refit recipe or pair-score state.
-.mgcvst_marginal_geometry <- function(fit, X = NULL, test_component = 1L) {
-  if (is.null(X)) X <- fit$.taps_score_X
-  if (is.null(X)) {
-    X <- as.matrix(stats::predict(fit, newdata = fit$model, type = "lpmatrix"))
-  }
-  smooth <- lapply(fit$smooth, function(s) {
-    ans <- s[c("first.para", "last.para", "first.sp", "last.sp", "S", "rank",
-               "null.space.dim", "fixed", "label")]
-    ans$getA <- if (is.null(s$getA)) NULL else TRUE
-    ans
-  })
-  offset <- fit$offset
-  if (is.null(offset)) offset <- rep(0, nrow(X))
-  list(X = X, smooth = smooth, offset = as.numeric(offset),
-       row_id = .mgcvst_row_id(fit, nrow(X)), test_component = test_component)
-}
-
-# Port of the standard/extended-family branches of extract_pseudo_response()
-# and gammfast_working() in mgcv.taps; not the pairwise Fisher-IRLS extractor.
+# Working pseudo-response and variance of a null GAM (standard and extended
+# families), adapted from extract_pseudo_response() and gammfast_working() of
+# mgcv.taps (inst/COPYRIGHTS).
 .mgcvst_marginal_working <- function(fit) {
   family <- fit$family
   extended <- inherits(family, "extended.family") && is.function(family$Dd)

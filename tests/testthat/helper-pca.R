@@ -23,7 +23,9 @@
     dimnames(Y) <- list(paste0("g", seq_len(G)), NULL)
     model <- inlaST.set(response ~ z + offset(offset0), data, basis,
                         family = mgcv::nb())
-    cached <<- inlaST.estimate(Y, model, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+    cached <<- spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(Y, model, BPPARAM = BiocParallel::SerialParam()),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
     cached
   }
 })

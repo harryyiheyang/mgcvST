@@ -191,12 +191,12 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
   target <- which(vapply(f$model$G$smooth, function(s)
     identical(s$score.component, "global"), logical(1L)))
   expect_true(spdeST:::.mgcvst_scan_eligible(
-    f$model$G, target, f$model$null_formula, f$model$G$family, NULL, list(), list()))
+    f$model$G, target, f$model$null_formula, f$model$G$family, list()))
   expect_false(spdeST:::.mgcvst_scan_eligible(
-    f$model$G, target, f$model$null_formula, mgcv::nb(theta = 3), NULL, list(), list()))
+    f$model$G, target, f$model$null_formula, mgcv::nb(theta = 3), list()))
   sp <- BiocParallel::SerialParam()
   withr::local_options(mgcvST.progress = FALSE)
-  fit <- mgcvST.estimate(Y, f$model, BPPARAM = sp, spatial = "none")
+  fit <- mgcvST.estimate(Y, f$model, BPPARAM = sp)
   expect_identical(fit$stage1$null_engine, "spde.scan")
 
   # The Stage 1 of inlaST.estimate() on the same field and null design.
@@ -216,7 +216,7 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
 
   withr::local_options(mgcvST.scan_null = FALSE)
   expect_false(spdeST:::.inlast_scan_eligible(null_spec))
-  gam <- suppressWarnings(mgcvST.estimate(Y, f$model, BPPARAM = sp, spatial = "none"))
+  gam <- suppressWarnings(mgcvST.estimate(Y, f$model, BPPARAM = sp))
   expect_identical(gam$stage1$null_engine, "gam")
   # The GAM null uses the intercept-projected field: close, not equal.
   expect_equal(fit$diagnostics$marginal_p_value,

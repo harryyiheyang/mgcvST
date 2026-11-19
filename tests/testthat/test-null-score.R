@@ -1,9 +1,10 @@
 test_that("external GAM setup uses its fixed null design", {
   f <- st_fixture()
-  fit <- mgcvST.estimate(
-    f$Y[1L, , drop = FALSE], f$G,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
+    f$Y[1L, , drop = FALSE], mgcvST.set(G = f$G),
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y[1L, , drop = FALSE], features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(is.finite(fit$diagnostics$marginal_p_value[1L]))
   expect_null(fit$gam)
 })
@@ -12,11 +13,12 @@ test_that("Poisson prescreen routes independent null and full BAM fits", {
   control <- mgcv::gam.control(nthreads = 1L)
   local_poisson_route(TRUE)
   f <- st_fixture(n = 60L, nuisance = TRUE)
-  for (setup in list(f$G, f$model)) {
-    fit <- mgcvST.estimate(
+  for (setup in list(mgcvST.set(G = f$G), f$model)) {
+    fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
       f$Y[1L, , drop = FALSE], setup, control = control,
-      BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-    )
+      BPPARAM = BiocParallel::SerialParam()),
+    f$Y[1L, , drop = FALSE], features = "all", BPPARAM = BiocParallel::SerialParam())
     expect_identical(fit$diagnostics$family_used, "poisson")
     expect_true(is.finite(fit$diagnostics$marginal_p_value[1L]))
     expect_true(is.finite(fit$dispersion[1L]))
@@ -33,11 +35,12 @@ test_that("model-set null BAM includes a feature offset", {
   extra_offset <- seq(-0.2, 0.2, length.out = ncol(f$Y))
   control <- mgcv::gam.control(nthreads = 1L)
   local_poisson_route(FALSE)
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y[1L, , drop = FALSE], model, offset = extra_offset,
     control = control,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y[1L, , drop = FALSE], features = "all", BPPARAM = BiocParallel::SerialParam())
   data <- model$null_data
   data[[model$null_response]] <- as.numeric(f$Y[1L, ])
   null_fit <- mgcv::bam(
@@ -80,11 +83,12 @@ test_that("single-coefficient null scores agree with direct GAM fits", {
       response = model$null_response, X0 = model$null_X
     ))
     expected <- spdeST:::.mgcvst_null_score_test(direct, setup)
-    for (G in list(model, model$G)) {
-      fit <- mgcvST.estimate(
+    for (G in list(model)) {
+      fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
         f$Y[1L, , drop = FALSE], G, control = control,
-        BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-      )
+        BPPARAM = BiocParallel::SerialParam()),
+    f$Y[1L, , drop = FALSE], features = "all", BPPARAM = BiocParallel::SerialParam())
       expect_true(is.finite(fit$diagnostics$marginal_p_value))
       expect_true(all(is.na(fit$diagnostics$error_message)))
       expect_equal(fit$diagnostics$marginal_p_value, expected$smooth.pvalue,
@@ -106,10 +110,11 @@ test_that("one slope without an intercept retains per-feature null offsets", {
   offset <- matrix(seq(-0.2, 0.2, length.out = length(Y)), nrow(Y))
   control <- mgcv::gam.control(nthreads = 1L)
   local_poisson_route(FALSE)
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     Y, model, offset = offset, control = control,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   setup <- spdeST:::.mgcvst_null_score_setup(model$G, 1L, list(
     formula = model$null_formula, data = model$null_data,
@@ -136,12 +141,16 @@ test_that("single-coefficient null fitting is available on SOCK workers", {
     f$data, family = mgcv::nb()
   )
   Y <- f$Y[1:2, , drop = FALSE]
-  serial <- mgcvST.estimate(Y, model$G,
-                            BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L, spatial = "all")
+  serial <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(Y, model,
+                            BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L)
   workers <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
   on.exit(BiocParallel::bpstop(workers), add = TRUE)
-  parallel <- mgcvST.estimate(Y, model$G,
-                              BPPARAM = workers, chunk_size = 1L, spatial = "all")
+  parallel <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(Y, model,
+                              BPPARAM = workers, chunk_size = 1L),
+    Y, features = "all", BPPARAM = workers, chunk_size = 1L)
   expect_true(all(is.finite(parallel$diagnostics$marginal_p_value)))
   expect_true(all(is.na(parallel$diagnostics$error_message)))
   expect_equal(parallel$diagnostics$marginal_p_value,

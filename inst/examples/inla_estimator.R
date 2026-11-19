@@ -1,6 +1,6 @@
-# Run from an installed mgcvST package with INLA available.
+# Run from an installed spdeST package with INLA available.
 # Optionally set MGCVST_INLA_OUTPUT and MGCVST_INLA_DATASETS (comma separated).
-suppressPackageStartupMessages(library(mgcvST))
+suppressPackageStartupMessages(library(spdeST))
 out <- Sys.getenv("MGCVST_INLA_OUTPUT", "inla-estimator-results")
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 datasets <- strsplit(Sys.getenv("MGCVST_INLA_DATASETS", "MISO_E13,Visium_B"),
@@ -11,7 +11,7 @@ Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1",
 results <- list()
 for (dataset in datasets) {
   e <- new.env()
-  utils::data(list = dataset, package = "mgcvST", envir = e)
+  utils::data(list = dataset, package = "spdeST", envir = e)
   slice <- e[[dataset]]
   d <- slice$covariates
   Y <- t(as.matrix(slice$expression))
@@ -20,21 +20,19 @@ for (dataset in datasets) {
                       kappa = 0.1, project_intercept = TRUE)
   model <- inlaST.set(
     response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
-    d, family = mgcv::nb(),
-    control = list(control.inla = list(tolerance = 5e-4))
+    d, family = mgcv::nb(), retain_smooth = TRUE,
+    control = list(control.inla = list(tolerance = 1e-4))
   )
   setup_seconds <- proc.time()[["elapsed"]] - t0
-  fit <- inlaST.estimate(
-    Y, model, retain_smooth = TRUE,
-    control = list(control.inla = list(tolerance = 1e-4)),
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+  scan <- spdeST.scan(Y, model, BPPARAM = BiocParallel::SerialParam())
+  fit <- spdeST.estimate(scan, Y, features = "all",
+                         BPPARAM = BiocParallel::SerialParam())
   if (!all(fit$diagnostics$converged)) {
     print(fit$diagnostics)
     stop("An INLA feature did not converge for ", dataset)
   }
   pairs <- t(utils::combn(rownames(Y), 2L))
-  tested <- inlaST.test(fit, pairs = pairs, threads = 1L,
+  tested <- spdeST.test(fit, pairs = pairs, threads = 1L,
                         rank = min(10L, nrow(Y)), moments = "exact")
   stopifnot(all(is.finite(tested$results$log_p_two_sided)),
             all(is.finite(fit$diagnostics$marginal_p_value)))

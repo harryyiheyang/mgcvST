@@ -136,18 +136,17 @@ test_that("native iid modes survive inlaST estimate compaction", {
     fixed_precision = c(2, 3), gaussian_precision = 16,
     num_threads = 1L
   )
-  fit <- inlaST.estimate(
+  fit <- spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(
     matrix(y, nrow = 1L, dimnames = list("gene", NULL)), model,
-    BPPARAM = BiocParallel::SerialParam(), control = control, threads = 1L, spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam(), control = control, threads = 1L),
+    matrix(y, nrow = 1L, dimnames = list("gene", NULL)), features = "all", BPPARAM = BiocParallel::SerialParam(), threads = 1L)
   direct <- spdeST:::.inlast_fit_feature(
     model$inla_spec, y, offset = model$offset, control = control
   )
   expected <- unname(c(direct$fixed_mode, direct$random_mode[[2L]]))
   expect_equal(as.numeric(fit$nuisance_coefficients[, 1L]), expected,
                tolerance = 1e-8)
-  working <- spdeST:::.inlast_working_state(fit, 1L, threads = 1L)
-  expect_equal(as.numeric(working$eta), direct$eta, tolerance = 1e-8)
 })
 
 test_that("native iid rejects unsupported grouping structures", {

@@ -1,11 +1,15 @@
-test_that("null-first TAPS is finite", {
+test_that("Stage 1 p-values are finite", {
   for (fam in c("gaussian", "nb")) {
     f <- st_fixture(family = if (fam == "gaussian") gaussian() else mgcv::nb())
-    fit <- mgcvST.estimate(f$Y, f$G, spatial = "all")
+    fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model),
+    f$Y, features = "all")
     expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   }
   f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(f$Y, f$model, spatial = "all")
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model),
+    f$Y, features = "all")
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   expect_true(all(fit$diagnostics$marginal_requested_method == "davies"))
   expect_true(all(fit$diagnostics$marginal_method %in% c("davies", "saddlepoint")))
@@ -69,7 +73,9 @@ test_that("estimation reports the method actually used", {
   local({
     testthat::local_mocked_bindings(davies = function(...) list(Qq = 0.4, ifault = 1L),
                                     .package = "CompQuadForm")
-    fit <- mgcvST.estimate(f$Y, f$G, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+    fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
     expect_identical(unname(fit$diagnostics$marginal_p_value), rep(0.4, 3L))
     expect_identical(fit$diagnostics$marginal_method, rep("davies", 3L))
     expect_identical(fit$diagnostics$marginal_fallback, rep(FALSE, 3L))
@@ -77,9 +83,11 @@ test_that("estimation reports the method actually used", {
   local({
     testthat::local_mocked_bindings(davies = function(...) list(Qq = 0, ifault = 0L),
                                     .package = "CompQuadForm")
-    for (setup in list(f$G, f$model)) {
-      fit <- mgcvST.estimate(f$Y, setup,
-                             BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+    for (setup in list(f$model)) {
+      fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, setup,
+                             BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
       expect_identical(fit$diagnostics$marginal_requested_method, rep("davies", 3L))
       expect_identical(fit$diagnostics$marginal_method, rep("saddlepoint", 3L))
       expect_identical(fit$diagnostics$marginal_fallback, rep(TRUE, 3L))
@@ -89,20 +97,9 @@ test_that("estimation reports the method actually used", {
 })
 
 test_that("Liu is not available for the marginal test", {
-  f <- st_fixture()
-  for (setup in list(f$G, f$model)) {
-    expect_error(mgcvST.estimate(f$Y, setup, marginal_args = list(method = "liu"), spatial = "all"),
-                 "method = \"liu\" is not available")
-  }
-  gam_fit <- mgcv::gam(G = f$G, method = "REML")
-  expect_error(spdeST:::taps_score_test(gam_fit, method = "liu"), "should be")
   expect_error(spdeST:::.mgcvst_null_score_test(NULL, NULL, method = "liu"), "should be")
-  fit <- mgcvST.estimate(f$Y, f$G, spatial = "all")
   expect_false(exists("mgcvst_marginal_liu_moments_cpp", asNamespace("spdeST")))
   expect_false(exists(".mgcvst_marginal_liu", asNamespace("spdeST")))
-  explicit <- mgcvST.estimate(f$Y, f$G, marginal_args = list(method = "davies"), spatial = "all")
-  expect_identical(explicit$diagnostics$marginal_p_value,
-                   fit$diagnostics$marginal_p_value)
 })
 
 test_that("the saddlepoint fallback agrees with Davies where Davies is accurate", {
@@ -149,7 +146,9 @@ test_that("Snow workers give the pair results of serial chunks", {
   on.exit(BiocParallel::bpstop(bp),add=TRUE)
   Y <- f$Y[rep(1:3, 2),,drop=FALSE]
   rownames(Y) <- paste0("snow", seq_len(nrow(Y)))
-  fit <- mgcvST.estimate(Y,f$model,BPPARAM=bp,chunk_size=1, spatial = "all")
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(Y,f$model,BPPARAM=bp,chunk_size=1),
+    Y, features = "all", BPPARAM=bp, chunk_size=1)
   expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
   pairs <- t(combn(1:3,2))
   serial <- mgcvST.test(fit,pairs=pairs, moments = "exact")

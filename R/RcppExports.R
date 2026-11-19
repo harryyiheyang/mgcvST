@@ -9,6 +9,10 @@ mgcvst_dense_score_batch_cpp <- function(T0, variance, error, scale, X, nuisance
     .Call(`_spdeST_mgcvst_dense_score_batch_cpp`, T0, variance, error, scale, X, nuisance, threads, score_only)
 }
 
+mgcvst_inla_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
+    .Call(`_spdeST_mgcvst_inla_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
+}
+
 mgcvst_inla_sparse_prepare_cpp <- function(Q_map, constraint) {
     .Call(`_spdeST_mgcvst_inla_sparse_prepare_cpp`, Q_map, constraint)
 }
@@ -31,14 +35,6 @@ mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint,
 
 mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads = 1L, prepared = NULL, V = NULL) {
     .Call(`_spdeST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V)
-}
-
-mgcvst_inla_working_state_cpp <- function(A, X, B, C, O, family, size, dispersion, threads = 1L) {
-    .Call(`_spdeST_mgcvst_inla_working_state_cpp`, A, X, B, C, O, family, size, dispersion, threads)
-}
-
-mgcvst_inla_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
-    .Call(`_spdeST_mgcvst_inla_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
 }
 
 mgcvst_memory_status_cpp <- function() {

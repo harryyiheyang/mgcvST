@@ -75,10 +75,11 @@ test_that("default Gaussian variance agrees with a restricted likelihood oracle"
     response ~ z + offset(offset0), d, f$basis, family = gaussian(),
     control = list(fixed_precision = 2.5)
   )
-  fit <- inlaST.estimate(
+  fit <- spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(
     matrix(y, nrow = 1L, dimnames = list("gaussian_flat", NULL)), model,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    matrix(y, nrow = 1L, dimnames = list("gaussian_flat", NULL)), features = "all", BPPARAM = BiocParallel::SerialParam())
   target <- fit$geometry$target[["global"]]
   X <- fit$geometry$X
   B <- fit$geometry$smooth[[target]]$B

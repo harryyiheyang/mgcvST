@@ -42,6 +42,31 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_inla_compact_units_cpp
+Rcpp::List mgcvst_inla_compact_units_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::MappedSparseMatrix<double>& X, const Rcpp::NumericMatrix& B, const Rcpp::NumericMatrix& C, const Rcpp::NumericMatrix& O, const Rcpp::IntegerVector& family, const Rcpp::NumericVector& size, const Rcpp::NumericVector& dispersion, const Eigen::Map<Eigen::VectorXd> tau, const Eigen::Map<Eigen::MatrixXd> a, int threads, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision);
+RcppExport SEXP _spdeST_mgcvst_inla_compact_units_cpp(SEXP ASEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP tauSEXP, SEXP aSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type A(ASEXP);
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type Q_map(Q_mapSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type constraint(constraintSEXP);
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type B(BSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type C(CSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type O(OSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type family(familySEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type size(sizeSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type dispersion(dispersionSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type tau(tauSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type a(aSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type prepared(preparedSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type nuisance_precision(nuisance_precisionSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_compact_units_cpp(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_inla_sparse_prepare_cpp
 SEXP mgcvst_inla_sparse_prepare_cpp(const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint);
 RcppExport SEXP _spdeST_mgcvst_inla_sparse_prepare_cpp(SEXP Q_mapSEXP, SEXP constraintSEXP) {
@@ -134,50 +159,6 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< SEXP >::type prepared(preparedSEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type V(VSEXP);
     rcpp_result_gen = Rcpp::wrap(mgcvst_inla_sparse_materialize_pca_cpp(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V));
-    return rcpp_result_gen;
-END_RCPP
-}
-// mgcvst_inla_working_state_cpp
-Rcpp::List mgcvst_inla_working_state_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& X, const Rcpp::NumericMatrix& B, const Rcpp::NumericMatrix& C, const Rcpp::NumericMatrix& O, const Rcpp::IntegerVector& family, const Rcpp::NumericVector& size, const Rcpp::NumericVector& dispersion, int threads);
-RcppExport SEXP _spdeST_mgcvst_inla_working_state_cpp(SEXP ASEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP threadsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type A(ASEXP);
-    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type X(XSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type B(BSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type C(CSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type O(OSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type family(familySEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type size(sizeSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type dispersion(dispersionSEXP);
-    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_working_state_cpp(A, X, B, C, O, family, size, dispersion, threads));
-    return rcpp_result_gen;
-END_RCPP
-}
-// mgcvst_inla_compact_units_cpp
-Rcpp::List mgcvst_inla_compact_units_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::MappedSparseMatrix<double>& X, const Rcpp::NumericMatrix& B, const Rcpp::NumericMatrix& C, const Rcpp::NumericMatrix& O, const Rcpp::IntegerVector& family, const Rcpp::NumericVector& size, const Rcpp::NumericVector& dispersion, const Eigen::Map<Eigen::VectorXd> tau, const Eigen::Map<Eigen::MatrixXd> a, int threads, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision);
-RcppExport SEXP _spdeST_mgcvst_inla_compact_units_cpp(SEXP ASEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP tauSEXP, SEXP aSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type A(ASEXP);
-    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type Q_map(Q_mapSEXP);
-    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type constraint(constraintSEXP);
-    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type X(XSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type B(BSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type C(CSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type O(OSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type family(familySEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type size(sizeSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type dispersion(dispersionSEXP);
-    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type tau(tauSEXP);
-    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type a(aSEXP);
-    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type prepared(preparedSEXP);
-    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type nuisance_precision(nuisance_precisionSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_inla_compact_units_cpp(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -456,14 +437,13 @@ END_RCPP
 static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_log_adjust_cpp", (DL_FUNC) &_spdeST_mgcvst_log_adjust_cpp, 2},
     {"_spdeST_mgcvst_dense_score_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_dense_score_batch_cpp, 8},
+    {"_spdeST_mgcvst_inla_compact_units_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_compact_units_cpp, 15},
     {"_spdeST_mgcvst_inla_sparse_prepare_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_prepare_cpp, 2},
     {"_spdeST_mgcvst_inla_sparse_prepared_valid_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_prepared_valid_cpp, 1},
     {"_spdeST_mgcvst_inla_sparse_observation_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_observation_basis_cpp, 3},
     {"_spdeST_mgcvst_inla_sparse_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_batch_cpp, 12},
     {"_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp, 7},
     {"_spdeST_mgcvst_inla_sparse_materialize_pca_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_sparse_materialize_pca_cpp, 10},
-    {"_spdeST_mgcvst_inla_working_state_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_working_state_cpp, 9},
-    {"_spdeST_mgcvst_inla_compact_units_cpp", (DL_FUNC) &_spdeST_mgcvst_inla_compact_units_cpp, 15},
     {"_spdeST_mgcvst_memory_status_cpp", (DL_FUNC) &_spdeST_mgcvst_memory_status_cpp, 0},
     {"_spdeST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_nb_null_batch_cpp, 10},
     {"_spdeST_mgcvst_pca_gram_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_gram_cpp, 4},

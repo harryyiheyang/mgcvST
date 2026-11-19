@@ -14,7 +14,7 @@
   args <- c(
     list(Y = Y, G = model, feature_id = feature_id, offset = offset,
          control = s$control, retain_smooth = s$retain_smooth,
-         diagnostics = s$diagnostics, spatial = "none", adjust = adjust,
+         diagnostics = s$diagnostics, adjust = adjust,
          q.value = q.value, resume = resume),
     .spdest_supplied(BPPARAM = BPPARAM, chunk_size = chunk_size,
                      checkpoint_dir = checkpoint_dir),

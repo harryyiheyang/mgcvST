@@ -1,8 +1,4 @@
 # Factor one positive-definite fixed-kappa SPDE covariance.
-.mgcvst_spde_factor <- function(B, Q, scale) {
-  sqrt(scale) * .mgcvst_spde_factor_base(B, Q)
-}
-
 .mgcvst_spde_factor_base <- function(B, Q) {
   Q <- Matrix::forceSymmetric(Matrix::Matrix(Q, sparse = TRUE))
   R <- Matrix::chol(Q)

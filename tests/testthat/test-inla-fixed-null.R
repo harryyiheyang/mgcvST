@@ -67,9 +67,11 @@ test_that("public NB estimates retain fixed-only null scores", {
                        response ~ group + offset(offset0))) {
     model <- inlaST.set(formula, d, family = mgcv::nb(), mesh = mesh,
       kappa = .7, coordinates = c("x", "y"))
-    fit <- inlaST.estimate(matrix(y, nrow = 1L), model,
+    fit <- spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(matrix(y, nrow = 1L), model,
       offset = extra_offset, BPPARAM = BiocParallel::SerialParam(),
-      control = list(fixed_precision = 2, num_threads = 1L), threads = 1L, spatial = "all")
+      control = list(fixed_precision = 2, num_threads = 1L), threads = 1L),
+    matrix(y, nrow = 1L), features = "all", BPPARAM = BiocParallel::SerialParam(), threads = 1L)
     expect_true(fit$diagnostics$converged)
     expect_true(fit$diagnostics$null_converged)
     expect_true(is.na(fit$diagnostics$null_error_message))

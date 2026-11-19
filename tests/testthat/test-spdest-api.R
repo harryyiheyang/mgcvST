@@ -29,7 +29,7 @@ test_that("spdeST.scan and spdeST.estimate run the mgcv implementation in two ca
   expect_s3_class(scan, "spdeST_scan")
   expect_identical(scan$stage1$null_engine, "spde.scan")
   expect_false(any(scan$diagnostics$spatial_fitted))
-  direct <- mgcvST.estimate(Y, model, BPPARAM = sp, spatial = "none")
+  direct <- mgcvST.estimate(Y, model, BPPARAM = sp)
   expect_identical(scan$diagnostics$marginal_p_value, direct$diagnostics$marginal_p_value)
 
   fit <- spdeST.estimate(scan, Y, features = c("g2", "g4"), BPPARAM = sp)
@@ -69,7 +69,7 @@ test_that("mgcvST.set fixes the estimation settings with the model", {
   spdeST.scan(f$Y, model, chunk_size = 2L)
   expect_identical(calls$gamma, 1.2)
   expect_true(calls$retain_smooth)
-  expect_identical(calls$spatial, "none")
+  expect_false("spatial" %in% names(calls))
   expect_identical(calls$chunk_size, 2L)
   expect_null(calls$BPPARAM)
 })
@@ -91,7 +91,7 @@ test_that("spdeST.scan and spdeST.estimate run the INLA implementation in two ca
   scan <- spdeST.scan(Y, model, BPPARAM = sp)
   expect_s3_class(scan, c("spdeST_scan", "inlaST_fit"))
   expect_identical(scan$stage1$null_engine, "spde.scan")
-  direct <- inlaST.estimate(Y, model, BPPARAM = sp, spatial = "none",
+  direct <- inlaST.estimate(Y, model, BPPARAM = sp,
                             retain_smooth = TRUE)
   expect_equal(scan$diagnostics$marginal_p_value,
                direct$diagnostics$marginal_p_value, tolerance = 1e-12)

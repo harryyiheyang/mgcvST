@@ -256,7 +256,9 @@ test_that("the memory guard skips the adjustment and the in-memory table", {
 
 test_that("adjustment arguments are validated and shared by both tests", {
   f <- st_fixture()
-  fit <- mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_error(mgcvST.test(fit, adjust = "holm", moments = "exact"), "should be one of")
   expect_error(mgcvST.test(fit, q.value = 0, moments = "exact"), "q.value")
   expect_error(mgcvST.test(fit, threads = 0L, moments = "exact"), "threads")

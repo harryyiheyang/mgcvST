@@ -14,7 +14,7 @@
   ))
 }
 
-#' Construct a reusable mgcvST model setting
+#' Construct the mgcv model behind inlaST.set()
 #'
 #' Builds the reusable `mgcv::gam(..., fit = FALSE)` setup consumed by
 #' [mgcvST.estimate()]. The response name on the left-hand side is a label: it
@@ -39,7 +39,7 @@
 #' @return An object of class `mgcvST_model` for [mgcvST.estimate()]. It
 #'   stores the basis `kappa_unit`, `unit_length`, `coordinate_span` and
 #'   `kappa_internal`.
-#' @export
+#' @keywords internal
 model.set <- function(
     formula, data, basis, family = mgcv::nb(),
     setting = "global", coordinates = c("x", "y"), ...) {

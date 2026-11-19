@@ -210,14 +210,16 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
   eta <- 0.3 + 0.4 * mm$z + 0.5 * sin(mm$x) * cos(mm$y)
   Y <- rbind(a = eta + rnorm(n, sd = 0.3), b = eta + rnorm(n, sd = 0.3))
   # Fixed precisions keep tau * Q identical: Q_um = 1000^-2 Q_mm in 2D.
-  fit_mm <- inlaST.estimate(
+  fit_mm <- spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(
     Y, m_mm, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09), spatial = "all"
-  )
-  fit_um <- inlaST.estimate(
+    control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
+  fit_um <- spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(
     Y, m_um, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2e6, gaussian_precision = 1 / 0.09), spatial = "all"
-  )
+    control = list(fixed_precision = 2e6, gaussian_precision = 1 / 0.09)),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_identical(fit_um$kappa_unit, 0.05)
   expect_equal(fit_um$unit_length / fit_mm$unit_length, 1000)
   expect_true(all(is.finite(fit_mm$diagnostics$marginal_p_value)))

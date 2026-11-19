@@ -1,3 +1,28 @@
+# spdeST 0.0.1.9054
+
+* Code that no entry point reaches is deleted:
+  * `mgcvST.estimate()` loses `source_files`, `worker_init`,
+    `marginal_test`, `marginal_args`, `method` and the raw
+    `gam(fit = FALSE)` input (use `mgcvST.set(G = ...)`); the package-local
+    TAPS marginal test (`taps_score_test()`, R/marginal-taps.R) behind
+    `marginal_test` is deleted, and Stage 1 of a GAM null is the null score
+    test only. The mgcv model always has the shared design of `mgcvST.set()`,
+    so the per-fit geometry signature cache and its seeding loop are deleted.
+  * `mgcvST.estimate()` and `inlaST.estimate()` lose `spatial`: they are
+    Stage 1 only, and Stage 2 is `spdeST.estimate()`.
+  * The exported RKHS score interface (`rkhs_score_operator()`,
+    `rkhs_score_apply_P()`, `rkhs_score_summary()`,
+    `rkhs_covariance_score()`, `rkhs_score_calibrate()`) and the
+    mesh-level helpers `spde_fem()`, `spde_project()`, `spde_model()` and
+    `spde_precision()` are deleted; `rkhs_extract_working_model()` and
+    `model.set()` are internal.
+  * `.mgcvst_spde_factor()`, `.inlast_working_state()` and its compiled
+    kernel `mgcvst_inla_working_state_cpp()` are deleted
+    (src/inla_working_state.cpp is now src/inla_compact_units.cpp).
+* The packaged examples (inst/examples/MISO_E13.R, Visium_B.R,
+  inla_estimator.R) and the README use `spdeST.scan()`, `spdeST.estimate()`
+  and `spdeST.test()`.
+
 # spdeST 0.0.1.9053
 
 * The package is renamed from mgcvST to spdeST: `library(spdeST)`,

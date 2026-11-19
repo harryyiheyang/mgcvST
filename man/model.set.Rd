@@ -2,7 +2,7 @@
 % Please edit documentation in R/model-set.R
 \name{model.set}
 \alias{model.set}
-\title{Construct a reusable mgcvST model setting}
+\title{Construct the mgcv model behind inlaST.set()}
 \usage{
 model.set(
   formula,
@@ -49,3 +49,4 @@ right-hand side are retained.
 global spatial score process. Other user smoothers contribute nuisance
 covariance to the marginal working model but are not score directions.
 }
+\keyword{internal}

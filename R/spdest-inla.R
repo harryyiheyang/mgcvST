@@ -13,7 +13,7 @@
   args <- c(
     list(Y = Y, model = model, feature_id = feature_id, offset = offset,
          retain_smooth = s$retain_smooth, diagnostics = s$diagnostics,
-         threads = threads, spatial = "none", adjust = adjust,
+         threads = threads, adjust = adjust,
          q.value = q.value, resume = resume),
     .spdest_supplied(BPPARAM = BPPARAM, chunk_size = chunk_size,
                      checkpoint_dir = checkpoint_dir)

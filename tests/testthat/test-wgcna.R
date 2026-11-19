@@ -13,10 +13,11 @@ test_that("WGCNA parameters and gene blocks have explicit contracts", {
   expect_error(parameters(list(minClusterSize = 2.5)), "integer of at least 2")
 
   f <- st_fixture(n = 45L, family = gaussian())
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_error(mgcvST.wgcna(fit), "indices must explicitly")
   expect_error(mgcvST.wgcna(fit, c(1.1, 2)), "valid integer feature positions")
   expect_error(mgcvST.wgcna(fit, c("response", "missing")), "Unknown feature ID")
@@ -31,10 +32,11 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   skip_if_not_installed("fastcluster")
 
   f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   before <- serialize(fit, NULL)
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   para <- list(power = 4, minClusterSize = 2L, deepSplit = 0L)
@@ -81,10 +83,11 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   skip_if_not_installed("fastcluster")
 
   f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
-  fit <- mgcvST.estimate(
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
+    BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   W <- mgcvST.wgcna(fit, ids)
   pairs <- t(utils::combn(ids, 2L))
@@ -103,8 +106,10 @@ test_that("WGCNA preserves overlapping block order", {
   skip_if_not_installed("geometry")
 
   f <- st_fixture(family = gaussian())
-  fit <- mgcvST.estimate(f$Y, f$G, diagnostics = FALSE,
-                         BPPARAM = BiocParallel::SerialParam(), spatial = "all")
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
+                         BPPARAM = BiocParallel::SerialParam()),
+    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   ids <- fit$feature_id
   blocks <- list(second = ids[c(3L, 1L, 2L)], first = ids[c(2L, 1L, 3L)])
 
@@ -137,7 +142,9 @@ test_that("inlaST.wgcna rejects an mgcv fit and names the right entry point", {
   skip_on_cran()
   skip_if_not_installed("geometry")
   f <- st_fixture()
-  fit <- mgcvST.estimate(f$Y, f$G, spatial = "all")
+  fit <- spdeST:::mgcvST.estimate_spatial(
+    mgcvST.estimate(f$Y, f$model),
+    f$Y, features = "all")
   expect_error(
     inlaST.wgcna(fit, rownames(f$Y)),
     "requires a fit returned by inlaST.estimate"
@@ -164,10 +171,11 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
     c = eta + rnorm(n, sd = 0.3), d = eta + rnorm(n, sd = 0.3)
   )
   model <- inlaST.set(response ~ z, data, basis, family = gaussian())
-  fit <- inlaST.estimate(
+  fit <- spdeST:::inlaST.estimate_spatial(
+    inlaST.estimate(
     Y, model, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09), spatial = "all"
-  )
+    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09)),
+    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   ids <- rownames(Y)
   used <- match(ids, fit$feature_id)
 

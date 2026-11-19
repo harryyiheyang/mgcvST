@@ -8,11 +8,9 @@
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::plugins(openmp)]]
 
-// Shared compact working-state reconstruction for sparse INLA fits: saved
-// coefficients -> eta, mu and working variance, and the double
-// reconstruction units that PCAlearning materializes from. These two entry
-// points are what the PCAlearning pair path (R/pair-pcalearning.R) and the
-// INLA scale computation consume.
+// Compact reconstruction for sparse INLA fits: the double reconstruction
+// units, from the saved coefficients and family parameters, that the
+// PCAlearning pair path (R/pair-pcalearning.R) materializes from.
 
 using namespace mgcvst_sparse;
 
@@ -87,45 +85,6 @@ Mat penalty_matrix(const Rcpp::Nullable<Rcpp::NumericMatrix>& precision, int px,
 }
 
 }  // namespace
-
-// Shared working-state step: eta = offset + X c + A b, mu and working
-// variance for each feature from its saved coefficients and family parameters.
-// [[Rcpp::export]]
-Rcpp::List mgcvst_inla_working_state_cpp(
-    const Eigen::MappedSparseMatrix<double>& A,
-    const Eigen::MappedSparseMatrix<double>& X,
-    const Rcpp::NumericMatrix& B, const Rcpp::NumericMatrix& C,
-    const Rcpp::NumericMatrix& O, const Rcpp::IntegerVector& family,
-    const Rcpp::NumericVector& size, const Rcpp::NumericVector& dispersion,
-    int threads = 1) {
-  check_threads(threads);
-  const Compact z = parse_compact(A, X, B, C, O, family, size, dispersion);
-  const int n = A.rows();
-  Rcpp::NumericMatrix eta(n, z.k), mu(n, z.k), variance(n, z.k);
-  std::vector<std::string> error(z.k);
-#ifdef _OPENMP
-#pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
-#endif
-  for (int f = 0; f < z.k; ++f) {
-    Vec e, m, v;
-    try {
-      recover_working(z.A, z.X, z.model(f), e, m, v);
-      std::memcpy(&eta(0, f), e.data(), sizeof(double) * n);
-      std::memcpy(&mu(0, f), m.data(), sizeof(double) * n);
-      std::memcpy(&variance(0, f), v.data(), sizeof(double) * n);
-    } catch (const std::exception& x) {
-      error[f] = x.what();
-      for (int i = 0; i < n; ++i) eta(i, f) = mu(i, f) = variance(i, f) = NA_REAL;
-    }
-  }
-  Rcpp::CharacterVector error_out(z.k);
-  for (int f = 0; f < z.k; ++f) {
-    error_out[f] = error[f].empty() ? NA_STRING : Rcpp::String(error[f]);
-  }
-  return Rcpp::List::create(Rcpp::Named("eta") = eta, Rcpp::Named("mu") = mu,
-                            Rcpp::Named("variance") = variance,
-                            Rcpp::Named("error") = error_out);
-}
 
 // Serializable double reconstruction units from saved coefficients; a is the
 // saved full-space score of each feature.

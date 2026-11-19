@@ -15,7 +15,6 @@ inlaST.estimate(
   retain_smooth = FALSE,
   diagnostics = FALSE,
   threads = 1L,
-  spatial = "discoveries",
   adjust = c("BY", "BH", "Sidak", "none"),
   q.value = 0.05,
   checkpoint_dir = NULL,
@@ -91,13 +90,6 @@ diagnostics in \code{inla_diagnostics}.}
 \item{threads}{OpenMP threads per worker for the sparse marginal and score
 computations of the workers.}
 
-\item{spatial}{Features that receive a spatial model in step 2:
-\code{"discoveries"} (the default; the features with Stage 1 q-value at most
-\code{q.value}), \code{"all"}, \code{"none"}, a vector of feature IDs or one-based
-indices, or a logical vector with one value per feature. A user-given
-vector allows, for example, a Stage 1 adjustment within a modality or a
-family of features that the user performs outside this function.}
-
 \item{adjust}{Multiple-testing adjustment of the Stage 1 p-values:
 \code{"BY"} (the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
 
@@ -121,12 +113,12 @@ Fits one latent Gaussian model per feature with INLA and returns the compact
 working-model contract consumed by \code{\link[=inlaST.test]{inlaST.test()}}. No GAM fit is used.
 }
 \details{
-Estimation has two steps. Step 1 fits only the null model (no spatial
-field) of every feature and computes the Stage 1 null-first p-value of its
-marginal score test inside the worker; the p-values are then adjusted by
-\code{adjust} into the Stage 1 q-values \code{diagnostics$marginal_q_value}. Step 2
-fits the spatial model of the features chosen by \code{spatial} only, and
-computes their score vector and the mean of the fitted mean in the worker.
+This function is Stage 1, the method behind \code{\link[=spdeST.scan]{spdeST.scan()}}: it fits only
+the null model (no spatial field) of every feature and computes the Stage 1
+null-first p-value of its marginal score test inside the worker; the
+p-values are then adjusted by \code{adjust} into the Stage 1 q-values
+\code{diagnostics$marginal_q_value}. Stage 2, \code{\link[=inlaST.estimate_spatial]{inlaST.estimate_spatial()}},
+fits the spatial model of the chosen features and computes their score vector and the mean of the fitted mean in the worker.
 No worker returns an observation-length vector: the manager holds the
 compact per-feature estimates only, so its memory grows with the number of
 features and the mesh size, not with the number of observations. Features

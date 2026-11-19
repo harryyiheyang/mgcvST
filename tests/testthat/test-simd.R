@@ -16,7 +16,7 @@ test_that("the full-spectrum pair kernel equals the single-pair reference", {
   expect_true(all(z$status == 0L))
   expect_true(all(z$remainder_kind == 0L))
   for (t in seq_len(nrow(pr))) {
-    ref <- rkhs_score_calibrate(z$score[t], H[[pr[t, 1L]]], H[[pr[t, 2L]]])
-    expect_equal(z$log_p_two_sided[t], ref$log_p_two_sided, tolerance = 1e-8)
+    ref <- .pair_ref_log_p(z$score[t], H[[pr[t, 1L]]], H[[pr[t, 2L]]])
+    expect_equal(z$log_p_two_sided[t], ref, tolerance = 1e-8)
   }
 })

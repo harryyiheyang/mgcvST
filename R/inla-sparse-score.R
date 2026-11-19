@@ -282,18 +282,6 @@
   )
 }
 
-# Shared step: eta, mu and working variance (n x features) recovered from the
-# saved coefficients and family parameters.
-.inlast_working_state <- function(fit, features, threads = 1L) {
-  fit <- .inlast_sparse_prepare(fit)
-  cache <- fit$score_sparse$cache
-  z <- .inlast_compact_inputs(fit, features, penalty = FALSE)
-  mgcvst_inla_working_state_cpp(
-    cache$general_A, cache$general_X, z$B, z$C, z$O, z$family, z$size,
-    z$dispersion, as.integer(threads)
-  )
-}
-
 # Double reconstruction units (K, U, Vp, H factor) from the shared working
 # state, carrying the saved score vector a_j.
 .inlast_sparse_units <- function(fit, features, threads = 1L) {

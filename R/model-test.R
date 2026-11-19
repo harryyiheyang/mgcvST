@@ -316,7 +316,7 @@
 #' the remainder; it has no default. With `moments = "exact"`, the shared basis
 #' of an mgcv fit holds all `q` eigenvectors of the summed, normalized score
 #' covariances, so every pair uses its full singular spectrum and no remainder:
-#' the p-value is the full-spectrum saddlepoint of [rkhs_score_calibrate()].
+#' the p-value is the full-spectrum saddlepoint of the pair.
 #' On a sparse INLA fit ([inlaST.test()]) the exact route holds the `k = 20`
 #' leading eigenvectors, every pair needs the four exact trace moments
 #' `tr((H_i H_j)^s)`, `s = 1, ..., 4`, and the remainder is two moment-matched

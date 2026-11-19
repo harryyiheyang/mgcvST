@@ -184,7 +184,7 @@
 
 #' Prepare a sparse INLA estimator for spdeST
 #'
-#' Constructs the same fixed-kappa SPDE score geometry as [model.set()] while
+#' Constructs the same fixed-kappa SPDE score geometry as [mgcvST.set()] while
 #' retaining raw sparse mesh precision matrices for INLA. Each spatial field is
 #' always constrained to have zero mean at the observed locations.
 #'

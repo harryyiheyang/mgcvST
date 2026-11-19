@@ -2,7 +2,7 @@
 % Please edit documentation in R/mgcvst-api.R
 \name{mgcvST.estimate}
 \alias{mgcvST.estimate}
-\title{Estimate compact covariance working summaries}
+\title{Stage 1 of the mgcv implementation}
 \usage{
 mgcvST.estimate(
   Y,
@@ -10,17 +10,11 @@ mgcvST.estimate(
   feature_id = rownames(Y),
   BPPARAM = BiocParallel::bpparam(),
   chunk_size = NULL,
-  source_files = NULL,
-  worker_init = NULL,
-  marginal_test = NULL,
-  marginal_args = list(),
-  method = "REML",
   retain_smooth = FALSE,
   control = mgcv::gam.control(nthreads = 1L),
   ...,
   diagnostics = FALSE,
   offset = NULL,
-  spatial = "discoveries",
   adjust = c("BY", "BH", "Sidak", "none"),
   q.value = 0.05,
   checkpoint_dir = NULL,
@@ -30,180 +24,64 @@ mgcvST.estimate(
 \arguments{
 \item{Y}{Numeric feature-by-observation matrix.}
 
-\item{G}{A model returned by \code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=model.set]{model.set()}}, or a reusable
-setup returned by \code{mgcv::gam(..., fit = FALSE)} with one marked SPDE
-smooth (Gaussian, negative-binomial, Poisson or quasi-Poisson family). Its
-response is replaced by each row of \code{Y}.}
+\item{G}{A model returned by \code{\link[=mgcvST.set]{mgcvST.set()}}.}
 
 \item{feature_id}{Unique feature identifiers. Defaults to \code{rownames(Y)} or
 sequential identifiers.}
 
 \item{BPPARAM}{A \code{BiocParallelParam}; defaults to the registered \code{bpparam()}.}
 
-\item{chunk_size}{Positive integer number of genes per task, or \code{NULL}. The
-default creates at most one chunk per worker, limiting repeated
-serialization on SOCK workers. A chunk payload is built when a worker takes
-the chunk, so at most about one chunk of \code{Y} per worker is copied.}
+\item{chunk_size}{Positive integer number of features per task, or \code{NULL}
+(at most one chunk per worker; at most 50 features with a checkpoint).}
 
-\item{source_files}{Ordered R files, or directories containing R files, to
-source once per worker. Use this for sourced custom S3 smooth methods.}
+\item{retain_smooth}{Retain the score-component coefficients of the spatial
+fits of Stage 2.}
 
-\item{worker_init}{Optional zero-argument initialization function run once
-per worker after \code{source_files}.}
-
-\item{marginal_test}{Optional function implementing the corrected marginal
-spatial score interface. \code{NULL} uses spdeST's package-local implementation.
-A custom function is used only when explicitly supplied.}
-
-\item{marginal_args}{Named list of additional marginal-score arguments.
-\code{fit}, \code{test.component}, and \code{n_threads} are controlled by mgcvST.
-The built-in test uses Davies with the saddlepoint fallback described in
-Details, typically needed in the extreme upper tail; its \code{method} accepts
-only \code{"davies"}, and \code{max_eps} and \code{max_iter} set the Davies accuracy and
-integration limit. No additional marginal call is needed.}
-
-\item{method}{Retained for API compatibility. Null and full fits use
-\code{mgcv::bam(method = "fREML", discrete = TRUE)}, except a null model with
-one parametric coefficient and no smooths uses \code{mgcv::gam(method = "REML")}
-to avoid BAM's one-column QR dimension error.}
-
-\item{retain_smooth}{Logical; retain the feature-by-coefficient smooth
-coefficient matrix of the score component. This opt-in representation
-supports prediction and other downstream uses without retaining full
-\code{gam} objects.}
-
-\item{control}{An \code{mgcv::gam.control()} object. Internal thread counts are
-always forced to one. With a negative-binomial family each feature first
-gets its offset-and-covariate-only Poisson GLM, and it is fitted with
-\code{stats::poisson(link = "log")} when its overdispersion score
-\code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
-maximum-likelihood fit is the Poisson fit (there is no threshold to set;
-the earlier \code{poisson_screen_phi} entry is refused), with dispersion 1 as
-in the INLA path.
-Per-feature \code{prescreen_phi} (the Pearson dispersion of the Poisson fit)
-and \code{family_used} are reported in the diagnostics, and \code{family_used} reads
-\code{"poisson"} for a routed gene.}
+\item{control}{An \code{mgcv::gam.control()} object.}
 
 \item{...}{Additional arguments passed to \code{mgcv::bam()}.}
 
-\item{diagnostics}{Logical; compute \code{summary.gam()}/Wood diagnostics.
-FALSE (default) leaves Wood fields NA without calling summary.
-Basic convergence and fitting diagnostics are still retained.}
+\item{diagnostics}{Compute \code{summary.gam()} diagnostics in Stage 2.}
 
-\item{offset}{Optional additional log/link-scale offset for a model prepared
-by \code{\link[=mgcvST.set]{mgcvST.set()}} (or a \code{gam(fit = FALSE)} setup passed as \code{G}): a shared
-observation-length vector or a feature-by-observation matrix in exactly
-the same order as \code{Y}. Added to the shared formula/setup offset. A matrix
-is kept on the fit (in the total offset and for a later step 2).
-Covariates and smooths are fixed by \code{mgcvST.set()} and cannot vary by
-gene.}
-
-\item{spatial}{Features that receive a spatial model in step 2:
-\code{"discoveries"} (the default; the features with Stage 1 q-value at most
-\code{q.value}), \code{"all"}, \code{"none"}, a vector of feature IDs or one-based
-indices, or a logical vector with one value per feature. A user-given
-vector allows, for example, a Stage 1 adjustment within a modality or a
-family of features that the user performs outside this function.}
+\item{offset}{Optional additional log-scale offset: an observation-length
+vector or a feature-by-observation matrix in the order of \code{Y}. A matrix
+is kept on the fit for Stage 2.}
 
 \item{adjust}{Multiple-testing adjustment of the Stage 1 p-values:
 \code{"BY"} (the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
 
 \item{q.value}{Stage 1 discovery threshold in \verb{(0, 1]}.}
 
-\item{checkpoint_dir}{Optional directory for the resumable chunk checkpoints
-of both steps.}
+\item{checkpoint_dir}{Optional directory for the resumable chunk checkpoints.}
 
 \item{resume}{Reuse the completed chunks of a compatible checkpoint.}
 }
 \value{
-A compact object of class \code{mgcvST_model_fit} (also \code{mgcvST_fit})
-containing marginal score p-values, feature IDs, working errors and
-variances, separate per-feature \code{dispersion} and \code{lambda}, shared score
-geometry, optimized fit criterion and its original mgcv name, exact
-residual degrees of freedom, timing, and convergence diagnostics. One
-shared \code{geometry$nuisance_design} and one small conditional nuisance
-block per feature in \code{nuisance_covariance} are retained; full GAM and
-\code{Vp} objects are discarded. When \code{retain_smooth = TRUE}, it also contains
-\code{smooth_coefficients}. Score methods derive the field scale as
-\code{dispersion / lambda}. The diagnostics table holds \code{marginal_q_value},
-\code{spatial_selected} and \code{spatial_fitted}, and \code{y_digest} records a digest
-of each response row, which \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} checks.
+A compact \code{mgcvST_model_fit} (also \code{mgcvST_fit}) with the Stage 1
+p-values and q-values in \code{diagnostics}, \code{y_digest} of each response row
+and the estimation context that \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} reuses.
 }
 \description{
-Fits each row of \code{Y} from a reusable shared design and retains the fixed
-numerical summaries needed by \code{\link[=mgcvST.test]{mgcvST.test()}}. \code{G} is a model prepared by
-\code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=model.set]{model.set()}}, or a reusable
-\code{mgcv::gam(..., fit = FALSE)} setup, which is converted as by
-\code{mgcvST.set(G = G)}; both enter the same estimation and testing path.
+The method behind \code{\link[=spdeST.scan]{spdeST.scan()}} for a model from \code{\link[=mgcvST.set]{mgcvST.set()}}: the null
+fit and Stage 1 score test of every feature. When the null has no smooth
+term, the family is \code{nb()} with an estimated size and the tested smooth is
+an spde smooth, Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on the raw sparse field of the
+smooth's basis; otherwise every feature gets its null GAM
+(\code{mgcv::bam(method = "fREML", discrete = TRUE)}, or \code{mgcv::gam(method = "REML")} for a null with one parametric coefficient and no smooth) and the
+score test of the target block, calibrated by Davies with the saddlepoint
+when Davies fails. \code{fit$stage1$null_engine} records \code{"spde.scan"} or
+\code{"gam"}; \code{options(mgcvST.scan_null = FALSE)} keeps the GAM nulls. With a
+negative-binomial family a feature whose Poisson overdispersion score
+\code{sum((y - mu)^2 - y) / 2} is not positive is fitted as Poisson. No spatial
+model is fitted here: \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} fits Stage 2.
 }
 \details{
-Estimation has two steps. Step 1 fits the null model with the spatial score
-smooth removed for every feature; the marginal screening uses that null
-PIRLS state, the prepared \code{G$X}, and the target penalty, and the Stage 1
-null-first p-values are adjusted by \code{adjust} into the Stage 1 q-values
-\code{diagnostics$marginal_q_value}. When the null has no smooth term (offset
-and parametric covariates only), the family is \code{nb()} with an estimated
-size and the tested smooth is an spde smooth, Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on
-the raw sparse field \code{A}, \code{Q} of the smooth's basis, the same function
-\code{\link[=inlaST.estimate]{inlaST.estimate()}} calls: GLM nulls by maximum likelihood and the score
-with the null projection \code{P0} only. A feature routed to Poisson is fitted
-as Poisson there. \code{fit$stage1$null_engine} records \code{"spde.scan"} or
-\code{"gam"}; \code{options(mgcvST.scan_null = FALSE)} keeps the per-feature GAM
-nulls.
-No null fit keeps a working vector. Step 2
-fits the spatial model of the features chosen by \code{spatial} only. Features
-without a spatial model are marked \code{spatial_fitted = FALSE} in the
-diagnostics, have missing working errors, variances, \code{dispersion} and
-\code{lambda}, and are unavailable to \code{\link[=mgcvST.test]{mgcvST.test()}} and \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}};
-\code{pairs = NULL} in \code{\link[=mgcvST.test]{mgcvST.test()}} means all pairs among the features with a
-spatial model. \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} adds spatial models for more
-features after step 1.
-
-With \code{checkpoint_dir}, every completed chunk of either step is saved by the
-worker that computed it, and a repeated call with the same arguments resumes
-from the saved chunks. Chunks are keyed by their step, features, responses
-and family routing, so pass \code{chunk_size} explicitly for a resumable run:
-without it the chunks depend on the number of workers (and step 2 on the
-number of selected features), and a changed chunking recomputes rather than
-reuses. A chunk whose result holds a failed feature is computed again on
-resume. A checkpoint directory written for another model, offset or control
-is refused. Without \code{chunk_size}, a run with a checkpoint directory uses
-chunks of at most 50 features.
-
-Wood diagnostics are optional (\code{diagnostics = TRUE}).
-The marginal test is the package-local \code{taps_score_test()}, using the TAPS
-arithmetic included in mgcvST. No external mgcv.taps installation or sourced
-score function is required. Full \code{gam} objects are never
-retained. Genes are processed in chunks through \code{BiocParallel}; the default
-uses the registered backend. On Windows, use a persistent
-\code{SnowParam(type = "SOCK")}. \code{\link[=mgcvST.test]{mgcvST.test()}} runs in the calling process with
-OpenMP \code{threads} and takes no \code{BiocParallel} backend.
-A fitting, compaction, or marginal-test error is recorded for that feature;
-the other features continue. A marginal-test error leaves the already
-constructed compact working model intact and only its marginal p-value
-unavailable.
-The built-in marginal test is calibrated by Davies. When Davies errors,
-returns a missing or non-finite p-value, or returns a value outside
-(0, 1], the saddlepoint approximation (Kuonen 1999) is used instead.
-Marginal diagnostics retain the requested method, the method actually used
-(\code{"davies"} or \code{"saddlepoint"}), and a Davies-to-saddlepoint fallback flag.
-Custom callbacks that omit method metadata leave the corresponding
-diagnostics as \code{NA}.
-
-\code{source_files} supports source-first custom smooths. Each SOCK worker
-sources the ordered files once, before it evaluates a chunk. Multicore
-children inherit the parent state, while the same guard remains harmless.
-Every worker sets common BLAS/OpenMP thread controls to one, and \code{control}
-is forced to \code{nthreads = 1} and \code{ncv.threads = 1}.
-
-Keep \code{SerialParam()} for reproducible small jobs. On Windows, the standard
-parallel backend is a persistent \code{SnowParam(type = "SOCK")}. On a
-single-node Linux Slurm allocation, prefer \code{MulticoreParam()} when forking
-is available; do not force SOCK workers on Linux. Persistent SOCK workers
-are useful when fork is unavailable and their startup cost is amortized
-across a large scan.
-}
-\seealso{
-\code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} to add spatial models after step 1.
+With \code{checkpoint_dir}, every completed chunk is saved by the worker that
+computed it, and a repeated call resumes from the saved chunks. Chunks are
+keyed by their step, features, responses and family routing; pass
+\code{chunk_size} explicitly for a resumable run. A checkpoint directory written
+for another model, offset or control is refused. Every worker sets the
+BLAS/OpenMP thread controls to one, and \code{control} is forced to
+\code{nthreads = 1} and \code{ncv.threads = 1}.
 }
 \keyword{internal}

@@ -21,3 +21,4 @@ and returns the diagonal working variance \code{phi / W}. For binomial matrix
 responses, \code{mgcv} stores proportions in \code{fit$y} and trials in the prior
 weights, so the same expression applies.
 }
+\keyword{internal}
