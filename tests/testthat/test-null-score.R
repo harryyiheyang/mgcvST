@@ -1,15 +1,3 @@
-test_that("null-first BAM score retains a calibration cache", {
-  f <- st_fixture(nuisance = TRUE)
-  fit <- mgcvST.estimate(
-    f$Y[1L, , drop = FALSE], f$model, retain_marginal = TRUE,
-    BPPARAM = BiocParallel::SerialParam(), spatial = "all"
-  )
-  expect_true(is.finite(fit$diagnostics$marginal_p_value[1L]))
-  expect_identical(fit$marginal_data$version, 2L)
-  out <- mgcvST.marginal(fit)
-  expect_true(is.finite(out$p_value[1L]))
-})
-
 test_that("external GAM setup uses its fixed null design", {
   f <- st_fixture()
   fit <- mgcvST.estimate(
@@ -94,15 +82,13 @@ test_that("single-coefficient null scores agree with direct GAM fits", {
     expected <- mgcvST:::.mgcvst_null_score_test(direct, setup)
     for (G in list(model, model$G)) {
       fit <- mgcvST.estimate(
-        f$Y[1L, , drop = FALSE], G, control = control, retain_marginal = TRUE,
+        f$Y[1L, , drop = FALSE], G, control = control,
         BPPARAM = BiocParallel::SerialParam(), spatial = "all"
       )
       expect_true(is.finite(fit$diagnostics$marginal_p_value))
       expect_true(all(is.na(fit$diagnostics$error_message)))
       expect_equal(fit$diagnostics$marginal_p_value, expected$smooth.pvalue,
                    tolerance = 1e-8)
-      retained <- mgcvST.marginal(fit)
-      expect_equal(retained$p_value, expected$smooth.pvalue, tolerance = 1e-8)
     }
   }
 })

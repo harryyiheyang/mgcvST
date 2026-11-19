@@ -13,7 +13,6 @@ test_that("mandatory marginal preserves existing fitting outputs", {
     expect_identical(fast$working_variance, a$working_variance)
     expect_identical(fast$lambda, a$lambda)
     expect_true(all(fast$diagnostics$marginal_p_value == .375))
-    expect_null(fast$marginal_data)
   }
 })
 
@@ -148,7 +147,8 @@ test_that("new switches reject non-logical values", {
   expect_error(mgcvST.estimate(NULL, NULL, marginal_test = NULL,
                                marginal_args = list(), marginal = NA, spatial = "all"), "always runs")
   expect_error(mgcvST.estimate(NULL, NULL, diagnostics = 0, spatial = "all"), "diagnostics must")
-  expect_error(mgcvST.estimate(NULL, NULL, retain_marginal = 1, spatial = "all"), "retain_marginal must")
+  expect_error(mgcvST.estimate(NULL, NULL, retain_marginal = TRUE, spatial = "all"),
+               "retain_marginal and mgcvST.marginal\\(\\) were removed")
 })
 
 test_that("a raw gam setup and the prepared model give identical estimates and tests", {

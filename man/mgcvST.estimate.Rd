@@ -91,10 +91,6 @@ and \code{family_used} are reported in the diagnostics, and \code{family_used} r
 FALSE (default) leaves Wood fields NA without calling summary.
 Basic convergence and fitting diagnostics are still retained.}
 
-\item{retain_marginal}{Logical; retain minimal null-fit inputs for a later
-\code{mgcvST.marginal()} recalibration call. FALSE by default. Marginal testing
-during estimation is always performed; full gam objects are never retained.}
-
 \item{offset}{Optional additional log/link-scale offset for a model prepared
 by \code{\link[=mgcvST.set]{mgcvST.set()}} (or a \code{gam(fit = FALSE)} setup passed as \code{G}): a shared
 observation-length vector or a feature-by-observation matrix in exactly
@@ -153,8 +149,8 @@ the raw sparse field \code{A}, \code{Q} of the smooth's basis, the same function
 \code{\link[=inlaST.estimate]{inlaST.estimate()}} calls: GLM nulls by maximum likelihood and the score
 with the null projection \code{P0} only. A feature routed to Poisson is fitted
 as Poisson there. \code{fit$stage1$null_engine} records \code{"spde.scan"} or
-\code{"gam"}, and
-\code{options(mgcvST.scan_null = FALSE)} restores the per-feature GAM nulls.
+\code{"gam"}; \code{options(mgcvST.scan_null = FALSE)} keeps the per-feature GAM
+nulls.
 No null fit keeps a working vector. Step 2
 fits the spatial model of the features chosen by \code{spatial} only. Features
 without a spatial model are marked \code{spatial_fitted = FALSE} in the

@@ -146,14 +146,14 @@
 }
 
 # Step 1 worker for model.set() fits: the null fit and the corrected marginal
-# score test of every feature of a chunk. Only the marginal result (and, with
-# retain_marginal, the small cache of the null fit) is returned: no working
+# score test of every feature of a chunk. Only the marginal result is
+# returned: no working
 # vector of any null fit leaves the worker. The chunk is saved by the worker
 # when the payload names a checkpoint file.
 .mgcvst_null_chunk <- function(payload, G0, family_raw, control, gam_args,
                                source_files, worker_init, init_key,
                                marginal_test, marginal_args,
-                               retain_marginal = FALSE, routed_family_raw = NULL,
+                               routed_family_raw = NULL,
                                scan = FALSE) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   out <- vector("list", length(payload$index))
@@ -164,7 +164,8 @@
   # spde.scan (R/spde-scan.R): the Stage 1 of the chunk, as inlaST.estimate().
   if (isTRUE(scan)) {
     out <- do.call(get(".mgcvst_scan_chunk", envir = asNamespace("mgcvST")),
-                   c(list(payload, G0, target_index, null_setup$X0), marginal_args))
+                   c(list(payload, G0, target_index, null_setup$X0),
+                     marginal_args[setdiff(names(marginal_args), "method")]))
     .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
     return(out)
   }
@@ -194,9 +195,7 @@
         marginal_result$requested_method,
       marginal_method = if (failed) NA_character_ else marginal_result$method,
       marginal_fallback = if (failed) NA else marginal_result$fallback,
-      marginal_error = if (failed) .mgcvst_condition(marginal_result) else NULL,
-      marginal_state = if (retain_marginal && !failed)
-        list(marginal_cache = marginal_result$cache) else NULL
+      marginal_error = if (failed) .mgcvst_condition(marginal_result) else NULL
     )
   }
   .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
@@ -260,7 +259,7 @@
 # offsets, controls and options that the chunk results depend on.
 .mgcvst_model_signature <- function(model, method, control, gam_args,
                                     offset, feature_id, retain_smooth,
-                                    diagnostics, retain_marginal, marginal_args,
+                                    diagnostics, marginal_args,
                                     marginal_test) {
   # The family enters by name, link and fixed parameters: serialized closures
   # differ between sessions (byte code, environments) and would make a
@@ -281,7 +280,7 @@
     method = method, control = control, gam_args = gam_args,
     extra_offset = offset, feature_id = feature_id,
     retain_smooth = retain_smooth, diagnostics = diagnostics,
-    retain_marginal = retain_marginal, marginal_args = marginal_args,
+    marginal_args = marginal_args,
     marginal_test = if (is.null(marginal_test)) NULL else
       paste(deparse(marginal_test), collapse = "")
   ))
@@ -293,7 +292,7 @@
 .mgcvst_estimate_model <- function(
     Y, model, feature_id, BPPARAM, chunk_size, source_files, worker_init,
     marginal_test, marginal_args, method, retain_smooth, control,
-    gam_args, call, diagnostics = TRUE, retain_marginal = FALSE, offset = NULL,
+    gam_args, call, diagnostics = TRUE, offset = NULL,
     spatial = "discoveries", adjust = "BY", q.value = 0.05,
     checkpoint_dir = NULL, resume = TRUE) {
   if (!is.matrix(Y)) Y <- as.matrix(Y)
@@ -370,14 +369,13 @@
   y_digest <- .mgcvst_row_digests(Y)
   signature <- .mgcvst_model_signature(
     model, method, control, gam_args, offset, feature_id, retain_smooth,
-    diagnostics, retain_marginal, marginal_args, marginal_test
+    diagnostics, marginal_args, marginal_test
   )
   # spde.scan: batched maximum-likelihood nulls when the null has no smooth.
   scan <- .mgcvst_scan_eligible(
     model$G, which(vapply(model$G$smooth, function(s)
       identical(s$score.component, "global"), logical(1L))),
-    model$null_formula, model$G$family, marginal_test, marginal_args, gam_args,
-    retain_marginal)
+    model$null_formula, model$G$family, marginal_test, marginal_args, gam_args)
   if (scan) signature <- .mgcvst_pair_input_hash(list(signature, null = "spde.scan"))
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", signature, resume)
 
@@ -402,7 +400,7 @@
     family_raw = family_raw, control = control, gam_args = gam_args,
     source_files = source_files, worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
-    retain_marginal = retain_marginal, routed_family_raw = routed_family_raw,
+    routed_family_raw = routed_family_raw,
     scan = scan
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
@@ -436,13 +434,6 @@
     table$error_message[j] <- nulls[[j]]$marginal_error$message
     table$error_call[j] <- nulls[[j]]$marginal_error$call
   }
-  marginal_data <- if (retain_marginal) {
-    .mgcvst_collect_marginal(
-      lapply(seq_along(groups), function(k) list(
-        index = groups[[k]], marginal_geometry = NULL,
-        marginal_state = lapply(step1$results[[k]], `[[`, "marginal_state"))),
-      p, feature_id)
-  } else NULL
   rm(nulls)
 
   total_offset <- if (frozen) {
@@ -501,7 +492,6 @@
   )
   kappa <- .spde_kappa_fields(model)
   ans[names(kappa)] <- kappa
-  if (!is.null(marginal_data)) ans$marginal_data <- marginal_data
   if (frozen) ans$timing$setup <- model$timing
   rm(step1)
 
@@ -744,13 +734,11 @@ mgcvST.estimate_spatial <- function(
 # the family is nb() with an estimated size and log link, and the tested smooth
 # is an spde smooth; options(mgcvST.scan_null = FALSE) keeps the GAM nulls.
 .mgcvst_scan_eligible <- function(G, target_index, null_formula, family,
-                                  marginal_test, marginal_args, gam_args,
-                                  retain_marginal = FALSE) {
+                                  marginal_test, marginal_args, gam_args) {
   if (!isTRUE(getOption("mgcvST.scan_null", TRUE))) return(FALSE)
-  # retain_marginal keeps the GAM null score cache that mgcvST.marginal() reads.
-  if (isTRUE(retain_marginal)) return(FALSE)
   if (!is.null(marginal_test) || length(gam_args)) return(FALSE)
-  if (length(setdiff(names(marginal_args), c("max_eps", "max_iter")))) return(FALSE)
+  if (length(setdiff(names(marginal_args), c("max_eps", "max_iter", "method")))) return(FALSE)
+  if (!is.null(marginal_args$method) && !identical(marginal_args$method, "davies")) return(FALSE)
   if (length(target_index) != 1L ||
       !inherits(G$smooth[[target_index]], "spde.smooth")) return(FALSE)
   smooth <- tryCatch(length(mgcv::interpret.gam(null_formula)$smooth.spec),
@@ -778,7 +766,6 @@ mgcvST.estimate_spatial <- function(
          marginal_requested_method = if (failed) NA_character_ else "davies",
          marginal_method = scan$method[j], marginal_fallback = scan$fallback[j],
          marginal_error = if (failed) list(class = "simpleError",
-           message = paste("spde.scan:", scan$error[j]), call = "") else NULL,
-         marginal_state = NULL)
+           message = paste("spde.scan:", scan$error[j]), call = "") else NULL)
   })
 }

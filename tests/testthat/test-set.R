@@ -37,7 +37,7 @@ test_that("set expands factor interactions once for shared BAM null and full des
           k$ncv.threads <- 1L
           k
         }),
-        retain_marginal = TRUE, spatial = "all"),
+        spatial = "all"),
       .gam_training_lpmatrix = function(...) stop("L rebuilt during estimate"),
       .mgcvst_prescreen_route = function(Y, X, offset, active, threads = 1L) {
         p <- nrow(as.matrix(Y))
@@ -75,8 +75,6 @@ test_that("set expands factor interactions once for shared BAM null and full des
       p <- mgcvST:::.mgcvst_null_score_test(null_fit, setup)
       expect_equal(unname(fit$diagnostics$marginal_p_value[i]), p$smooth.pvalue, tolerance = 1e-7)
     }
-    retained <- mgcvST.marginal(fit, BPPARAM = BiocParallel::SerialParam())
-    expect_equal(retained$p_value, fit$diagnostics$marginal_p_value, tolerance = 1e-7)
     pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L), moments = "exact")
     expect_true(all(is.finite(pair$results$log_p_two_sided)))
   }

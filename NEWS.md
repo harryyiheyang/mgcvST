@@ -4,6 +4,10 @@
   `stats::poisson(link = "log")` (dispersion 1) in Stage 2 as well, as
   `inlaST.estimate()` does; the quasipoisson routing target is removed.
   `diagnostics$family_used` reads `"poisson"` for a routed feature.
+* `mgcvST.marginal()` and the `retain_marginal` argument of
+  `mgcvST.estimate()` are removed, with the null-fit score cache they kept.
+  The Stage 1 p-values are in `diagnostics$marginal_p_value`; passing
+  `retain_marginal` is an error that says so.
 
 # mgcvST 0.0.1.9050
 

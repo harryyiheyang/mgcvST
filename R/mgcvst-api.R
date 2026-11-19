@@ -143,7 +143,6 @@
 # Run the requested corrected marginal score calibration.
 .mgcvst_marginal_score <- function(fit, marginal_test, marginal_args,
                                    test_component = 1L, setup = NULL) {
-  cacheable <- is.null(marginal_test) && is.null(marginal_args$lpmatrix)
   if (is.null(marginal_test) && !is.null(setup)) {
     score <- do.call(
       .mgcvst_null_score_test,
@@ -180,9 +179,8 @@
   if (!is.character(used) || length(used) != 1L) used <- NA_character_
   fallback <- if (is.na(requested) || is.na(used)) NA else
     identical(requested, "davies") && !identical(used, "davies")
-  cache <- if (cacheable) attr(score, "marginal_spectrum", exact = TRUE) else NULL
   list(p_value = p_value, requested_method = requested,
-       method = used, fallback = fallback, cache = cache)
+       method = used, fallback = fallback)
 }
 
 # Clone the minimal package function closure needed on remote workers: the
@@ -232,8 +230,8 @@
 #' [inlaST.estimate()] calls: GLM nulls by maximum likelihood and the score
 #' with the null projection `P0` only. A feature routed to Poisson is fitted
 #' as Poisson there. `fit$stage1$null_engine` records `"spde.scan"` or
-#' `"gam"`; `retain_marginal = TRUE` and
-#' `options(mgcvST.scan_null = FALSE)` keep the per-feature GAM nulls.
+#' `"gam"`; `options(mgcvST.scan_null = FALSE)` keeps the per-feature GAM
+#' nulls.
 #' No null fit keeps a working vector. Step 2
 #' fits the spatial model of the features chosen by `spatial` only. Features
 #' without a spatial model are marked `spatial_fitted = FALSE` in the
@@ -316,9 +314,6 @@
 #' @param diagnostics Logical; compute `summary.gam()`/Wood diagnostics.
 #'   FALSE (default) leaves Wood fields NA without calling summary.
 #'   Basic convergence and fitting diagnostics are still retained.
-#' @param retain_marginal Logical; retain minimal null-fit inputs for a later
-#'   `mgcvST.marginal()` recalibration call. FALSE by default. Marginal testing
-#'   during estimation is always performed; full gam objects are never retained.
 #' @param marginal_args Named list of additional marginal-score arguments.
 #'   `fit`, `test.component`, and `n_threads` are controlled by mgcvST.
 #'   The built-in test uses Davies with the saddlepoint fallback described in
@@ -378,11 +373,15 @@ mgcvST.estimate <- function(
     marginal_test = NULL, marginal_args = list(), method = "REML",
     retain_smooth = FALSE,
     control = mgcv::gam.control(nthreads = 1L), ...,
-    diagnostics = FALSE, retain_marginal = FALSE, offset = NULL,
+    diagnostics = FALSE, offset = NULL,
     spatial = "discoveries", adjust = c("BY", "BH", "Sidak", "none"),
     q.value = 0.05, checkpoint_dir = NULL, resume = TRUE) {
   if ("marginal" %in% names(list(...))) {
     stop("mgcvST.estimate() always runs the marginal score test; remove marginal.")
+  }
+  if ("retain_marginal" %in% names(list(...))) {
+    stop("retain_marginal and mgcvST.marginal() were removed: Stage 1 p-values are ",
+         "in diagnostics$marginal_p_value.")
   }
   call <- match.call()
   adjust <- match.arg(adjust)
@@ -391,7 +390,7 @@ mgcvST.estimate <- function(
   # worker never inherits a threaded BLAS; the caller's settings return on exit.
   old_threads <- .mgcvst_thread_limit()
   on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
-  for (name in c("diagnostics", "retain_marginal")) {
+  for (name in c("diagnostics")) {
     value <- get(name)
     if (!is.logical(value) || length(value) != 1L || is.na(value)) {
       stop(name, " must be TRUE or FALSE.")
@@ -439,7 +438,7 @@ mgcvST.estimate <- function(
     marginal_args = marginal_args, method = method,
     retain_smooth = retain_smooth, control = control,
     gam_args = list(...), call = call,
-    diagnostics = diagnostics, retain_marginal = retain_marginal, offset = offset,
+    diagnostics = diagnostics, offset = offset,
     spatial = spatial, adjust = adjust, q.value = q.value,
     checkpoint_dir = checkpoint_dir, resume = resume
   )
