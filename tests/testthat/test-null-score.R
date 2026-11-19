@@ -71,6 +71,8 @@ test_that("model-set null BAM includes a feature offset", {
 })
 
 test_that("single-coefficient null scores agree with direct GAM fits", {
+  # The GAM null path; the spde.scan path is checked in test-spde-scan.R.
+  withr::local_options(mgcvST.scan_null = FALSE)
   for (family in list(stats::gaussian(), stats::quasipoisson(), mgcv::nb())) {
     f <- st_fixture(n = 60L, family = family)
     basis <- f$basis
@@ -106,6 +108,8 @@ test_that("single-coefficient null scores agree with direct GAM fits", {
 })
 
 test_that("one slope without an intercept retains per-feature null offsets", {
+  # The GAM null path; the spde.scan path is checked in test-spde-scan.R.
+  withr::local_options(mgcvST.scan_null = FALSE)
   f <- st_fixture(n = 60L)
   basis <- f$basis
   model <- mgcvST.set(
