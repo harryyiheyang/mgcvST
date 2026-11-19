@@ -17,7 +17,7 @@ scan_kernel <- function(data, poisson = rep(FALSE, nrow(data$Y)), ...) {
     Matrix::Matrix(t(data$Y), sparse = TRUE), "CsparseMatrix"),
     "generalMatrix"), "dMatrix")
   spdeST:::mgcvst_nb_null_batch_cpp(Yt, data$X, matrix(data$offset),
-                                    poisson, ...)
+                                    poisson, tol = 1e-12, size_tol = 1e-10, ...)
 }
 
 test_that("the batched NB null kernel reproduces glm.nb", {
@@ -216,4 +216,24 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
   with_random <- null_spec
   with_random$random <- list(list(A = raw$A))
   expect_error(spdeST:::.inlast_scan_check(with_random), "GLM null")
+})
+
+test_that("a factor level with zero counts (separation) equals dropping its spots", {
+  set.seed(1)
+  n <- 400L
+  ct <- factor(c(rep("other", 19), sample(c("A", "B", "C"), n - 19, TRUE)))
+  y <- stats::rnbinom(n, mu = exp(1 + c(A = 0, B = .5, C = -.3, other = 0)[as.character(ct)]),
+                      size = 2)
+  y[ct == "other"] <- 0
+  X <- stats::model.matrix(~ ct)
+  A <- Matrix::sparseMatrix(i = seq_len(n), j = rep(1:20, length.out = n), x = 1)
+  Q <- Matrix::Diagonal(20) * 2 +
+    Matrix::bandSparse(20, k = 1, diag = list(rep(-.9, 19)), symmetric = TRUE)
+  full <- spde.scan(rbind(g = y), X, A, Q)
+  expect_true(full$converged)
+  expect_lt(attr(full, "coefficients")[4, 1], -10)
+  keep <- ct != "other"
+  drop <- spde.scan(rbind(g = y[keep]), stats::model.matrix(~ droplevels(ct[keep])),
+                    A[keep, ], Q)
+  expect_equal(full$p_value, drop$p_value, tolerance = 1e-8)
 })

@@ -18,6 +18,7 @@ spde.scan(
   block_size = 32L,
   alpha_max = 10000,
   tol = 1e-08,
+  size_tol = 0.0001220703,
   maxit_outer = 10L,
   maxit_inner = 25L,
   alpha_min = 1e-12,
@@ -57,12 +58,16 @@ p-values.}
 
 \item{alpha_max}{Upper bound of the overdispersion (size >= 1 / alpha_max).}
 
-\item{tol}{Relative convergence tolerance of the IRLS coefficients and of
-the size search; the default is that of \code{\link[stats:glm.control]{stats::glm.control()}}.}
+\item{tol}{Relative deviance change at which the IRLS stops, as in
+\code{\link[stats:glm]{stats::glm.fit()}} (whose default it is).}
+
+\item{size_tol}{Relative step at which the size search stops; the default
+\code{.Machine$double.eps^0.25} is that of \code{MASS::theta.ml()}.}
 
 \item{maxit_outer, maxit_inner}{Iteration limits of the size search and of
-the IRLS (\code{maxit_inner = 25} is the \code{\link[stats:glm.control]{stats::glm.control()}} default). A
-null that does not converge gets no p-value.}
+the IRLS (\code{maxit_inner = 25} is the \code{\link[stats:glm.control]{stats::glm.control()}} default; a
+factor level with zero counts needs about 20). A null that does not
+converge gets no p-value.}
 
 \item{alpha_min}{Floor of the moment start of the overdispersion.}
 

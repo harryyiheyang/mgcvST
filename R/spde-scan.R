@@ -33,11 +33,14 @@
 #' @param chunk_size Features per kernel call; bounds the memory of a call.
 #' @param block_size Columns per block when the score curvature is built.
 #' @param alpha_max Upper bound of the overdispersion (size >= 1 / alpha_max).
-#' @param tol Relative convergence tolerance of the IRLS coefficients and of
-#'   the size search; the default is that of [stats::glm.control()].
+#' @param tol Relative deviance change at which the IRLS stops, as in
+#'   [stats::glm.fit()] (whose default it is).
+#' @param size_tol Relative step at which the size search stops; the default
+#'   `.Machine$double.eps^0.25` is that of `MASS::theta.ml()`.
 #' @param maxit_outer,maxit_inner Iteration limits of the size search and of
-#'   the IRLS (`maxit_inner = 25` is the [stats::glm.control()] default). A
-#'   null that does not converge gets no p-value.
+#'   the IRLS (`maxit_inner = 25` is the [stats::glm.control()] default; a
+#'   factor level with zero counts needs about 20). A null that does not
+#'   converge gets no p-value.
 #' @param alpha_min Floor of the moment start of the overdispersion.
 #' @param step_bound,step_fallback A size-search step stays within a factor
 #'   `step_bound` of the current overdispersion; where the curvature is not
@@ -58,7 +61,8 @@
 spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
                       feature_id = rownames(Y), threads = 1L,
                       chunk_size = 256L, block_size = 32L, alpha_max = 1e4,
-                      tol = 1e-8, maxit_outer = 10L, maxit_inner = 25L,
+                      tol = 1e-8, size_tol = 1.220703e-4,
+                      maxit_outer = 10L, maxit_inner = 25L,
                       alpha_min = 1e-12, step_bound = 10, step_fallback = 2,
                       maxit_halving = 30L, eta_max = 700,
                       spectrum_tol = 1e-12, spa_centre_tol = 1e-6,
@@ -100,6 +104,7 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
     fit <- mgcvst_nb_null_batch_cpp(
       Yt, X, O, route, alpha_max = alpha_max,
       alpha_fixed = if (is.null(size)) -1 else 1 / size, tol = tol,
+      size_tol = size_tol,
       maxit_outer = as.integer(maxit_outer), maxit_inner = as.integer(maxit_inner),
       alpha_min = alpha_min, step_bound = step_bound, step_fallback = step_fallback,
       maxit_halving = as.integer(maxit_halving), eta_max = eta_max,

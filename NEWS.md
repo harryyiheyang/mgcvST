@@ -12,15 +12,19 @@
   feature by feature inside the parallel `spde.scan()` kernel
   (src/spa_quadform.h). Davies and the R saddlepoint are deleted;
   CompQuadForm moves to Suggests (test reference only).
-* The `spde.scan()` null fits follow the `glm.fit()` default tolerance
-  (`tol = 1e-8`, also the relative stop of the size search, and
-  `maxit_inner = 25` for the IRLS) with `maxit_outer = 10` for the size
-  search. On 400 simulated NB genes, `maxit_inner = 10` left 11 IRLS fits
-  unconverged and 25 left none. The former hard-coded numbers are
+* The `spde.scan()` null fits use at most 25 IRLS iterations (the
+  `glm.fit()` default; a zero-count factor level needs about 20) and 10
+  size-search iterations (`maxit_inner`, `maxit_outer`). The former hard-coded numbers are
   parameters (`alpha_min`, `step_bound`, `step_fallback`, `maxit_halving`,
   `eta_max`, `spa_centre_tol`, `spa_root_tol`, `spa_root_maxit`), reachable
   through `spdeST.scan(scan_control = list(...))`. The redundant IRLS
   solve-residual check is deleted.
+* The `spde.scan()` IRLS stops on the relative deviance change, as
+  `glm.fit()` does (`tol = 1e-8`), and the size search on a relative step of
+  `size_tol = .Machine$double.eps^0.25`, as `MASS::theta.ml()` does. A factor
+  level whose counts are all zero (separation) no longer fails the null: its
+  coefficient stops where its fitted means are negligible, as in `glm()` and
+  `mgcv`, and the p-value equals that with those observations dropped.
 * Diagnostics nobody reads are deleted: `marginal_requested_method`,
   `marginal_method`, `marginal_fallback`, `outer_convergence`,
   `null_fit_seconds`, `mode_status` and `mode_status_text`; `spde.scan()`

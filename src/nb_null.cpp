@@ -83,17 +83,34 @@ inline double l1x(double x) {
   return x < 1e-8 ? 1.0 - 0.5 * x : std::log1p(x) / x;
 }
 
-// IRLS for fixed alpha (alpha = 0 is Poisson), warm-started at beta.
-// Returns the number of iterations, or -1 on failure.
+// Deviance of the NB2 (alpha > 0) or Poisson (alpha = 0) fit.
+double deviance(const Vec& y, const Vec& mu, double alpha) {
+  double d = 0;
+  for (int i = 0; i < y.size(); ++i) {
+    const double yi = y[i], mi = mu[i];
+    if (yi > 0) d += yi * std::log(yi / mi);
+    d -= alpha > 0 ? (yi + 1.0 / alpha) * std::log1p(alpha * (yi - mi) / (1.0 + alpha * mi))
+                   : yi - mi;
+  }
+  return 2.0 * d;
+}
+
+// IRLS for fixed alpha (alpha = 0 is Poisson), warm-started at beta. As in
+// glm.fit(), it stops when the relative deviance change |dev - dev_old| /
+// (|dev| + 0.1) is below tol; a coefficient that runs off under separation (a
+// factor level with zero counts) then stops where its fitted means are
+// negligible instead of failing. Returns the number of iterations, or -1 on
+// failure.
 int irls(const Mat& X, const Vec& offset, const Vec& y, double alpha,
          Vec& beta, Vec& eta, Vec& mu, double tol, int maxit,
          int maxit_halving, double eta_max) {
   const int n = X.rows();
   Vec w(n), r(n);
+  eta.noalias() = X * beta;
+  eta += offset;
+  mu = eta.array().exp();
+  double dev_old = deviance(y, mu, alpha);
   for (int it = 1; it <= maxit; ++it) {
-    eta.noalias() = X * beta;
-    eta += offset;
-    mu = eta.array().exp();
     // Fisher weights mu / (1 + alpha mu) and score X'(y - mu) / (1 + alpha mu).
     for (int i = 0; i < n; ++i) {
       const double f = 1.0 / (1.0 + alpha * mu[i]);
@@ -119,13 +136,13 @@ int irls(const Mat& X, const Vec& offset, const Vec& y, double alpha,
       scale *= 0.5;
     }
     if (!moved) return -1;
-    if (step.cwiseAbs().maxCoeff() * scale <
-        tol * (1.0 + beta.cwiseAbs().maxCoeff())) {
-      eta.noalias() = X * beta;
-      eta += offset;
-      mu = eta.array().exp();
-      return it;
-    }
+    eta.noalias() = X * beta;
+    eta += offset;
+    mu = eta.array().exp();
+    const double dev = deviance(y, mu, alpha);
+    if (!std::isfinite(dev)) return -1;
+    if (std::abs(dev - dev_old) / (std::abs(dev) + 0.1) < tol) return it;
+    dev_old = dev;
   }
   return -1;
 }
@@ -191,6 +208,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
     double alpha_max = 1e4,
     double alpha_fixed = -1,
     double tol = 1e-8,
+    double size_tol = 1.220703e-4,
     int maxit_outer = 10,
     int maxit_inner = 25,
     double alpha_min = 1e-12,
@@ -294,7 +312,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
           next = std::min(step_bound * alpha, std::max(alpha / step_bound, next));
           next = std::min(alpha_max, next);
           if (alpha == alpha_max && g > 0) { converged = true; break; }
-          const bool small = std::abs(next - alpha) <= tol * alpha;
+          const bool small = std::abs(next - alpha) <= size_tol * alpha;
           alpha = next;
           if (small) { converged = true; break; }
         }
