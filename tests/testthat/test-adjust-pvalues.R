@@ -123,7 +123,7 @@ test_that("compact result shards carry one adjustment and the sign split", {
   expect_length(out$shards, 3L)
   expect_true(all(file.exists(out$shards)) && all(file.exists(files)))
   r <- out$results
-  expect_named(r, c("i", "j", "score", "log_p_two_sided", "log_p_positive",
+  expect_named(r, c("i", "j", "score", "t1", "log_p_two_sided", "log_p_positive",
                     "log_p_negative", "log_q", "remainder_kind", "status"))
   expect_false(is.unsorted(r$i * 10L + r$j))
   key <- function(x) paste(x$i, x$j)
@@ -175,7 +175,7 @@ test_that("the in-memory table is built in one pass and put in (i, j) order", {
   r <- kept$results
   expect_identical(paste(r$i, r$j), c("1 2", "1 3", "2 3", "2 4", "3 4"))
   expect_identical(vapply(r, typeof, ""), c(i = "integer", j = "integer",
-    score = "double", log_p_two_sided = "double", log_p_positive = "double",
+    score = "double", t1 = "double", log_p_two_sided = "double", log_p_positive = "double",
     log_p_negative = "double", log_q = "double", remainder_kind = "integer",
     status = "integer"))
   expect_identical(attr(r, "row.names"), 1:5)
@@ -193,7 +193,7 @@ test_that("the in-memory table is built in one pass and put in (i, j) order", {
   testthat::local_mocked_bindings(
     .mgcvst_pair_memory_guard = function(n_pairs, bytes_per_pair, fraction) {
       guard_calls <<- c(guard_calls, as.character(bytes_per_pair))
-      list(ok = bytes_per_pair != 56 || roomy, need = 0, available = 1e12)
+      list(ok = bytes_per_pair != 64 || roomy, need = 0, available = 1e12)
     },
     .package = "mgcvST")
   temp_dir <- function(universe) {
@@ -207,7 +207,7 @@ test_that("the in-memory table is built in one pass and put in (i, j) order", {
   a <- temp_dir(4L)
   held <- mgcvST:::.mgcvst_pairs_finalize(a$dir, a$files, c(2L, 3L), NULL, "BY",
                                           0.05, temporary = TRUE)
-  expect_identical(guard_calls, c("24", "56"))
+  expect_identical(guard_calls, c("24", "64"))
   expect_identical(nrow(held$results), 5L)
   expect_length(held$shards, 0L)
   expect_false(dir.exists(a$root))

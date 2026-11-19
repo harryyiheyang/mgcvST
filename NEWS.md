@@ -8,6 +8,9 @@
   `mgcvST.estimate()` are removed, with the null-fit score cache they kept.
   The Stage 1 p-values are in `diagnostics$marginal_p_value`; passing
   `retain_marginal` is an error that says so.
+* `inlaST.estimate()` records `fit$stage1$null_engine` (`"spde.scan"` or
+  `"inla"`), as `mgcvST.estimate()` does.
+* Tests follow the `t1` result column added in 0.0.1.9049.
 
 # mgcvST 0.0.1.9050
 

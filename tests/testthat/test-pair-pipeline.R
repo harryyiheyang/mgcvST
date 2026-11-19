@@ -148,7 +148,7 @@ test_that("an invalid exact-route p-value is p = 1, keeps its status and stays i
     mgcvst_pair_spa_cpp = function(H, G, avec, left, right, threads, order) {
       list(score = c(1, 2), log_p_two_sided = c(-Inf, -3),
            log_p_positive = c(-Inf, -3.7), log_p_negative = c(-Inf, -0.02),
-           remainder_kind = c(0L, 2L), status = c(2L, 0L))
+           remainder_kind = c(0L, 2L), status = c(2L, 0L), t1 = c(1, 1))
     }, .package = "mgcvST")
   states <- lapply(1:3, function(i) list(a = c(i, 1), M = diag(2)))
   out <- mgcvST:::.mgcvst_spa_pairs(rbind(c(1L, 2L), c(1L, 3L)), 1:3, states,

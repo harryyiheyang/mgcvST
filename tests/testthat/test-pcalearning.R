@@ -59,7 +59,7 @@ test_that("inlaST.test() runs the PCAlearning route on request and returns the c
   expect_s3_class(default, "mgcvST_test")
   expect_identical(default$moments, "pcalearning")
   expect_false(is.null(default$pca_learning))
-  expect_named(default$results, c("i", "j", "score", "log_p_two_sided",
+  expect_named(default$results, c("i", "j", "score", "t1", "log_p_two_sided",
     "log_p_positive", "log_p_negative", "log_q", "remainder_kind", "status"))
   expect_identical(default$feature_id[default$results$i], pairs[, 1L])
   expect_identical(default$feature_id[default$results$j], pairs[, 2L])

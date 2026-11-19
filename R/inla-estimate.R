@@ -653,7 +653,8 @@ inlaST.estimate <- function(
     inla_diagnostics = if (diagnostics) stats::setNames(vector("list", p), feature_id) else NULL,
     mean_constraint = "observation",
     mean_constraint_active = TRUE,
-    stage1 = list(adjust = adjust, q.value = q.value),
+    stage1 = list(adjust = adjust, q.value = q.value,
+                  null_engine = if (.inlast_scan_eligible(null_spec)) "spde.scan" else "inla"),
     call = match.call()
   ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "mgcvST"))
   kappa <- .spde_kappa_fields(model)
