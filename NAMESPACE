@@ -37,6 +37,7 @@ export(spde_mesh)
 export(spde_model)
 export(spde_precision)
 export(spde_project)
+export(spde.scan)
 importFrom(Rcpp,evalCpp)
 importFrom(mgcv,
   Predict.matrix,

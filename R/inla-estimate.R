@@ -56,9 +56,16 @@
 # Step 1 worker: null fits and Stage 1 statistics of one chunk of features, in
 # sub-blocks of `block` features so that a worker holds at most `block`
 # features' working vectors. Returns, per feature, the compact null state and
-# the marginal row, or the error record.
+# the marginal row, or the error record. A null with fixed effects only and a
+# count family is Stage 1 of spde.scan() (.inlast_scan_chunk).
 .inlast_null_chunk <- function(payload, spec, null_spec, base_offset,
                                null_control, threads = 1L, block = 16L) {
+  if (.inlast_scan_eligible(null_spec)) {
+    out <- .inlast_scan_chunk(payload, spec, null_spec, base_offset,
+                              null_control, threads)
+    .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    return(out)
+  }
   geometry <- .inlast_score_geometry_from_spec(spec)
   nuisance_design <- as.matrix(spec$nuisance_design)
   n_sp <- spec$geometry_sp_length
@@ -66,17 +73,10 @@
   out <- vector("list", k)
   for (first in seq.int(1L, k, by = block)) {
     rows <- first:min(k, first + block - 1L)
-    fits <- if (.inlast_scan_eligible(null_spec)) {
-      .inlast_scan_fits(
-        rows, payload$Y, null_spec, base_offset, payload$extra_offset,
-        null_control, payload$poisson, threads
-      )
-    } else {
-      .inlast_fit_chunk(
-        rows, payload$Y, null_spec, base_offset, payload$extra_offset,
-        null_control, FALSE, payload$poisson
-      )
-    }
+    fits <- .inlast_fit_chunk(
+      rows, payload$Y, null_spec, base_offset, payload$extra_offset,
+      null_control, FALSE, payload$poisson
+    )
     failed <- vapply(fits, inherits, logical(1L), what = "condition")
     ok <- !failed & vapply(fits, function(z) isTRUE(z$converged), logical(1L))
     dispersion <- rep(NA_real_, length(rows))
@@ -109,6 +109,72 @@
   }
   .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
   out
+}
+
+# A null with no random block and a count family is Stage 1 of spde.scan();
+# options(mgcvST.scan_null = FALSE) keeps the per-feature INLA null fits.
+.inlast_scan_eligible <- function(null_spec) {
+  family <- null_spec$family
+  isTRUE(getOption("mgcvST.scan_null", TRUE)) &&
+    !length(null_spec$random) &&
+    length(family) == 1L && family %in% c("negative_binomial", "poisson") &&
+    !is.null(null_spec$fixed$X) && ncol(as.matrix(null_spec$fixed$X)) >= 1L
+}
+
+# Stage 1 of one chunk by spde.scan() on the raw field of the target block,
+# with the compact null state that step 2 reuses after a native INLA crash.
+.inlast_scan_chunk <- function(payload, spec, null_spec, base_offset,
+                               null_control, threads = 1L) {
+  t0 <- proc.time()[["elapsed"]]
+  block <- spec$random[[1L]]
+  X <- as.matrix(null_spec$fixed$X)
+  k <- length(payload$index)
+  offset <- if (is.null(payload$extra_offset)) base_offset else
+    if (is.matrix(payload$extra_offset))
+      sweep(payload$extra_offset, 2L, base_offset, "+") else
+      base_offset + as.numeric(payload$extra_offset)
+  poisson <- if (identical(null_spec$family, "poisson")) rep(TRUE, k) else
+    if (is.null(payload$poisson)) NULL else as.logical(payload$poisson)
+  scan <- spde.scan(payload$Y, X, block$A, block$Q, offset = offset,
+                    poisson = poisson, size = null_control[["nb_size", exact = TRUE]],
+                    feature_id = payload$feature_id, threads = threads)
+  seconds <- (proc.time()[["elapsed"]] - t0) / max(1L, k)
+  beta <- attr(scan, "coefficients")
+  fixed_names <- colnames(X)
+  if (is.null(fixed_names)) fixed_names <- paste0("x", seq_len(ncol(X)))
+  n_sp <- length(null_spec[["sp", exact = TRUE]])
+  empty <- stats::setNames(numeric(), character())
+  lapply(seq_len(k), function(j) {
+    if (is.na(scan$family[j])) {
+      return(list(error = list(class = "simpleError", call = "",
+                               message = paste("spde.scan null fit:", scan$error[j]))))
+    }
+    b <- stats::setNames(beta[, j], fixed_names)
+    nb <- identical(scan$family[j], "negative_binomial")
+    null <- list(
+      dispersion = 1, family = scan$family[j],
+      family_parameters = if (nb) scan$size[j] else numeric(),
+      tau = empty, tau_internal = empty, precision_scale = empty, lambda = empty,
+      smoothing_parameters = rep(NA_real_, n_sp), coefficients = list(),
+      fixed_mode = b, fixed_mean = b, random_mode = list(), random_mean = list(),
+      constraint_residual_uncorrected = empty, constraint_residual = empty,
+      observation_spatial_mean = empty, converged = isTRUE(scan$converged[j]),
+      mode_status = if (isTRUE(scan$converged[j])) 0L else 1L,
+      mode_status_text = if (isTRUE(scan$converged[j])) "spde.scan converged" else
+        "spde.scan overdispersion iteration limit",
+      log_marginal_likelihood = NA_real_, log_likelihood = scan$log_likelihood[j],
+      fit_seconds = seconds,
+      estimation = list(engine = "spde.scan",
+                        overdispersion_score = scan$overdispersion_score[j])
+    )
+    marginal <- if (isTRUE(scan$converged[j])) list(
+      feature_id = scan$feature_id[j], statistic = scan$statistic[j],
+      p_value = scan$p_value[j], method_requested = "davies",
+      method_used = scan$method[j], fallback_used = scan$fallback[j],
+      error_message = if (is.na(scan$p_value[j])) scan$error[j] else NA_character_
+    ) else NULL
+    list(null = null, marginal = marginal)
+  })
 }
 
 # What the manager keeps of one spatial fit: the compact estimates, never an
@@ -298,8 +364,9 @@
 #'   fitted with the Poisson family when its overdispersion score
 #'   `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
 #'   maximum-likelihood fit is the Poisson fit (R/family-prescreen.R; there is
-#'   no threshold to set). When the null model has fixed effects only, the
-#'   null fits are the batched maximum-likelihood fits of `spde.scan`
+#'   no threshold to set). When the null model has fixed effects only,
+#'   Stage 1 is [spde.scan()] on the raw sparse field of the target block, the
+#'   same function [mgcvST.estimate()] calls
 #'   (`options(mgcvST.scan_null = FALSE)` restores the INLA null fits). The
 #'   per-feature Pearson dispersion of that Poisson fit and the family actually
 #'   used are reported in the diagnostics as

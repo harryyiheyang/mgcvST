@@ -432,6 +432,26 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_spde_score_cpp
+Rcpp::List mgcvst_spde_score_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> offset, const Eigen::Map<Eigen::MatrixXd> beta, const Eigen::Map<Eigen::VectorXd> alpha, int threads, int block_size, double spectrum_tol);
+RcppExport SEXP _mgcvST_mgcvst_spde_score_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP XSEXP, SEXP YtSEXP, SEXP offsetSEXP, SEXP betaSEXP, SEXP alphaSEXP, SEXP threadsSEXP, SEXP block_sizeSEXP, SEXP spectrum_tolSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type A_map(A_mapSEXP);
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type Q_map(Q_mapSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type Yt(YtSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type beta(betaSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    Rcpp::traits::input_parameter< int >::type block_size(block_sizeSEXP);
+    Rcpp::traits::input_parameter< double >::type spectrum_tol(spectrum_tolSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_spde_score_cpp(A_map, Q_map, X, Yt, offset, beta, alpha, threads, block_size, spectrum_tol));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_log_adjust_cpp", (DL_FUNC) &_mgcvST_mgcvst_log_adjust_cpp, 2},
@@ -461,6 +481,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_pair_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_pair_spa_cpp, 9},
     {"_mgcvST_mgcvst_simd_cpp", (DL_FUNC) &_mgcvST_mgcvst_simd_cpp, 0},
     {"_mgcvST_mgcvst_spa_cpp", (DL_FUNC) &_mgcvST_mgcvst_spa_cpp, 5},
+    {"_mgcvST_mgcvst_spde_score_cpp", (DL_FUNC) &_mgcvST_mgcvst_spde_score_cpp, 10},
     {NULL, NULL, 0}
 };
 

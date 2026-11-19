@@ -161,10 +161,13 @@
     G0$smooth, function(s) identical(s$score.component, "global"), logical(1L)
   ))
   null_setup <- .mgcvst_null_score_setup(G0, target_index, attr(G0, "null_spec"))
-  # spde.scan (R/spde-scan.R): every null of the chunk from the batched kernel.
-  scanned <- if (isTRUE(scan)) {
-    .mgcvst_scan_nulls(payload, null_setup, G0$offset)
-  } else NULL
+  # spde.scan (R/spde-scan.R): the Stage 1 of the chunk, as inlaST.estimate().
+  if (isTRUE(scan)) {
+    out <- do.call(get(".mgcvst_scan_chunk", envir = asNamespace("mgcvST")),
+                   c(list(payload, G0, target_index, null_setup$X0), marginal_args))
+    .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
+    return(out)
+  }
   for (j in seq_along(payload$index)) {
     response <- as.numeric(payload$Y[j, ])
     feature_offset <- if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset
@@ -172,10 +175,7 @@
     null_data[[null_setup$spec$response]] <- response
     marginal_result <- tryCatch(
       {
-        null_fit <- if (!is.null(scanned)) {
-          if (inherits(scanned[[j]], "condition")) stop(scanned[[j]])
-          scanned[[j]]
-        } else .mgcvst_fit_null(
+        null_fit <- .mgcvst_fit_null(
           null_setup, null_data,
           unserialize(if (isTRUE(payload$poisson[j])) routed_family_raw else family_raw),
           feature_offset, control, gam_args
@@ -373,8 +373,10 @@
     diagnostics, retain_marginal, marginal_args, marginal_test
   )
   # spde.scan: batched maximum-likelihood nulls when the null has no smooth.
-  scan <- .mgcvst_scan_eligible(model$null_formula, model$G$family,
-                                marginal_test, marginal_args, gam_args)
+  scan <- .mgcvst_scan_eligible(
+    model$G, which(vapply(model$G$smooth, function(s)
+      identical(s$score.component, "global"), logical(1L))),
+    model$null_formula, model$G$family, marginal_test, marginal_args, gam_args)
   if (scan) signature <- .mgcvst_pair_input_hash(list(signature, null = "spde.scan"))
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", signature, resume)
 
@@ -735,4 +737,44 @@ mgcvST.estimate_spatial <- function(
   fit <- .mgcvst_apply_spatial(fit, Y, index, BPPARAM, chunk_size, store)
   fit$timing$elapsed <- fit$timing$elapsed + proc.time()[["elapsed"]] - t0
   fit
+}
+
+# A null of mgcvST.estimate() is Stage 1 of spde.scan() when it has no smooth,
+# the family is nb() with an estimated size and log link, and the tested smooth
+# is an spde smooth; options(mgcvST.scan_null = FALSE) keeps the GAM nulls.
+.mgcvst_scan_eligible <- function(G, target_index, null_formula, family,
+                                  marginal_test, marginal_args, gam_args) {
+  if (!isTRUE(getOption("mgcvST.scan_null", TRUE))) return(FALSE)
+  if (!is.null(marginal_test) || length(gam_args)) return(FALSE)
+  if (length(setdiff(names(marginal_args), c("max_eps", "max_iter")))) return(FALSE)
+  if (length(target_index) != 1L ||
+      !inherits(G$smooth[[target_index]], "spde.smooth")) return(FALSE)
+  smooth <- tryCatch(length(mgcv::interpret.gam(null_formula)$smooth.spec),
+                     error = function(e) NA_integer_)
+  if (!identical(smooth, 0L)) return(FALSE)
+  id <- tryCatch(.working_family_id(family$family), error = function(e) NA)
+  isTRUE(identical(id, "negative_binomial")) && isTRUE(family$n.theta == 1L) &&
+    identical(family$link, "log")
+}
+
+# Stage 1 rows of one payload by spde.scan() on the raw field of the spde
+# smooth: the fields that .mgcvst_null_chunk reports per feature.
+.mgcvst_scan_chunk <- function(payload, G0, target_index, X0, max_eps = 1e-8,
+                               max_iter = 1e5) {
+  field <- .spde_scan_field(G0$smooth[[target_index]]$basis)
+  base <- if (is.null(G0$offset)) numeric(ncol(payload$Y)) else as.numeric(G0$offset)
+  offset <- if (is.null(payload$offset)) base else if (is.matrix(payload$offset))
+    sweep(payload$offset, 2L, base, "+") else base + payload$offset
+  scan <- spde.scan(payload$Y, X0, field$A, field$Q, offset = offset,
+                    poisson = payload$poisson, feature_id = payload$feature_id,
+                    max_eps = max_eps, max_iter = max_iter)
+  lapply(seq_len(nrow(scan)), function(j) {
+    failed <- is.na(scan$p_value[j])
+    list(marginal_p_value = scan$p_value[j],
+         marginal_requested_method = if (failed) NA_character_ else "davies",
+         marginal_method = scan$method[j], marginal_fallback = scan$fallback[j],
+         marginal_error = if (failed) list(class = "simpleError",
+           message = paste("spde.scan:", scan$error[j]), call = "") else NULL,
+         marginal_state = NULL)
+  })
 }

@@ -1,17 +1,18 @@
 # mgcvST 0.0.1.9050
 
-* spde.scan on the mgcv branch: when the Stage 1 null of `mgcvST.estimate()`
-  has no smooth term and the family is `nb()` with an estimated size, every
-  null of a chunk is fitted by the batched NB2/Poisson kernel of the INLA
-  branch (maximum-likelihood size, as `bam(method = "fREML")` returns for such
-  a null; Fisher covariance; Pearson scale with n - p degrees of freedom on
-  the quasipoisson route) and enters the unchanged Stage 1 score and Davies
-  calibration. Stage 1 p-values agree with the bam nulls (log p within 1e-5 in
-  the tests). An intercept-only null was fitted by `gam(method = "REML")`,
-  whose size carries the restricted-likelihood correction; its p-values move
-  by O(1/n). `fit$stage1$null_engine` records the engine and
-  `options(mgcvST.scan_null = FALSE)` restores the GAM nulls. Checkpoints of
-  the two engines are kept apart.
+* `spde.scan(Y, X, A, Q, ...)` is a standalone exported Stage 1: NB2/Poisson
+  GLM nulls by maximum likelihood (`src/nb_null.cpp`) and the score test of
+  the raw sparse SPDE field with the null projection P0 only
+  (`src/spde_scan.cpp`): no intercept projection, no constraint, Q stays
+  sparse. Every tuning number is an argument with a default.
+* `mgcvST.estimate()` (null without smooths, `nb()` with estimated size, spde
+  smooth) and `inlaST.estimate()` (null with fixed effects only) both call
+  `spde.scan()` on the same raw field, so their Stage 1 agrees. Without the
+  intercept projection the Stage 1 statistic changes by a rank-1 term
+  (p-values move at the 1e-3 relative level against 9049). A feature routed
+  to Poisson is fitted as Poisson in `mgcvST.estimate()` Stage 1 as well.
+  `fit$stage1$null_engine` records `"spde.scan"` or `"gam"`;
+  `options(mgcvST.scan_null = FALSE)` keeps the per-feature GAM/INLA nulls.
 
 # mgcvST 0.0.1.9049
 

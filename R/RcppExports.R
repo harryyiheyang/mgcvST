@@ -109,3 +109,7 @@ mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
     .Call(`_mgcvST_mgcvst_spa_cpp`, U, S, Tm, order, threads)
 }
 
+mgcvst_spde_score_cpp <- function(A_map, Q_map, X, Yt, offset, beta, alpha, threads = 1L, block_size = 32L, spectrum_tol = 1e-12) {
+    .Call(`_mgcvST_mgcvst_spde_score_cpp`, A_map, Q_map, X, Yt, offset, beta, alpha, threads, block_size, spectrum_tol)
+}
+
