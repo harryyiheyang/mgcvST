@@ -75,8 +75,9 @@ feature first gets its offset-and-covariate-only Poisson GLM, and it is
 fitted with the Poisson family when its overdispersion score
 \code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
 maximum-likelihood fit is the Poisson fit (R/family-prescreen.R; there is
-no threshold to set). When the null model has fixed effects only, the
-null fits are the batched maximum-likelihood fits of \code{spde.scan}
+no threshold to set). When the null model has fixed effects only,
+Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on the raw sparse field of the target block, the
+same function \code{\link[=mgcvST.estimate]{mgcvST.estimate()}} calls
 (\code{options(mgcvST.scan_null = FALSE)} restores the INLA null fits). The
 per-feature Pearson dispersion of that Poisson fit and the family actually
 used are reported in the diagnostics as

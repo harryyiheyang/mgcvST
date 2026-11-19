@@ -147,7 +147,16 @@ Estimation has two steps. Step 1 fits the null model with the spatial score
 smooth removed for every feature; the marginal screening uses that null
 PIRLS state, the prepared \code{G$X}, and the target penalty, and the Stage 1
 null-first p-values are adjusted by \code{adjust} into the Stage 1 q-values
-\code{diagnostics$marginal_q_value}. No null fit keeps a working vector. Step 2
+\code{diagnostics$marginal_q_value}. When the null has no smooth term (offset
+and parametric covariates only), the family is \code{nb()} with an estimated
+size and the tested smooth is an spde smooth, Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on
+the raw sparse field \code{A}, \code{Q} of the smooth's basis, the same function
+\code{\link[=inlaST.estimate]{inlaST.estimate()}} calls: GLM nulls by maximum likelihood and the score
+with the null projection \code{P0} only. A feature routed to Poisson is fitted
+as Poisson there. \code{fit$stage1$null_engine} records \code{"spde.scan"} or
+\code{"gam"}, and
+\code{options(mgcvST.scan_null = FALSE)} restores the per-feature GAM nulls.
+No null fit keeps a working vector. Step 2
 fits the spatial model of the features chosen by \code{spatial} only. Features
 without a spatial model are marked \code{spatial_fitted = FALSE} in the
 diagnostics, have missing working errors, variances, \code{dispersion} and
