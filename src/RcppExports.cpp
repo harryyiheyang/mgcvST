@@ -192,8 +192,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_nb_null_batch_cpp
-Rcpp::List mgcvst_nb_null_batch_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, double alpha_max, double alpha_fixed, double tol, int maxit_outer, int maxit_inner, int threads);
-RcppExport SEXP _mgcvST_mgcvst_nb_null_batch_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_maxSEXP, SEXP alpha_fixedSEXP, SEXP tolSEXP, SEXP maxit_outerSEXP, SEXP maxit_innerSEXP, SEXP threadsSEXP) {
+Rcpp::List mgcvst_nb_null_batch_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, double alpha_max, double alpha_fixed, double tol, int maxit_outer, int maxit_inner, int threads, bool reml);
+RcppExport SEXP _mgcvST_mgcvst_nb_null_batch_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_maxSEXP, SEXP alpha_fixedSEXP, SEXP tolSEXP, SEXP maxit_outerSEXP, SEXP maxit_innerSEXP, SEXP threadsSEXP, SEXP remlSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -207,7 +207,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type maxit_outer(maxit_outerSEXP);
     Rcpp::traits::input_parameter< int >::type maxit_inner(maxit_innerSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_nb_null_batch_cpp(Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, threads));
+    Rcpp::traits::input_parameter< bool >::type reml(remlSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_nb_null_batch_cpp(Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, threads, reml));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -445,7 +446,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mgcvST_mgcvst_inla_working_state_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_working_state_cpp, 9},
     {"_mgcvST_mgcvst_inla_compact_units_cpp", (DL_FUNC) &_mgcvST_mgcvst_inla_compact_units_cpp, 15},
     {"_mgcvST_mgcvst_memory_status_cpp", (DL_FUNC) &_mgcvST_mgcvst_memory_status_cpp, 0},
-    {"_mgcvST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_nb_null_batch_cpp, 10},
+    {"_mgcvST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_mgcvST_mgcvst_nb_null_batch_cpp, 11},
     {"_mgcvST_mgcvst_pca_gram_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_gram_cpp, 4},
     {"_mgcvST_mgcvst_pca_basis_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_basis_cpp, 5},
     {"_mgcvST_mgcvst_pca_tables_cpp", (DL_FUNC) &_mgcvST_mgcvst_pca_tables_cpp, 5},

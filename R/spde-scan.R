@@ -145,7 +145,7 @@
   poisson <- if (is.null(payload$poisson)) rep(FALSE, k) else
     as.logical(payload$poisson)
   kernel <- get("mgcvst_nb_null_batch_cpp", envir = asNamespace("mgcvST"))
-  z <- kernel(Yt, X0, O, poisson, threads = as.integer(threads))
+  z <- kernel(Yt, X0, O, poisson, threads = as.integer(threads), reml = TRUE)
   lapply(seq_len(k), function(i) {
     if (!is.na(z$error[i])) {
       return(simpleError(paste("spde.scan null fit:", z$error[i])))
