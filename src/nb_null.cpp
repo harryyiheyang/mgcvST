@@ -175,77 +175,6 @@ void alpha_derivatives(const Vec& mu, const Vec& y,
   }
 }
 
-// Restricted (REML) criterion of mgcv's gam(method = "REML") for a null
-// without smooths: the profile log-likelihood minus half the log determinant
-// of X' W X with the observed (Newton) weights of the log-link NB2,
-//   w_i = mu_i (1 + alpha y_i) / (1 + alpha mu_i)^2,
-// at beta(alpha). beta is warm-started and updated in place.
-double reml_criterion(const Mat& X, const Vec& off, const Vec& y,
-                      const std::vector<double>& c, double lfact, double alpha,
-                      Vec& beta, Vec& eta, Vec& mu, double tol, int maxit,
-                      int& inner) {
-  const int it = irls(X, off, y, alpha, beta, eta, mu, tol, maxit);
-  if (it < 0) throw std::runtime_error("The REML IRLS did not converge.");
-  inner += it;
-  const int n = X.rows();
-  Vec w(n);
-  for (int i = 0; i < n; ++i) {
-    const double d = 1.0 + alpha * mu[i];
-    w[i] = mu[i] * (1.0 + alpha * y[i]) / (d * d);
-  }
-  const Mat H = X.transpose() * w.asDiagonal() * X;
-  Eigen::LLT<Mat> llt(H);
-  if (llt.info() != Eigen::Success) {
-    throw std::runtime_error("The REML information matrix is not positive definite.");
-  }
-  double logdet = 0;
-  for (int j = 0; j < H.rows(); ++j) logdet += 2.0 * std::log(llt.matrixL()(j, j));
-  return loglik(mu, y, c, alpha, lfact) - 0.5 * logdet;
-}
-
-// Brent's maximization of f(t) on [a, b] (golden section with parabolic steps).
-template <class F>
-double brent_max(F f, double a, double b, double tol, int maxit, double& fx_out) {
-  const double gold = 0.3819660112501051;
-  double x = a + gold * (b - a), w = x, v = x;
-  double fx = f(x), fw = fx, fv = fx;
-  double d = 0, e = 0;
-  for (int it = 0; it < maxit; ++it) {
-    const double m = 0.5 * (a + b);
-    const double tol1 = tol * std::abs(x) + 1e-12, tol2 = 2 * tol1;
-    if (std::abs(x - m) <= tol2 - 0.5 * (b - a)) break;
-    bool golden = true;
-    if (std::abs(e) > tol1) {
-      const double r = (x - w) * (fx - fv), q0 = (x - v) * (fx - fw);
-      double pp = (x - v) * q0 - (x - w) * r, q = 2 * (q0 - r);
-      if (q > 0) pp = -pp; else q = -q;
-      if (std::abs(pp) < std::abs(0.5 * q * e) && pp > q * (a - x) && pp < q * (b - x)) {
-        e = d;
-        d = pp / q;
-        const double u = x + d;
-        if (u - a < tol2 || b - u < tol2) d = x < m ? tol1 : -tol1;
-        golden = false;
-      }
-    }
-    if (golden) {
-      e = (x < m ? b : a) - x;
-      d = gold * e;
-    }
-    const double u = std::abs(d) >= tol1 ? x + d : x + (d > 0 ? tol1 : -tol1);
-    const double fu = f(u);
-    if (fu >= fx) {
-      if (u < x) b = x; else a = x;
-      v = w; fv = fw; w = x; fw = fx; x = u; fx = fu;
-    } else {
-      if (u < x) a = u; else b = u;
-      if (fu >= fw || w == x) { v = w; fv = fw; w = u; fw = fu; }
-      else if (fu >= fv || v == x || v == w) { v = u; fv = fu; }
-    }
-  }
-  fx_out = fx;
-  return x;
-}
-
 } // namespace
 
 // Y is features x observations, so it is passed as the transposed
@@ -264,8 +193,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
     double tol = 1e-10,
     int maxit_outer = 100,
     int maxit_inner = 100,
-    int threads = 1,
-    bool reml = false) {
+    int threads = 1) {
   const int n = Yt.rows();
   const int features = Yt.cols();
   const int p = X.cols();
@@ -366,35 +294,6 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
         it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner);
         if (it < 0) throw std::runtime_error("The final IRLS did not converge.");
         out.inner += it;
-        // REML: start from the maximum-likelihood alpha and maximize the
-        // restricted criterion over log(alpha); the bracket is widened while
-        // the maximum sits at an edge. The Poisson end point is still decided
-        // by the overdispersion score above.
-        if (reml && converged) {
-          int inner = 0;
-          Vec b = beta;
-          auto f = [&](double t) {
-            return reml_criterion(Xd, off, y, c, lfact, std::exp(t), b, eta, mu,
-                                  tol, maxit_inner, inner);
-          };
-          const double t_max = std::log(alpha_max);
-          double lo = std::log(alpha) - 1.0, hi = std::min(t_max, std::log(alpha) + 1.0);
-          double t = std::log(alpha), fbest = 0;
-          for (int widen = 0; widen < 8; ++widen) {
-            t = brent_max(f, lo, hi, 1e-10, 200, fbest);
-            const double span = hi - lo;
-            if (t - lo < 1e-3 * span) { hi = lo + 1e-3 * span; lo -= 2.0 * span; continue; }
-            if (hi - t < 1e-3 * span && hi < t_max) {
-              lo = hi - 1e-3 * span; hi = std::min(t_max, hi + 2.0 * span); continue;
-            }
-            break;
-          }
-          alpha = std::exp(t);
-          beta = b;
-          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner);
-          if (it < 0) throw std::runtime_error("The final REML IRLS did not converge.");
-          out.inner += inner + it;
-        }
       }
       out.beta = beta;
       out.alpha = alpha;
