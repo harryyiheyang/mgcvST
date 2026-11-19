@@ -73,7 +73,6 @@ test_that("public NB estimates retain fixed-only null scores", {
       control = list(fixed_precision = 2, num_threads = 1L), threads = 1L),
     matrix(y, nrow = 1L), features = "all", BPPARAM = BiocParallel::SerialParam(), threads = 1L)
     expect_true(fit$diagnostics$converged)
-    expect_true(fit$diagnostics$null_converged)
     expect_true(is.na(fit$diagnostics$null_error_message))
     expect_identical(fit$diagnostics$family_used, "negative_binomial")
     expect_true(is.finite(fit$diagnostics$marginal_p_value))

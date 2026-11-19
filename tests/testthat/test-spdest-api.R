@@ -29,8 +29,6 @@ test_that("spdeST.scan and spdeST.estimate run the mgcv implementation in two ca
   expect_s3_class(scan, "spdeST_scan")
   expect_identical(scan$stage1$null_engine, "spde.scan")
   expect_false(any(scan$diagnostics$spatial_fitted))
-  expect_identical(scan$diagnostics$null_converged,
-                   !is.na(scan$diagnostics$marginal_p_value))
   direct <- mgcvST.estimate(Y, model, BPPARAM = sp)
   expect_identical(scan$diagnostics$marginal_p_value, direct$diagnostics$marginal_p_value)
 

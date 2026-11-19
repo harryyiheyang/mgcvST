@@ -168,7 +168,6 @@
     feature_offset <- if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset
     null_data <- null_setup$spec$data
     null_data[[null_setup$spec$response]] <- response
-    null_fit <- NULL
     marginal_result <- tryCatch(
       {
         null_fit <- .mgcvst_fit_null(
@@ -182,7 +181,6 @@
     )
     failed <- inherits(marginal_result, "condition")
     out[[j]] <- list(
-      null_converged = !failed && isTRUE(null_fit$converged),
       marginal_p_value = if (failed) NA_real_ else marginal_result$p_value,
       marginal_requested_method = if (failed) NA_character_ else
         marginal_result$requested_method,
@@ -340,8 +338,6 @@
       identical(s$score.component, "global"), logical(1L))),
     model$null_formula, model$G$family, gam_args)
   if (scan) signature <- .mgcvst_pair_input_hash(list(signature, null = "spde.scan"))
-  # Chunks written before Stage 1 recorded null convergence are not reused.
-  signature <- .mgcvst_pair_input_hash(list(signature, stage1 = "null_converged"))
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", signature, resume)
 
   # Step 1: the null fit and Stage 1 p-value of every feature.
@@ -387,7 +383,6 @@
     error_class = NA_character_, error_message = NA_character_,
     error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
-    null_converged = vapply(nulls, function(z) isTRUE(z$null_converged), logical(1L)),
     prescreen_phi = prescreen$phi,
     family_used = ifelse(prescreen$poisson, "poisson", family_id),
     stringsAsFactors = FALSE
@@ -688,8 +683,7 @@ mgcvST.estimate_spatial <- function(
                     max_eps = max_eps, max_iter = max_iter)
   lapply(seq_len(nrow(scan)), function(j) {
     failed <- is.na(scan$p_value[j])
-    list(null_converged = isTRUE(scan$converged[j]),
-         marginal_p_value = scan$p_value[j],
+    list(marginal_p_value = scan$p_value[j],
          marginal_requested_method = if (failed) NA_character_ else "davies",
          marginal_method = scan$method[j], marginal_fallback = scan$fallback[j],
          marginal_error = if (failed) list(class = "simpleError",

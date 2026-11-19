@@ -519,7 +519,6 @@ inlaST.estimate <- function(
   n_sp <- model$inla_spec$geometry_sp_length
   m <- ncol(score_sparse$A)
   px <- ncol(model$geometry$nuisance_design)
-  null_converged <- rep(FALSE, p)
   null_fit_seconds <- rep(NA_real_, p)
   null_error_class <- null_error_message <- null_error_call <- rep(NA_character_, p)
   null_state <- stats::setNames(vector("list", p), feature_id)
@@ -537,7 +536,6 @@ inlaST.estimate <- function(
       next
     }
     null_state[j] <- list(z$null)
-    null_converged[j] <- isTRUE(z$null$converged)
     null_fit_seconds[j] <- z$null$fit_seconds
     if (!is.null(z$marginal)) {
       marginal$p_value[j] <- z$marginal$p_value
@@ -563,7 +561,7 @@ inlaST.estimate <- function(
     spatial_selected = FALSE, spatial_fitted = FALSE,
     spatial_fallback = FALSE, spatial_fallback_method = NA_character_,
     spatial_precision_assigned = NA_real_,
-    null_converged = null_converged, null_fit_seconds = null_fit_seconds,
+    null_fit_seconds = null_fit_seconds,
     null_error_class = null_error_class, null_error_message = null_error_message,
     null_error_call = null_error_call,
     score_error_class = NA_character_, score_error_message = NA_character_,

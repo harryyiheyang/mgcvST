@@ -1,11 +1,10 @@
-# spdeST 0.0.1.9056
+# spdeST 0.0.1.9057
 
-* The Stage 1 diagnostics of an `mgcvST.set()` model gain `null_converged`
-  (the spde.scan null size search, or the `gam`/`bam` null fit, converged),
-  as those of `inlaST.set()` already had. `converged` stays the Stage 2
-  convergence and is `FALSE` until the feature is fitted by
-  `spdeST.estimate()`. Stage 1 checkpoints written by earlier versions are
-  recomputed.
+* The Stage 1 diagnostics no longer have `null_converged` (removed from
+  `inlaST.set()` fits; the 9056 addition to `mgcvST.set()` fits is reverted).
+  A null that does not converge already gets no Stage 1 p-value, and Stage 2
+  selection skips features with an `NA` q-value, so the column gated nothing.
+  Use `!is.na(marginal_q_value)` for the features with a Stage 1 test.
 
 # spdeST 0.0.1.9055
 
