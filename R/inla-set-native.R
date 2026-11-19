@@ -198,9 +198,7 @@
            "kappa; remove the spatial smooth term(s) from the formula: ",
            paste(labels[smooth][spatial], collapse = ", "), ".")
     }
-    stop("The null of inlaST.set() is a GLM: enter covariates as linear terms ",
-         "or factors, not smooth terms (", paste(labels[smooth], collapse = ", "),
-         ").")
+    .inlast_reject_nuisance_smooth(labels[smooth])
   }
   y <- as.numeric(stats::model.response(mf))
   offset <- stats::model.offset(mf)

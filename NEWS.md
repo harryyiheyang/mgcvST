@@ -1,3 +1,14 @@
+# spdeST 0.0.1.9059
+
+* The `spde.scan()` size search stops on the relative change of the profile
+  log-likelihood, `|l - l_old| / (|l| + 0.1) < tol`, the same form as the
+  IRLS deviance criterion; the step criterion `size_tol` is deleted. On a flat
+  likelihood the size can still move while the fit no longer changes.
+* Tests that ran `gaussian()` through Stage 1 now use count data
+  (`poisson()` or `nb()`); the Gaussian restricted-likelihood oracle test is
+  deleted. A smooth nuisance term is rejected with one message on both
+  `inlaST.set()` paths. `test-kappa-unit.R` defines its `n` again.
+
 # spdeST 0.0.1.9058
 
 * Stage 1 is `spde.scan()` only. The per-feature GAM null of
@@ -20,8 +31,7 @@
   through `spdeST.scan(scan_control = list(...))`. The redundant IRLS
   solve-residual check is deleted.
 * The `spde.scan()` IRLS stops on the relative deviance change, as
-  `glm.fit()` does (`tol = 1e-8`), and the size search on a relative step of
-  `size_tol = .Machine$double.eps^0.25`, as `MASS::theta.ml()` does. A factor
+  `glm.fit()` does (`tol = 1e-8`). A factor
   level whose counts are all zero (separation) no longer fails the null: its
   coefficient stops where its fitted means are negligible, as in `glm()` and
   `mgcv`, and the p-value equals that with those observations dropped.

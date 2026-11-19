@@ -12,7 +12,7 @@ test_that("WGCNA parameters and gene blocks have explicit contracts", {
   expect_error(parameters(list(4)), "unique non-empty name")
   expect_error(parameters(list(minClusterSize = 2.5)), "integer of at least 2")
 
-  f <- st_fixture(n = 45L, family = gaussian())
+  f <- st_fixture(n = 45L)
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
@@ -31,7 +31,7 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  f <- st_fixture(n = 54L, family = gaussian())
+  f <- st_fixture(n = 54L)
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
@@ -82,7 +82,7 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  f <- st_fixture(n = 54L, family = gaussian())
+  f <- st_fixture(n = 54L)
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
@@ -105,7 +105,7 @@ test_that("WGCNA preserves overlapping block order", {
   skip_on_cran()
   skip_if_not_installed("geometry")
 
-  f <- st_fixture(family = gaussian())
+  f <- st_fixture()
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
                          BPPARAM = BiocParallel::SerialParam()),
@@ -167,14 +167,14 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
                       project_intercept = TRUE)
   eta <- 0.3 + 0.2 * data$z + 0.15 * sin(2 * pi * data$x)
   Y <- rbind(
-    a = eta + rnorm(n, sd = 0.3), b = eta + rnorm(n, sd = 0.3),
-    c = eta + rnorm(n, sd = 0.3), d = eta + rnorm(n, sd = 0.3)
+    a = rpois(n, exp(1 + eta)), b = rpois(n, exp(1 + eta)),
+    c = rpois(n, exp(1 + eta)), d = rpois(n, exp(1 + eta))
   )
-  model <- inlaST.set(response ~ z, data, basis, family = gaussian())
+  model <- inlaST.set(response ~ z, data, basis, family = poisson())
   fit <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
     Y, model, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 1.7, gaussian_precision = 1 / 0.09)),
+    control = list(fixed_precision = 1.7)),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   ids <- rownames(Y)
   used <- match(ids, fit$feature_id)

@@ -71,20 +71,11 @@
   invisible(p_x)
 }
 
-# One message for both setup paths, so the unsupported structure is stated
-# identically wherever a caller meets it.
-.INLAST_NUISANCE_SMOOTH_MESSAGE <- paste(
-  "nuisance smooths are not supported by the frozen-design INLA path.",
-  "Native mesh setup accepts categorical s(group, bs = 're') terms and",
-  "full-rank-penalty s(..., bs = 'gp') terms. Other nuisance smooths are",
-  "unsupported."
-)
-
+# One message for both setup paths: the Stage 1 null is a GLM.
 .inlast_reject_nuisance_smooth <- function(labels) {
-  labels <- as.character(labels)
-  stop("inlaST.set(): ", .INLAST_NUISANCE_SMOOTH_MESSAGE,
-       if (length(labels)) paste0(" Offending term(s): ",
-                                  paste(labels, collapse = ", "), ".") else "")
+  stop("The null of inlaST.set() is a GLM: enter covariates as linear terms ",
+       "or factors, not smooth terms (",
+       paste(as.character(labels), collapse = ", "), ").", call. = FALSE)
 }
 
 # Convert frozen mgcv geometry to an INLA latent-model specification. Keeping

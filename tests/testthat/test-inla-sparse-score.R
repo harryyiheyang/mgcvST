@@ -18,9 +18,9 @@
   )
   eta <- 0.4 + 0.25 * data$z + data$offset0 + 0.2 * sin(2 * pi * data$x)
   Y <- rbind(
-    a = eta + rnorm(n, sd = 0.3),
-    b = eta + 0.1 * cos(2 * pi * data$y) + rnorm(n, sd = 0.3),
-    c = eta - 0.1 * sin(2 * pi * data$y) + rnorm(n, sd = 0.3)
+    a = rpois(n, exp(1 + eta)),
+    b = rpois(n, exp(1 + eta + 0.1 * cos(2 * pi * data$y))),
+    c = rpois(n, exp(1 + eta - 0.1 * sin(2 * pi * data$y)))
   )
   list(data = data, basis = basis, Y = Y, mesh = mesh)
 }
@@ -29,13 +29,13 @@ test_that("sparse INLA downstream takes no BiocParallel backend and agrees acros
   skip_on_cran()
   f <- .inlast_sparse_fixture(n = 64L, seed = 1711L)
   model <- inlaST.set(
-    response ~ z + offset(offset0), f$data, f$basis, family = gaussian()
+    response ~ z + offset(offset0), f$data, f$basis, family = poisson()
   )
   fit <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
     f$Y, model,
     BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)),
+    control = list(fixed_precision = 2)),
     f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   pairs <- t(combn(rownames(f$Y), 2L))
@@ -56,9 +56,8 @@ test_that("a nuisance smooth is rejected at set() on both INLA paths", {
   skip_on_cran()
   f <- .inlast_sparse_fixture(n = 56L, seed = 1721L)
   s <- mgcv::s
-  # Frozen designs reject nuisance smooths; native mesh setup accepts the
-  # supported random-effect and whitened-GP iid blocks.
-  expected <- "nuisance smooths are not supported by the frozen-design INLA path"
+  # The Stage 1 null is a GLM on both paths.
+  expected <- "The null of inlaST.set\\(\\) is a GLM"
   expect_error(
     inlaST.set(
       response ~ s(z, k = 5) + offset(offset0),
@@ -72,10 +71,8 @@ test_that("a nuisance smooth is rejected at set() on both INLA paths", {
       family = gaussian(), mesh = f$mesh, kappa = 1.2,
       coordinates = c("x", "y")
     ),
-    "nuisance term must be"
+    expected
   )
-  expect_match(spdeST:::.INLAST_NUISANCE_SMOOTH_MESSAGE,
-               "Native mesh setup")
 })
 
 test_that("parametric covariates remain fully supported on both INLA paths", {
@@ -83,7 +80,7 @@ test_that("parametric covariates remain fully supported on both INLA paths", {
   f <- .inlast_sparse_fixture(n = 56L, seed = 1721L)
   f$data$lu <- as.numeric(scale(f$data$exposure))
   legacy <- inlaST.set(
-    response ~ lu + offset(offset0), f$data, f$basis, family = gaussian()
+    response ~ lu + offset(offset0), f$data, f$basis, family = poisson()
   )
   expect_length(legacy$inla_spec$random, 1L)
   expect_true(spdeST:::.inlast_sparse_score_capability(legacy)$eligible)
@@ -92,8 +89,7 @@ test_that("parametric covariates remain fully supported on both INLA paths", {
                unname(as.matrix(legacy$inla_spec$nuisance_design)))
   fit <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
-    f$Y, legacy, diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam(),
-    control = list(gaussian_precision = 1 / 0.09)),
+    f$Y, legacy, diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam()),
     f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(all(fit$diagnostics$converged))
   expect_identical(ncol(fit$geometry$nuisance_design), 2L)
@@ -101,7 +97,7 @@ test_that("parametric covariates remain fully supported on both INLA paths", {
   # A factor covariate is a parametric term too.
   f$data$grp <- factor(rep(c("a", "b", "c"), length.out = nrow(f$data)))
   factored <- inlaST.set(
-    response ~ grp + offset(offset0), f$data, f$basis, family = gaussian()
+    response ~ grp + offset(offset0), f$data, f$basis, family = poisson()
   )
   expect_identical(ncol(factored$inla_spec$fixed$X), 3L)
   expect_length(factored$inla_spec$random, 1L)
@@ -134,7 +130,7 @@ test_that("a wide parametric nuisance design is rejected with a dedicated messag
   f$data$grp <- factor(rep(seq_len(1010L), length.out = nrow(f$data)))
   expect_error(
     inlaST.set(
-      response ~ grp + offset(offset0), f$data, f$basis, family = gaussian()
+      response ~ grp + offset(offset0), f$data, f$basis, family = poisson()
     ),
     "dedicated implementation"
   )

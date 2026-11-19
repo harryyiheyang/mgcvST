@@ -33,10 +33,9 @@
 #' @param chunk_size Features per kernel call; bounds the memory of a call.
 #' @param block_size Columns per block when the score curvature is built.
 #' @param alpha_max Upper bound of the overdispersion (size >= 1 / alpha_max).
-#' @param tol Relative deviance change at which the IRLS stops, as in
+#' @param tol Relative change at which the IRLS (deviance) and the size search
+#'   (profile log-likelihood) stop, `|l - l_old| / (|l| + 0.1) < tol`, as in
 #'   [stats::glm.fit()] (whose default it is).
-#' @param size_tol Relative step at which the size search stops; the default
-#'   `.Machine$double.eps^0.25` is that of `MASS::theta.ml()`.
 #' @param maxit_outer,maxit_inner Iteration limits of the size search and of
 #'   the IRLS (`maxit_inner = 25` is the [stats::glm.control()] default; a
 #'   factor level with zero counts needs about 20). A null that does not
@@ -61,7 +60,7 @@
 spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
                       feature_id = rownames(Y), threads = 1L,
                       chunk_size = 256L, block_size = 32L, alpha_max = 1e4,
-                      tol = 1e-8, size_tol = 1.220703e-4,
+                      tol = 1e-8,
                       maxit_outer = 10L, maxit_inner = 25L,
                       alpha_min = 1e-12, step_bound = 10, step_fallback = 2,
                       maxit_halving = 30L, eta_max = 700,
@@ -104,7 +103,6 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
     fit <- mgcvst_nb_null_batch_cpp(
       Yt, X, O, route, alpha_max = alpha_max,
       alpha_fixed = if (is.null(size)) -1 else 1 / size, tol = tol,
-      size_tol = size_tol,
       maxit_outer = as.integer(maxit_outer), maxit_inner = as.integer(maxit_inner),
       alpha_min = alpha_min, step_bound = step_bound, step_fallback = step_fallback,
       maxit_halving = as.integer(maxit_halving), eta_max = eta_max,

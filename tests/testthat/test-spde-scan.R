@@ -17,7 +17,7 @@ scan_kernel <- function(data, poisson = rep(FALSE, nrow(data$Y)), ...) {
     Matrix::Matrix(t(data$Y), sparse = TRUE), "CsparseMatrix"),
     "generalMatrix"), "dMatrix")
   spdeST:::mgcvst_nb_null_batch_cpp(Yt, data$X, matrix(data$offset),
-                                    poisson, tol = 1e-12, size_tol = 1e-10, ...)
+                                    poisson, tol = 1e-12, ...)
 }
 
 test_that("the batched NB null kernel reproduces glm.nb", {

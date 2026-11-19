@@ -63,45 +63,6 @@ test_that("INLA defaults estimated precision and NB size hyperparameters to flat
   expect_identical(spdeST:::.inlast_control(control), control)
 })
 
-test_that("default Gaussian variance agrees with a restricted likelihood oracle", {
-  skip_on_cran()
-  f <- .inlast_fixture(seed = 2401L)
-  d <- f$data
-  n <- nrow(d)
-  y <- 0.6 + 0.4 * d$z + d$offset0 +
-    0.35 * sin(2 * pi * d$x) - 0.25 * cos(2 * pi * d$y) +
-    rnorm(n, sd = 0.3)
-  model <- inlaST.set(
-    response ~ z + offset(offset0), d, f$basis, family = gaussian(),
-    control = list(fixed_precision = 2.5)
-  )
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(
-    matrix(y, nrow = 1L, dimnames = list("gaussian_flat", NULL)), model,
-    BPPARAM = BiocParallel::SerialParam()),
-    matrix(y, nrow = 1L, dimnames = list("gaussian_flat", NULL)), features = "all", BPPARAM = BiocParallel::SerialParam())
-  target <- fit$geometry$target[["global"]]
-  X <- fit$geometry$X
-  B <- fit$geometry$smooth[[target]]$B
-  Q <- fit$geometry$smooth[[target]]$penalties[[1L]]
-  G <- B %*% solve(2.5 * Q, t(B))
-  residual <- y - model$offset
-  # Independently integrate the spatial field and unpenalized fixed effects.
-  objective <- function(log_phi) {
-    V <- exp(log_phi) * diag(n) + G
-    Vi <- solve(V)
-    ViX <- Vi %*% X
-    XtViX <- crossprod(X, ViX)
-    P <- Vi - ViX %*% solve(XtViX, t(ViX))
-    as.numeric(determinant(V, logarithm = TRUE)$modulus +
-      determinant(XtViX, logarithm = TRUE)$modulus +
-      crossprod(residual, P %*% residual))
-  }
-  exact <- optimize(objective, interval = log(c(0.01, 2)), tol = 1e-10)
-  expect_true(fit$diagnostics$converged)
-  expect_lt(abs(log(fit$dispersion[[1L]]) - exact$minimum), 2e-3)
-})
-
 test_that("NB joint mode satisfies the fixed-hyperparameter penalized score equations", {
   skip_on_cran()
   f <- .inlast_fixture(n = 60L, seed = 808L)

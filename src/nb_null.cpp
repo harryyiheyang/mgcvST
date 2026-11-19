@@ -208,7 +208,6 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
     double alpha_max = 1e4,
     double alpha_fixed = -1,
     double tol = 1e-8,
-    double size_tol = 1.220703e-4,
     int maxit_outer = 10,
     int maxit_inner = 25,
     double alpha_min = 1e-12,
@@ -297,11 +296,19 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
         // Moment start: sum (y - mu)^2 - y = alpha sum mu^2.
         alpha = std::min(alpha_max, std::max(alpha_min, score0 / mu2));
         converged = false;
+        double ll_old = NA_REAL;
         for (int outer = 1; outer <= maxit_outer; ++outer) {
           out.outer = outer;
           it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
           if (it < 0) throw std::runtime_error("The fixed-size IRLS did not converge.");
           out.inner += it;
+          // Stop on the relative change of the profile log-likelihood, the
+          // same form as the IRLS deviance criterion.
+          const double ll = loglik(mu, y, c, alpha, lfact);
+          if (outer > 1 && std::abs(ll - ll_old) / (std::abs(ll) + 0.1) < tol) {
+            converged = true; break;
+          }
+          ll_old = ll;
           double g, h;
           alpha_derivatives(mu, y, c, alpha, g, h);
           // Newton where the curvature is negative, else a step_fallback-fold
@@ -312,11 +319,9 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
           next = std::min(step_bound * alpha, std::max(alpha / step_bound, next));
           next = std::min(alpha_max, next);
           if (alpha == alpha_max && g > 0) { converged = true; break; }
-          const bool small = std::abs(next - alpha) <= size_tol * alpha;
           alpha = next;
-          if (small) { converged = true; break; }
         }
-        it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
+        if (!converged) it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
         if (it < 0) throw std::runtime_error("The final IRLS did not converge.");
         out.inner += it;
       }

@@ -173,9 +173,9 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
 
   # Native INLA path: constrained kernel and sparse marginal score.
   skip_if_not_installed("INLA")
-  m_mm <- inlaST.set(response ~ z, mm, family = gaussian(), mesh = mesh_mm,
+  m_mm <- inlaST.set(response ~ z, mm, family = poisson(), mesh = mesh_mm,
                      coordinates = c("x", "y"))
-  m_um <- inlaST.set(response ~ z, um, family = gaussian(), mesh = mesh_um,
+  m_um <- inlaST.set(response ~ z, um, family = poisson(), mesh = mesh_um,
                      coordinates = c("x", "y"))
   expect_identical(m_um$kappa_unit, m_mm$kappa_unit)
   r_mm <- m_mm$inla_spec$random[[1L]]
@@ -189,17 +189,18 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
 
   skip_on_cran()
   eta <- 0.3 + 0.4 * mm$z + 0.5 * sin(mm$x) * cos(mm$y)
-  Y <- rbind(a = eta + rnorm(n, sd = 0.3), b = eta + rnorm(n, sd = 0.3))
+  n <- nrow(mm)
+  Y <- rbind(a = rpois(n, exp(1 + eta)), b = rpois(n, exp(1 + eta)))
   # Fixed precisions keep tau * Q identical: Q_um = 1000^-2 Q_mm in 2D.
   fit_mm <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
     Y, m_mm, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)),
+    control = list(fixed_precision = 2)),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   fit_um <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
     Y, m_um, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2e6, gaussian_precision = 1 / 0.09)),
+    control = list(fixed_precision = 2e6)),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_identical(fit_um$kappa_unit, 0.05)
   expect_equal(fit_um$unit_length / fit_mm$unit_length, 1000)
