@@ -158,3 +158,26 @@ test_that("the end point is a maximum when the overdispersion score is not posit
     expect_lt(fixed$loglik, z$loglik)
   }
 })
+
+test_that("the mgcv Stage 1 scan reproduces the bam null scores", {
+  f <- st_fixture(n = 200L)
+  set.seed(9051L)
+  mu <- exp(1 + f$data$offset0 + .5 * f$data$z)
+  Y <- t(vapply(c(.8, 2, 6), function(s) stats::rnbinom(200L, mu = mu, size = s),
+                numeric(200L)))
+  Y <- rbind(Y, f$Y[2L, ])  # a Poisson feature: the quasipoisson route
+  expect_true(mgcvST:::.mgcvst_scan_eligible(
+    f$model$null_formula, f$model$G$family, NULL, list(), list()))
+  expect_false(mgcvST:::.mgcvst_scan_eligible(
+    f$model$null_formula, mgcv::nb(theta = 3), NULL, list(), list()))
+  sp <- BiocParallel::SerialParam()
+  withr::local_options(mgcvST.progress = FALSE)
+  scan <- mgcvST.estimate(Y, f$model, BPPARAM = sp, spatial = "none")
+  withr::local_options(mgcvST.scan_null = FALSE)
+  gam <- suppressWarnings(mgcvST.estimate(Y, f$model, BPPARAM = sp, spatial = "none"))
+  expect_identical(scan$stage1$null_engine, "spde.scan")
+  expect_identical(gam$stage1$null_engine, "gam")
+  expect_identical(scan$diagnostics$family_used, gam$diagnostics$family_used)
+  expect_equal(log(scan$diagnostics$marginal_p_value),
+               log(gam$diagnostics$marginal_p_value), tolerance = 1e-5)
+})

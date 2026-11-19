@@ -153,13 +153,18 @@
 .mgcvst_null_chunk <- function(payload, G0, family_raw, control, gam_args,
                                source_files, worker_init, init_key,
                                marginal_test, marginal_args,
-                               retain_marginal = FALSE, routed_family_raw = NULL) {
+                               retain_marginal = FALSE, routed_family_raw = NULL,
+                               scan = FALSE) {
   .mgcvst_worker_initialize(source_files, worker_init, init_key)
   out <- vector("list", length(payload$index))
   target_index <- which(vapply(
     G0$smooth, function(s) identical(s$score.component, "global"), logical(1L)
   ))
   null_setup <- .mgcvst_null_score_setup(G0, target_index, attr(G0, "null_spec"))
+  # spde.scan (R/spde-scan.R): every null of the chunk from the batched kernel.
+  scanned <- if (isTRUE(scan)) {
+    .mgcvst_scan_nulls(payload, null_setup, G0$offset)
+  } else NULL
   for (j in seq_along(payload$index)) {
     response <- as.numeric(payload$Y[j, ])
     feature_offset <- if (is.matrix(payload$offset)) payload$offset[j, ] else payload$offset
@@ -167,7 +172,10 @@
     null_data[[null_setup$spec$response]] <- response
     marginal_result <- tryCatch(
       {
-        null_fit <- .mgcvst_fit_null(
+        null_fit <- if (!is.null(scanned)) {
+          if (inherits(scanned[[j]], "condition")) stop(scanned[[j]])
+          scanned[[j]]
+        } else .mgcvst_fit_null(
           null_setup, null_data,
           unserialize(if (isTRUE(payload$poisson[j])) routed_family_raw else family_raw),
           feature_offset, control, gam_args
@@ -364,6 +372,10 @@
     model, method, control, gam_args, offset, feature_id, retain_smooth,
     diagnostics, retain_marginal, marginal_args, marginal_test
   )
+  # spde.scan: batched maximum-likelihood nulls when the null has no smooth.
+  scan <- .mgcvst_scan_eligible(model$null_formula, model$G$family,
+                                marginal_test, marginal_args, gam_args)
+  if (scan) signature <- .mgcvst_pair_input_hash(list(signature, null = "spde.scan"))
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", signature, resume)
 
   # Step 1: the null fit and Stage 1 p-value of every feature.
@@ -387,7 +399,8 @@
     family_raw = family_raw, control = control, gam_args = gam_args,
     source_files = source_files, worker_init = worker_init, init_key = init_key,
     marginal_test = marginal_test, marginal_args = marginal_args,
-    retain_marginal = retain_marginal, routed_family_raw = routed_family_raw
+    retain_marginal = retain_marginal, routed_family_raw = routed_family_raw,
+    scan = scan
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
   nulls <- unlist(step1$results, recursive = FALSE)
@@ -470,7 +483,8 @@
       n_observation = n,
       format = .mgcvst_fit_format,
       signature = signature,
-      stage1 = list(adjust = adjust, q.value = q.value),
+      stage1 = list(adjust = adjust, q.value = q.value,
+                    null_engine = if (scan) "spde.scan" else "gam"),
       estimation_context = list(
         family_raw = family_raw, routed_family_raw = routed_family_raw,
         method = method, control = control, gam_args = gam_args,

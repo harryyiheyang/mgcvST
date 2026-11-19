@@ -198,6 +198,7 @@
     ".mgcvst_marginal_davies", ".mgcvst_null_score_setup",
     ".mgcvst_null_score_spectrum", ".mgcvst_null_score_test",
     ".mgcvst_fit_null", ".working_family_id", "taps_score_test",
+    ".mgcvst_scan_nulls",
     ".gam_training_lpmatrix", ".mgcvst_expand_penalty",
     ".mgcvst_model_geometry", ".mgcvst_geometry_signature", ".mgcvst_model_sp",
     ".mgcvst_cached_model_geometry", ".mgcvst_training_design",
@@ -225,7 +226,14 @@
 #' smooth removed for every feature; the marginal screening uses that null
 #' PIRLS state, the prepared `G$X`, and the target penalty, and the Stage 1
 #' null-first p-values are adjusted by `adjust` into the Stage 1 q-values
-#' `diagnostics$marginal_q_value`. No null fit keeps a working vector. Step 2
+#' `diagnostics$marginal_q_value`. When the null has no smooth term (offset
+#' and parametric covariates only) and the family is `nb()` with an estimated
+#' size, every null of a chunk is fitted by the batched spde.scan kernel: the
+#' maximum-likelihood size, as `bam(method = "fREML")` gives for such a null,
+#' the Fisher covariance and, on the quasipoisson route, the Pearson scale.
+#' `fit$stage1$null_engine` records `"spde.scan"` or `"gam"`, and
+#' `options(mgcvST.scan_null = FALSE)` restores the per-feature GAM nulls.
+#' No null fit keeps a working vector. Step 2
 #' fits the spatial model of the features chosen by `spatial` only. Features
 #' without a spatial model are marked `spatial_fitted = FALSE` in the
 #' diagnostics, have missing working errors, variances, `dispersion` and

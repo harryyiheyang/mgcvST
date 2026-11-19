@@ -503,7 +503,7 @@ test_that("mgcvST.estimate fits the spatial model of the Stage 1 discoveries onl
   expect_identical(fit$diagnostics$spatial_selected, q <= cut)
   expect_identical(fit$diagnostics$spatial_fitted, q <= cut)
   expect_identical(fit$diagnostics$marginal_p_value, all$diagnostics$marginal_p_value)
-  expect_identical(fit$stage1, list(adjust = "BY", q.value = cut))
+  expect_identical(fit$stage1[c("adjust", "q.value")], list(adjust = "BY", q.value = cut))
   # Unselected features carry no working model and are unavailable.
   expect_true(all(is.na(fit$working_error[, rest])))
   expect_true(all(is.na(fit$working_variance[, rest])))

@@ -98,3 +98,76 @@
   })
 }
 
+
+# spde.scan on the mgcv branch.
+#
+# When the Stage 1 null of mgcvST.estimate() has no smooth term (offset and
+# parametric covariates only) and the family is mgcv's nb() with an estimated
+# size, the null GAM is a GLM: bam(method = "fREML") returns the
+# maximum-likelihood size, the Fisher-information covariance Vp and, for the
+# quasipoisson route, the Pearson scale with n - p degrees of freedom. The same
+# batched kernel as the INLA branch fits every feature of a chunk, and each fit
+# is handed to the unchanged Stage 1 score (.mgcvst_null_score_test) as the
+# null-fit fields it reads. options(mgcvST.scan_null = FALSE) restores the
+# per-feature GAM nulls.
+.mgcvst_scan_eligible <- function(null_formula, family, marginal_test,
+                                  marginal_args, gam_args) {
+  if (!isTRUE(getOption("mgcvST.scan_null", TRUE))) return(FALSE)
+  if (!is.null(marginal_test) || length(gam_args)) return(FALSE)
+  if (length(setdiff(names(marginal_args), c("method", "max_eps", "max_iter")))) {
+    return(FALSE)
+  }
+  smooth <- tryCatch(length(mgcv::interpret.gam(null_formula)$smooth.spec),
+                     error = function(e) NA_integer_)
+  if (!identical(smooth, 0L)) return(FALSE)
+  id <- tryCatch(.working_family_id(family$family), error = function(e) NA)
+  # An estimated nb() size has n.theta = 1; a fixed size stays on the GAM path.
+  isTRUE(identical(id, "negative_binomial")) && isTRUE(family$n.theta == 1L) &&
+    identical(family$link, "log")
+}
+
+# Null fits of the features of one payload for .mgcvst_null_score_test: a list
+# with, per feature, either the fields of the null fit it reads or the error.
+.mgcvst_scan_nulls <- function(payload, setup, base_offset, threads = 1L) {
+  X0 <- as.matrix(setup$X0)
+  storage.mode(X0) <- "double"
+  n <- nrow(X0)
+  k <- length(payload$index)
+  O <- matrix(if (is.null(base_offset)) 0 else as.numeric(base_offset), n, k)
+  if (!is.null(payload$offset)) {
+    O <- O + if (is.matrix(payload$offset)) t(payload$offset) else
+      as.numeric(payload$offset)
+  }
+  Y <- payload$Y
+  Yt <- methods::as(methods::as(methods::as(
+    Matrix::Matrix(t(Y), sparse = TRUE), "CsparseMatrix"), "generalMatrix"),
+    "dMatrix")
+  poisson <- if (is.null(payload$poisson)) rep(FALSE, k) else
+    as.logical(payload$poisson)
+  kernel <- get("mgcvst_nb_null_batch_cpp", envir = asNamespace("mgcvST"))
+  z <- kernel(Yt, X0, O, poisson, threads = as.integer(threads))
+  lapply(seq_len(k), function(i) {
+    if (!is.na(z$error[i])) {
+      return(simpleError(paste("spde.scan null fit:", z$error[i])))
+    }
+    if (!isTRUE(z$converged[i])) {
+      return(simpleError("spde.scan null fit: the iteration limit was reached."))
+    }
+    eta <- as.numeric(X0 %*% z$beta[, i]) + O[, i]
+    mu <- exp(eta)
+    nb <- z$alpha[i] > 0
+    if (nb) {
+      family <- mgcv::nb(theta = z$size[i], link = "log")
+      sig2 <- 1
+      w <- mu / (1 + mu / z$size[i])
+    } else {
+      family <- stats::quasipoisson(link = "log")
+      sig2 <- z$phi[i]
+      w <- mu
+    }
+    info <- crossprod(X0, w * X0)
+    list(linear.predictors = eta, fitted.values = mu, y = as.numeric(Y[i, ]),
+         prior.weights = rep(1, n), family = family, sig2 = sig2,
+         Vp = sig2 * solve(info), offset = O[, i])
+  })
+}
