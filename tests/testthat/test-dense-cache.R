@@ -26,7 +26,7 @@ test_that("a prepared model gives the same pair results in one or many chunks", 
 })
 
 test_that("model pair states are constructed once per unique feature", {
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(
     f$Y, f$model, BPPARAM = BiocParallel::SerialParam(), diagnostics = FALSE),

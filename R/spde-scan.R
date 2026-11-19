@@ -13,11 +13,12 @@
 #' working residual `(y - mu) / mu`,
 #' `P0 = W - W X (X'WX)^{-1} X'W` and `B B' = Q^{-1}`,
 #' the statistic is `T = |B'A'P0 r|^2` and its null law is the mixture
-#' `sum(lambda_k chi^2_1)` over the positive eigenvalues of `B'A'P0AB`
-#' (Davies, then the saddlepoint when Davies fails). `P0` removes the span of
+#' `sum(lambda_k chi^2_1)` over the positive eigenvalues of `B'A'P0AB`,
+#' calibrated by the saddlepoint approximation. `P0` removes the span of
 #' `X`, the constant included, so the field enters as it is: no intercept
 #' projection, `Q` stays sparse. All numerical work is compiled
-#' (`src/nb_null.cpp`, `src/spde_scan.cpp`).
+#' (`src/nb_null.cpp`, `src/spde_scan.cpp`, `src/spa_quadform.h`). The null
+#' design `X` is a model matrix, so factors enter as 0-1 columns.
 #'
 #' @param Y Feature-by-observation count matrix (dense or sparse).
 #' @param X Null design, observations by columns; it should hold the constant.
@@ -32,23 +33,36 @@
 #' @param chunk_size Features per kernel call; bounds the memory of a call.
 #' @param block_size Columns per block when the score curvature is built.
 #' @param alpha_max Upper bound of the overdispersion (size >= 1 / alpha_max).
-#' @param tol Relative convergence tolerance of the IRLS.
+#' @param tol Relative convergence tolerance of the IRLS coefficients and of
+#'   the size search; the default is that of [stats::glm.control()].
 #' @param maxit_outer,maxit_inner Iteration limits of the size search and of
-#'   the IRLS.
+#'   the IRLS (`maxit_inner = 25` is the [stats::glm.control()] default). A
+#'   null that does not converge gets no p-value.
+#' @param alpha_min Floor of the moment start of the overdispersion.
+#' @param step_bound,step_fallback A size-search step stays within a factor
+#'   `step_bound` of the current overdispersion; where the curvature is not
+#'   negative the step is a `step_fallback`-fold increase or decrease.
+#' @param maxit_halving,eta_max An IRLS step is halved at most `maxit_halving`
+#'   times to keep the linear predictor below `eta_max`.
 #' @param spectrum_tol Eigenvalues below `spectrum_tol` times the largest are
 #'   dropped from the mixture.
-#' @param max_eps,max_iter Accuracy and iteration limit of Davies.
+#' @param spa_centre_tol,spa_root_tol,spa_root_maxit Saddlepoint controls:
+#'   within `spa_centre_tol` (relative) of the mixture mean the limit at the
+#'   mean is used; the saddlepoint equation is solved to relative accuracy
+#'   `spa_root_tol` in at most `spa_root_maxit` steps.
 #' @return A data frame with one row per feature: `feature_id`, `family`
 #'   (`"negative_binomial"` or `"poisson"`), `size`, `overdispersion_score`,
-#'   `log_likelihood`, `converged`, `statistic`, `p_value`, `method`,
-#'   `fallback`, `error`. The attribute `"coefficients"` holds the
+#'   `log_likelihood`, `converged`, `statistic`, `p_value`, `error`. The attribute `"coefficients"` holds the
 #'   `ncol(X)`-by-feature null coefficients.
 #' @keywords internal
 spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
                       feature_id = rownames(Y), threads = 1L,
                       chunk_size = 256L, block_size = 32L, alpha_max = 1e4,
-                      tol = 1e-10, maxit_outer = 100L, maxit_inner = 100L,
-                      spectrum_tol = 1e-12, max_eps = 1e-8, max_iter = 1e5) {
+                      tol = 1e-8, maxit_outer = 10L, maxit_inner = 25L,
+                      alpha_min = 1e-12, step_bound = 10, step_fallback = 2,
+                      maxit_halving = 30L, eta_max = 700,
+                      spectrum_tol = 1e-12, spa_centre_tol = 1e-6,
+                      spa_root_tol = 1e-12, spa_root_maxit = 100L) {
   X <- as.matrix(X)
   storage.mode(X) <- "double"
   n <- nrow(X)
@@ -71,7 +85,7 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
     feature_id = feature_id, family = NA_character_, size = NA_real_,
     overdispersion_score = NA_real_, log_likelihood = NA_real_,
     converged = FALSE, statistic = NA_real_, p_value = NA_real_,
-    method = NA_character_, fallback = NA, error = NA_character_,
+    error = NA_character_,
     stringsAsFactors = FALSE
   )
   beta <- matrix(NA_real_, ncol(X), p, dimnames = list(colnames(X), feature_id))
@@ -87,13 +101,17 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
       Yt, X, O, route, alpha_max = alpha_max,
       alpha_fixed = if (is.null(size)) -1 else 1 / size, tol = tol,
       maxit_outer = as.integer(maxit_outer), maxit_inner = as.integer(maxit_inner),
+      alpha_min = alpha_min, step_bound = step_bound, step_fallback = step_fallback,
+      maxit_halving = as.integer(maxit_halving), eta_max = eta_max,
       threads = as.integer(threads)
     )
     ok <- is.na(fit$error) & fit$converged
     alpha <- ifelse(ok, fit$alpha, NA_real_)
     score <- mgcvst_spde_score_cpp(
       A, Q, X, Yt, O, fit$beta, alpha, threads = as.integer(threads),
-      block_size = as.integer(block_size), spectrum_tol = spectrum_tol
+      block_size = as.integer(block_size), spectrum_tol = spectrum_tol,
+      spa_centre_tol = spa_centre_tol, spa_root_tol = spa_root_tol,
+      spa_root_maxit = as.integer(spa_root_maxit)
     )
     beta[, rows] <- fit$beta
     out$family[rows] <- ifelse(fit$alpha > 0, "negative_binomial", "poisson")
@@ -103,23 +121,8 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
     out$converged[rows] <- ok
     out$error[rows] <- ifelse(!is.na(fit$error), fit$error,
       ifelse(!fit$converged, "The null size search did not converge.", score$error))
-    for (j in which(ok & is.na(score$error))) {
-      z <- list(statistic = score$statistic[j], lambda = score$lambda[[j]])
-      row <- rows[j]
-      out$statistic[row] <- z$statistic
-      if (!length(z$lambda) || !is.finite(z$statistic)) {
-        out$error[row] <- "The score has no finite positive mixture spectrum."
-        next
-      }
-      d <- .mgcvst_marginal_davies(z, max_eps, max_iter)
-      out$p_value[row] <- d$p_value
-      out$method[row] <- d$method_used
-      out$fallback[row] <- d$fallback_used
-      if (!is.finite(d$p_value) || d$p_value < 0 || d$p_value > 1) {
-        out$p_value[row] <- NA_real_
-        out$error[row] <- "Invalid score p-value."
-      }
-    }
+    out$statistic[rows] <- ifelse(ok, score$statistic, NA_real_)
+    out$p_value[rows] <- ifelse(ok, score$p_value, NA_real_)
   }
   attr(out, "coefficients") <- beta
   out

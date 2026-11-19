@@ -17,48 +17,10 @@ using namespace mgcvst_sparse;
 
 namespace {
 
-// Eigenvalues of the symmetric marginal curvature, in decreasing order, that
-// exceed 1e-12 times the largest one. This drops the constraint direction and
-// the numerical null space before the Davies calibration.
-Vec positive_spectrum(const Mat& value) {
-  // Eigenvalues only through LAPACK dsyevd, which runs the reduction on the
-  // linked (optimised) BLAS; Eigen's own tridiagonalisation is unblocked.
-  Mat work_matrix = value;
-  int n = static_cast<int>(work_matrix.rows());
-  int info = 0, lwork = -1, liwork = -1, iwork_query = 0;
-  double work_query = 0;
-  Vec values(n);
-  F77_CALL(dsyevd)("N", "L", &n, work_matrix.data(), &n, values.data(),
-                   &work_query, &lwork, &iwork_query, &liwork, &info FCONE FCONE);
-  if (info != 0) {
-    throw std::runtime_error("The marginal curvature eigendecomposition failed.");
-  }
-  lwork = static_cast<int>(work_query);
-  liwork = iwork_query;
-  std::vector<double> work(std::max(1, lwork));
-  std::vector<int> iwork(std::max(1, liwork));
-  F77_CALL(dsyevd)("N", "L", &n, work_matrix.data(), &n, values.data(),
-                   work.data(), &lwork, iwork.data(), &liwork, &info FCONE FCONE);
-  if (info != 0 || !values.allFinite()) {
-    throw std::runtime_error("The marginal curvature eigendecomposition failed.");
-  }
-  const double cutoff = 1e-12 * values.maxCoeff();
-  int kept = 0;
-  for (int j = 0; j < values.size(); ++j) {
-    if (values[j] > 0 && values[j] > cutoff) ++kept;
-  }
-  Vec out(kept);
-  for (int j = values.size() - 1, k = 0; j >= 0; --j) {
-    if (values[j] > 0 && values[j] > cutoff) out[k++] = values[j];
-  }
-  return out;
-}
-
 struct FeatureResult {
   Vec a;
   Mat M;
   Mat Vp;
-  Vec lambda;
   double statistic = NA_REAL;
   double constraint_norm = NA_REAL;
   std::string error;
@@ -136,8 +98,7 @@ Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(
 
 // Expected-curvature score vectors for a single constrained SPDE block, in the
 // redundant whitened coordinates of dimension m (rank m - 1 after the
-// constraint). With null_target, the spatial field is absent from the working
-// model and the full-space curvature is reduced to its positive eigenvalues.
+// constraint).
 // [[Rcpp::export]]
 Rcpp::List mgcvst_inla_sparse_batch_cpp(
     const Eigen::MappedSparseMatrix<double>& A_map,
@@ -148,7 +109,6 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
     const Eigen::Map<Eigen::MatrixXd> D,
     const Eigen::Map<Eigen::VectorXd> tau,
     int threads = 1,
-    bool null_target = false,
     int block_size = 32,
     SEXP prepared = R_NilValue,
     Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision = R_NilValue) {
@@ -234,22 +194,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
         Vec hinv_g;
         double hden = NA_REAL;
 
-        if (null_target) {
-          U = L;
-          if (px) {
-            Mat J = X.transpose() * WX;
-            J.diagonal() += nuisance_penalty.col(f);
-            Eigen::LDLT<Mat> jfactor(0.5 * (J + J.transpose()));
-            if (jfactor.info() != Eigen::Success || !jfactor.isPositive()) {
-              throw std::runtime_error("The expected marginal nuisance information is not positive definite.");
-            }
-            Vp = jfactor.solve(Mat::Identity(px, px));
-            h = tvec - U * (Vp * xte);
-          } else {
-            Vp.resize(0, 0);
-            h = tvec;
-          }
-        } else {
+        {
           SpMat H = K + tau[f] * Q;
           hfactor.compute(H);
           if (hfactor.info() != Eigen::Success) {
@@ -284,22 +229,6 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
         result[f].Vp = Vp;
         result[f].constraint_norm = std::abs(coordinate_constraint.norm() - 1.0);
 
-        if (null_target) {
-          Mat M = Mat::Zero(m, m);
-          for (int first = 0; first < m; first += block_size) {
-            const int width = std::min(block_size, m - first);
-            Mat Z = Mat::Zero(m, width);
-            Z.block(first, 0, width, width).setIdentity();
-            Z = project_coordinates(Z, coordinate_constraint);
-            Mat V = apply_B(qfactor, Z) / std::sqrt(tau[f]);
-            Mat Y = K * V;
-            if (px) Y.noalias() -= U * (Vp * (U.transpose() * V));
-            M.middleCols(first, width) =
-              project_coordinates(apply_Bt(qfactor, Y), coordinate_constraint) /
-              std::sqrt(tau[f]);
-          }
-          result[f].lambda = positive_spectrum(0.5 * (M + M.transpose()));
-        }
       } catch (const std::exception& error) {
         result[f].error = error.what();
         failed += 1;
@@ -315,7 +244,6 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
       features_out[f] = Rcpp::List::create(
         Rcpp::Named("a") = result[f].a,
         Rcpp::Named("statistic") = result[f].statistic,
-        Rcpp::Named("lambda") = null_target ? Rcpp::wrap(result[f].lambda) : R_NilValue,
         Rcpp::Named("expected_vp") = result[f].Vp,
         Rcpp::Named("width") = m,
         Rcpp::Named("normalization") = m - 1,

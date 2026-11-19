@@ -18,7 +18,8 @@ inlaST.estimate(
   adjust = c("BY", "BH", "Sidak", "none"),
   q.value = 0.05,
   checkpoint_dir = NULL,
-  resume = TRUE
+  resume = TRUE,
+  scan_control = list()
 )
 }
 \arguments{
@@ -74,10 +75,9 @@ feature first gets its offset-and-covariate-only Poisson GLM, and it is
 fitted with the Poisson family when its overdispersion score
 \code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
 maximum-likelihood fit is the Poisson fit (R/family-prescreen.R; there is
-no threshold to set). When the null model has fixed effects only,
-Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on the raw sparse field of the target block, the
-same function \code{\link[=mgcvST.estimate]{mgcvST.estimate()}} calls
-(\code{options(mgcvST.scan_null = FALSE)} restores the INLA null fits). The
+no threshold to set). Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on the raw sparse field
+of the target block, the same function \code{\link[=mgcvST.estimate]{mgcvST.estimate()}} calls; the
+null must have fixed effects only. The
 per-feature Pearson dispersion of that Poisson fit and the family actually
 used are reported in the diagnostics as
 \code{prescreen_phi} and \code{family_used}. Unknown controls are rejected.}
@@ -99,6 +99,8 @@ computations of the workers.}
 of both steps; see Details.}
 
 \item{resume}{Reuse the completed chunks of a compatible checkpoint.}
+
+\item{scan_control}{Named list of \code{\link[=spde.scan]{spde.scan()}} controls.}
 }
 \value{
 An \code{inlaST_fit} that is also an \code{mgcvST_model_fit}. In addition to
@@ -150,13 +152,9 @@ Cross-feature iid effects are treated as independent in pairwise calibration.
 Sparse downstream scores rebuild the nuisance covariance from
 the same expected Fisher matrix;
 this does not establish finite-sample calibration after hyperparameter
-estimation. The marginal score test of each null fit
-(\code{diagnostics$marginal_p_value}) is calibrated by Davies on the positive
-eigenvalues of the full-space expected curvature. When Davies errors,
-returns a missing or non-finite p-value, or returns a value outside
-(0, 1], the saddlepoint approximation (Kuonen 1999) is used instead;
-\code{marginal_method} reports \code{"davies"} or \code{"saddlepoint"} and
-\code{marginal_fallback} flags the fallback. Pair tests in \code{\link[=inlaST.test]{inlaST.test()}} are
+estimation. Stage 1 is \code{\link[=spde.scan]{spde.scan()}}: GLM nulls and the marginal score
+test (\code{diagnostics$marginal_p_value}) calibrated by the saddlepoint
+approximation (Kuonen 1999). Pair tests in \code{\link[=inlaST.test]{inlaST.test()}} are
 calibrated by a saddlepoint approximation. Every spatial component's constraint
 residual and observed spatial mean are retained in the result.
 The score uses the SPDE covariance conditioned on observation mean zero.
@@ -169,9 +167,8 @@ nuisance effects, family parameters and working state. The spatial effect
 is set to zero and its original-FEM precision is assigned \code{1e8};
 \code{lambda = dispersion * 1e8}. No additional fit is attempted. The null score
 p-value is retained and pair scores use the usual working-model formulas.
-\code{diagnostics$spatial_fallback} identifies these usable fallback states;
-\code{outer_convergence} is \code{"null_zero_spatial_fallback"} and the original
-error remains in \code{error_class}, \code{error_message} and \code{error_call}. Their
+\code{diagnostics$spatial_fallback} identifies these usable fallback states and
+the original error remains in \code{error_class}, \code{error_message} and \code{error_call}. Their
 spatial likelihood criterion is missing. Input errors and unsuccessful
 null fits do not use this fallback. A design the sparse capability gate rejects makes
 \code{\link[=inlaST.set]{inlaST.set()}} error at setup, and a model that somehow reaches this

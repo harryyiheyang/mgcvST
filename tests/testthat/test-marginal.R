@@ -1,147 +1,14 @@
 test_that("Stage 1 p-values are finite", {
-  for (fam in c("gaussian", "nb")) {
-    f <- st_fixture(family = if (fam == "gaussian") gaussian() else mgcv::nb())
-    fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(f$Y, f$model),
-    f$Y, features = "all")
-    expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-  }
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(f$Y, f$model),
     f$Y, features = "all")
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-  expect_true(all(fit$diagnostics$marginal_requested_method == "davies"))
-  expect_true(all(fit$diagnostics$marginal_method %in% c("davies", "saddlepoint")))
-})
-
-test_that("a Davies failure uses the saddlepoint and sets the fallback flag", {
-  z <- list(statistic = 100, lambda = c(1, 2, 3))
-  sp <- spdeST:::.mgcvst_marginal_saddlepoint(z$statistic, z$lambda)
-  expect_true(is.finite(sp) && sp > 0 && sp < 1)
-  failures <- list(list(Qq = 0, ifault = 0L), list(Qq = -1e-12, ifault = 1L),
-                   list(Qq = NA_real_, ifault = 0L), list(Qq = NaN, ifault = 0L),
-                   list(Qq = Inf, ifault = 0L), list(Qq = 1.1, ifault = 0L),
-                   list(Qq = numeric(), ifault = 0L), list(ifault = 0L))
-  for (result in failures) {
-    local({
-      testthat::local_mocked_bindings(davies = function(...) result,
-                                      .package = "CompQuadForm")
-      out <- spdeST:::.mgcvst_marginal_davies(z, 1e-8, 1e5)
-      expect_identical(out$p_value, sp)
-      expect_identical(out$method_used, "saddlepoint")
-      expect_true(out$fallback_used)
-      expect_match(out$fallback_reason, "Davies numerical failure")
-      expect_identical(out$davies_ifault, result$ifault)
-      expect_true(is.na(out$error_message))
-    })
-  }
-  local({
-    testthat::local_mocked_bindings(davies = function(...) stop("integration failed"),
-                                    .package = "CompQuadForm")
-    out <- spdeST:::.mgcvst_marginal_davies(z, 1e-8, 1e5)
-    expect_identical(out$p_value, sp)
-    expect_identical(out$method_used, "saddlepoint")
-    expect_true(out$fallback_used)
-    expect_identical(out$fallback_reason, "integration failed")
-    expect_identical(out$davies_ifault, NA_integer_)
-  })
-})
-
-test_that("a Davies p-value in (0, 1] is kept whatever ifault reports", {
-  z <- list(statistic = 100, lambda = c(1, 2, 3))
-  kept <- list(list(Qq = 0.4, ifault = 1L), list(Qq = 0.4, ifault = 2L),
-               list(Qq = 0.4), list(Qq = 1, ifault = 0L),
-               list(Qq = 1e-300, ifault = 1L))
-  for (result in kept) {
-    local({
-      testthat::local_mocked_bindings(davies = function(...) result,
-                                      .package = "CompQuadForm")
-      out <- spdeST:::.mgcvst_marginal_davies(z, 1e-8, 1e5)
-      expect_identical(out$p_value, result$Qq)
-      expect_identical(out$method_used, "davies")
-      expect_false(out$fallback_used)
-      expect_true(is.na(out$fallback_reason))
-      expect_identical(out$davies_ifault,
-                       if (is.null(result$ifault)) NA_integer_ else result$ifault)
-    })
-  }
-})
-
-test_that("estimation reports the method actually used", {
-  f <- st_fixture()
-  local({
-    testthat::local_mocked_bindings(davies = function(...) list(Qq = 0.4, ifault = 1L),
-                                    .package = "CompQuadForm")
-    fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-    expect_identical(unname(fit$diagnostics$marginal_p_value), rep(0.4, 3L))
-    expect_identical(fit$diagnostics$marginal_method, rep("davies", 3L))
-    expect_identical(fit$diagnostics$marginal_fallback, rep(FALSE, 3L))
-  })
-  local({
-    testthat::local_mocked_bindings(davies = function(...) list(Qq = 0, ifault = 0L),
-                                    .package = "CompQuadForm")
-    for (setup in list(f$model)) {
-      fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(f$Y, setup,
-                             BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-      expect_identical(fit$diagnostics$marginal_requested_method, rep("davies", 3L))
-      expect_identical(fit$diagnostics$marginal_method, rep("saddlepoint", 3L))
-      expect_identical(fit$diagnostics$marginal_fallback, rep(TRUE, 3L))
-      expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-    }
-  })
-})
-
-test_that("Liu is not available for the marginal test", {
-  expect_error(spdeST:::.mgcvst_null_score_test(NULL, NULL, method = "liu"), "should be")
-  expect_false(exists("mgcvst_marginal_liu_moments_cpp", asNamespace("spdeST")))
-  expect_false(exists(".mgcvst_marginal_liu", asNamespace("spdeST")))
-})
-
-test_that("the saddlepoint fallback agrees with Davies where Davies is accurate", {
-  skip_if_not_installed("CompQuadForm")
-  set.seed(11)
-  lambda <- sort(rexp(300)^2, decreasing = TRUE)
-  mu <- sum(lambda); sd <- sqrt(2 * sum(lambda^2))
-  for (q in mu + sd * c(-1, 0.5, 3, 6, 10)) {
-    d <- CompQuadForm::davies(q, lambda, lim = 1e6, acc = 1e-14)
-    expect_identical(d$ifault, 0L)
-    sp <- spdeST:::.mgcvst_marginal_saddlepoint(q, lambda)
-    expect_lt(abs(log10(sp) - log10(d$Qq)), 0.05)
-  }
-})
-
-test_that("the saddlepoint fallback stays finite beyond machine precision", {
-  lambda <- c(5, 2, rep(0.5, 50))
-  q <- 1200
-  sp <- spdeST:::.mgcvst_marginal_saddlepoint(q, lambda)
-  expect_true(is.finite(sp) && sp > 0 && sp < 1e-40)
-  # exponential tail rate 1/(2 * max(lambda)) (Chen and Lumley 2019, Theorem 1)
-  sp2 <- spdeST:::.mgcvst_marginal_saddlepoint(q + 10, lambda)
-  expect_lt(abs((log(sp) - log(sp2)) / 10 - 1 / (2 * max(lambda))), 0.01)
-})
-
-test_that("the saddlepoint uses its limit at the mean and returns 1 for q <= 0", {
-  lambda <- c(5, 2, rep(0.5, 50))
-  mu <- sum(lambda)
-  rho3 <- 8 * sum(lambda^3) / (2 * sum(lambda^2))^1.5
-  centre <- spdeST:::.mgcvst_marginal_saddlepoint(mu, lambda)
-  expect_equal(centre, 0.5 - rho3 / (6 * sqrt(2 * pi)), tolerance = 1e-12)
-  for (f in c(0.999, 1.001)) {
-    expect_lt(abs(spdeST:::.mgcvst_marginal_saddlepoint(mu * f, lambda) - centre), 0.01)
-  }
-  expect_identical(spdeST:::.mgcvst_marginal_saddlepoint(0, lambda), 1)
-  expect_identical(spdeST:::.mgcvst_marginal_saddlepoint(-2, lambda), 1)
-  expect_true(is.na(spdeST:::.mgcvst_marginal_saddlepoint(3, numeric(0))))
 })
 
 test_that("Snow workers give the pair results of serial chunks", {
   skip_on_cran()
-  f <- st_fixture(nuisance=TRUE)
+  f <- st_fixture()
   bp <- BiocParallel::SnowParam(workers=2,type="SOCK",progressbar=FALSE)
   on.exit(BiocParallel::bpstop(bp),add=TRUE)
   Y <- f$Y[rep(1:3, 2),,drop=FALSE]

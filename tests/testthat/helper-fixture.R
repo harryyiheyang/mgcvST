@@ -1,4 +1,4 @@
-st_fixture <- function(n = 90L, family = mgcv::nb(), nuisance = FALSE) {
+st_fixture <- function(n = 90L, family = mgcv::nb()) {
   skip_if_not_installed("geometry")
   set.seed(81)
   xy <- as.matrix(expand.grid(x = seq(0, 1, length.out = 5), y = seq(0, 1, length.out = 5)))
@@ -9,8 +9,7 @@ st_fixture <- function(n = 90L, family = mgcv::nb(), nuisance = FALSE) {
   data$response <- rpois(n, exp(1 + data$x + sin(5 * data$y)))
   data$response2 <- rpois(n, exp(.8 + data$x))
   data$response3 <- rpois(n, exp(.7 + data$y))
-  s <- mgcv::s
-  f <- if (nuisance) response ~ offset(offset0) + s(z, k = 5) else response ~ offset(offset0) + z
+  f <- response ~ offset(offset0) + z
   model <- model.set(f, data, basis, family = family)
   f2 <- response ~ offset(offset0) + z + s(x, y, bs = "spde", xt = basis)
   G <- mgcv::bam(f2, data = data, family = family, method = "fREML",
@@ -38,8 +37,6 @@ strip_elapsed <- function(x) {
   }
   if (!is.null(x$diagnostics)) {
     keep <- !grepl("_seconds$", names(x$diagnostics))
-    keep <- keep & !names(x$diagnostics) %in%
-      c("marginal_requested_method", "marginal_method", "marginal_fallback")
     x$diagnostics <- x$diagnostics[, keep, drop = FALSE]
   }
   x

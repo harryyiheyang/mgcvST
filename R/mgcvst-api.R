@@ -86,33 +86,13 @@
   )
 }
 
-# The Stage 1 score test of a null GAM, calibrated by Davies (the saddlepoint
-# when Davies fails).
-.mgcvst_marginal_score <- function(fit, setup) {
-  score <- .mgcvst_null_score_test(fit, setup)
-  p_value <- as.numeric(score$smooth.pvalue)
-  if (length(p_value) != 1L || !is.finite(p_value) ||
-      p_value < 0 || p_value > 1) {
-    stop("The corrected marginal spatial score returned an invalid p-value.")
-  }
-  used <- score$method
-  if (!is.character(used) || length(used) != 1L) used <- NA_character_
-  list(p_value = p_value, requested_method = "davies", method = used,
-       fallback = if (is.na(used)) NA else !identical(used, "davies"))
-}
-
 # Clone the minimal package function closure needed on remote workers: the
 # model fit chunk and everything it calls.
 .mgcvst_worker_bundle <- function() {
   names <- c(
     ".mgcvst_thread_limit", ".mgcvst_thread_vars", ".mgcvst_worker_initialize", ".mgcvst_row_id",
     ".mgcvst_condition", ".mgcvst_null_chunk", ".mgcvst_spatial_chunk",
-    ".mgcvst_model_fit_one", ".mgcvst_chunk_save",
-    ".mgcvst_marginal_score", ".mgcvst_marginal_working",
-    ".mgcvst_marginal_matrixsqrt", ".mgcvst_marginal_saddlepoint",
-    ".mgcvst_marginal_davies", ".mgcvst_null_score_setup",
-    ".mgcvst_null_score_spectrum", ".mgcvst_null_score_test",
-    ".mgcvst_fit_null", ".working_family_id",
+    ".mgcvst_model_fit_one", ".mgcvst_chunk_save", ".working_family_id",
     ".gam_training_lpmatrix", ".mgcvst_expand_penalty",
     ".mgcvst_model_sp", ".mgcvst_cached_model_geometry",
     ".mgcvst_nuisance_state", "rkhs_extract_working_model"
@@ -133,12 +113,9 @@
 #' fit and Stage 1 score test of every feature. When the null has no smooth
 #' term, the family is `nb()` with an estimated size and the tested smooth is
 #' an spde smooth, Stage 1 is [spde.scan()] on the raw sparse field of the
-#' smooth's basis; otherwise every feature gets its null GAM
-#' (`mgcv::bam(method = "fREML", discrete = TRUE)`, or `mgcv::gam(method =
-#' "REML")` for a null with one parametric coefficient and no smooth) and the
-#' score test of the target block, calibrated by Davies with the saddlepoint
-#' when Davies fails. `fit$stage1$null_engine` records `"spde.scan"` or
-#' `"gam"`; `options(mgcvST.scan_null = FALSE)` keeps the GAM nulls. With a
+#' smooth's basis. A null with a smooth term, or a family other than a
+#' log-link `nb()` or `poisson()`, is refused: covariates enter as linear
+#' terms or factors. With a
 #' negative-binomial family a feature whose Poisson overdispersion score
 #' `sum((y - mu)^2 - y) / 2` is not positive is fitted as Poisson. No spatial
 #' model is fitted here: [mgcvST.estimate_spatial()] fits Stage 2.
@@ -171,6 +148,9 @@
 #' @param q.value Stage 1 discovery threshold in `(0, 1]`.
 #' @param checkpoint_dir Optional directory for the resumable chunk checkpoints.
 #' @param resume Reuse the completed chunks of a compatible checkpoint.
+#' @param scan_control Named list of [spde.scan()] controls (`tol`,
+#'   `maxit_outer`, `maxit_inner`, `spectrum_tol`, the saddlepoint controls,
+#'   ...); unnamed controls keep the defaults of [spde.scan()].
 #' @return A compact `mgcvST_model_fit` (also `mgcvST_fit`) with the Stage 1
 #'   p-values and q-values in `diagnostics`, `y_digest` of each response row
 #'   and the estimation context that [mgcvST.estimate_spatial()] reuses.
@@ -182,7 +162,8 @@ mgcvST.estimate <- function(
     control = mgcv::gam.control(nthreads = 1L), ...,
     diagnostics = FALSE, offset = NULL,
     adjust = c("BY", "BH", "Sidak", "none"),
-    q.value = 0.05, checkpoint_dir = NULL, resume = TRUE) {
+    q.value = 0.05, checkpoint_dir = NULL, resume = TRUE,
+    scan_control = list()) {
   call <- match.call()
   adjust <- match.arg(adjust)
   q.value <- .mgcvst_check_q_value(q.value)
@@ -201,7 +182,8 @@ mgcvST.estimate <- function(
     gam_args = list(...), call = call,
     diagnostics = diagnostics, offset = offset,
     adjust = adjust, q.value = q.value,
-    checkpoint_dir = checkpoint_dir, resume = resume
+    checkpoint_dir = checkpoint_dir, resume = resume,
+    scan_args = .spdest_scan_control(scan_control)
   )
 }
 

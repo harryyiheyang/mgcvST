@@ -127,7 +127,7 @@ test_that("pair results written under another algorithm contract are refused", {
 
 test_that("checkpointed pair tests resume and refuse a pre-contract directory", {
   skip_on_cran()
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
                          BPPARAM = BiocParallel::SerialParam()),

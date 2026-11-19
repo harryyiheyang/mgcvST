@@ -38,10 +38,6 @@ test_that("sparse INLA downstream takes no BiocParallel backend and agrees acros
     control = list(fixed_precision = 2, gaussian_precision = 1 / 0.09)),
     f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-  expect_identical(fit$diagnostics$marginal_requested_method, rep("davies", 3L))
-  expect_true(all(fit$diagnostics$marginal_method %in% c("davies", "saddlepoint")))
-  expect_identical(fit$diagnostics$marginal_fallback,
-                   fit$diagnostics$marginal_method == "saddlepoint")
   pairs <- t(combn(rownames(f$Y), 2L))
   serial <- inlaST.test(fit, pairs = pairs, rank = 1L, chunk_size = 1L, moments = "exact")
   threaded <- inlaST.test(fit, pairs = pairs, rank = 1L, threads = 2L,

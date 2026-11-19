@@ -23,6 +23,22 @@
   args[!vapply(args, is.null, logical(1L))]
 }
 
+# spde.scan() controls supplied by name; the others keep its defaults.
+.spdest_scan_control <- function(scan_control) {
+  if (!is.list(scan_control)) stop("scan_control must be a named list.")
+  if (!length(scan_control)) return(list())
+  allowed <- c("tol", "maxit_outer", "maxit_inner", "alpha_max", "alpha_min",
+               "step_bound", "step_fallback", "maxit_halving", "eta_max",
+               "spectrum_tol", "spa_centre_tol", "spa_root_tol",
+               "spa_root_maxit", "block_size")
+  bad <- setdiff(names(scan_control), allowed)
+  if (is.null(names(scan_control)) || any(!nzchar(names(scan_control))) || length(bad)) {
+    stop("scan_control takes named spde.scan() controls: ",
+         paste(allowed, collapse = ", "), ".")
+  }
+  scan_control
+}
+
 .spdest_scan <- function(model, ...) UseMethod(".spdest_scan")
 .spdest_scan.default <- function(model, ...) {
   stop("model must be returned by mgcvST.set() or inlaST.set().")
@@ -37,9 +53,10 @@
 #' implementation and every fixed setting; Stage 1 is the same for both: GLM
 #' nulls by maximum likelihood (NB2, or Poisson when the overdispersion score
 #' `sum((y - mu)^2 - y) / 2` is not positive) and the score test of the raw
-#' sparse SPDE field with the null projection `P0`, calibrated by Davies (the
-#' saddlepoint when Davies fails). A null with smooth terms or random effects
-#' is fitted by its own engine instead.
+#' sparse SPDE field with the null projection `P0`, calibrated by the
+#' saddlepoint approximation ([spde.scan()]). The null is a GLM: covariates
+#' enter as linear terms or factors (0-1 columns of the model matrix); a null
+#' with smooth terms or random effects is refused.
 #'
 #' @param Y Feature-by-observation response matrix.
 #' @param model Result of [mgcvST.set()] or [inlaST.set()].
@@ -55,6 +72,8 @@
 #' @param threads OpenMP threads per worker of the compiled INLA kernels; the
 #'   mgcv implementation runs one thread per worker.
 #' @param checkpoint_dir,resume Chunk checkpoints and their reuse.
+#' @param scan_control Named list of [spde.scan()] controls, for example
+#'   `list(tol = 1e-8, maxit_outer = 10)`.
 #' @return An `spdeST_scan` object: the Stage 1 fit with
 #'   `diagnostics$marginal_p_value`, `diagnostics$marginal_q_value`,
 #'   `diagnostics$family_used` and `stage1`, carrying the model for
@@ -63,12 +82,13 @@
 spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
                         adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
                         BPPARAM = NULL, chunk_size = NULL, threads = 1L,
-                        checkpoint_dir = NULL, resume = TRUE) {
+                        checkpoint_dir = NULL, resume = TRUE,
+                        scan_control = list()) {
   fit <- .spdest_scan(model, Y = Y, offset = offset, feature_id = feature_id,
                       adjust = match.arg(adjust), q.value = q.value,
                       BPPARAM = BPPARAM, chunk_size = chunk_size,
                       threads = threads, checkpoint_dir = checkpoint_dir,
-                      resume = resume)
+                      resume = resume, scan_control = scan_control)
   class(fit) <- c("spdeST_scan", class(fit))
   fit
 }

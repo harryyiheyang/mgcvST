@@ -22,7 +22,7 @@ need not exist in \code{data}; mgcv expands factors, interactions and contrasts.
 
 \item{data}{One shared data frame with one row per observation.}
 
-\item{family}{\code{mgcv::nb()} for raw counts or \code{stats::gaussian()} for SCT data.}
+\item{family}{\code{mgcv::nb()} (or \code{stats::poisson()}) with the log link, for raw counts.}
 
 \item{G}{Optional external setup returned by \code{mgcv::gam(..., fit = FALSE)}.
 Supply either \code{formula} and \code{data}, or \code{G}.}
@@ -49,6 +49,7 @@ settings in \code{estimation}.
 \description{
 Supplies a complete mgcv formula or an external mgcv setup. Shared full and
 null GAM setups are prepared with a zero response; each feature is later
-fitted independently with BAM. A null model with one parametric coefficient
-and no smooths uses GAM to preserve its matrix dimensions.
+fitted independently with BAM. Apart from the tested spde smooth the model
+is a GLM: covariates enter as linear terms or factors, and Stage 1
+(\code{\link[=spde.scan]{spde.scan()}}) refuses a null with smooth terms.
 }

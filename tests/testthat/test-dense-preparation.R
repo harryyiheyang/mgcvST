@@ -92,7 +92,7 @@ test_that("score_only batches match the full a vector for both nuisance modes", 
 })
 
 test_that("model preparation keeps the conditional nuisance covariance", {
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
                          BPPARAM = BiocParallel::SerialParam()),
@@ -122,7 +122,7 @@ test_that("model preparation keeps the conditional nuisance covariance", {
 })
 
 test_that("a feature without a usable nuisance covariance fails at estimation, no fallback", {
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   original <- spdeST:::.mgcvst_nuisance_state
   # .mgcvst_estimate_model() runs every per-feature fit through a worker
   # bundle (.mgcvst_worker_bundle()) that rebinds each copied function's

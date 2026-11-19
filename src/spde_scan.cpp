@@ -1,6 +1,7 @@
 #define USE_FC_LEN_T
 #define EIGEN_DONT_PARALLELIZE
 #include "inla_sparse.h"
+#include "spa_quadform.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -21,7 +22,8 @@
 //   P0 = W - W X (X' W X)^{-1} X' W.
 // With B B' = Q^{-1} (B = P^{-1} L^{-T} from the sparse Cholesky Q = P'LL'P),
 //   a = B' A' P0 r,      T = |a|^2,      M = B' A' P0 A B,
-// and T is calibrated against the positive spectrum of M. P0 already removes
+// and T is calibrated against the positive spectrum of M by the saddlepoint
+// (spa_quadform.h), feature by feature inside the parallel loop. P0 already removes
 // the span of X, constant included, so the field is used as it is: no
 // intercept projection, no constraint, Q stays sparse.
 
@@ -60,8 +62,8 @@ Vec scan_spectrum(const Mat& value, double spectrum_tol) {
 }
 
 struct ScanResult {
-  Vec lambda;
   double statistic = NA_REAL;
+  double p_value = NA_REAL;
   std::string error;
 };
 
@@ -82,7 +84,10 @@ Rcpp::List mgcvst_spde_score_cpp(
     const Eigen::Map<Eigen::VectorXd> alpha,
     int threads = 1,
     int block_size = 32,
-    double spectrum_tol = 1e-12) {
+    double spectrum_tol = 1e-12,
+    double spa_centre_tol = 1e-6,
+    double spa_root_tol = 1e-12,
+    int spa_root_maxit = 100) {
   const SpMat A = A_map;
   const SpMat Q = Q_map;
   const int n = A.rows();
@@ -100,6 +105,10 @@ Rcpp::List mgcvst_spde_score_cpp(
   if (threads < 1) Rcpp::stop("threads must be positive.");
   if (block_size < 1) Rcpp::stop("block_size must be positive.");
   if (!(spectrum_tol >= 0)) Rcpp::stop("spectrum_tol must be non-negative.");
+  mgcvst_spa::QuadformSpaControl spa;
+  spa.centre_tol = spa_centre_tol;
+  spa.root_tol = spa_root_tol;
+  spa.root_maxit = spa_root_maxit;
 #ifndef _OPENMP
   if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
 #endif
@@ -156,21 +165,30 @@ Rcpp::List mgcvst_spde_score_cpp(
         Yb.noalias() -= L * (Vp * (L.transpose() * V));
         M.middleCols(first, width) = apply_Bt(qfactor, Yb);
       }
-      result[f].lambda = scan_spectrum(0.5 * (M + M.transpose()), spectrum_tol);
+      const Vec lambda = scan_spectrum(0.5 * (M + M.transpose()), spectrum_tol);
+      if (!lambda.size() || !std::isfinite(result[f].statistic)) {
+        throw std::runtime_error("The score has no finite positive mixture spectrum.");
+      }
+      const double pv = mgcvst_spa::quadform_upper(
+        result[f].statistic, std::vector<double>(lambda.data(), lambda.data() + lambda.size()),
+        spa);
+      if (!std::isfinite(pv) || pv < 0 || pv > 1) {
+        throw std::runtime_error("Invalid score p-value.");
+      }
+      result[f].p_value = pv;
     } catch (const std::exception& error) {
       result[f].error = error.what();
     }
   }
 
-  Rcpp::NumericVector statistic(features);
+  Rcpp::NumericVector statistic(features), p_value(features);
   Rcpp::CharacterVector error(features);
-  Rcpp::List lambda(features);
   for (int f = 0; f < features; ++f) {
     statistic[f] = result[f].statistic;
+    p_value[f] = result[f].error.empty() ? result[f].p_value : NA_REAL;
     error[f] = result[f].error.empty() ? NA_STRING : Rcpp::String(result[f].error);
-    lambda[f] = result[f].lambda;
   }
   return Rcpp::List::create(Rcpp::Named("statistic") = statistic,
-                            Rcpp::Named("lambda") = lambda,
+                            Rcpp::Named("p_value") = p_value,
                             Rcpp::Named("error") = error);
 }

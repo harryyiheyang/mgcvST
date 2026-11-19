@@ -147,74 +147,6 @@
   .inlast_iid_nuisance_precision(ncol(spec$fixed$X), width, precision, length(features))
 }
 
-# Null-model score vectors and the positive eigenvalues of the full-space
-# curvature.
-.inlast_sparse_null_batch <- function(score_sparse, nuisance_design, E, V,
-                                      nuisance_precision, threads = 1L) {
-  score_fit <- .inlast_sparse_prepare(list(score_sparse = score_sparse))
-  geometry <- score_fit$score_sparse
-  scale <- geometry$cache$penalty_norm
-  Q <- geometry$cache$general_Q
-  out <- mgcvst_inla_sparse_batch_cpp(
-    geometry$cache$general_A, Q,
-    as.numeric(geometry$constraint), as.matrix(nuisance_design), E, V,
-    rep.int(1 / scale, ncol(E)), as.integer(threads), TRUE,
-    32L, geometry$cache$prepared, nuisance_precision = nuisance_precision
-  )
-  for (j in seq_along(out)) {
-    out[[j]]$width <- stats::setNames(length(out[[j]]$a), geometry$target)
-    out[[j]]$normalization <- ncol(Q) - 1L
-    out[[j]]$backend <- "sparse_conditioned_INLA_OpenMP"
-  }
-  out
-}
-
-# Marginal score test of each converged null fit, in chunks of null working
-# models; nothing of the null fits is retained. The calibration is that of the
-# mgcv branch: Davies, then the saddlepoint when Davies fails.
-.inlast_null_marginal <- function(feature_id, score_sparse, nuisance_design,
-                                  null_fits, null_spec, dispersion,
-                                  smoothing_parameters, features,
-                                  chunk_size = 16L, threads = 1L,
-                                  max_eps = 1e-8, max_iter = 1e5) {
-  ans <- data.frame(feature_id = feature_id[features], statistic = NA_real_, p_value = NA_real_,
-    method_requested = "davies", method_used = NA_character_, fallback_used = NA,
-    fallback_reason = NA_character_, davies_ifault = NA_integer_,
-    error_message = NA_character_, stringsAsFactors = FALSE)
-  calibration <- c("p_value", "method_used", "fallback_used", "fallback_reason",
-                   "davies_ifault")
-  for (rows in split(seq_along(features), ceiling(seq_along(features) / chunk_size))) {
-    ids <- features[rows]
-    E <- do.call(cbind, lapply(null_fits[ids], `[[`, "working_error"))
-    V <- do.call(cbind, lapply(null_fits[ids], `[[`, "working_variance"))
-    z <- .inlast_sparse_null_batch(
-      score_sparse, nuisance_design, E, V,
-      .inlast_nuisance_precision(null_spec, smoothing_parameters, dispersion, ids),
-      threads
-    )
-    for (j in seq_along(rows)) {
-      k <- rows[j]
-      if (!is.null(z[[j]]$error) && nzchar(z[[j]]$error)) {
-        ans$error_message[k] <- z[[j]]$error
-        next
-      }
-      ans$statistic[k] <- z[[j]]$statistic
-      if (!length(z[[j]]$lambda) || !is.finite(z[[j]]$statistic) ||
-          any(!is.finite(z[[j]]$lambda))) {
-        ans$error_message[k] <- "The marginal score has no finite positive mixture spectrum."
-        next
-      }
-      result <- .mgcvst_marginal_davies(z[[j]], max_eps, max_iter)
-      for (name in calibration) ans[k, name] <- result[[name]]
-      if (!is.finite(ans$p_value[k]) || ans$p_value[k] < 0 || ans$p_value[k] > 1) {
-        ans$p_value[k] <- NA_real_
-        ans$error_message[k] <- "Invalid marginal p-value."
-      }
-    }
-  }
-  ans
-}
-
 # Full-space expected-curvature score vectors a_j of the fitted spatial models,
 # computed once at estimation from the working models of `fits`.
 .inlast_estimate_scores <- function(fits, score_sparse, spec, nuisance_design,
@@ -236,7 +168,7 @@
       as.numeric(geometry$constraint), X,
       do.call(cbind, lapply(fits[ids], `[[`, "working_error")),
       do.call(cbind, lapply(fits[ids], `[[`, "working_variance")),
-      tau[ids], as.integer(threads), FALSE, 32L, geometry$cache$prepared,
+      tau[ids], as.integer(threads), 32L, geometry$cache$prepared,
       nuisance_precision = .inlast_nuisance_precision(
         spec, smoothing_parameters, dispersion, ids
       )

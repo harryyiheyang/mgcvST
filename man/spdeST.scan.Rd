@@ -15,7 +15,8 @@ spdeST.scan(
   chunk_size = NULL,
   threads = 1L,
   checkpoint_dir = NULL,
-  resume = TRUE
+  resume = TRUE,
+  scan_control = list()
 )
 }
 \arguments{
@@ -41,6 +42,9 @@ discoveries of \code{\link[=spdeST.estimate]{spdeST.estimate()}}.}
 mgcv implementation runs one thread per worker.}
 
 \item{checkpoint_dir, resume}{Chunk checkpoints and their reuse.}
+
+\item{scan_control}{Named list of \code{\link[=spde.scan]{spde.scan()}} controls, for example
+\code{list(tol = 1e-8, maxit_outer = 10)}.}
 }
 \value{
 An \code{spdeST_scan} object: the Stage 1 fit with
@@ -54,7 +58,8 @@ model. The model from \code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=in
 implementation and every fixed setting; Stage 1 is the same for both: GLM
 nulls by maximum likelihood (NB2, or Poisson when the overdispersion score
 \code{sum((y - mu)^2 - y) / 2} is not positive) and the score test of the raw
-sparse SPDE field with the null projection \code{P0}, calibrated by Davies (the
-saddlepoint when Davies fails). A null with smooth terms or random effects
-is fitted by its own engine instead.
+sparse SPDE field with the null projection \code{P0}, calibrated by the
+saddlepoint approximation (\code{\link[=spde.scan]{spde.scan()}}). The null is a GLM: covariates
+enter as linear terms or factors (0-1 columns of the model matrix); a null
+with smooth terms or random effects is refused.
 }

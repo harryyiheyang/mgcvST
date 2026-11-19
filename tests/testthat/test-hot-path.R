@@ -13,7 +13,7 @@ test_that("diagnostics FALSE does not invoke summary.gam", {
 })
 
 test_that("model batches reuse the prepared GAM design without lpmatrix", {
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   original <- spdeST:::.gam_training_lpmatrix
   old_options <- options(mgcvST.test_lpmatrix = original,
                          mgcvST.test_lpmatrix_count = 0L)
@@ -36,7 +36,7 @@ test_that("model batches reuse the prepared GAM design without lpmatrix", {
 })
 
 test_that("prepared GAM designs do not depend on later prediction methods", {
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   original_lpmatrix <- spdeST:::.gam_training_lpmatrix
   original_predictor <- spdeST:::Predict.matrix.spde.smooth
   old_options <- options(
@@ -67,7 +67,7 @@ test_that("prepared GAM designs do not depend on later prediction methods", {
 })
 
 test_that("pair universes are validated and duplicated tests are rejected", {
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(f$Y, f$model),
     f$Y, features = "all")
@@ -89,7 +89,7 @@ test_that("pair universes are validated and duplicated tests are rejected", {
 })
 
 test_that("conditional nuisance state is compact and shared", {
-  f <- st_fixture(nuisance = TRUE)
+  f <- st_fixture()
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
@@ -103,23 +103,6 @@ test_that("conditional nuisance state is compact and shared", {
   expect_true(all(vapply(blocks, function(x) identical(dim(x), rep(ncol(LN), 2L)), logical(1L))))
   expect_false(any(vapply(blocks[-1L], identical, logical(1L), y = blocks[[1L]])))
   expect_null(fit$gam)
-})
-
-test_that("ordinary overall low-rank smooths share the same Vp machinery", {
-  f <- st_fixture()
-  data <- f$data
-  data$w <- sin(seq_len(nrow(data)) / 5)
-  model <- model.set(
-    response ~ offset(offset0) + s(z, k = 6) + s(w, k = 6),
-    data, f$basis, family = mgcv::nb()
-  )
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(
-    f$Y, model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-  expect_identical(fit$geometry$nuisance_projection, "conditional_Vp_block")
-  expect_true(all(vapply(fit$nuisance_covariance, is.matrix, logical(1L))))
 })
 
 test_that("new switches reject non-logical values", {

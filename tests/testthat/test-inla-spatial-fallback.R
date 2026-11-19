@@ -46,7 +46,6 @@ test_that("native crash fallback preserves null nuisance states and raw precisio
     expect_identical(z$spatial_fallback$error_message, conditionMessage(.spatial_crash()))
     expect_identical(z$spatial_fallback$native_converged, FALSE)
     expect_true(is.na(z$log_marginal_likelihood))
-    expect_true(is.na(z$mode_status))
   }
 })
 
@@ -58,75 +57,4 @@ test_that("fallback leaves input errors and unsuccessful null fits unchanged", {
   for (null in list(simpleError("null failed"), list(converged = FALSE))) {
     expect_identical(spdeST:::.inlast_spatial_fallback(e, null, NULL, NULL, NULL), e)
   }
-})
-
-test_that("public native crash recovery reuses null fits without replacing p-values", {
-  skip_on_cran()
-  skip_if_not_installed("INLA")
-  skip_if_not_installed("geometry")
-  set.seed(9024L)
-  xy <- as.matrix(expand.grid(x = seq(0, 1, length.out = 4), y = seq(0, 1, length.out = 4)))
-  mesh <- list(loc = xy, graph = list(tv = geometry::delaunayn(xy)))
-  d <- data.frame(x = runif(90, .03, .97), y = runif(90, .03, .97),
-    cov = seq(-1, 1, length.out = 90), group = factor(rep(1:3, 30)),
-    offset0 = seq(-.2, .2, length.out = 90))
-  model <- inlaST.set(response ~ cov + offset(offset0) + s(group, bs = "re"),
-    d, family = mgcv::nb(theta = 2), mesh = mesh, kappa = .7,
-    coordinates = c("x", "y"), precision_scale = "raw",
-    control = list(fixed_precision = c(2, 3)))
-  local_poisson_route(FALSE)
-  Y <- rbind(a = rnbinom(90, mu = exp(1 + d$cov + d$offset0), size = 2),
-             b = rnbinom(90, mu = exp(1 - d$cov + d$offset0), size = 2))
-  extra <- rbind(seq(-.1, .1, length.out = 90), seq(.1, -.1, length.out = 90))
-  calls <- new.env(parent = emptyenv())
-  calls$null <- list()
-  calls$spatial <- 0L
-  native <- spdeST:::.inlast_fit_feature
-  testthat::local_mocked_bindings(.inlast_fit_feature = function(spec, y, offset, control, diagnostics) {
-    if (any(vapply(spec$random, function(z) isTRUE(z$target), logical(1L)))) {
-      calls$spatial <- calls$spatial + 1L
-      stop(.spatial_crash())
-    }
-    z <- native(spec, y, offset, control, diagnostics)
-    calls$null[[length(calls$null) + 1L]] <- z
-    z
-  }, .package = "spdeST")
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(Y, model, offset = extra, retain_smooth = TRUE,
-    diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam()),
-    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-  expect_length(calls$null, 2L)
-  expect_identical(calls$spatial, 2L)
-  expect_true(all(fit$diagnostics$converged))
-  expect_true(all(fit$diagnostics$spatial_fallback))
-  expect_identical(fit$diagnostics$outer_convergence, rep("null_zero_spatial_fallback", 2))
-  expect_identical(fit$diagnostics$error_class, rep("inlaCrashError", 2))
-  expect_true(all(is.na(fit$diagnostics$criterion)))
-  expect_equal(fit$target_coefficients, fit$target_coefficients * 0, tolerance = 0)
-  expect_true(all(fit$smooth_coefficients$global == 0))
-  expect_equal(unname(fit$lambda), rep(1e8, 2), tolerance = 0)
-  expect_equal(fit$offset, sweep(extra, 2, model$offset, "+"), tolerance = 0)
-  expect_true(all(is.finite(fit$score_a)))
-  expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
-  S <- spdeST:::.inlast_null_spec(model$inla_spec)
-  expected <- spdeST:::.inlast_null_marginal(fit$feature_id, fit$score_sparse,
-    model$geometry$nuisance_design, calls$null, S,
-    vapply(calls$null, `[[`, numeric(1), "dispersion"),
-    do.call(rbind, lapply(calls$null, `[[`, "smoothing_parameters")),
-    1:2, chunk_size = 2L, threads = 1L)
-  expect_equal(fit$diagnostics$marginal_p_value, expected$p_value, tolerance = 0)
-  pair <- inlaST.test(fit, adjust = "none", rank = 2L,
-    pairs = matrix(c("a", "b"), ncol = 2L), threads = 1L, moments = "exact")
-  expect_true(all(is.finite(pair$results$log_p_two_sided)))
-  expect_true(all(is.finite(pair$results$score)))
-  for (j in 1:2) {
-    expected_nuisance <- c(calls$null[[j]]$fixed_mode, unlist(calls$null[[j]]$random_mode))
-    expect_equal(unname(fit$nuisance_coefficients[, j]), unname(expected_nuisance), tolerance = 0)
-    expect_equal(fit$smoothing_parameters[j, 2], calls$null[[j]]$smoothing_parameters[2], tolerance = 0)
-    expect_equal(unname(fit$inla_diagnostics[[j]]$tau[1]), 1e8, tolerance = 0)
-  }
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(Y + .1, model),
-    Y + .1, features = "all"), "non-negative integers")
-  expect_identical(calls$spatial, 2L)
 })

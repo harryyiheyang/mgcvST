@@ -86,7 +86,8 @@ inline double l1x(double x) {
 // IRLS for fixed alpha (alpha = 0 is Poisson), warm-started at beta.
 // Returns the number of iterations, or -1 on failure.
 int irls(const Mat& X, const Vec& offset, const Vec& y, double alpha,
-         Vec& beta, Vec& eta, Vec& mu, double tol, int maxit) {
+         Vec& beta, Vec& eta, Vec& mu, double tol, int maxit,
+         int maxit_halving, double eta_max) {
   const int n = X.rows();
   Vec w(n), r(n);
   for (int it = 1; it <= maxit; ++it) {
@@ -105,13 +106,12 @@ int irls(const Mat& X, const Vec& offset, const Vec& y, double alpha,
     if (ldlt.info() != Eigen::Success || !ldlt.isPositive()) return -1;
     const Vec step = ldlt.solve(g);
     if (!step.allFinite()) return -1;
-    if ((J * step - g).norm() > 1e-6 * (1.0 + g.norm())) return -1;
     // Halve a step that would overflow the mean.
     double scale = 1.0;
     bool moved = false;
-    for (int h = 0; h < 30; ++h) {
+    for (int h = 0; h < maxit_halving; ++h) {
       const Vec trial = beta + scale * step;
-      if (((X * trial + offset).array() < 700).all()) {
+      if (((X * trial + offset).array() < eta_max).all()) {
         beta = trial;
         moved = true;
         break;
@@ -190,9 +190,14 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
     const Rcpp::LogicalVector poisson,
     double alpha_max = 1e4,
     double alpha_fixed = -1,
-    double tol = 1e-10,
-    int maxit_outer = 100,
-    int maxit_inner = 100,
+    double tol = 1e-8,
+    int maxit_outer = 10,
+    int maxit_inner = 25,
+    double alpha_min = 1e-12,
+    double step_bound = 10,
+    double step_fallback = 2,
+    int maxit_halving = 30,
+    double eta_max = 700,
     int threads = 1) {
   const int n = Yt.rows();
   const int features = Yt.cols();
@@ -245,7 +250,7 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
       Vec beta = (Xd.transpose() * Xd).ldlt().solve(
         Xd.transpose() * Vec::Constant(n, base));
       Vec eta(n), mu(n);
-      int it = irls(Xd, off, y, 0.0, beta, eta, mu, tol, maxit_inner);
+      int it = irls(Xd, off, y, 0.0, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
       if (it < 0) throw std::runtime_error("The Poisson fit did not converge.");
       out.inner += it;
       // Boundary score and the Pearson dispersion of the Poisson fit.
@@ -266,32 +271,34 @@ Rcpp::List mgcvst_nb_null_batch_cpp(
       } else if (alpha_fixed >= 0) {
         alpha = alpha_fixed;
         if (alpha > 0) {
-          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner);
+          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
           if (it < 0) throw std::runtime_error("The fixed-size IRLS did not converge.");
           out.inner += it;
         }
       } else {
         // Moment start: sum (y - mu)^2 - y = alpha sum mu^2.
-        alpha = std::min(alpha_max, std::max(1e-12, score0 / mu2));
+        alpha = std::min(alpha_max, std::max(alpha_min, score0 / mu2));
         converged = false;
         for (int outer = 1; outer <= maxit_outer; ++outer) {
           out.outer = outer;
-          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner);
+          it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
           if (it < 0) throw std::runtime_error("The fixed-size IRLS did not converge.");
           out.inner += it;
           double g, h;
           alpha_derivatives(mu, y, c, alpha, g, h);
-          // Newton where the curvature is negative, else a doubling or halving
-          // step; each step stays within a factor of ten of the current alpha.
-          double next = h < 0 ? alpha - g / h : (g > 0 ? 2.0 * alpha : 0.5 * alpha);
-          next = std::min(10.0 * alpha, std::max(0.1 * alpha, next));
+          // Newton where the curvature is negative, else a step_fallback-fold
+          // increase or decrease; each step stays within a factor step_bound
+          // of the current alpha.
+          double next = h < 0 ? alpha - g / h :
+            (g > 0 ? step_fallback * alpha : alpha / step_fallback);
+          next = std::min(step_bound * alpha, std::max(alpha / step_bound, next));
           next = std::min(alpha_max, next);
           if (alpha == alpha_max && g > 0) { converged = true; break; }
-          const bool small = std::abs(next - alpha) <= 1e-9 * alpha;
+          const bool small = std::abs(next - alpha) <= tol * alpha;
           alpha = next;
           if (small) { converged = true; break; }
         }
-        it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner);
+        it = irls(Xd, off, y, alpha, beta, eta, mu, tol, maxit_inner, maxit_halving, eta_max);
         if (it < 0) throw std::runtime_error("The final IRLS did not converge.");
         out.inner += it;
       }

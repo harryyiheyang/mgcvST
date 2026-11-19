@@ -18,7 +18,8 @@ mgcvST.estimate(
   adjust = c("BY", "BH", "Sidak", "none"),
   q.value = 0.05,
   checkpoint_dir = NULL,
-  resume = TRUE
+  resume = TRUE,
+  scan_control = list()
 )
 }
 \arguments{
@@ -55,6 +56,10 @@ is kept on the fit for Stage 2.}
 \item{checkpoint_dir}{Optional directory for the resumable chunk checkpoints.}
 
 \item{resume}{Reuse the completed chunks of a compatible checkpoint.}
+
+\item{scan_control}{Named list of \code{\link[=spde.scan]{spde.scan()}} controls (\code{tol},
+\code{maxit_outer}, \code{maxit_inner}, \code{spectrum_tol}, the saddlepoint controls,
+...); unnamed controls keep the defaults of \code{\link[=spde.scan]{spde.scan()}}.}
 }
 \value{
 A compact \code{mgcvST_model_fit} (also \code{mgcvST_fit}) with the Stage 1
@@ -66,11 +71,9 @@ The method behind \code{\link[=spdeST.scan]{spdeST.scan()}} for a model from \co
 fit and Stage 1 score test of every feature. When the null has no smooth
 term, the family is \code{nb()} with an estimated size and the tested smooth is
 an spde smooth, Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on the raw sparse field of the
-smooth's basis; otherwise every feature gets its null GAM
-(\code{mgcv::bam(method = "fREML", discrete = TRUE)}, or \code{mgcv::gam(method = "REML")} for a null with one parametric coefficient and no smooth) and the
-score test of the target block, calibrated by Davies with the saddlepoint
-when Davies fails. \code{fit$stage1$null_engine} records \code{"spde.scan"} or
-\code{"gam"}; \code{options(mgcvST.scan_null = FALSE)} keeps the GAM nulls. With a
+smooth's basis. A null with a smooth term, or a family other than a
+log-link \code{nb()} or \code{poisson()}, is refused: covariates enter as linear
+terms or factors. With a
 negative-binomial family a feature whose Poisson overdispersion score
 \code{sum((y - mu)^2 - y) / 2} is not positive is fitted as Poisson. No spatial
 model is fitted here: \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} fits Stage 2.

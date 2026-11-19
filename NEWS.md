@@ -1,3 +1,31 @@
+# spdeST 0.0.1.9058
+
+* Stage 1 is `spde.scan()` only. The per-feature GAM null of
+  `mgcvST.estimate()` and the INLA null of `inlaST.estimate()`, and
+  `options(mgcvST.scan_null)`, are deleted. A null with smooth terms or
+  random effects, or a family other than a log-link negative binomial or
+  Poisson, is refused: covariates enter as linear terms or factors (0-1
+  model-matrix columns). `inlaST.set()` no longer accepts `bs = "re"` or
+  `bs = "gp"` nuisance terms. R/marginal-api.R and inst/COPYRIGHTS (which
+  covered its adapted code) are deleted.
+* The Stage 1 p-value is the saddlepoint approximation, computed in C++
+  feature by feature inside the parallel `spde.scan()` kernel
+  (src/spa_quadform.h). Davies and the R saddlepoint are deleted;
+  CompQuadForm moves to Suggests (test reference only).
+* The `spde.scan()` null fits follow the `glm.fit()` default tolerance
+  (`tol = 1e-8`, also the relative stop of the size search, and
+  `maxit_inner = 25` for the IRLS) with `maxit_outer = 10` for the size
+  search. On 400 simulated NB genes, `maxit_inner = 10` left 11 IRLS fits
+  unconverged and 25 left none. The former hard-coded numbers are
+  parameters (`alpha_min`, `step_bound`, `step_fallback`, `maxit_halving`,
+  `eta_max`, `spa_centre_tol`, `spa_root_tol`, `spa_root_maxit`), reachable
+  through `spdeST.scan(scan_control = list(...))`. The redundant IRLS
+  solve-residual check is deleted.
+* Diagnostics nobody reads are deleted: `marginal_requested_method`,
+  `marginal_method`, `marginal_fallback`, `outer_convergence`,
+  `null_fit_seconds`, `mode_status` and `mode_status_text`; `spde.scan()`
+  loses `method` and `fallback`.
+
 # spdeST 0.0.1.9057
 
 * The Stage 1 diagnostics no longer have `null_converged` (removed from

@@ -53,78 +53,34 @@
   z
 }
 
-# Step 1 worker: null fits and Stage 1 statistics of one chunk of features, in
-# sub-blocks of `block` features so that a worker holds at most `block`
-# features' working vectors. Returns, per feature, the compact null state and
-# the marginal row, or the error record. A null with fixed effects only and a
-# count family is Stage 1 of spde.scan() (.inlast_scan_chunk).
+# Step 1 worker: Stage 1 of one chunk of features by spde.scan()
+# (.inlast_scan_chunk). Returns, per feature, the compact null state and the
+# marginal row, or the error record.
 .inlast_null_chunk <- function(payload, spec, null_spec, base_offset,
-                               null_control, threads = 1L, block = 16L) {
-  if (.inlast_scan_eligible(null_spec)) {
-    out <- .inlast_scan_chunk(payload, spec, null_spec, base_offset,
-                              null_control, threads)
-    .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
-    return(out)
-  }
-  geometry <- .inlast_score_geometry_from_spec(spec)
-  nuisance_design <- as.matrix(spec$nuisance_design)
-  n_sp <- spec$geometry_sp_length
-  k <- length(payload$index)
-  out <- vector("list", k)
-  for (first in seq.int(1L, k, by = block)) {
-    rows <- first:min(k, first + block - 1L)
-    fits <- .inlast_fit_chunk(
-      rows, payload$Y, null_spec, base_offset, payload$extra_offset,
-      null_control, FALSE, payload$poisson
-    )
-    failed <- vapply(fits, inherits, logical(1L), what = "condition")
-    ok <- !failed & vapply(fits, function(z) isTRUE(z$converged), logical(1L))
-    dispersion <- rep(NA_real_, length(rows))
-    smoothing <- matrix(NA_real_, length(rows), n_sp)
-    for (kk in which(!failed)) {
-      dispersion[kk] <- fits[[kk]]$dispersion
-      sp <- fits[[kk]]$smoothing_parameters
-      if (length(sp)) smoothing[kk, seq_along(sp)] <- sp
-    }
-    marginal <- NULL
-    row_of <- integer(length(rows))
-    if (any(ok)) {
-      marginal <- .inlast_null_marginal(
-        payload$feature_id[rows], geometry, nuisance_design, fits, null_spec,
-        dispersion, smoothing, which(ok), chunk_size = length(rows),
-        threads = threads
-      )
-      row_of[which(ok)] <- seq_len(sum(ok))
-    }
-    for (kk in seq_along(rows)) {
-      z <- fits[[kk]]
-      out[[rows[kk]]] <- if (failed[kk]) {
-        list(error = .mgcvst_condition(z))
-      } else {
-        list(null = .inlast_compact(z),
-             marginal = if (row_of[kk]) as.list(marginal[row_of[kk], ]) else NULL)
-      }
-    }
-    rm(fits)
-  }
+                               null_control, threads = 1L, scan_args = list()) {
+  out <- .inlast_scan_chunk(payload, spec, null_spec, base_offset,
+                            null_control, threads, scan_args)
   .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
   out
 }
 
-# A null with no random block and a count family is Stage 1 of spde.scan();
-# options(mgcvST.scan_null = FALSE) keeps the per-feature INLA null fits.
-.inlast_scan_eligible <- function(null_spec) {
+# Stage 1 is spde.scan(): the null must have no random block, a count family
+# and a fixed-effects design.
+.inlast_scan_check <- function(null_spec) {
   family <- null_spec$family
-  isTRUE(getOption("mgcvST.scan_null", TRUE)) &&
-    !length(null_spec$random) &&
-    length(family) == 1L && family %in% c("negative_binomial", "poisson") &&
-    !is.null(null_spec$fixed$X) && ncol(as.matrix(null_spec$fixed$X)) >= 1L
+  if (length(null_spec$random) ||
+      !(length(family) == 1L && family %in% c("negative_binomial", "poisson")) ||
+      is.null(null_spec$fixed$X) || ncol(as.matrix(null_spec$fixed$X)) < 1L) {
+    stop("Stage 1 (spde.scan) needs a GLM null: a negative binomial or Poisson ",
+         "family, fixed effects only (linear terms or factors), no random block.")
+  }
+  invisible(TRUE)
 }
 
 # Stage 1 of one chunk by spde.scan() on the raw field of the target block,
 # with the compact null state that step 2 reuses after a native INLA crash.
 .inlast_scan_chunk <- function(payload, spec, null_spec, base_offset,
-                               null_control, threads = 1L) {
+                               null_control, threads = 1L, scan_args = list()) {
   t0 <- proc.time()[["elapsed"]]
   block <- spec$random[[1L]]
   X <- as.matrix(null_spec$fixed$X)
@@ -135,9 +91,10 @@
       base_offset + as.numeric(payload$extra_offset)
   poisson <- if (identical(null_spec$family, "poisson")) rep(TRUE, k) else
     if (is.null(payload$poisson)) NULL else as.logical(payload$poisson)
-  scan <- spde.scan(payload$Y, X, block$A, block$Q, offset = offset,
-                    poisson = poisson, size = null_control[["nb_size", exact = TRUE]],
-                    feature_id = payload$feature_id, threads = threads)
+  scan <- do.call(spde.scan, c(list(
+    payload$Y, X, block$A, block$Q, offset = offset, poisson = poisson,
+    size = null_control[["nb_size", exact = TRUE]],
+    feature_id = payload$feature_id, threads = threads), scan_args))
   seconds <- (proc.time()[["elapsed"]] - t0) / max(1L, k)
   beta <- attr(scan, "coefficients")
   fixed_names <- colnames(X)
@@ -159,9 +116,6 @@
       fixed_mode = b, fixed_mean = b, random_mode = list(), random_mean = list(),
       constraint_residual_uncorrected = empty, constraint_residual = empty,
       observation_spatial_mean = empty, converged = isTRUE(scan$converged[j]),
-      mode_status = if (isTRUE(scan$converged[j])) 0L else 1L,
-      mode_status_text = if (isTRUE(scan$converged[j])) "spde.scan converged" else
-        "spde.scan overdispersion iteration limit",
       log_marginal_likelihood = NA_real_, log_likelihood = scan$log_likelihood[j],
       fit_seconds = seconds,
       estimation = list(engine = "spde.scan",
@@ -169,8 +123,7 @@
     )
     marginal <- if (isTRUE(scan$converged[j])) list(
       feature_id = scan$feature_id[j], statistic = scan$statistic[j],
-      p_value = scan$p_value[j], method_requested = "davies",
-      method_used = scan$method[j], fallback_used = scan$fallback[j],
+      p_value = scan$p_value[j],
       error_message = if (is.na(scan$p_value[j])) scan$error[j] else NA_character_
     ) else NULL
     list(null = null, marginal = marginal)
@@ -198,8 +151,7 @@
   if (retain_smooth) record$coefficients <- z$coefficients
   if (diagnostics) {
     record$diagnostics <- z[c(
-      "tau", "tau_internal", "precision_scale", "lambda", "mode_status",
-      "mode_status_text", "constraint_residual", "constraint_residual_uncorrected",
+      "tau", "tau_internal", "precision_scale", "lambda", "constraint_residual", "constraint_residual_uncorrected",
       "observation_spatial_mean", "estimation", "spatial_fallback"
     )]
   }
@@ -364,10 +316,9 @@
 #'   fitted with the Poisson family when its overdispersion score
 #'   `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
 #'   maximum-likelihood fit is the Poisson fit (R/family-prescreen.R; there is
-#'   no threshold to set). When the null model has fixed effects only,
-#'   Stage 1 is [spde.scan()] on the raw sparse field of the target block, the
-#'   same function [mgcvST.estimate()] calls
-#'   (`options(mgcvST.scan_null = FALSE)` restores the INLA null fits). The
+#'   no threshold to set). Stage 1 is [spde.scan()] on the raw sparse field
+#'   of the target block, the same function [mgcvST.estimate()] calls; the
+#'   null must have fixed effects only. The
 #'   per-feature Pearson dispersion of that Poisson fit and the family actually
 #'   used are reported in the diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
@@ -382,6 +333,7 @@
 #' @param checkpoint_dir Optional directory for the resumable chunk checkpoints
 #'   of both steps; see Details.
 #' @param resume Reuse the completed chunks of a compatible checkpoint.
+#' @param scan_control Named list of [spde.scan()] controls.
 #' @details Hyperparameter priors remain part of INLA's empirical-Bayes
 #' estimates; these are not mgcv REML estimates. `mgcv::nb(theta = value)`
 #' fixes NB size, and a conflicting `control$nb_size` is rejected. The
@@ -393,13 +345,9 @@
 #' Sparse downstream scores rebuild the nuisance covariance from
 #' the same expected Fisher matrix;
 #' this does not establish finite-sample calibration after hyperparameter
-#' estimation. The marginal score test of each null fit
-#' (`diagnostics$marginal_p_value`) is calibrated by Davies on the positive
-#' eigenvalues of the full-space expected curvature. When Davies errors,
-#' returns a missing or non-finite p-value, or returns a value outside
-#' (0, 1], the saddlepoint approximation (Kuonen 1999) is used instead;
-#' `marginal_method` reports `"davies"` or `"saddlepoint"` and
-#' `marginal_fallback` flags the fallback. Pair tests in [inlaST.test()] are
+#' estimation. Stage 1 is [spde.scan()]: GLM nulls and the marginal score
+#' test (`diagnostics$marginal_p_value`) calibrated by the saddlepoint
+#' approximation (Kuonen 1999). Pair tests in [inlaST.test()] are
 #' calibrated by a saddlepoint approximation. Every spatial component's constraint
 #' residual and observed spatial mean are retained in the result.
 #' The score uses the SPDE covariance conditioned on observation mean zero.
@@ -412,9 +360,8 @@
 #' is set to zero and its original-FEM precision is assigned `1e8`;
 #' `lambda = dispersion * 1e8`. No additional fit is attempted. The null score
 #' p-value is retained and pair scores use the usual working-model formulas.
-#' `diagnostics$spatial_fallback` identifies these usable fallback states;
-#' `outer_convergence` is `"null_zero_spatial_fallback"` and the original
-#' error remains in `error_class`, `error_message` and `error_call`. Their
+#' `diagnostics$spatial_fallback` identifies these usable fallback states and
+#' the original error remains in `error_class`, `error_message` and `error_call`. Their
 #' spatial likelihood criterion is missing. Input errors and unsuccessful
 #' null fits do not use this fallback. A design the sparse capability gate rejects makes
 #' [inlaST.set()] error at setup, and a model that somehow reaches this
@@ -438,10 +385,11 @@ inlaST.estimate <- function(
     offset = NULL, control = list(), retain_smooth = FALSE,
     diagnostics = FALSE, threads = 1L,
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
-    checkpoint_dir = NULL, resume = TRUE) {
+    checkpoint_dir = NULL, resume = TRUE, scan_control = list()) {
   if (!requireNamespace("INLA", quietly = TRUE)) {
     stop("inlaST.estimate() requires the INLA package.")
   }
+  scan_args <- .spdest_scan_control(scan_control)
   adjust <- match.arg(adjust)
   q.value <- .mgcvst_check_q_value(q.value)
   threads <- .inlast_check_threads(threads)
@@ -479,6 +427,7 @@ inlaST.estimate <- function(
     threads = threads
   )
   null_spec <- .inlast_null_spec(model$inla_spec)
+  .inlast_scan_check(null_spec)
   # Validate the twin once in the parent so a spec the switch cannot handle
   # fails here rather than inside every affected worker.
   if (any(prescreen$poisson)) .inlast_poisson_spec(model$inla_spec)
@@ -492,6 +441,7 @@ inlaST.estimate <- function(
   signature <- .inlast_estimation_signature(
     model, control, offset, feature_id, retain_smooth, diagnostics
   )
+  signature <- .mgcvst_pair_input_hash(list(signature, scan_args = scan_args))
   store <- .mgcvst_chunk_store(checkpoint_dir, "inla", signature, resume)
   groups <- .mgcvst_feature_chunks(seq_len(p), chunk_size, BPPARAM,
                                    checkpoint = !is.null(store))
@@ -510,7 +460,7 @@ inlaST.estimate <- function(
     fun_name = ".inlast_null_chunk",
     args = list(spec = model$inla_spec, null_spec = null_spec,
                 base_offset = model$offset, null_control = null_control,
-                threads = threads),
+                threads = threads, scan_args = scan_args),
     libpaths = .libPaths(), manager = Sys.getpid()
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
@@ -519,12 +469,10 @@ inlaST.estimate <- function(
   n_sp <- model$inla_spec$geometry_sp_length
   m <- ncol(score_sparse$A)
   px <- ncol(model$geometry$nuisance_design)
-  null_fit_seconds <- rep(NA_real_, p)
   null_error_class <- null_error_message <- null_error_call <- rep(NA_character_, p)
   null_state <- stats::setNames(vector("list", p), feature_id)
   marginal <- data.frame(
-    p_value = rep(NA_real_, p), method_requested = NA_character_,
-    method_used = NA_character_, fallback_used = NA, error_message = NA_character_,
+    p_value = rep(NA_real_, p), error_message = NA_character_,
     stringsAsFactors = FALSE
   )
   for (j in seq_len(p)) {
@@ -536,12 +484,8 @@ inlaST.estimate <- function(
       next
     }
     null_state[j] <- list(z$null)
-    null_fit_seconds[j] <- z$null$fit_seconds
     if (!is.null(z$marginal)) {
       marginal$p_value[j] <- z$marginal$p_value
-      marginal$method_requested[j] <- z$marginal$method_requested
-      marginal$method_used[j] <- z$marginal$method_used
-      marginal$fallback_used[j] <- z$marginal$fallback_used
       marginal$error_message[j] <- z$marginal$error_message
     }
   }
@@ -551,17 +495,13 @@ inlaST.estimate <- function(
   diagnostics_table <- data.frame(
     index = seq_len(p), feature_id = feature_id, converged = FALSE,
     marginal_p_value = marginal$p_value, marginal_q_value = marginal_q,
-    marginal_requested_method = marginal$method_requested,
-    marginal_method = marginal$method_used,
-    marginal_fallback = marginal$fallback_used,
     residual_df = NA_real_, criterion = NA_real_,
     criterion_name = "INLA log marginal likelihood", fit_seconds = NA_real_,
-    outer_convergence = NA_character_, error_class = NA_character_,
+    error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
     spatial_fallback = FALSE, spatial_fallback_method = NA_character_,
     spatial_precision_assigned = NA_real_,
-    null_fit_seconds = null_fit_seconds,
     null_error_class = null_error_class, null_error_message = null_error_message,
     null_error_call = null_error_call,
     score_error_class = NA_character_, score_error_message = NA_character_,
@@ -641,7 +581,7 @@ inlaST.estimate <- function(
     mean_constraint = "observation",
     mean_constraint_active = TRUE,
     stage1 = list(adjust = adjust, q.value = q.value,
-                  null_engine = if (.inlast_scan_eligible(null_spec)) "spde.scan" else "inla"),
+                  null_engine = "spde.scan"),
     call = match.call()
   ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "spdeST"))
   kappa <- .spde_kappa_fields(model)
@@ -768,14 +708,12 @@ inlaST.estimate_spatial <- function(
     diag$converged[j] <- z$converged
     diag$criterion[j] <- z$log_marginal_likelihood
     diag$fit_seconds[j] <- z$fit_seconds
-    diag$outer_convergence[j] <- if (z$converged) "converged" else "failed"
     diag$spatial_fitted[j] <- TRUE
     if (!is.null(z$spatial_fallback)) {
       fallback <- z$spatial_fallback
       diag$spatial_fallback[j] <- TRUE
       diag$spatial_fallback_method[j] <- fallback$method
       diag$spatial_precision_assigned[j] <- fallback$spatial_precision
-      diag$outer_convergence[j] <- "null_zero_spatial_fallback"
       diag$error_class[j] <- fallback$error_class[1L]
       diag$error_message[j] <- fallback$error_message
       diag$error_call[j] <- fallback$error_call

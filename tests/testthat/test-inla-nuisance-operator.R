@@ -77,54 +77,6 @@ test_that("multiple iid nuisance penalties match dense Woodbury operators", {
   }
 })
 
-test_that("iid nuisance marginal null keeps the nuisance covariance", {
-  set.seed(2026092002)
-  n <- 16L
-  q <- 6L
-  p <- 4L
-  A0 <- matrix(rnorm(n * q), n, q)
-  A0[abs(A0) < 0.5] <- 0
-  A <- Matrix::Matrix(A0, sparse = TRUE)
-  A <- methods::as(methods::as(A, "generalMatrix"), "CsparseMatrix")
-  R <- matrix(rnorm(q * q), q, q)
-  Q0 <- crossprod(R) + diag(q)
-  Q <- Matrix::Matrix(Q0, sparse = TRUE)
-  Q <- methods::as(methods::as(Q, "generalMatrix"), "CsparseMatrix")
-  g <- runif(q, 0.4, 1.4)
-  X <- cbind(1, rnorm(n))
-  Z <- model.matrix(~ factor(rep(seq_len(p), length.out = n)) - 1)
-  U <- cbind(X, Z)
-  e <- matrix(rnorm(n), n, 1L)
-  d <- matrix(runif(n, 0.6, 1.5), n, 1L)
-  tau <- 1 / 2.3
-  tau_b <- 1.4
-  Sn <- spdeST:::.inlast_iid_nuisance_precision(
-    ncol(X), ncol(Z), matrix(tau_b), 1L
-  )
-  observed <- spdeST:::mgcvst_inla_sparse_batch_cpp(
-    A, Q, g, U, e, d, tau, threads = 1L, null_target = TRUE,
-    nuisance_precision = Sn
-  )[[1L]]
-
-  W <- diag(1 / d[, 1L])
-  S <- diag(Sn[, 1L])
-  Vp <- solve(crossprod(U, W %*% U) + S)
-  P <- W - W %*% U %*% Vp %*% t(U) %*% W
-  h <- as.numeric(crossprod(A0, P %*% e[, 1L]))
-  B <- crossprod(A0, P %*% A0)
-  G <- qr.Q(qr(matrix(g, ncol = 1L)), complete = TRUE)[, -1L, drop = FALSE]
-  Qp <- crossprod(G, Q0 %*% G)
-  T <- G %*% backsolve(chol(Qp), diag(q - 1L)) / sqrt(tau)
-  a <- as.numeric(crossprod(T, h))
-  M <- crossprod(T, B %*% T)
-  lambda <- eigen((M + t(M)) / 2, symmetric = TRUE, only.values = TRUE)$values
-  lambda <- lambda[lambda > 1e-12 * max(lambda)]
-
-  expect_equal(unname(observed$expected_vp), unname(Vp), tolerance = 2e-10)
-  expect_equal(observed$statistic, sum(a^2), tolerance = 2e-8)
-  expect_equal(observed$lambda, lambda, tolerance = 2e-7)
-})
-
 test_that("zero nuisance precision preserves the old sparse score", {
   set.seed(2026092003)
   n <- 14L

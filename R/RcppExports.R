@@ -25,8 +25,8 @@ mgcvst_inla_sparse_observation_basis_cpp <- function(A_map, constraint, prepared
     .Call(`_spdeST_mgcvst_inla_sparse_observation_basis_cpp`, A_map, constraint, prepared)
 }
 
-mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, null_target = FALSE, block_size = 32L, prepared = NULL, nuisance_precision = NULL) {
-    .Call(`_spdeST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, null_target, block_size, prepared, nuisance_precision)
+mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, block_size = 32L, prepared = NULL, nuisance_precision = NULL) {
+    .Call(`_spdeST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, block_size, prepared, nuisance_precision)
 }
 
 mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint, coordinate, basis, threads = 1L, prepared = NULL) {
@@ -41,8 +41,8 @@ mgcvst_memory_status_cpp <- function() {
     .Call(`_spdeST_mgcvst_memory_status_cpp`)
 }
 
-mgcvst_nb_null_batch_cpp <- function(Yt, X, offset, poisson, alpha_max = 1e4, alpha_fixed = -1, tol = 1e-10, maxit_outer = 100L, maxit_inner = 100L, threads = 1L) {
-    .Call(`_spdeST_mgcvst_nb_null_batch_cpp`, Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, threads)
+mgcvst_nb_null_batch_cpp <- function(Yt, X, offset, poisson, alpha_max = 1e4, alpha_fixed = -1, tol = 1e-8, maxit_outer = 10L, maxit_inner = 25L, alpha_min = 1e-12, step_bound = 10, step_fallback = 2, maxit_halving = 30L, eta_max = 700, threads = 1L) {
+    .Call(`_spdeST_mgcvst_nb_null_batch_cpp`, Yt, X, offset, poisson, alpha_max, alpha_fixed, tol, maxit_outer, maxit_inner, alpha_min, step_bound, step_fallback, maxit_halving, eta_max, threads)
 }
 
 mgcvst_pca_gram_cpp <- function(packed, tau, threads = 1L, chunk = 8192L) {
@@ -105,7 +105,11 @@ mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
     .Call(`_spdeST_mgcvst_spa_cpp`, U, S, Tm, order, threads)
 }
 
-mgcvst_spde_score_cpp <- function(A_map, Q_map, X, Yt, offset, beta, alpha, threads = 1L, block_size = 32L, spectrum_tol = 1e-12) {
-    .Call(`_spdeST_mgcvst_spde_score_cpp`, A_map, Q_map, X, Yt, offset, beta, alpha, threads, block_size, spectrum_tol)
+mgcvst_spa_quadform_cpp <- function(q, lambda, centre_tol = 1e-6, root_tol = 1e-12, root_maxit = 100L) {
+    .Call(`_spdeST_mgcvst_spa_quadform_cpp`, q, lambda, centre_tol, root_tol, root_maxit)
+}
+
+mgcvst_spde_score_cpp <- function(A_map, Q_map, X, Yt, offset, beta, alpha, threads = 1L, block_size = 32L, spectrum_tol = 1e-12, spa_centre_tol = 1e-6, spa_root_tol = 1e-12, spa_root_maxit = 100L) {
+    .Call(`_spdeST_mgcvst_spde_score_cpp`, A_map, Q_map, X, Yt, offset, beta, alpha, threads, block_size, spectrum_tol, spa_centre_tol, spa_root_tol, spa_root_maxit)
 }
 

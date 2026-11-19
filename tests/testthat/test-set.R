@@ -1,17 +1,15 @@
 test_that("set expands factor interactions once for shared BAM null and full designs", {
-  for (family in list(gaussian(), mgcv::nb())) {
+  for (family in list(mgcv::nb())) {
     f <- st_fixture(family = family)
     d <- f$data
     d$a <- factor(rep(1:3, length.out = nrow(d)))
     d$b <- factor(rep(1:2, length.out = nrow(d)))
     d$x <- d$x + 1e-6
     d$y <- d$y - 5e-7
-    # A nuisance smooth of z would contain the parametric z, and rank-deficient
-    # fits have no conditional nuisance covariance.
     d$w <- runif(nrow(d))
     basis <- f$basis
     saved <- serialize(basis, NULL)
-    form <- response ~ a * z + b + offset(offset0) + s(w, k = 5) +
+    form <- response ~ a * z + b + w + offset(offset0) +
       s(x, y, bs = "spde", xt = basis)
     model <- mgcvST.set(form, d, family)
     expect_true(model$shared_design)
@@ -20,8 +18,7 @@ test_that("set expands factor interactions once for shared BAM null and full des
     expect_equal(external$L, model$L, tolerance = 1e-8)
     expect_true(all(unlist(model$timing) >= 0))
     expect_false(grepl("spde", paste(deparse(model$null_formula), collapse = " ")))
-    expect_match(paste(deparse(model$null_formula), collapse = " "), "s\\(w")
-    sm <- model$G$smooth[[2L]]
+    sm <- model$G$smooth[[1L]]
     expect_true(sm$timing$basis_calls >= 1L)
     expected <- spdeST:::.spde_basis_at(basis, as.matrix(d[, c("x", "y")]))
     expect_equal(unname(model$L[, sm$first.para:sm$last.para]), expected, tolerance = 1e-8)
@@ -61,20 +58,6 @@ test_that("set expands factor interactions once for shared BAM null and full des
       W <- rkhs_extract_working_model(direct)
       expect_equal(fit$working_error[, i], unname(W$working_error), tolerance = 1e-7)
       expect_equal(fit$working_variance[, i], unname(W$working_variance), tolerance = 1e-7)
-      null_data <- model$null_data
-      null_data[[model$null_response]] <- f$Y[i, ]
-      null_fit <- mgcv::bam(
-        formula = model$null_formula, data = null_data,
-        family = unserialize(family_raw), offset = offset[i, ],
-        method = "fREML", discrete = TRUE, nthreads = 1L, control = control
-      )
-      setup <- spdeST:::.mgcvst_null_score_setup(
-        model$G, which(vapply(model$G$smooth, function(s) identical(s$score.component, "global"), logical(1L))),
-        list(formula = model$null_formula, data = model$null_data,
-             response = model$null_response, X0 = model$null_X)
-      )
-      p <- spdeST:::.mgcvst_null_score_test(null_fit, setup)
-      expect_equal(unname(fit$diagnostics$marginal_p_value[i]), p$smooth.pvalue, tolerance = 1e-7)
     }
     pair <- mgcvST.test(fit, pairs = matrix(c(1L, 2L), 1L), moments = "exact")
     expect_true(all(is.finite(pair$results$log_p_two_sided)))

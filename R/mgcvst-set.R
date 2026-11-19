@@ -2,13 +2,14 @@
 #'
 #' Supplies a complete mgcv formula or an external mgcv setup. Shared full and
 #' null GAM setups are prepared with a zero response; each feature is later
-#' fitted independently with BAM. A null model with one parametric coefficient
-#' and no smooths uses GAM to preserve its matrix dimensions.
+#' fitted independently with BAM. Apart from the tested spde smooth the model
+#' is a GLM: covariates enter as linear terms or factors, and Stage 1
+#' ([spde.scan()]) refuses a null with smooth terms.
 #'
 #' @param formula Complete two-sided mgcv formula. The response is a label and
 #'   need not exist in `data`; mgcv expands factors, interactions and contrasts.
 #' @param data One shared data frame with one row per observation.
-#' @param family `mgcv::nb()` for raw counts or `stats::gaussian()` for SCT data.
+#' @param family `mgcv::nb()` (or `stats::poisson()`) with the log link, for raw counts.
 #' @param G Optional external setup returned by `mgcv::gam(..., fit = FALSE)`.
 #'   Supply either `formula` and `data`, or `G`.
 #' @param ... Setup arguments passed to `mgcv::gam(..., fit = FALSE)`.

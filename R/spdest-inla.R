@@ -8,13 +8,13 @@
 
 .spdest_scan.inlaST_model <- function(model, Y, offset, feature_id, adjust,
                                       q.value, BPPARAM, chunk_size, threads,
-                                      checkpoint_dir, resume) {
+                                      checkpoint_dir, resume, scan_control) {
   s <- .spdest_inla_settings(model)
   args <- c(
     list(Y = Y, model = model, feature_id = feature_id, offset = offset,
          retain_smooth = s$retain_smooth, diagnostics = s$diagnostics,
          threads = threads, adjust = adjust,
-         q.value = q.value, resume = resume),
+         q.value = q.value, resume = resume, scan_control = scan_control),
     .spdest_supplied(BPPARAM = BPPARAM, chunk_size = chunk_size,
                      checkpoint_dir = checkpoint_dir)
   )

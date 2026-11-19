@@ -17,12 +17,18 @@ spde.scan(
   chunk_size = 256L,
   block_size = 32L,
   alpha_max = 10000,
-  tol = 1e-10,
-  maxit_outer = 100L,
-  maxit_inner = 100L,
+  tol = 1e-08,
+  maxit_outer = 10L,
+  maxit_inner = 25L,
+  alpha_min = 1e-12,
+  step_bound = 10,
+  step_fallback = 2,
+  maxit_halving = 30L,
+  eta_max = 700,
   spectrum_tol = 1e-12,
-  max_eps = 1e-08,
-  max_iter = 1e+05
+  spa_centre_tol = 1e-06,
+  spa_root_tol = 1e-12,
+  spa_root_maxit = 100L
 )
 }
 \arguments{
@@ -51,21 +57,34 @@ p-values.}
 
 \item{alpha_max}{Upper bound of the overdispersion (size >= 1 / alpha_max).}
 
-\item{tol}{Relative convergence tolerance of the IRLS.}
+\item{tol}{Relative convergence tolerance of the IRLS coefficients and of
+the size search; the default is that of \code{\link[stats:glm.control]{stats::glm.control()}}.}
 
 \item{maxit_outer, maxit_inner}{Iteration limits of the size search and of
-the IRLS.}
+the IRLS (\code{maxit_inner = 25} is the \code{\link[stats:glm.control]{stats::glm.control()}} default). A
+null that does not converge gets no p-value.}
+
+\item{alpha_min}{Floor of the moment start of the overdispersion.}
+
+\item{step_bound, step_fallback}{A size-search step stays within a factor
+\code{step_bound} of the current overdispersion; where the curvature is not
+negative the step is a \code{step_fallback}-fold increase or decrease.}
+
+\item{maxit_halving, eta_max}{An IRLS step is halved at most \code{maxit_halving}
+times to keep the linear predictor below \code{eta_max}.}
 
 \item{spectrum_tol}{Eigenvalues below \code{spectrum_tol} times the largest are
 dropped from the mixture.}
 
-\item{max_eps, max_iter}{Accuracy and iteration limit of Davies.}
+\item{spa_centre_tol, spa_root_tol, spa_root_maxit}{Saddlepoint controls:
+within \code{spa_centre_tol} (relative) of the mixture mean the limit at the
+mean is used; the saddlepoint equation is solved to relative accuracy
+\code{spa_root_tol} in at most \code{spa_root_maxit} steps.}
 }
 \value{
 A data frame with one row per feature: \code{feature_id}, \code{family}
 (\code{"negative_binomial"} or \code{"poisson"}), \code{size}, \code{overdispersion_score},
-\code{log_likelihood}, \code{converged}, \code{statistic}, \code{p_value}, \code{method},
-\code{fallback}, \code{error}. The attribute \code{"coefficients"} holds the
+\code{log_likelihood}, \code{converged}, \code{statistic}, \code{p_value}, \code{error}. The attribute \code{"coefficients"} holds the
 \code{ncol(X)}-by-feature null coefficients.
 }
 \description{
@@ -83,10 +102,11 @@ is routed to Poisson. With working weights \verb{W = mu / (1 + alpha mu)},
 working residual \code{(y - mu) / mu},
 \verb{P0 = W - W X (X'WX)^\{-1\} X'W} and \verb{B B' = Q^\{-1\}},
 the statistic is \verb{T = |B'A'P0 r|^2} and its null law is the mixture
-\verb{sum(lambda_k chi^2_1)} over the positive eigenvalues of \verb{B'A'P0AB}
-(Davies, then the saddlepoint when Davies fails). \code{P0} removes the span of
+\verb{sum(lambda_k chi^2_1)} over the positive eigenvalues of \verb{B'A'P0AB},
+calibrated by the saddlepoint approximation. \code{P0} removes the span of
 \code{X}, the constant included, so the field enters as it is: no intercept
 projection, \code{Q} stays sparse. All numerical work is compiled
-(\code{src/nb_null.cpp}, \code{src/spde_scan.cpp}).
+(\code{src/nb_null.cpp}, \code{src/spde_scan.cpp}, \code{src/spa_quadform.h}). The null
+design \code{X} is a model matrix, so factors enter as 0-1 columns.
 }
 \keyword{internal}

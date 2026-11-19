@@ -1,6 +1,6 @@
 Package: spdeST
 Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
-Version: 0.0.1.9057
+Version: 0.0.1.9058
 Authors@R: person(given = "Yihe", family = "Yang",
     email = "yxy1234@case.edu", role = c("aut", "cre"))
 Description: Provides topology-aware boundary learning and finite-element mesh
@@ -21,7 +21,6 @@ Depends: R (>= 4.2.0)
 Imports:
     arrow,
     BiocParallel,
-    CompQuadForm,
     CppMatrix (>= 0.1.0),
     digest,
     geometry,
@@ -38,6 +37,7 @@ LinkingTo:
     RcppEigen
 Suggests:
     testthat (>= 3.0.0),
+    CompQuadForm,
     data.table,
     dynamicTreeCut,
     fastcluster,

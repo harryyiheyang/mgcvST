@@ -141,7 +141,7 @@ scan_reference <- function(y, X, offset, beta, alpha, A, Q) {
   lam <- eigen(R %*% t(A) %*% P0 %*% A %*% t(R), symmetric = TRUE)$values
   lam <- lam[lam > 1e-12 * max(lam)]
   list(statistic = stat,
-       p_value = CompQuadForm::davies(stat, lam, acc = 1e-8, lim = 1e5)$Qq)
+       p_value = spdeST:::mgcvst_spa_quadform_cpp(stat, lam))
 }
 
 test_that("spde.scan is the GLM score test of the raw SPDE field", {
@@ -190,10 +190,10 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
   Y <- rbind(Y, f$Y[2L, ])
   target <- which(vapply(f$model$G$smooth, function(s)
     identical(s$score.component, "global"), logical(1L)))
-  expect_true(spdeST:::.mgcvst_scan_eligible(
-    f$model$G, target, f$model$null_formula, f$model$G$family, list()))
-  expect_false(spdeST:::.mgcvst_scan_eligible(
-    f$model$G, target, f$model$null_formula, mgcv::nb(theta = 3), list()))
+  expect_identical(spdeST:::.mgcvst_scan_family(
+    f$model$G, target, f$model$null_formula), list(size = NULL, poisson_all = FALSE))
+  expect_error(spdeST:::.mgcvst_scan_family(
+    f$model$G, target, response ~ s(z)), "without smooth terms")
   sp <- BiocParallel::SerialParam()
   withr::local_options(mgcvST.progress = FALSE)
   fit <- mgcvST.estimate(Y, f$model, BPPARAM = sp)
@@ -205,7 +205,7 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
   spec <- list(random = list(list(A = raw$A, Q = raw$Q)))
   null_spec <- list(fixed = list(X = X0), random = list(),
                     family = "negative_binomial")
-  expect_true(spdeST:::.inlast_scan_eligible(null_spec))
+  expect_true(spdeST:::.inlast_scan_check(null_spec))
   payload <- list(index = 1:4, feature_id = as.character(1:4),
                   Y = Y, extra_offset = NULL,
                   poisson = fit$diagnostics$family_used != "negative_binomial")
@@ -213,12 +213,7 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
                                       f$data$offset0, list())
   p_inla <- vapply(inla, function(z) z$marginal$p_value, numeric(1L))
   expect_equal(fit$diagnostics$marginal_p_value, p_inla, tolerance = 1e-5)
-
-  withr::local_options(mgcvST.scan_null = FALSE)
-  expect_false(spdeST:::.inlast_scan_eligible(null_spec))
-  gam <- suppressWarnings(mgcvST.estimate(Y, f$model, BPPARAM = sp))
-  expect_identical(gam$stage1$null_engine, "gam")
-  # The GAM null uses the intercept-projected field: close, not equal.
-  expect_equal(fit$diagnostics$marginal_p_value,
-               gam$diagnostics$marginal_p_value, tolerance = .05)
+  with_random <- null_spec
+  with_random$random <- list(list(A = raw$A))
+  expect_error(spdeST:::.inlast_scan_check(with_random), "GLM null")
 })

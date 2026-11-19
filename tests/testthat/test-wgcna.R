@@ -31,7 +31,7 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
+  f <- st_fixture(n = 54L, family = gaussian())
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,
@@ -82,7 +82,7 @@ test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  f <- st_fixture(n = 54L, family = gaussian(), nuisance = TRUE)
+  f <- st_fixture(n = 54L, family = gaussian())
   fit <- spdeST:::mgcvST.estimate_spatial(
     mgcvST.estimate(
     f$Y, f$model, diagnostics = FALSE,

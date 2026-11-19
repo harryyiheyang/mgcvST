@@ -76,8 +76,7 @@ remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 ## Two-step estimation
 
 `spdeST.scan()` fits only the null model of every feature and computes
-its Stage 1 null-first p-value (Davies, with the saddlepoint
-approximation when Davies fails); the p-values are adjusted by `adjust`
+its Stage 1 null-first p-value (saddlepoint approximation); the p-values are adjusted by `adjust`
 (`"BY"` by default) into `diagnostics$marginal_q_value`.
 `spdeST.estimate()` then fits the spatial model of the features chosen
 by `features`: `"discoveries"` (the default; the Stage 1 discoveries at

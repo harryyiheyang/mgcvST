@@ -187,25 +187,6 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
   )
   expect_equal(ratio, 1e6, tolerance = 1e-8)
 
-  set.seed(3103L)
-  n <- nrow(mm)
-  E <- cbind(rnorm(n), sin(mm$x) + rnorm(n, sd = 0.2))
-  V <- cbind(rep(1, n), runif(n, 0.5, 2))
-  X <- m_mm$geometry$nuisance_design
-  s_mm <- spdeST:::.inlast_sparse_null_batch(
-    spdeST:::.inlast_sparse_score_geometry(m_mm), X, E, V, NULL)
-  s_um <- spdeST:::.inlast_sparse_null_batch(
-    spdeST:::.inlast_sparse_score_geometry(m_um), X, E, V, NULL)
-  for (j in seq_len(ncol(E))) {
-    expect_equal(s_um[[j]]$statistic, s_mm[[j]]$statistic, tolerance = 1e-8)
-    expect_equal(s_um[[j]]$lambda, s_mm[[j]]$lambda, tolerance = 1e-8)
-    expect_equal(
-      spdeST:::.mgcvst_marginal_davies(s_um[[j]], 1e-8, 1e5)$p_value,
-      spdeST:::.mgcvst_marginal_davies(s_mm[[j]], 1e-8, 1e5)$p_value,
-      tolerance = 1e-8
-    )
-  }
-
   skip_on_cran()
   eta <- 0.3 + 0.4 * mm$z + 0.5 * sin(mm$x) * cos(mm$y)
   Y <- rbind(a = eta + rnorm(n, sd = 0.3), b = eta + rnorm(n, sd = 0.3))
