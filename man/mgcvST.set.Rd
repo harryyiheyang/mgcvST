@@ -4,7 +4,17 @@
 \alias{mgcvST.set}
 \title{Prepare a shared design for all mgcvST genes}
 \usage{
-mgcvST.set(formula = NULL, data = NULL, family = mgcv::nb(), G = NULL, ...)
+mgcvST.set(
+  formula = NULL,
+  data = NULL,
+  family = mgcv::nb(),
+  G = NULL,
+  ...,
+  control = mgcv::gam.control(nthreads = 1L),
+  bam_args = list(),
+  retain_smooth = FALSE,
+  diagnostics = FALSE
+)
 }
 \arguments{
 \item{formula}{Complete two-sided mgcv formula. The response is a label and
@@ -18,12 +28,23 @@ need not exist in \code{data}; mgcv expands factors, interactions and contrasts.
 Supply either \code{formula} and \code{data}, or \code{G}.}
 
 \item{...}{Setup arguments passed to \code{mgcv::gam(..., fit = FALSE)}.}
+
+\item{control, bam_args}{Settings of every feature fit of \code{\link[=spdeST.scan]{spdeST.scan()}}
+and \code{\link[=spdeST.estimate]{spdeST.estimate()}}, fixed with the model: an \code{mgcv::gam.control()}
+object (thread counts are forced to one) and a named list of further
+\code{mgcv::bam()} arguments. Every spatial fit is
+\code{mgcv::bam(method = "fREML", discrete = TRUE)}.}
+
+\item{retain_smooth, diagnostics}{Settings of \code{\link[=spdeST.estimate]{spdeST.estimate()}} fixed with
+the model: retain the estimated score-component coefficients; compute the
+\code{summary.gam()} diagnostics.}
 }
 \value{
-An \code{mgcvST_model} containing the shared full and null GAM setups,
-their training designs, the target spatial geometry and setup timing. It
-also stores the target \code{\link[=spde_basis]{spde_basis()}} \code{kappa_unit}, \code{unit_length},
-\code{coordinate_span} and \code{kappa_internal}.
+An \code{mgcvST_model} for \code{\link[=spdeST.scan]{spdeST.scan()}} containing the shared full and
+null GAM setups, their training designs, the target spatial geometry and
+setup timing. It also stores the target \code{\link[=spde_basis]{spde_basis()}} \code{kappa_unit},
+\code{unit_length}, \code{coordinate_span} and \code{kappa_internal}, and the estimation
+settings in \code{estimation}.
 }
 \description{
 Supplies a complete mgcv formula or an external mgcv setup. Shared full and

@@ -437,7 +437,7 @@
 #'   and the diagnostics columns `marginal_q_value`, `spatial_selected` and
 #'   `spatial_fitted`.
 #' @seealso [inlaST.estimate_spatial()] to add spatial models after step 1.
-#' @export
+#' @keywords internal
 inlaST.estimate <- function(
     Y, model, feature_id = rownames(Y),
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
@@ -693,7 +693,7 @@ inlaST.estimate <- function(
 #'   same `chunk_size` as for the original call, or an explicit one: without it
 #'   the chunks depend on the number of workers.
 #' @return The updated `inlaST_fit`.
-#' @export
+#' @keywords internal
 inlaST.estimate_spatial <- function(
     fitinlaST, Y, features = "discoveries",
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,

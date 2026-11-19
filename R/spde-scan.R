@@ -10,7 +10,7 @@
 #' (`alpha = 0`) when the overdispersion score
 #' `sum((y - mu)^2 - y) / 2` of the Poisson fit is not positive or the feature
 #' is routed to Poisson. With working weights `W = mu / (1 + alpha mu)`,
-#' working residual `r = (y - mu) / mu`,
+#' working residual `(y - mu) / mu`,
 #' `P0 = W - W X (X'WX)^{-1} X'W` and `B B' = Q^{-1}`,
 #' the statistic is `T = |B'A'P0 r|^2` and its null law is the mixture
 #' `sum(lambda_k chi^2_1)` over the positive eigenvalues of `B'A'P0AB`
@@ -43,7 +43,7 @@
 #'   `log_likelihood`, `converged`, `statistic`, `p_value`, `method`,
 #'   `fallback`, `error`. The attribute `"coefficients"` holds the
 #'   `ncol(X)`-by-feature null coefficients.
-#' @export
+#' @keywords internal
 spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
                       feature_id = rownames(Y), threads = 1L,
                       chunk_size = 256L, block_size = 32L, alpha_max = 1e4,

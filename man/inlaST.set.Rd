@@ -16,7 +16,9 @@ inlaST.set(
   control = list(),
   ...,
   mesh = NULL,
-  kappa = 0.05
+  kappa = 0.05,
+  retain_smooth = FALSE,
+  diagnostics = FALSE
 )
 }
 \arguments{
@@ -73,10 +75,15 @@ lengths is \code{sqrt(8 * nu) / kappa}. The default \code{0.05} therefore gives
 about 57 unit lengths in 2D and 40 in 3D, a very smooth global field.
 \code{NULL} is an error. The basis, complete-formula and \code{G} setups take the
 unit-scale kappa from \code{\link[=spde_basis]{spde_basis()}} and do not accept this argument.}
+
+\item{retain_smooth, diagnostics}{Settings of \code{\link[=spdeST.estimate]{spdeST.estimate()}} fixed with
+the model: retain the estimated score-component coefficients; retain the
+per-feature INLA optimizer diagnostics.}
 }
 \value{
-An \code{inlaST_model} for \code{\link[=inlaST.estimate]{inlaST.estimate()}}. It stores \code{kappa_unit},
-\code{unit_length}, \code{coordinate_span} and \code{kappa_internal}.
+An \code{inlaST_model} for \code{\link[=spdeST.scan]{spdeST.scan()}}. It stores \code{kappa_unit},
+\code{unit_length}, \code{coordinate_span} and \code{kappa_internal}, and the
+estimation settings in \code{estimation}.
 }
 \description{
 Constructs the same fixed-kappa SPDE score geometry as \code{\link[=model.set]{model.set()}} while

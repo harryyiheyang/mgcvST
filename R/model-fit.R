@@ -694,7 +694,7 @@
 #'   same `chunk_size` as for the original call, or an explicit one: without it
 #'   the chunks depend on the number of workers.
 #' @return The updated `mgcvST_model_fit`.
-#' @export
+#' @keywords internal
 mgcvST.estimate_spatial <- function(
     fitmgcvST, Y, features = "discoveries",
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,

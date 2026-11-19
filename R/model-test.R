@@ -441,7 +441,7 @@
 #'   (`timing$route` holds the route, `k` and the score dimension `q`),
 #'   `calibration`, `moments` (the route), `contract` and `call`. A PCAlearning
 #'   run additionally returns `pca_learning`.
-#' @export
+#' @keywords internal
 mgcvST.test <- function(
     fitmgcvST, pairs = NULL, q.value = 0.05,
     adjust = c("BY", "BH", "Sidak", "none"),

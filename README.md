@@ -27,6 +27,27 @@ convergence diagnostics. See the [paired validation
 report](inst/notes/inla-bam-validation.md) and [recorded
 results](inst/validation/inla-bam/).
 
+## Pipeline
+
+One pipeline serves the mgcv and INLA implementations. The model object from
+`mgcvST.set()` or `inlaST.set()` carries the implementation and every setting
+that can be fixed in advance; the `spdeST.*` functions take only the
+arguments of their own stage.
+
+```r
+model <- mgcvST.set(formula, data, family = mgcv::nb())  # or inlaST.set(...)
+scan  <- spdeST.scan(Y, model, offset = NULL, adjust = "BY", q.value = 0.05)
+fit   <- spdeST.estimate(scan, Y, features = "discoveries")
+res   <- spdeST.test(fit, pairs = NULL, moments = "pcalearning")
+```
+
+`spdeST.scan()` is Stage 1 for both implementations (GLM nulls and the SPDE
+score test), `spdeST.estimate()` fits the spatial model of the chosen
+features only, and `spdeST.test()` tests their pairs. The sections below call
+the implementation functions (`mgcvST.estimate()`, `inlaST.estimate()`,
+`mgcvST.test()`, `inlaST.test()`) that these entry points dispatch to; they are
+internal from 0.0.1.9052.
+
 The package provides the `mgcv` smooth `bs = "spde"`, which fits the
 full projected SPDE basis.
 

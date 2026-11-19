@@ -250,23 +250,46 @@
 #'   equals one. A user-supplied proper prior then applies to this standardized
 #'   precision and generally changes the prior on the original FEM multiplier.
 #'   The default flat log prior is invariant to this constant log-scale shift.
-#' @return An `inlaST_model` for [inlaST.estimate()]. It stores `kappa_unit`,
-#'   `unit_length`, `coordinate_span` and `kappa_internal`.
+#' @param retain_smooth,diagnostics Settings of [spdeST.estimate()] fixed with
+#'   the model: retain the estimated score-component coefficients; retain the
+#'   per-feature INLA optimizer diagnostics.
+#' @return An `inlaST_model` for [spdeST.scan()]. It stores `kappa_unit`,
+#'   `unit_length`, `coordinate_span` and `kappa_internal`, and the
+#'   estimation settings in `estimation`.
 #' @export
 inlaST.set <- function(
     formula = NULL, data = NULL, basis = NULL, family = mgcv::nb(),
     setting = "global", coordinates = c("x", "y"),
     precision_scale = c("raw", "observation"), G = NULL, control = list(),
-    ..., mesh = NULL, kappa = 0.05) {
+    ..., mesh = NULL, kappa = 0.05, retain_smooth = FALSE, diagnostics = FALSE) {
+  estimation <- list(retain_smooth = .spdest_flag(retain_smooth, "retain_smooth"),
+                     diagnostics = .spdest_flag(diagnostics, "diagnostics"))
+  model <- .inlast_set_model(
+    formula = formula, data = data, basis = basis, family = family,
+    setting = setting, coordinates = coordinates,
+    precision_scale = precision_scale, G = G, control = control, ...,
+    mesh = mesh, kappa = kappa,
+    .family_supplied = !missing(family), .kappa_supplied = !missing(kappa)
+  )
+  model$estimation <- estimation
+  model
+}
+
+.inlast_set_model <- function(
+    formula = NULL, data = NULL, basis = NULL, family = mgcv::nb(),
+    setting = "global", coordinates = c("x", "y"),
+    precision_scale = c("raw", "observation"), G = NULL, control = list(),
+    ..., mesh = NULL, kappa = 0.05, .family_supplied = FALSE,
+    .kappa_supplied = FALSE) {
   t0 <- proc.time()[["elapsed"]]
-  kappa_supplied <- !missing(kappa)
+  kappa_supplied <- .kappa_supplied
   kappa <- .spde_kappa_check(kappa)
   if (!identical(setting, "global")) {
     stop("setting must be \"global\". The second \"local\" geographic process ",
          "(setting = \"global_local\") was removed from mgcvST; supply one ",
          "spatial SPDE term.")
   }
-  family_supplied <- !missing(family)
+  family_supplied <- .family_supplied
   # Accept the formula/data/family calling convention used by mgcvST.set(),
   # together with the prepared-basis shorthand.
   if (inherits(basis, "family") || inherits(basis, "extended.family")) {

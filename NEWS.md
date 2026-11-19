@@ -1,3 +1,20 @@
+# mgcvST 0.0.1.9052
+
+* User interface `spdeST.*`, one pipeline for the mgcv and INLA
+  implementations: `mgcvST.set()` or `inlaST.set()` -> `spdeST.scan(Y, model)`
+  (Stage 1) -> `spdeST.estimate(scan, Y, features)` (Stage 2 of the chosen
+  features; Stage 1 is not recomputed) -> `spdeST.test(fit, ...)` (pair test).
+  The model object carries the implementation and every fixed setting:
+  `mgcvST.set()` gains `control`, `bam_args`, `retain_smooth` and
+  `diagnostics`; `inlaST.set()` gains `retain_smooth` and `diagnostics`
+  (its `control` already held the INLA settings). Dispatch is by S3 class of
+  the model object, one file per implementation (R/spdest-mgcv.R,
+  R/spdest-inla.R).
+* `mgcvST.estimate()`, `inlaST.estimate()`, `mgcvST.estimate_spatial()`,
+  `inlaST.estimate_spatial()`, `mgcvST.test()`, `inlaST.test()` and the
+  compiled-kernel wrapper `spde.scan()` are internal implementation functions
+  and no longer exported.
+
 # mgcvST 0.0.1.9051
 
 * `mgcvST.estimate()` fits a feature routed by the Poisson prescreen with

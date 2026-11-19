@@ -365,7 +365,7 @@
 #'   `spatial_selected` and `spatial_fitted`, and `y_digest` records a digest
 #'   of each response row, which [mgcvST.estimate_spatial()] checks.
 #' @seealso [mgcvST.estimate_spatial()] to add spatial models after step 1.
-#' @export
+#' @keywords internal
 mgcvST.estimate <- function(
     Y, G, feature_id = rownames(Y),
     BPPARAM = BiocParallel::bpparam(), chunk_size = NULL,

@@ -111,10 +111,11 @@ field, the number of basis directions and the basis time are stored in
 }
 \details{
 The result has the compact shape described in \code{\link[=mgcvST.test]{mgcvST.test()}}: integer
-feature indices \code{i < j}, the signed \code{score}, the natural-log two-sided,
+feature indices \code{i < j}, the signed \code{score}, its information \code{t1}, the
+natural-log two-sided,
 positive and negative p-values, the adjusted two-sided \code{log_q}, the
 calibration's \code{remainder_kind} and a \code{status} code, streamed to Parquet
-shards. With \code{pairs = NULL} every pair of the available genes is tested, one
+shards, and the per-feature traces in \verb{$features}. With \code{pairs = NULL} every pair of the available genes is tested, one
 block of left genes at a time. The multiple-testing adjustment is applied
 once to the two-sided family, in log space, and positive and negative
 discoveries are split by the sign of the score.
@@ -146,3 +147,4 @@ rotation defining \code{B}, the coefficients \code{c_j}, the per-gene table with
 \verb{e2_relative = e_j^2 / ||H_j||_F^2}, and the stage timings, including the
 trace-table precomputation.
 }
+\keyword{internal}

@@ -134,7 +134,9 @@ With explicit \code{pairs}, a pair that contains an unavailable feature is
 returned with status 3 and missing p-values.
 
 The result is compact. Each pair is one row of the integer feature indices
-\code{i < j} (positions in \verb{$feature_id}), the signed \code{score}, the natural-log
+\code{i < j} (positions in \verb{$feature_id}), the signed \code{score} \code{U}, its
+information \verb{t1 = tr(M_i M_j)} (exact on the exact route, \verb{c_i' c_j} on the
+PCAlearning route), the natural-log
 two-sided, positive and negative p-values \code{log_p_two_sided},
 \code{log_p_positive} and \code{log_p_negative}, the adjusted two-sided
 log q-value \code{log_q}, the integer \code{remainder_kind} of the calibration (0:
@@ -148,6 +150,13 @@ no remainder; 1: one node; 2: two nodes; 3: Gaussian term) and the integer
    4 \tab screened (\code{screen = TRUE}) \tab lower bounds \cr
 }
 
+
+\code{U / t1} is the Haseman-Elston-type estimate of the cross-feature
+covariance of the pair, with null standard error \code{1 / sqrt(t1)}, and
+\code{sum(U) / sum(t1)} pools pairs. \verb{$features} holds, for every feature of a
+tested pair, \code{trace_M = tr(M_g)} (the expected \verb{a_g' a_g}) and
+\code{trace_M2 = tr(M_g^2)}; the PCAlearning route also keeps the coefficients
+\code{c_g} in \verb{$pca_learning$coefficients}.
 
 A pair with status 1 or 2 has p = 1 (\code{log_p_two_sided}, \code{log_p_positive} and
 \code{log_p_negative} are all 0), the conservative choice, and stays in the
@@ -173,3 +182,4 @@ the two-sided log p-values and the adjusted values in memory (24 bytes per
 pair, 40\% of available memory); when that does not hold it is skipped, with
 a warning, and \code{log_q} is \code{NA}.
 }
+\keyword{internal}

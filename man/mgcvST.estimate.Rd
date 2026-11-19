@@ -19,7 +19,6 @@ mgcvST.estimate(
   control = mgcv::gam.control(nthreads = 1L),
   ...,
   diagnostics = FALSE,
-  retain_marginal = FALSE,
   offset = NULL,
   spatial = "discoveries",
   adjust = c("BY", "BH", "Sidak", "none"),
@@ -207,3 +206,4 @@ across a large scan.
 \seealso{
 \code{\link[=mgcvST.estimate_spatial]{mgcvST.estimate_spatial()}} to add spatial models after step 1.
 }
+\keyword{internal}

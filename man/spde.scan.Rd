@@ -80,7 +80,7 @@ maximum likelihood: NB2 with overdispersion \code{alpha = 1/size}, or Poisson
 (\code{alpha = 0}) when the overdispersion score
 \code{sum((y - mu)^2 - y) / 2} of the Poisson fit is not positive or the feature
 is routed to Poisson. With working weights \verb{W = mu / (1 + alpha mu)},
-working residual \code{r = (y - mu) / mu},
+working residual \code{(y - mu) / mu},
 \verb{P0 = W - W X (X'WX)^\{-1\} X'W} and \verb{B B' = Q^\{-1\}},
 the statistic is \verb{T = |B'A'P0 r|^2} and its null law is the mixture
 \verb{sum(lambda_k chi^2_1)} over the positive eigenvalues of \verb{B'A'P0AB}
@@ -89,3 +89,4 @@ the statistic is \verb{T = |B'A'P0 r|^2} and its null law is the mixture
 projection, \code{Q} stays sparse. All numerical work is compiled
 (\code{src/nb_null.cpp}, \code{src/spde_scan.cpp}).
 }
+\keyword{internal}

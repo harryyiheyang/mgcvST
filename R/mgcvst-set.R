@@ -12,16 +12,37 @@
 #' @param G Optional external setup returned by `mgcv::gam(..., fit = FALSE)`.
 #'   Supply either `formula` and `data`, or `G`.
 #' @param ... Setup arguments passed to `mgcv::gam(..., fit = FALSE)`.
-#' @return An `mgcvST_model` containing the shared full and null GAM setups,
-#'   their training designs, the target spatial geometry and setup timing. It
-#'   also stores the target [spde_basis()] `kappa_unit`, `unit_length`,
-#'   `coordinate_span` and `kappa_internal`.
+#' @param control,bam_args Settings of every feature fit of [spdeST.scan()]
+#'   and [spdeST.estimate()], fixed with the model: an `mgcv::gam.control()`
+#'   object (thread counts are forced to one) and a named list of further
+#'   `mgcv::bam()` arguments. Every spatial fit is
+#'   `mgcv::bam(method = "fREML", discrete = TRUE)`.
+#' @param retain_smooth,diagnostics Settings of [spdeST.estimate()] fixed with
+#'   the model: retain the estimated score-component coefficients; compute the
+#'   `summary.gam()` diagnostics.
+#' @return An `mgcvST_model` for [spdeST.scan()] containing the shared full and
+#'   null GAM setups, their training designs, the target spatial geometry and
+#'   setup timing. It also stores the target [spde_basis()] `kappa_unit`,
+#'   `unit_length`, `coordinate_span` and `kappa_internal`, and the estimation
+#'   settings in `estimation`.
 #' @export
 mgcvST.set <- function(formula = NULL, data = NULL, family = mgcv::nb(),
-                       G = NULL, ...) {
+                       G = NULL, ...,
+                       control = mgcv::gam.control(nthreads = 1L),
+                       bam_args = list(), retain_smooth = FALSE,
+                       diagnostics = FALSE) {
+  if (!is.list(control)) stop("control must be an mgcv::gam.control() list.")
+  if (!is.list(bam_args) || (length(bam_args) && is.null(names(bam_args)))) {
+    stop("bam_args must be a named list of mgcv::bam() arguments.")
+  }
+  estimation <- list(control = control, bam_args = bam_args,
+                     retain_smooth = .spdest_flag(retain_smooth, "retain_smooth"),
+                     diagnostics = .spdest_flag(diagnostics, "diagnostics"))
   args <- c(list(formula = formula, data = data, G = G), list(...))
   if (!missing(family)) args$family <- family
-  do.call(.mgcvst_set_prepare, args)
+  model <- do.call(.mgcvst_set_prepare, args)
+  model$estimation <- estimation
+  model
 }
 
 .mgcvst_formula_terms <- function(x) {

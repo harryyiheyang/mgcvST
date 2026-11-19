@@ -193,3 +193,4 @@ variance and the Poisson limit of the NB model require boundary checks.
 \seealso{
 \code{\link[=inlaST.estimate_spatial]{inlaST.estimate_spatial()}} to add spatial models after step 1.
 }
+\keyword{internal}

@@ -58,7 +58,7 @@
 #'   `e2_relative = e_j^2 / ||H_j||_F^2`, and the stage timings, including the
 #'   trace-table precomputation.
 #' @return An `mgcvST_test` object; see [mgcvST.test()].
-#' @export
+#' @keywords internal
 inlaST.test <- function(
     fitinlaST, pairs = NULL, q.value = 0.05,
     adjust = c("BY", "BH", "Sidak", "none"),
