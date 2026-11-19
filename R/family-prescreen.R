@@ -26,12 +26,8 @@
 #' exact.
 #'
 #' @section Which family a routed gene actually gets:
-#' The routing decision is shared, the routing target is not. In the **mgcv**
-#' path a routed gene is fitted with `stats::quasipoisson(link = "log")`, which
-#' `mgcv::bam()` supports: the Poisson and quasipoisson point estimates are the
-#' same. The routed mgcv null score fit and full spatial fit each estimate their
-#' quasipoisson scale and smoothing parameters. In the **INLA** path a routed
-#' gene keeps plain Poisson, because INLA has no quasi-likelihood families.
+#' A routed gene is fitted with the Poisson family (dispersion 1) in both the
+#' **mgcv** path (`stats::poisson(link = "log")`) and the **INLA** path.
 NULL
 
 # The removed control is refused by name, so an old script fails loudly

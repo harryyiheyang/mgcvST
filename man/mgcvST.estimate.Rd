@@ -76,15 +76,14 @@ supports prediction and other downstream uses without retaining full
 \item{control}{An \code{mgcv::gam.control()} object. Internal thread counts are
 always forced to one. With a negative-binomial family each feature first
 gets its offset-and-covariate-only Poisson GLM, and it is fitted with
-\code{stats::quasipoisson(link = "log")} when its overdispersion score
+\code{stats::poisson(link = "log")} when its overdispersion score
 \code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
 maximum-likelihood fit is the Poisson fit (there is no threshold to set;
-the earlier \code{poisson_screen_phi} entry is refused). The null score fit and
-the full spatial fit both estimate their own scale and smoothing
-parameters. In the INLA path, routed features use plain Poisson.
+the earlier \code{poisson_screen_phi} entry is refused), with dispersion 1 as
+in the INLA path.
 Per-feature \code{prescreen_phi} (the Pearson dispersion of the Poisson fit)
 and \code{family_used} are reported in the diagnostics, and \code{family_used} reads
-\code{"quasipoisson"} for a routed gene.}
+\code{"poisson"} for a routed gene.}
 
 \item{...}{Additional arguments passed to \code{mgcv::bam()}.}
 

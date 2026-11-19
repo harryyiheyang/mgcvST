@@ -1,3 +1,10 @@
+# mgcvST 0.0.1.9051
+
+* `mgcvST.estimate()` fits a feature routed by the Poisson prescreen with
+  `stats::poisson(link = "log")` (dispersion 1) in Stage 2 as well, as
+  `inlaST.estimate()` does; the quasipoisson routing target is removed.
+  `diagnostics$family_used` reads `"poisson"` for a routed feature.
+
 # mgcvST 0.0.1.9050
 
 * `spde.scan(Y, X, A, Q, ...)` is a standalone exported Stage 1: NB2/Poisson

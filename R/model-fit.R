@@ -89,7 +89,7 @@
   full_data <- full_spec$data
   full_data[[full_spec$response]] <- as.numeric(response)
   # Poisson prescreen routing (R/family-prescreen.R); FALSE keeps the model
-  # family. TRUE selects the quasipoisson routing family in the mgcv path.
+  # family. TRUE selects the Poisson routing family.
   family <- mgcv::fix.family.ls(
     unserialize(if (isTRUE(poisson)) routed_family_raw else family_raw)
   )
@@ -353,8 +353,8 @@
   source_files <- .mgcvst_source_files(source_files)
   init_key <- .mgcvst_init_key(source_files, worker_init)
   family_raw <- serialize(model$G$family, NULL)
-  # mgcv-path routing target: quasipoisson, not poisson. See mgcvST.estimate().
-  routed_family_raw <- serialize(stats::quasipoisson(link = "log"), NULL)
+  # Routing target: Poisson (dispersion 1), as in inlaST.estimate().
+  routed_family_raw <- serialize(stats::poisson(link = "log"), NULL)
   base_offset <- if (is.null(model$G$offset)) numeric(n) else
     as.numeric(model$G$offset)
   prescreen <- .mgcvst_prescreen_route(
@@ -376,7 +376,8 @@
   scan <- .mgcvst_scan_eligible(
     model$G, which(vapply(model$G$smooth, function(s)
       identical(s$score.component, "global"), logical(1L))),
-    model$null_formula, model$G$family, marginal_test, marginal_args, gam_args)
+    model$null_formula, model$G$family, marginal_test, marginal_args, gam_args,
+    retain_marginal)
   if (scan) signature <- .mgcvst_pair_input_hash(list(signature, null = "spde.scan"))
   store <- .mgcvst_chunk_store(checkpoint_dir, "mgcv", signature, resume)
 
@@ -426,7 +427,7 @@
     error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
     prescreen_phi = prescreen$phi,
-    family_used = ifelse(prescreen$poisson, "quasipoisson", family_id),
+    family_used = ifelse(prescreen$poisson, "poisson", family_id),
     stringsAsFactors = FALSE
   )
   for (j in seq_len(p)) {
@@ -743,8 +744,11 @@ mgcvST.estimate_spatial <- function(
 # the family is nb() with an estimated size and log link, and the tested smooth
 # is an spde smooth; options(mgcvST.scan_null = FALSE) keeps the GAM nulls.
 .mgcvst_scan_eligible <- function(G, target_index, null_formula, family,
-                                  marginal_test, marginal_args, gam_args) {
+                                  marginal_test, marginal_args, gam_args,
+                                  retain_marginal = FALSE) {
   if (!isTRUE(getOption("mgcvST.scan_null", TRUE))) return(FALSE)
+  # retain_marginal keeps the GAM null score cache that mgcvST.marginal() reads.
+  if (isTRUE(retain_marginal)) return(FALSE)
   if (!is.null(marginal_test) || length(gam_args)) return(FALSE)
   if (length(setdiff(names(marginal_args), c("max_eps", "max_iter")))) return(FALSE)
   if (length(target_index) != 1L ||

@@ -29,7 +29,7 @@ test_that("Poisson prescreen routes independent null and full BAM fits", {
       f$Y[1L, , drop = FALSE], setup, control = control,
       BPPARAM = BiocParallel::SerialParam(), spatial = "all"
     )
-    expect_identical(fit$diagnostics$family_used, "quasipoisson")
+    expect_identical(fit$diagnostics$family_used, "poisson")
     expect_true(is.finite(fit$diagnostics$marginal_p_value[1L]))
     expect_true(is.finite(fit$dispersion[1L]))
   }
