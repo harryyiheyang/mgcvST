@@ -143,7 +143,8 @@
       numeric(),
     converged = isTRUE(z$converged),
     log_marginal_likelihood = z$log_marginal_likelihood,
-    fit_seconds = z$fit_seconds, spatial_fallback = z$spatial_fallback,
+    fit_seconds = z$fit_seconds, null_size = z$null_size,
+    spatial_fallback = z$spatial_fallback,
     constraint_residual = z$constraint_residual,
     observation_spatial_mean = z$observation_spatial_mean,
     score_a = scores_a, score_error = score_error, mu_bar = mu_bar
@@ -175,7 +176,7 @@
     rows <- first:min(k, first + block - 1L)
     fits <- .inlast_fit_chunk(
       rows, payload$Y, spec, base_offset, payload$extra_offset, control,
-      diagnostics, payload$poisson, threads
+      diagnostics, payload$poisson, threads, payload$null
     )
     for (kk in seq_along(rows)) {
       if (!inherits(fits[[kk]], "inlaCrashError")) next
@@ -501,7 +502,13 @@ inlaST.estimate <- function(
     index = seq_len(p), feature_id = feature_id, converged = FALSE,
     marginal_p_value = marginal$p_value, marginal_q_value = marginal_q,
     residual_df = NA_real_, criterion = NA_real_,
-    criterion_name = "INLA log marginal likelihood", fit_seconds = NA_real_,
+    criterion_name = if (identical(control$engine, "spde"))
+      "spde.estimate Laplace marginal likelihood" else "INLA log marginal likelihood",
+    fit_seconds = NA_real_,
+    null_size = vapply(null_state, function(z) {
+      if (is.null(z)) NA_real_ else if (length(z$family_parameters)) z$family_parameters[1L] else Inf
+    }, numeric(1L)),
+    spatial_size = NA_real_,
     error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
@@ -709,6 +716,7 @@ inlaST.estimate_spatial <- function(
     # The family of the spatial fit: spde.estimate() returns the Poisson fit
     # of a feature whose criterion does not rise along 1 / size.
     fit$feature_family[j] <- diag$family_used[j] <- z$family
+    diag$spatial_size[j] <- if (length(z$family_parameters)) z$family_parameters[1L] else Inf
     fit$smoothing_parameters[j, ] <- z$smoothing_parameters
     fit$target_coefficients[, j] <- z$target
     if (length(z$nuisance)) fit$nuisance_coefficients[, j] <- z$nuisance

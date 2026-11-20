@@ -67,6 +67,12 @@ test_that("spde.estimate is the REML fit of mgcv::gam", {
   only <- spde.estimate(f$Y, f$X, f$A, f$Q, offset = f$off, poisson = c(TRUE, FALSE, FALSE))
   expect_identical(only$family, c("poisson", "negative_binomial", "poisson"))
   expect_identical(only$tau[2:3], fit$tau[2:3])
+  # The start of the size search does not move the optimum.
+  started <- spde.estimate(f$Y, f$X, f$A, f$Q, offset = f$off, size_start = c(.5, 200, 3))
+  expect_identical(started$family, fit$family)
+  expect_equal(started$tau, fit$tau, tolerance = 1e-5)
+  expect_equal(started$size[1:2], fit$size[1:2], tolerance = 1e-5)
+  expect_equal(started$laml, fit$laml, tolerance = 1e-8)
   threaded <- spde.estimate(f$Y, f$X, f$A, f$Q, offset = f$off, threads = 2L)
   expect_identical(threaded$tau, fit$tau)
   expect_identical(attr(threaded, "field"), attr(fit, "field"))
@@ -128,12 +134,19 @@ test_that("engine = 'spde' runs the three stages without INLA", {
   block <- model$inla_spec$random[[1L]]
   direct <- spde.estimate(Y[1:3, ], model$inla_spec$fixed$X, block$A, block$Q,
                           offset = model$offset)
-  expect_equal(unname(fit$smoothing_parameters[1:3, block$sp_index]), direct$tau, tolerance = 1e-12)
+  expect_equal(unname(fit$smoothing_parameters[1:3, block$sp_index]), direct$tau, tolerance = 1e-5)
   expect_equal(unlist(fit$family_parameters[1:2], use.names = FALSE), direct$size[1:2],
-               tolerance = 1e-12)
+               tolerance = 1e-5)
   expect_equal(unname(fit$target_coefficients[, 1:3]), unname(attr(direct, "field")),
-               tolerance = 1e-12)
+               tolerance = 1e-4)
   expect_identical(fit$inla_diagnostics[[1L]]$estimation$engine, "spde.estimate")
+  # The size of the null model is the start of the search and is kept.
+  expect_equal(unname(fit$diagnostics$null_size[1:2]),
+               vapply(fit$null_state[1:2], `[[`, numeric(1L), "family_parameters"),
+               ignore_attr = TRUE)
+  expect_equal(fit$diagnostics$spatial_size[1:3], c(direct$size[1:2], Inf), tolerance = 1e-4)
+  expect_true(is.na(fit$diagnostics$spatial_size[4L]))
+  expect_identical(fit$diagnostics$criterion_name[1L], "spde.estimate Laplace marginal likelihood")
 
   skip_if_not_installed("arrow")
   res <- spdeST.test(fit, moments = "exact")

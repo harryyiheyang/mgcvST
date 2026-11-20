@@ -24,6 +24,9 @@
 #' @param offset `NULL`, a length-`n` vector, or a feature-by-observation
 #'   matrix.
 #' @param poisson Optional logical vector: `TRUE` fits the Poisson model only.
+#' @param size_start Optional sizes, one per feature, at which the search of
+#'   `alpha = 1 / size` starts (the size of the null model). The search still
+#'   covers the whole interval and the optimum does not depend on the start.
 #' @param constraint Vector `c` of the constraint `c'u = 0`; the default is
 #'   the mean of the field over the observations, `crossprod(A, 1 / n)`.
 #' @param feature_id Feature identifiers.
@@ -48,7 +51,7 @@
 #'   `"coefficients"` and `"field"` hold `beta` and `u` by feature.
 #' @keywords internal
 spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
-                          constraint = NULL, feature_id = rownames(Y),
+                          size_start = NULL, constraint = NULL, feature_id = rownames(Y),
                           threads = 1L, chunk_size = 64L, tol = 1e-8,
                           tol_inner = 1e-10, maxit_inner = 50L,
                           maxit_halving = 30L, maxit_line = 100L,
@@ -73,6 +76,7 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
   }
   if (is.null(feature_id)) feature_id <- as.character(seq_len(p))
   if (!is.null(poisson) && length(poisson) != p) stop("poisson needs one flag per feature.")
+  if (!is.null(size_start) && length(size_start) != p) stop("size_start needs one value per feature.")
   if (!is.null(offset) && !is.matrix(offset) && length(offset) != n) {
     stop("offset must be NULL, a length-n vector or a feature-by-observation matrix.")
   }
@@ -93,7 +97,9 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
     storage.mode(O) <- "double"
     route <- if (is.null(poisson)) rep(FALSE, length(rows)) else as.logical(poisson[rows])
     fit <- mgcvst_spde_estimate_cpp(
-      Yt, X, A, Q, constraint, O, route, tol = tol, tol_inner = tol_inner,
+      Yt, X, A, Q, constraint, O, route,
+      if (is.null(size_start)) rep(NA_real_, length(rows)) else 1 / as.numeric(size_start[rows]),
+      tol = tol, tol_inner = tol_inner,
       maxit_inner = as.integer(maxit_inner),
       maxit_halving = as.integer(maxit_halving),
       maxit_line = as.integer(maxit_line), maxit_outer = as.integer(maxit_outer),
@@ -125,7 +131,8 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
 # whose fit failed. The model is the count model with fixed effects and one
 # SPDE field; tau multiplies the raw Q of the block.
 .spde_estimate_chunk <- function(index, Y, spec, base_offset, extra_offset,
-                                 control, poisson = NULL, threads = 1L) {
+                                 control, poisson = NULL, threads = 1L,
+                                 null = NULL) {
   if (!(spec$family %in% c("poisson", "negative_binomial"))) {
     stop("engine = 'spde' fits Poisson and negative-binomial models only.")
   }
@@ -145,9 +152,17 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
   block <- z$random[[1L]]
   route <- if (identical(z$family, "poisson")) rep(TRUE, length(index)) else
     if (is.null(poisson)) rep(FALSE, length(index)) else as.logical(poisson[index])
+  # The size of the Stage 1 null model of each feature: the start of the
+  # search, and kept beside the size of the spatial fit.
+  null_size <- vapply(seq_along(index), function(k) {
+    state <- if (is.null(null)) NULL else null[[index[k]]]
+    size <- if (is.list(state)) state$family_parameters else NULL
+    if (length(size) == 1L && is.finite(size) && size > 0) as.numeric(size) else NA_real_
+  }, numeric(1L))
   t0 <- proc.time()[["elapsed"]]
   fit <- do.call(spde.estimate, c(list(
     Yk, z$X, block$A, block$Q, offset = offset, poisson = route,
+    size_start = null_size,
     constraint = z$constraints[[1L]], feature_id = as.character(seq_along(index)),
     threads = threads, chunk_size = length(index)), control$spde))
   seconds <- (proc.time()[["elapsed"]] - t0) / length(index)
@@ -189,10 +204,11 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
       converged = isTRUE(fit$converged[k]), mode_status = NA_integer_,
       mode_status_text = NA_character_,
       log_marginal_likelihood = fit$laml[k], fit_seconds = seconds,
+      null_size = null_size[k],
       estimation = list(
         engine = "spde.estimate",
         criterion = "Laplace marginal likelihood (REML) in (tau, 1 / size)",
-        laml_poisson = fit$laml_poisson[k], evaluations = fit$evaluations[k],
+        laml_poisson = fit$laml_poisson[k], null_size = null_size[k], evaluations = fit$evaluations[k],
         newton = fit$newton[k], outer = fit$outer[k], fixed_kappa = TRUE,
         lambda_scaling = "lambda = tau"
       )

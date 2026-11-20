@@ -11,6 +11,7 @@ spde.estimate(
   Q,
   offset = NULL,
   poisson = NULL,
+  size_start = NULL,
   constraint = NULL,
   feature_id = rownames(Y),
   threads = 1L,
@@ -42,6 +43,10 @@ spde.estimate(
 matrix.}
 
 \item{poisson}{Optional logical vector: \code{TRUE} fits the Poisson model only.}
+
+\item{size_start}{Optional sizes, one per feature, at which the search of
+\code{alpha = 1 / size} starts (the size of the null model). The search still
+covers the whole interval and the optimum does not depend on the start.}
 
 \item{constraint}{Vector \code{c} of the constraint \verb{c'u = 0}; the default is
 the mean of the field over the observations, \code{crossprod(A, 1 / n)}.}

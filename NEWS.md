@@ -1,3 +1,12 @@
+# spdeST 0.0.1.9063
+
+* The size search of `spde.estimate()` starts at the size of the Stage 1 null
+  model (`size_start`); the
+  optimum does not depend on the start. The diagnostics table has `null_size`
+  and `spatial_size` side by side (`Inf` is the Poisson model).
+* `diagnostics$criterion_name` of an `engine = "spde"` fit is
+  "spde.estimate Laplace marginal likelihood".
+
 # spdeST 0.0.1.9062
 
 * `spde.estimate()` is the package's own Stage 2 fitter of a count feature

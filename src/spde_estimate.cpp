@@ -282,13 +282,15 @@ private:
 struct LineResult { double x, f; bool converged; };
 
 LineResult maximise(const std::function<double(double)>& f, double a, double b,
-                    double tol, int maxit) {
+                    double tol, int maxit, double start = NA_REAL) {
   const double golden = 0.3819660112501051;
   auto value = [&](double x) {
     const double v = f(x);
     return std::isfinite(v) ? -v : R_PosInf;
   };
-  double x = a + golden * (b - a), w = x, v = x;
+  // The first point: `start` when it lies inside (a, b), else the golden point.
+  double x = std::isfinite(start) && start > a && start < b ? start : a + golden * (b - a);
+  double w = x, v = x;
   double fx = value(x), fw = fx, fv = fx;
   double d = 0, e = 0;
   bool converged = false;
@@ -335,8 +337,10 @@ LineResult maximise(const std::function<double(double)>& f, double a, double b,
   return {x, -fx, converged};
 }
 
+// alpha_start is the first alpha of the search (the null model's 1 / size);
+// NaN starts at the golden point of the interval.
 Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
-                const Control& ctl) {
+                const Control& ctl, double alpha_start) {
   Fit out;
   if (!(y.array() > 0).any()) {
     out.error = "All counts are zero.";
@@ -361,7 +365,8 @@ Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
     for (int outer = 1; outer <= ctl.maxit_outer; ++outer) {
       out.outer = outer;
       const LineResult ra = maximise(
-        [&](double t) { return model.laml(rho, std::exp(t)); }, lo, hi, ctl.tol, ctl.maxit_line);
+        [&](double t) { return model.laml(rho, std::exp(t)); }, lo, hi, ctl.tol, ctl.maxit_line,
+        outer == 1 ? std::log(alpha_start) : NA_REAL);
       if (!(ra.f > best + ctl.tol * (std::abs(best) + 0.1))) {
         converged = true;
         break;
@@ -412,6 +417,7 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     const Eigen::Map<Eigen::VectorXd> constraint,
     const Eigen::Map<Eigen::MatrixXd> offset,
     const Rcpp::LogicalVector poisson,
+    const Rcpp::NumericVector alpha_start,
     double tol = 1e-8,
     double tol_inner = 1e-10,
     int maxit_inner = 50,
@@ -433,6 +439,7 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     Rcpp::stop("offset must be n x 1 or n x features.");
   }
   if (poisson.size() != features) Rcpp::stop("poisson must have one flag per feature.");
+  if (alpha_start.size() != features) Rcpp::stop("alpha_start must have one value per feature.");
   if (threads < 1) Rcpp::stop("threads must be positive.");
   if (!(log_tau_min < log_tau_max) || !(alpha_min > 0) || !(alpha_min < alpha_max)) {
     Rcpp::stop("The search bounds are not ordered.");
@@ -443,7 +450,11 @@ Rcpp::List mgcvst_spde_estimate_cpp(
   const Mat Xd = X;
   const Vec c = constraint;
   std::vector<int> is_pois(features);
-  for (int f = 0; f < features; ++f) is_pois[f] = poisson[f] == TRUE;
+  std::vector<double> start(features);
+  for (int f = 0; f < features; ++f) {
+    is_pois[f] = poisson[f] == TRUE;
+    start[f] = alpha_start[f] > 0 && R_finite(alpha_start[f]) ? alpha_start[f] : NA_REAL;
+  }
   std::vector<Fit> fit(features);
 
 #ifdef _OPENMP
@@ -463,7 +474,7 @@ Rcpp::List mgcvst_spde_estimate_cpp(
           y[it.row()] = v;
         }
         const Vec off = offset.cols() == 1 ? Vec(offset.col(0)) : Vec(offset.col(f));
-        fit[f] = fit_feature(model, y, off, is_pois[f], ctl);
+        fit[f] = fit_feature(model, y, off, is_pois[f], ctl, start[f]);
       } catch (const std::exception& e) {
         fit[f] = Fit();
         fit[f].error = e.what();

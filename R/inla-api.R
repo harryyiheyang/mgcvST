@@ -447,10 +447,11 @@ inlaST.set <- function(
 # Poisson twin of the spec is built once per chunk; it is a shallow list copy,
 # so the sparse blocks are shared rather than duplicated.
 .inlast_fit_chunk <- function(index, Y, spec, base_offset, extra_offset,
-                              control, diagnostics, poisson = NULL, threads = 1L) {
+                              control, diagnostics, poisson = NULL, threads = 1L,
+                              null = NULL) {
   if (identical(control$engine, "spde")) {
     return(.spde_estimate_chunk(index, Y, spec, base_offset, extra_offset,
-                                control, poisson, threads))
+                                control, poisson, threads, null))
   }
   route <- if (is.null(poisson)) rep(FALSE, length(index)) else
     as.logical(poisson[index])
