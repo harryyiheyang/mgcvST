@@ -1,3 +1,18 @@
+# spdeST 0.0.1.9062
+
+* `spde.estimate()` is the package's own Stage 2 fitter of a count feature
+  with fixed effects and one SPDE field: the Laplace marginal likelihood (the
+  REML criterion of `mgcv::gam()`) is maximised over `log(tau)` and
+  `alpha = 1 / size`, in compiled code with one sparse Cholesky analysis.
+  The Poisson model is the finite end point `alpha = 0`: it is fitted first
+  and kept unless the criterion rises along `alpha`, so a field that absorbs
+  the overdispersion gives the Poisson fit where a search on `log(size)` runs
+  to infinity. Every stopping rule is a relative change of the objective.
+* `inlaST.set(control = list(engine = "spde"))` selects it for
+  `spdeST.estimate()`; `control$spde` passes its controls. INLA is then not
+  needed. The default engine is still `"inla"`. The family of a feature in
+  `diagnostics$family_used` is that of its spatial fit.
+
 # spdeST 0.0.1.9061
 
 * `maxit_outer` is 25, the `glm.control()` and `MASS::glm.nb()` default. On

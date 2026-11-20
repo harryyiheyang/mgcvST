@@ -433,6 +433,36 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_spde_estimate_cpp
+Rcpp::List mgcvst_spde_estimate_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, double tol, double tol_inner, int maxit_inner, int maxit_halving, int maxit_line, int maxit_outer, double log_tau_min, double log_tau_max, double alpha_min, double alpha_max, double eta_max, double rank_tol, int threads);
+RcppExport SEXP _spdeST_mgcvst_spde_estimate_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP ASEXP, SEXP QSEXP, SEXP constraintSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP tolSEXP, SEXP tol_innerSEXP, SEXP maxit_innerSEXP, SEXP maxit_halvingSEXP, SEXP maxit_lineSEXP, SEXP maxit_outerSEXP, SEXP log_tau_minSEXP, SEXP log_tau_maxSEXP, SEXP alpha_minSEXP, SEXP alpha_maxSEXP, SEXP eta_maxSEXP, SEXP rank_tolSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type Yt(YtSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type A(ASEXP);
+    Rcpp::traits::input_parameter< const Eigen::MappedSparseMatrix<double>& >::type Q(QSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd> >::type constraint(constraintSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type offset(offsetSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::LogicalVector >::type poisson(poissonSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    Rcpp::traits::input_parameter< double >::type tol_inner(tol_innerSEXP);
+    Rcpp::traits::input_parameter< int >::type maxit_inner(maxit_innerSEXP);
+    Rcpp::traits::input_parameter< int >::type maxit_halving(maxit_halvingSEXP);
+    Rcpp::traits::input_parameter< int >::type maxit_line(maxit_lineSEXP);
+    Rcpp::traits::input_parameter< int >::type maxit_outer(maxit_outerSEXP);
+    Rcpp::traits::input_parameter< double >::type log_tau_min(log_tau_minSEXP);
+    Rcpp::traits::input_parameter< double >::type log_tau_max(log_tau_maxSEXP);
+    Rcpp::traits::input_parameter< double >::type alpha_min(alpha_minSEXP);
+    Rcpp::traits::input_parameter< double >::type alpha_max(alpha_maxSEXP);
+    Rcpp::traits::input_parameter< double >::type eta_max(eta_maxSEXP);
+    Rcpp::traits::input_parameter< double >::type rank_tol(rank_tolSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_spde_estimate_cpp(Yt, X, A, Q, constraint, offset, poisson, tol, tol_inner, maxit_inner, maxit_halving, maxit_line, maxit_outer, log_tau_min, log_tau_max, alpha_min, alpha_max, eta_max, rank_tol, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_spde_score_cpp
 Rcpp::List mgcvst_spde_score_cpp(const Eigen::MappedSparseMatrix<double>& A_map, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> offset, const Eigen::Map<Eigen::MatrixXd> beta, const Eigen::Map<Eigen::VectorXd> alpha, int threads, int block_size, double spectrum_tol, double spa_centre_tol, double spa_root_tol, int spa_root_maxit);
 RcppExport SEXP _spdeST_mgcvst_spde_score_cpp(SEXP A_mapSEXP, SEXP Q_mapSEXP, SEXP XSEXP, SEXP YtSEXP, SEXP offsetSEXP, SEXP betaSEXP, SEXP alphaSEXP, SEXP threadsSEXP, SEXP block_sizeSEXP, SEXP spectrum_tolSEXP, SEXP spa_centre_tolSEXP, SEXP spa_root_tolSEXP, SEXP spa_root_maxitSEXP) {
@@ -485,6 +515,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_simd_cpp", (DL_FUNC) &_spdeST_mgcvst_simd_cpp, 0},
     {"_spdeST_mgcvst_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_cpp, 5},
     {"_spdeST_mgcvst_spa_quadform_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_quadform_cpp, 5},
+    {"_spdeST_mgcvst_spde_estimate_cpp", (DL_FUNC) &_spdeST_mgcvst_spde_estimate_cpp, 20},
     {"_spdeST_mgcvst_spde_score_cpp", (DL_FUNC) &_spdeST_mgcvst_spde_score_cpp, 13},
     {NULL, NULL, 0}
 };

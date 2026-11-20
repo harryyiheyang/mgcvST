@@ -33,6 +33,8 @@
   if (is.null(control)) control <- list()
   if (!is.list(control)) stop("control must be a list.")
   defaults <- list(
+    engine = "inla",
+    spde = list(),
     int_strategy = "eb",
     latent_strategy = "gaussian",
     precision_prior = list(
@@ -63,6 +65,18 @@
   # idempotent and cannot trigger partial `$` matching (for example nb_size
   # accidentally matching nb_size_prior).
   out <- .inlast_merge_control(defaults, control)
+  if (!is.character(out$engine) || length(out$engine) != 1L ||
+      !(out$engine %in% c("inla", "spde"))) {
+    stop("control$engine must be 'inla' or 'spde'.")
+  }
+  spde_allowed <- setdiff(names(formals(spde.estimate)), c(
+    "Y", "X", "A", "Q", "offset", "poisson", "constraint", "feature_id",
+    "threads", "chunk_size"))
+  if (!is.list(out$spde) || (length(out$spde) && (is.null(names(out$spde)) ||
+      length(setdiff(names(out$spde), spde_allowed))))) {
+    stop("control$spde takes named spde.estimate() controls: ",
+         paste(spde_allowed, collapse = ", "), ".")
+  }
   if (!identical(out$int_strategy, "eb") ||
       !identical(out$latent_strategy, "gaussian")) {
     stop("The current engine requires int_strategy = 'eb' and latent_strategy = 'gaussian'.")
@@ -84,6 +98,18 @@
       if (length(out[[nm]]) != 1L || !is.finite(out[[nm]]) ||
           out[[nm]] <= 0) stop("control$", nm, " must be positive when supplied.")
     }
+  }
+  # spde.estimate() maximises the marginal likelihood: it has no priors and
+  # no INLA controls.
+  if (identical(out$engine, "spde")) {
+    flat <- vapply(out[c("precision_prior", "nb_size_prior")], function(x) {
+      is.list(x) && identical(tolower(trimws(as.character(x$prior))), "flat") &&
+        !length(x$param)
+    }, logical(1L))
+    if (!all(flat) || length(out$control.inla)) {
+      stop("engine = 'spde' takes no prior and no control$control.inla.")
+    }
+    return(out)
   }
   # Validate prior structure in the parent process before feature-level
   # parallelism, including priors for parameters fixed in a particular model.

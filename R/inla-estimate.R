@@ -135,7 +135,8 @@
 .inlast_spatial_record <- function(z, spec, scores_a, score_error, mu_bar,
                                    retain_smooth, diagnostics, estimation) {
   record <- list(
-    dispersion = z$dispersion, family_parameters = z$family_parameters,
+    dispersion = z$dispersion, family = z$family,
+    family_parameters = z$family_parameters,
     smoothing_parameters = z$smoothing_parameters,
     target = as.numeric(z$random_mode[[1L]]),
     nuisance = if (ncol(spec$nuisance_design)) .inlast_nuisance_mode(z, spec) else
@@ -174,7 +175,7 @@
     rows <- first:min(k, first + block - 1L)
     fits <- .inlast_fit_chunk(
       rows, payload$Y, spec, base_offset, payload$extra_offset, control,
-      diagnostics, payload$poisson
+      diagnostics, payload$poisson, threads
     )
     for (kk in seq_along(rows)) {
       if (!inherits(fits[[kk]], "inlaCrashError")) next
@@ -322,6 +323,10 @@
 #'   per-feature Pearson dispersion of that Poisson fit and the family actually
 #'   used are reported in the diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
+#'   `engine = "spde"` fits Stage 2 with [spde.estimate()] instead of INLA
+#'   (count families, fixed effects and one SPDE field, no prior and no fixed
+#'   precision or size); `spde` is then a named list of its controls, for
+#'   example `list(tol = 1e-8)`, and the INLA package is not needed.
 #' @param retain_smooth Retain estimated score-component coefficients.
 #' @param diagnostics Retain the per-feature INLA optimizer/hyperparameter
 #'   diagnostics in `inla_diagnostics`.
@@ -386,9 +391,6 @@ inlaST.estimate <- function(
     diagnostics = FALSE, threads = 1L,
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
     checkpoint_dir = NULL, resume = TRUE, scan_control = list()) {
-  if (!requireNamespace("INLA", quietly = TRUE)) {
-    stop("inlaST.estimate() requires the INLA package.")
-  }
   scan_args <- .spdest_scan_control(scan_control)
   adjust <- match.arg(adjust)
   q.value <- .mgcvst_check_q_value(q.value)
@@ -407,6 +409,9 @@ inlaST.estimate <- function(
   # Validate once in the parent so a misspelled or invalid control cannot turn
   # every feature into an otherwise opaque per-feature failure.
   control <- .inlast_control(.inlast_merge_control(model$inla_control, control))
+  if (!identical(control$engine, "spde") && !requireNamespace("INLA", quietly = TRUE)) {
+    stop("inlaST.estimate() requires the INLA package unless control$engine = 'spde'.")
+  }
   control <- .inlast_family_control(model, control)
   Y <- checked$Y
   feature_id <- checked$feature_id
@@ -622,12 +627,13 @@ inlaST.estimate_spatial <- function(
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
     checkpoint_dir = NULL, resume = TRUE, threads = 1L) {
-  if (!requireNamespace("INLA", quietly = TRUE)) {
-    stop("inlaST.estimate_spatial() requires the INLA package.")
-  }
   fit <- fitinlaST
   if (!inherits(fit, "inlaST_fit")) {
     stop("fitinlaST must be returned by inlaST.estimate().")
+  }
+  if (!identical(fit$control$engine, "spde") &&
+      !requireNamespace("INLA", quietly = TRUE)) {
+    stop("inlaST.estimate_spatial() requires the INLA package.")
   }
   .mgcvst_check_fit_format(fit)
   adjust <- if (missing(adjust)) fit$stage1$adjust else match.arg(adjust)
@@ -700,6 +706,9 @@ inlaST.estimate_spatial <- function(
     }
     fit$dispersion[j] <- z$dispersion
     fit$family_parameters[[j]] <- z$family_parameters
+    # The family of the spatial fit: spde.estimate() returns the Poisson fit
+    # of a feature whose criterion does not rise along 1 / size.
+    fit$feature_family[j] <- diag$family_used[j] <- z$family
     fit$smoothing_parameters[j, ] <- z$smoothing_parameters
     fit$target_coefficients[, j] <- z$target
     if (length(z$nuisance)) fit$nuisance_coefficients[, j] <- z$nuisance

@@ -109,6 +109,10 @@ mgcvst_spa_quadform_cpp <- function(q, lambda, centre_tol = 1e-6, root_tol = 1e-
     .Call(`_spdeST_mgcvst_spa_quadform_cpp`, q, lambda, centre_tol, root_tol, root_maxit)
 }
 
+mgcvst_spde_estimate_cpp <- function(Yt, X, A, Q, constraint, offset, poisson, tol = 1e-8, tol_inner = 1e-10, maxit_inner = 50L, maxit_halving = 30L, maxit_line = 100L, maxit_outer = 25L, log_tau_min = -12, log_tau_max = 12, alpha_min = 1e-6, alpha_max = 1e4, eta_max = 700, rank_tol = 1e-11, threads = 1L) {
+    .Call(`_spdeST_mgcvst_spde_estimate_cpp`, Yt, X, A, Q, constraint, offset, poisson, tol, tol_inner, maxit_inner, maxit_halving, maxit_line, maxit_outer, log_tau_min, log_tau_max, alpha_min, alpha_max, eta_max, rank_tol, threads)
+}
+
 mgcvst_spde_score_cpp <- function(A_map, Q_map, X, Yt, offset, beta, alpha, threads = 1L, block_size = 32L, spectrum_tol = 1e-12, spa_centre_tol = 1e-6, spa_root_tol = 1e-12, spa_root_maxit = 100L) {
     .Call(`_spdeST_mgcvst_spde_score_cpp`, A_map, Q_map, X, Yt, offset, beta, alpha, threads, block_size, spectrum_tol, spa_centre_tol, spa_root_tol, spa_root_maxit)
 }
