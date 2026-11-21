@@ -197,3 +197,45 @@ test_that("engine = 'inla' keeps an initial NB size only when one is given", {
                                 nb_size_prior = list(prior = "flat", initial = 2)))
   expect_identical(given$nb_size_prior$initial, 2)
 })
+
+test_that("the criterion holds when the field can nearly take up the intercept", {
+  f <- estimate_fixture()
+  skip_if_not_installed("MASS")
+  # A precision that hardly penalises a constant field: without the constraint
+  # the intercept and the constant would be one direction.
+  one <- rep(1, ncol(f$Q))
+  q1 <- as.numeric(f$Q %*% one)
+  Q <- as.matrix(f$Q) - (1 - 1e-10) * tcrossprod(q1) / sum(q1)
+  Q <- methods::as(Matrix::Matrix(0.5 * (Q + t(Q)), sparse = TRUE), "generalMatrix")
+  X <- cbind(f$X, as.numeric(seq_len(f$n) %% 3L == 0L))
+  # The same criterion by dense algebra on the null space of the constraint.
+  N <- MASS::Null(f$constraint)
+  Z <- cbind(X, as.matrix(f$A %*% N))
+  p <- ncol(X)
+  reference <- function(y, log_tau, alpha) {
+    P <- matrix(0, ncol(Z), ncol(Z))
+    P[-seq_len(p), -seq_len(p)] <- exp(log_tau) * crossprod(N, as.matrix(Q %*% N))
+    loglik <- function(mu) if (alpha == 0) sum(stats::dpois(y, mu, log = TRUE)) else
+      sum(stats::dnbinom(y, mu = mu, size = 1 / alpha, log = TRUE))
+    objective <- function(th) loglik(exp(f$off + as.numeric(Z %*% th))) - 0.5 * sum(th * (P %*% th))
+    th <- c(log(mean(y + 0.1)) - mean(f$off), rep(0, ncol(Z) - 1L))
+    for (it in seq_len(200L)) {
+      mu <- exp(f$off + as.numeric(Z %*% th))
+      shrink <- 1 / (1 + alpha * mu)
+      H <- crossprod(Z, mu * (1 + alpha * y) * shrink^2 * Z) + P
+      g <- crossprod(Z, (y - mu) * shrink) - P %*% th
+      step <- as.numeric(solve(H, g))
+      if (0.5 * sum(g * step) < 1e-12) break
+      scale <- 1
+      while (objective(th + scale * step) < objective(th)) scale <- scale / 2
+      th <- th + scale * step
+    }
+    objective(th) + 0.5 * (ncol(f$A) - 1) * log_tau -
+      0.5 * as.numeric(determinant(H)$modulus) - 0.5 * log(sum(f$constraint^2))
+  }
+  for (log_tau in c(-2, 0, 2)) for (alpha in c(0, 0.3)) {
+    expect_equal(spde.laml(f$Y[1L, ], X, f$A, Q, log_tau, alpha, offset = f$off,
+                           constraint = f$constraint),
+                 reference(f$Y[1L, ], log_tau, alpha), tolerance = 1e-8)
+  }
+})

@@ -161,14 +161,8 @@ public:
       if (!factor(w, tau)) return NA_REAL;
       const Vec rb = X_.transpose() * s;
       const Vec ru = At_ * s - tau * (Q_ * u);
-      Vec db, du, hb, hu;
+      Vec db, du;
       solve(rb, ru, db, du);
-      solve(Vec::Zero(p_), c_, hb, hu);
-      const double chc = c_.dot(hu);
-      if (!(chc > 0) || !std::isfinite(chc)) return NA_REAL;
-      const double nu = c_.dot(du) / chc;
-      db -= nu * hb;
-      du -= nu * hu;
       // Predicted gain of the penalised log-likelihood of this Newton step.
       const double gain = 0.5 * (rb.dot(db) + ru.dot(du));
       if (!std::isfinite(gain)) return NA_REAL;
@@ -176,7 +170,7 @@ public:
         beta_ = beta;
         u_ = u;
         return loglik(mu, y_, tail_, alpha, lfact_) - 0.5 * tau * u.dot(Q_ * u) +
-          0.5 * (m_ - 1) * rho - 0.5 * (logdet_S_ + logdet_G_ + std::log(chc));
+          0.5 * (m_ - 1) * rho - 0.5 * (logdet_S_ + logdet_K_);
       }
       if (it == ctl_.maxit_inner) break;
       ++newton;
@@ -239,41 +233,57 @@ private:
     const Vec d = llt_.vectorD();
     if (!(d.array() > 0).all()) return false;
     logdet_S_ = d.array().log().sum();
-    logdet_G_ = 0;
+    // The Newton system with the constraint c'u = 0, after the field is
+    // eliminated: K (db, nu) = (rb - B'S^{-1}ru, -c'S^{-1}ru), with
+    //   K = [ G, -b ; -b', -d ],  G = X'WX - B'S^{-1}B,  b = B'S^{-1}c,
+    //   d = c'S^{-1}c,
+    // and log|G| + log(c'H^{-1}c) = log|det K|. G alone is nearly singular
+    // along the intercept when the field can take a constant up, which the
+    // constraint forbids; K is not.
+    Sic_ = llt_.solve(c_);
+    const double dcc = c_.dot(Sic_);
+    if (!(dcc > 0) || !std::isfinite(dcc)) return false;
+    Mat K(p_ + 1, p_ + 1);
     if (p_) {
       const Mat WX = w.asDiagonal() * X_;
       B_ = At_ * WX;
       SiB_ = llt_.solve(B_);
       const Mat G = X_.transpose() * WX - B_.transpose() * SiB_;
-      // An aliased direction (a factor level whose fitted means have
-      // vanished) is left out of the solve and of the determinant.
-      Eigen::SelfAdjointEigenSolver<Mat> eig(0.5 * (G + G.transpose()));
-      if (eig.info() != Eigen::Success) return false;
-      const Vec ev = eig.eigenvalues();
-      const double top = ev.maxCoeff();
-      if (!(top > 0)) return false;
-      Vec inv = Vec::Zero(p_);
-      for (int j = 0; j < p_; ++j) {
-        if (ev[j] > ctl_.rank_tol * top) {
-          inv[j] = 1.0 / ev[j];
-          logdet_G_ += std::log(ev[j]);
-        }
-      }
-      Ginv_ = eig.eigenvectors() * inv.asDiagonal() * eig.eigenvectors().transpose();
+      K.topLeftCorner(p_, p_) = 0.5 * (G + G.transpose());
+      const Vec b = B_.transpose() * Sic_;
+      K.topRightCorner(p_, 1) = -b;
+      K.bottomLeftCorner(1, p_) = -b.transpose();
     }
+    K(p_, p_) = -dcc;
+    // An aliased direction (a factor level whose fitted means have
+    // vanished) is left out of the solve and of the determinant.
+    Eigen::SelfAdjointEigenSolver<Mat> eig(K);
+    if (eig.info() != Eigen::Success) return false;
+    const Vec ev = eig.eigenvalues();
+    const double top = ev.array().abs().maxCoeff();
+    if (!(top > 0) || !std::isfinite(top)) return false;
+    Vec inv = Vec::Zero(p_ + 1);
+    logdet_K_ = 0;
+    for (int j = 0; j <= p_; ++j) {
+      if (std::abs(ev[j]) > ctl_.rank_tol * top) {
+        inv[j] = 1.0 / ev[j];
+        logdet_K_ += std::log(std::abs(ev[j]));
+      }
+    }
+    Kinv_ = eig.eigenvectors() * inv.asDiagonal() * eig.eigenvectors().transpose();
     return true;
   }
 
-  // H^{-1} (rb, ru) by blocks.
+  // The Newton step of (beta, u) under c'u = 0, from the scores rb and ru.
   void solve(const Vec& rb, const Vec& ru, Vec& db, Vec& du) const {
     const Vec t = llt_.solve(ru);
-    if (p_) {
-      db = Ginv_ * (rb - B_.transpose() * t);
-      du = t - SiB_ * db;
-    } else {
-      db = Vec::Zero(0);
-      du = t;
-    }
+    Vec rhs(p_ + 1);
+    if (p_) rhs.head(p_) = rb - B_.transpose() * t;
+    rhs[p_] = -c_.dot(t);
+    const Vec z = Kinv_ * rhs;
+    db = z.head(p_);
+    du = t - z[p_] * Sic_;
+    if (p_) du.noalias() -= SiB_ * db;
   }
 
   const SpMat& A_;
@@ -285,12 +295,13 @@ private:
   const int n_, m_, p_;
   Vec y_, off_, beta_, u_;
   std::vector<double> tail_;
-  double lfact_ = 0, logdet_S_ = 0, logdet_G_ = 0;
+  double lfact_ = 0, logdet_S_ = 0, logdet_K_ = 0;
   Eigen::SimplicialLDLT<SpMat> llt_;
   SpMat S_;
   std::vector<int> aa_slot_, aa_end_, q_slot_;
   std::vector<double> aa_value_, q_value_;
-  Mat B_, SiB_, Ginv_;
+  Mat B_, SiB_, Kinv_;
+  Vec Sic_;
 };
 
 // Brent's maximiser of f on [a, b]. It stops when the objective at its three

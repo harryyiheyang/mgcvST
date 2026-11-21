@@ -1,3 +1,15 @@
+# spdeST 0.0.1.9069
+
+* `spde.estimate()` and `spde.laml()` solve the Newton step of the mode
+  with the constraint on the field inside the system. Before, the fixed
+  effects were solved without it and corrected afterwards; their matrix is
+  nearly singular along the intercept when the field is hardly penalised
+  for a constant, and the test for an aliased fixed effect then dropped
+  that direction at some evaluations and not at others. The criterion at
+  one point then took values tens apart: in the MAGIC data with cell types
+  12 of 10,758 genes ended flagged as not converged. With a single fixed
+  effect or a well-penalised constant the fits are unchanged.
+
 # spdeST 0.0.1.9068
 
 * `spde.estimate()`: the Newton iteration for the mode also stops when an
