@@ -92,15 +92,3 @@
   }
   prepared
 }
-
-.inlast_family_control <- function(model, control) {
-  fixed_size <- model$inla_spec$nb_size_fixed
-  if (!is.null(fixed_size)) {
-    if (!is.null(control[["nb_size", exact = TRUE]]) &&
-        !isTRUE(all.equal(control[["nb_size", exact = TRUE]], fixed_size, tolerance = 1e-12))) {
-      stop("control$nb_size conflicts with the fixed theta in the model family.")
-    }
-    control$nb_size <- fixed_size
-  }
-  control
-}

@@ -110,7 +110,7 @@ test_that("spde.estimate reports a feature it cannot fit and keeps the others", 
   expect_error(spde.estimate(f$Y, f$X, f$A, f$Q, constraint = 0), "constraint must")
 })
 
-test_that("engine = 'fable' runs the three stages without INLA", {
+test_that("the three stages run and a feature's record is its spde.estimate() fit", {
   skip_if_not_installed("geometry")
   set.seed(2402L)
   n <- 300L
@@ -127,12 +127,12 @@ test_that("engine = 'fable' runs the three stages without INLA", {
              g3 = stats::rbinom(n, 40L, pmin(mu * exp(-.8 * wave) / 40, .95)),
              g4 = stats::rnbinom(n, mu = mu, size = 2))
   expect_error(inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
-                          control = list(engine = "mgcv")), "'fable' or 'inla'")
+                          control = list(engine = "inla")), "Unknown control field")
   expect_error(inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
-                          control = list(engine = "fable", spde = list(tolerance = 1))),
+                          control = list(spde = list(tolerance = 1))),
                "spde.estimate\\(\\) controls")
   model <- inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
-                      control = list(engine = "fable"), diagnostics = TRUE)
+                      diagnostics = TRUE)
   withr::local_options(mgcvST.progress = FALSE)
   sp <- BiocParallel::SerialParam()
   scan <- spdeST.scan(Y, model, BPPARAM = sp)
@@ -174,28 +174,15 @@ test_that("engine = 'fable' runs the three stages without INLA", {
   expect_lt(r$score[r$i == 1 & r$j == 3], 0)
 })
 
-test_that("the default engine is fable and a model outside its scope names inla", {
-  old <- options(spdeST.engine = NULL)
-  on.exit(options(old), add = TRUE)
-  expect_identical(.inlast_control()$engine, "fable")
-  expect_error(.inlast_control(list(control.inla = list(tolerance = 1e-6))), "engine = 'inla'")
-  spec <- list(family = "gaussian", random = list(list(kind = "spde")))
-  expect_error(.spde_estimate_check(spec, list()), "engine = 'inla'")
+test_that("a model outside the scope of spde.estimate() is refused and chunks follow the cap", {
+  expect_identical(.inlast_control(), list(spde = list()))
+  expect_error(.inlast_control(list(control.inla = list(tolerance = 1e-6))), "Unknown control field")
+  expect_error(.spde_estimate_check(list(family = "gaussian", random = list(list(kind = "spde")))),
+               "Poisson or negative-binomial")
+  expect_error(.spde_estimate_check(list(family = "poisson", random = list())), "one SPDE field")
   expect_identical(lengths(.mgcvst_feature_chunks(1:400, NULL, BiocParallel::SerialParam(),
                                                   checkpoint = TRUE, cap = 160L)),
                    c(`1` = 160L, `2` = 160L, `3` = 80L))
-})
-
-test_that("engine = 'inla' keeps an initial NB size only when one is given", {
-  skip_if_not_installed("INLA")
-  control <- .inlast_control(list(engine = "inla"))
-  expect_identical(control$engine, "inla")
-  expect_null(control$nb_size_prior$initial)
-  # A second validation, as in a worker, changes nothing.
-  expect_identical(.inlast_control(control), control)
-  given <- .inlast_control(list(engine = "inla",
-                                nb_size_prior = list(prior = "flat", initial = 2)))
-  expect_identical(given$nb_size_prior$initial, 2)
 })
 
 test_that("the criterion holds when the field can nearly take up the intercept", {

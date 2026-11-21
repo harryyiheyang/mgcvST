@@ -22,32 +22,9 @@
   lapply(files, function(file) readRDS(file)$result)
 }
 
-# INLA fits are not reproducible from run to run, so the INLA tests memoize the
-# per-feature fits: every call of the engine with the same response, model and
-# controls returns the first result.
-.ts_memo <- new.env(parent = emptyenv())
-
-.ts_memoize_fits <- function(env = parent.frame()) {
-  real <- spdeST:::.inlast_fit_feature
-  testthat::local_mocked_bindings(
-    .inlast_fit_feature = function(spec, y, offset = NULL, control = list(),
-                                   diagnostics = FALSE) {
-      key <- digest::digest(list(as.numeric(y), spec$family,
-        vapply(spec$random, function(z) z$name, ""), offset, control, diagnostics))
-      if (is.null(.ts_memo[[key]])) {
-        .ts_memo[[key]] <- real(spec, y, offset = offset, control = control,
-                                diagnostics = diagnostics)
-      }
-      .ts_memo[[key]]
-    },
-    .package = "spdeST", .env = env
-  )
-}
-
 .ts_inla <- local({
   cached <- NULL
   function() {
-    skip_if_not_installed("INLA")
     skip_if_not_installed("geometry")
     if (!is.null(cached)) return(cached)
     withr::local_seed(2026L)
@@ -728,7 +705,6 @@ test_that("fits and estimation checkpoints of format 2 (0.0.1.9032 and later) ar
 test_that("inlaST.estimate fits the null model of every feature and the spatial model of the discoveries", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   sp <- BiocParallel::SerialParam()
   all <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(d$Y, d$model, BPPARAM = sp),
@@ -799,7 +775,6 @@ test_that("inlaST.estimate fits the null model of every feature and the spatial 
 test_that("inlaST.estimate_spatial adds spatial models to a step 1 fit", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   sp <- BiocParallel::SerialParam()
   all <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(d$Y, d$model, BPPARAM = sp),
@@ -832,7 +807,6 @@ test_that("inlaST.estimate_spatial adds spatial models to a step 1 fit", {
 test_that("INLA workers return compact results and a checkpoint resumes exactly", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   sp <- BiocParallel::SerialParam()
   dir <- tempfile("mgcvst-two-step-inla-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
@@ -901,7 +875,7 @@ test_that("INLA workers return compact results and a checkpoint resumes exactly"
     "different model, offset or controls")
   expect_error(spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(d$Y, d$model, BPPARAM = sp,
-    chunk_size = 2L, control = list(control.inla = list(tolerance = 1e-3)),
+    chunk_size = 2L, control = list(spde = list(tol = 1e-6)),
     checkpoint_dir = dir),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir), "different model, offset or controls")
   expect_error(spdeST:::inlaST.estimate_spatial(
@@ -920,7 +894,6 @@ test_that("INLA workers return compact results and a checkpoint resumes exactly"
 test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   fit <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(d$Y, d$model, BPPARAM = BiocParallel::SerialParam()),
     d$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
@@ -949,7 +922,6 @@ test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
 test_that("the observation basis is full rank and enters the pair signature", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   fit <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(d$Y, d$model, BPPARAM = BiocParallel::SerialParam()),
     d$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
@@ -1134,7 +1106,6 @@ test_that("mgcv: a multi-process run with checkpoint_dir resumes under another b
 test_that("INLA: a resumed run builds no payload, repeats failed chunks and cleans strays", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   sp <- BiocParallel::SerialParam()
   dir <- tempfile("mgcvst-inla-resume-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
@@ -1168,7 +1139,6 @@ test_that("INLA: a resumed run builds no payload, repeats failed chunks and clea
 test_that("INLA: another selection in the same directory recomputes step 2 and never mixes", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   sp <- BiocParallel::SerialParam()
   all <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(d$Y, d$model, BPPARAM = sp),
@@ -1209,7 +1179,6 @@ test_that("INLA: another selection in the same directory recomputes step 2 and n
 test_that("INLA: Y may be integer or unnamed, and chunk_size is validated everywhere", {
   skip_on_cran()
   d <- .ts_inla()
-  .ts_memoize_fits()
   sp <- BiocParallel::SerialParam()
   reference <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(d$Y, d$model, BPPARAM = sp),

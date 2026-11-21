@@ -45,12 +45,11 @@
 .inlast_family <- function(family) {
   label <- tolower(family$family)
   link <- tolower(family$link)
-  if (identical(label, "gaussian") && identical(link, "identity")) return("gaussian")
   if (identical(label, "poisson") && identical(link, "log")) return("poisson")
   if (grepl("^negative binomial", label) && identical(link, "log")) {
     return("negative_binomial")
   }
-  stop("inlaST.set() supports Gaussian(identity), Poisson(log), and negative-binomial(log) families.")
+  stop("inlaST.set() supports Poisson(log) and negative-binomial(log) families.")
 }
 
 # Soft guard on the width of the nuisance design. The nuisance design is carried
@@ -184,8 +183,8 @@
 #' separately through `basis`, as in [model.set()]. Formula/basis setup enforces
 #' the observation mean-zero constraint. A supplied `G` must already have a
 #' compatible constrained SPDE design; otherwise rebuild it from formula/data.
-#' Supported families are Gaussian with identity link, Poisson
-#' with log link, and negative binomial with log link. Exactly one full
+#' Supported families are Poisson and negative binomial with log link; the
+#' NB size is estimated, so a family with a fixed theta is refused. Exactly one full
 #' fixed-kappa SPDE basis is the tested spatial target, and it is the only
 #' smooth in a frozen design. Native mesh setup also supports any number of
 #' admissible iid nuisance blocks. Spatial mean-zero constraints cannot be
@@ -210,8 +209,8 @@
 #' @inheritParams model.set
 #' @param G Optional frozen `gam.prefit` design, supplied instead of formula,
 #'   data and basis. Its full SPDE terms must satisfy the observation constraint.
-#' @param control Named engine controls stored in the model and inherited by
-#'   [inlaST.estimate()]. See that function for priors and numerical controls.
+#' @param control `list(spde = )`, a named list of [spde.estimate()] controls
+#'   stored in the model and inherited by [spdeST.estimate()].
 #' @param mesh Optional mesh selecting the native sparse setup: an
 #'   [spde_mesh()], an `fm_mesh_2d`, or an `fm_mesh_3d`. When supplied, the
 #'   single spatial term is built directly from `mesh`, `kappa` and
@@ -234,31 +233,22 @@
 #'   about 57 unit lengths in 2D and 40 in 3D, a very smooth global field.
 #'   `NULL` is an error. The basis, complete-formula and `G` setups take the
 #'   unit-scale kappa from [spde_basis()] and do not accept this argument.
-#' @param precision_scale Scale on which the spatial log-precision prior is
-#'   defined. `"raw"` retains the original FEM precision parameterization.
-#'   `"observation"` normalizes each constrained spatial field to unit mean
-#'   marginal variance at the observed locations when its internal precision
-#'   equals one. A user-supplied proper prior then applies to this standardized
-#'   precision and generally changes the prior on the original FEM multiplier.
-#'   The default flat log prior is invariant to this constant log-scale shift.
 #' @param retain_smooth,diagnostics Settings of [spdeST.estimate()] fixed with
 #'   the model: retain the estimated score-component coefficients; retain the
-#'   per-feature INLA optimizer diagnostics.
+#'   per-feature record of the fit.
 #' @return An `inlaST_model` for [spdeST.scan()]. It stores `kappa_unit`,
 #'   `unit_length`, `coordinate_span` and `kappa_internal`, and the
 #'   estimation settings in `estimation`.
 #' @export
 inlaST.set <- function(
     formula = NULL, data = NULL, basis = NULL, family = mgcv::nb(),
-    setting = "global", coordinates = c("x", "y"),
-    precision_scale = c("raw", "observation"), G = NULL, control = list(),
+    setting = "global", coordinates = c("x", "y"), G = NULL, control = list(),
     ..., mesh = NULL, kappa = 0.05, retain_smooth = FALSE, diagnostics = FALSE) {
   estimation <- list(retain_smooth = .spdest_flag(retain_smooth, "retain_smooth"),
                      diagnostics = .spdest_flag(diagnostics, "diagnostics"))
   model <- .inlast_set_model(
     formula = formula, data = data, basis = basis, family = family,
-    setting = setting, coordinates = coordinates,
-    precision_scale = precision_scale, G = G, control = control, ...,
+    setting = setting, coordinates = coordinates, G = G, control = control, ...,
     mesh = mesh, kappa = kappa,
     .family_supplied = !missing(family), .kappa_supplied = !missing(kappa)
   )
@@ -268,8 +258,7 @@ inlaST.set <- function(
 
 .inlast_set_model <- function(
     formula = NULL, data = NULL, basis = NULL, family = mgcv::nb(),
-    setting = "global", coordinates = c("x", "y"),
-    precision_scale = c("raw", "observation"), G = NULL, control = list(),
+    setting = "global", coordinates = c("x", "y"), G = NULL, control = list(),
     ..., mesh = NULL, kappa = 0.05, .family_supplied = FALSE,
     .kappa_supplied = FALSE) {
   t0 <- proc.time()[["elapsed"]]
@@ -302,8 +291,7 @@ inlaST.set <- function(
     native <- .inlast_set_native(
       formula = formula, data = data, family = family, mesh = mesh,
       kappa = kappa, coordinates = coordinates,
-      setting = setting, precision_scale = match.arg(precision_scale),
-      control = .inlast_control(control)
+      setting = setting, control = .inlast_control(control)
     )
     native$timing <- list(setup_seconds = proc.time()[["elapsed"]] - t0,
                           elapsed = proc.time()[["elapsed"]] - t0)
@@ -315,7 +303,6 @@ inlaST.set <- function(
          "spde_basis().")
   }
   requested_setting <- setting
-  precision_scale <- match.arg(precision_scale)
   control <- .inlast_control(control)
   dots <- list(...)
   forbidden <- intersect(names(dots),
@@ -361,21 +348,10 @@ inlaST.set <- function(
   built <- .inlast_model_spec(base, lapply(prepared, `[[`, "raw"))
   model <- built$model
   model$inla_spec <- built$spec
-  spatial_scale <- if (precision_scale == "observation") {
-    vapply(prepared, .inlast_observation_precision_scale, numeric(1L))
-  } else stats::setNames(rep(1, length(prepared)), names(prepared))
-  for (j in seq_along(model$inla_spec$random)) {
-    block <- model$inla_spec$random[[j]]
-    model$inla_spec$random[[j]]$precision_scale <- if (isTRUE(block$target)) {
-      unname(spatial_scale[block$name])
-    } else 1
-  }
-  model$precision_scale <- precision_scale
-  model$inla_spec$precision_scale_mode <- precision_scale
-  model$inla_spec$spatial_precision_scale <- spatial_scale
   model$mean_constraint <- "observation"
   model$mean_constraint_active <- TRUE
-  model$inla_control <- .inlast_family_control(model, control)
+  .spde_estimate_check(model$inla_spec)
+  model$inla_control <- control
   # INLA is sparse-only: there is no dense score and no fallback. Reject a
   # structure the sparse kernel cannot carry here, at setup, where the reason is
   # still attributable to the design the caller just supplied.
@@ -440,44 +416,6 @@ inlaST.set <- function(
     }
   }
   list(Y = Y, feature_id = feature_id, chunk_size = chunk_size)
-}
-
-# `poisson` is the full-length routing vector from the Poisson prescreen,
-# indexed by the absolute feature index, or NULL when the screen is off. The
-# Poisson twin of the spec is built once per chunk; it is a shallow list copy,
-# so the sparse blocks are shared rather than duplicated.
-.inlast_fit_chunk <- function(index, Y, spec, base_offset, extra_offset,
-                              control, diagnostics, poisson = NULL, threads = 1L,
-                              null = NULL) {
-  if (identical(control$engine, "fable")) {
-    return(.spde_estimate_chunk(index, Y, spec, base_offset, extra_offset,
-                                control, poisson, threads, null))
-  }
-  route <- if (is.null(poisson)) rep(FALSE, length(index)) else
-    as.logical(poisson[index])
-  spec_poisson <- if (any(route)) .inlast_poisson_spec(spec) else NULL
-  lapply(seq_along(index), function(k) {
-    j <- index[k]
-    total_offset <- base_offset
-    if (!is.null(extra_offset)) {
-      total_offset <- total_offset + if (is.matrix(extra_offset)) extra_offset[j, ] else extra_offset
-    }
-    feature_spec <- if (isTRUE(route[k])) spec_poisson else spec
-    # The size of the Stage 1 null model starts the search of the NB size,
-    # unless the control gives an initial value.
-    feature_control <- control
-    state <- if (is.null(null)) NULL else null[[j]]
-    size <- if (is.list(state)) state$family_parameters else NULL
-    if (is.null(control$nb_size_prior$initial) && length(size) == 1L &&
-        is.finite(size) && size > 0) {
-      feature_control$nb_size_prior$initial <- log(as.numeric(size))
-    }
-    tryCatch(
-      .inlast_fit_feature(feature_spec, Y[j, ], offset = total_offset,
-                          control = feature_control, diagnostics = diagnostics),
-      error = function(e) e
-    )
-  })
 }
 
 .inlast_nuisance_mode <- function(fit, spec) {

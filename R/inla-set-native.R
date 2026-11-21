@@ -264,13 +264,9 @@
 # unchanged. The spatial projector stays sparse. Only the bounded nuisance
 # design (the fixed columns) is carried densely.
 .inlast_set_native <- function(formula, data, family, mesh, kappa, coordinates,
-                               setting, precision_scale, control) {
+                               setting, control) {
   if (!identical(setting, "global")) {
     stop("The native INLA path supports setting = 'global' with one spatial field.")
-  }
-  if (!identical(precision_scale, "raw")) {
-    stop("The native INLA path supports precision_scale = 'raw' only; the ",
-         "observation-scale normaliser needs the dense projected basis.")
   }
   m <- .inlast_native_mesh(mesh)
   design <- .inlast_native_design(formula, data)
@@ -309,7 +305,7 @@
   random <- list(list(
     name = "global", A = A, Q = Q, kind = "spde", target = TRUE,
     constraint = g, projection = NULL, geometry_index = 1L,
-    sp_index = 1L, rankdef = 0L, precision_scale = 1
+    sp_index = 1L, rankdef = 0L
   ))
   U <- X
   nuisance_index <- seq_len(p_x)
@@ -370,15 +366,13 @@
                   fem_source = fem$source,
                   constraint = "observation mean: colMeans(A) %*% u = 0")),
     mesh = mesh,
-    precision_scale = "raw",
     mean_constraint = "observation",
     mean_constraint_active = TRUE,
     native = TRUE,
     timing = list(setup_seconds = NA_real_, elapsed = NA_real_)
   )
-  model$inla_spec$precision_scale_mode <- "raw"
-  model$inla_spec$spatial_precision_scale <- stats::setNames(1, "global")
-  model$inla_control <- .inlast_family_control(model, control)
+  .spde_estimate_check(model$inla_spec)
+  model$inla_control <- control
   model$score_backend <- "sparse"
   class(model) <- c("inlaST_native_model", "inlaST_model", "mgcvST_model")
   capability <- .inlast_sparse_score_capability(model)

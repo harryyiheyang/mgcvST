@@ -1,3 +1,19 @@
+# spdeST 0.0.1.9071
+
+* Stage 2 has one fitter, `spde.estimate()` (the "fable" estimator). The
+  INLA fitter is removed: `control$engine`, `options(spdeST.engine = )`,
+  the hyperparameter priors, `control.inla`, the fixed precision and fixed
+  NB size, `num_threads`, `keep_fit`, the fallback after an INLA crash and
+  the `precision_scale` argument of `inlaST.set()`. `control` of
+  `inlaST.set()` and of the estimation takes `spde`, a named list of
+  `spde.estimate()` controls, and nothing else. A Gaussian family and a
+  negative-binomial family with a fixed theta are refused at
+  `inlaST.set()`. The package no longer uses the INLA package;
+  `spde_mesh()` projects with `fmesher::fm_basis()`.
+* The diagnostics table of a fit has no `spatial_fallback`,
+  `spatial_fallback_method` and `spatial_precision_assigned` columns, and
+  the per-feature record no `tau_internal` and `precision_scale`.
+
 # spdeST 0.0.1.9070
 
 * `spde.estimate()` and `spde.laml()` find separation before they fit a

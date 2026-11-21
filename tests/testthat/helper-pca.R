@@ -1,7 +1,6 @@
 .pca_nb_fit <- local({
   cached <- NULL
   function() {
-    skip_if_not_installed("INLA")
     skip_if_not_installed("geometry")
     if (!is.null(cached)) return(cached)
     withr::local_seed(1701L)

@@ -1,5 +1,4 @@
 .inlast_sparse_fixture <- function(n = 72L, seed = 1701L) {
-  skip_if_not_installed("INLA")
   skip_if_not_installed("geometry")
   set.seed(seed)
   vertices <- as.matrix(expand.grid(
@@ -34,8 +33,7 @@ test_that("sparse INLA downstream takes no BiocParallel backend and agrees acros
   fit <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
     f$Y, model,
-    BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2)),
+    BPPARAM = BiocParallel::SerialParam()),
     f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   pairs <- t(combn(rownames(f$Y), 2L))
@@ -61,14 +59,14 @@ test_that("a nuisance smooth is rejected at set() on both INLA paths", {
   expect_error(
     inlaST.set(
       response ~ s(z, k = 5) + offset(offset0),
-      f$data, f$basis, family = gaussian()
+      f$data, f$basis, family = poisson()
     ),
     expected
   )
   expect_error(
     inlaST.set(
       response ~ s(z, k = 5) + offset(offset0), data = f$data,
-      family = gaussian(), mesh = f$mesh, kappa = 1.2,
+      family = poisson(), mesh = f$mesh, kappa = 1.2,
       coordinates = c("x", "y")
     ),
     expected
@@ -114,7 +112,7 @@ test_that("a second spatial SPDE term is still rejected at set()", {
     inlaST.set(
       response ~ s(x, y, bs = "spde", xt = basis) +
         s(x, y, bs = "spde", xt = basis) + offset(offset0),
-      data = f$data, family = gaussian()
+      data = f$data, family = poisson()
     ),
     "exactly one spatial SPDE term"
   )

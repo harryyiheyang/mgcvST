@@ -4,7 +4,6 @@ test_that("the removed threshold control is refused by both entries", {
   expect_error(spdeST:::.mgcvst_refuse_screen_control(list(poisson_screen_phi = NULL)),
                "removed")
   expect_silent(spdeST:::.mgcvst_refuse_screen_control(list(nthreads = 1L)))
-  skip_if_not_installed("INLA")
   expect_error(spdeST:::.inlast_control(list(poisson_screen_phi = 0)), "removed")
   expect_null(spdeST:::.inlast_control()$poisson_screen_phi)
 })
@@ -30,7 +29,6 @@ test_that("a feature is routed exactly when its NB2 fit is the Poisson fit", {
 })
 
 test_that("public mgcv and INLA entries apply the same routing", {
-  skip_if_not_installed("INLA")
   f <- st_fixture(n = 100L)
   f$data$offset0 <- 0
   model <- mgcvST.set(response ~ offset(offset0) + s(x, y, bs = "spde", xt = f$basis),

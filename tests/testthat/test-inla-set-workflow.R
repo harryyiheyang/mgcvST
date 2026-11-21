@@ -1,5 +1,4 @@
 .inlast_set_workflow_fixture <- function(n = 42L, seed = 1601L) {
-  skip_if_not_installed("INLA")
   skip_if_not_installed("geometry")
   set.seed(seed)
   vertices <- as.matrix(expand.grid(
@@ -54,17 +53,17 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   f <- .inlast_set_workflow_fixture()
   d <- f$data
   basis <- f$basis
-  stored <- list(fixed_precision = 1.25, gaussian_precision = 4)
+  stored <- list(spde = list(tol = 1e-9))
 
   by_basis <- inlaST.set(
     response ~ z + offset(offset0), d, basis,
-    family = gaussian(), coordinates = c("u", "v"), control = stored
+    family = poisson(), coordinates = c("u", "v"), control = stored
   )
   complete <- response ~ z + offset(offset0) +
     s(u, v, bs = "spde", xt = basis)
   # The third positional family is retained for mgcvST.set-style calls.
-  by_formula <- inlaST.set(complete, d, gaussian(), control = stored)
-  prepared <- mgcvST.set(complete, d, gaussian())
+  by_formula <- inlaST.set(complete, d, poisson(), control = stored)
+  prepared <- mgcvST.set(complete, d, poisson())
   by_G <- inlaST.set(G = prepared$G, control = stored)
 
   for (model in list(by_basis, by_formula, by_G)) {
@@ -74,15 +73,14 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
     expect_true(model$inla_spec$mean_constraint_active)
     expect_identical(model$setting, "global")
     expect_identical(model$components, "global")
-    expect_identical(model$inla_control$fixed_precision, 1.25)
-    expect_identical(model$inla_control$gaussian_precision, 4)
+    expect_identical(model$inla_control$spde$tol, 1e-9)
   }
   .inlast_expect_same_set_geometry(by_formula, by_basis)
   .inlast_expect_same_set_geometry(by_G, by_basis)
 
   # The public setup contract accepts one global spatial process only.
   expect_error(
-    inlaST.set(complete, d, gaussian(), setting = "global_local",
+    inlaST.set(complete, d, poisson(), setting = "global_local",
                control = stored),
     "setting must be \"global\""
   )
@@ -92,7 +90,7 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   )
   expect_error(
     model.set(response ~ z + offset(offset0), d, basis,
-              family = gaussian(), setting = "global_local",
+              family = poisson(), setting = "global_local",
               coordinates = c("u", "v")),
     "setting must be \"global\""
   )
@@ -106,7 +104,7 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
     s(u, v, bs = "spde", xt = basis) +
     s(u_local, v_local, bs = "spde", xt = second_basis)
   expect_error(
-    inlaST.set(complete_two, d, gaussian(), control = stored),
+    inlaST.set(complete_two, d, poisson(), control = stored),
     "exactly one spatial SPDE term"
   )
   local_basis <- second_basis
@@ -114,7 +112,7 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   expect_error(
     inlaST.set(response ~ z + offset(offset0) +
                  s(u, v, bs = "spde", xt = local_basis),
-               d, gaussian(), control = stored),
+               d, poisson(), control = stored),
     "xt\\$component must be 'global'"
   )
 
@@ -124,22 +122,21 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   )
   bad_formula <- response ~ z + offset(offset0) +
     s(u, v, bs = "spde", xt = uncentred)
-  bad_G <- mgcvST.set(bad_formula, d, gaussian())$G
+  bad_G <- mgcvST.set(bad_formula, d, poisson())$G
   expect_error(inlaST.set(G = bad_G), "mean|cent|formula|projection")
 })
 
 test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geometry", {
   skip_on_cran()
-  skip_if_not_installed("INLA")
   skip_if_not_installed("geometry")
   f <- .inlast_set_workflow_fixture(n = 28L, seed = 1605L)
-  control <- list(fixed_precision = 1.25, gaussian_precision = 4)
+  control <- list(spde = list(tol = 1e-9))
   legacy <- inlaST.set(
-    response ~ z + offset(offset0), f$data, f$basis, family = gaussian(),
+    response ~ z + offset(offset0), f$data, f$basis, family = poisson(),
     coordinates = c("u", "v"), control = control
   )
   native <- inlaST.set(
-    response ~ z + offset(offset0), f$data, family = gaussian(), mesh = f$mesh,
+    response ~ z + offset(offset0), f$data, family = poisson(), mesh = f$mesh,
     kappa = .7, coordinates = c("u", "v"), control = control
   )
   expect_s3_class(native, "inlaST_native_model")
@@ -163,7 +160,7 @@ test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geo
   d3 <- data.frame(x = runif(18L, .05, .95), y = runif(18L, .05, .95),
                    z = runif(18L, .05, .95), a = rnorm(18L))
   native3 <- inlaST.set(
-    response ~ a, d3, family = gaussian(), mesh = mesh3, kappa = .7,
+    response ~ a, d3, family = poisson(), mesh = mesh3, kappa = .7,
     coordinates = c("x", "y", "z"), control = control
   )
   expect_s3_class(native3, "inlaST_native_model")
@@ -173,17 +170,18 @@ test_that("native mesh setup preserves the sparse 2D contract and exposes 3D geo
   expect_identical(native3_score$normalization, nrow(xyz) - 1L)
 })
 
-test_that("a fixed NB family does not partially match nb_size_prior", {
+test_that("a family outside the model of spde.estimate() is refused at setup", {
   skip_on_cran()
   f <- .inlast_set_workflow_fixture(seed = 1604L)
-  prior <- list(prior = "normal", param = c(0, 1 / 9), initial = .2)
-  model <- inlaST.set(
-    response ~ z + offset(offset0), f$data, f$basis,
-    family = mgcv::nb(theta = 4), coordinates = c("u", "v"),
-    control = list(nb_size_prior = prior)
-  )
-
-  expect_identical(model$inla_control[["nb_size", exact = TRUE]], 4)
-  expect_identical(model$inla_control[["nb_size_prior", exact = TRUE]], prior)
+  expect_error(inlaST.set(response ~ z + offset(offset0), f$data, f$basis,
+                          family = mgcv::nb(theta = 4), coordinates = c("u", "v")),
+               "fixed theta")
+  expect_error(inlaST.set(response ~ z + offset(offset0), f$data, family = mgcv::nb(theta = 4),
+                          mesh = f$mesh, kappa = .7, coordinates = c("u", "v")),
+               "fixed theta")
+  expect_error(inlaST.set(response ~ z + offset(offset0), f$data, f$basis,
+                          family = gaussian(), coordinates = c("u", "v")),
+               "Poisson|negative-binomial")
+  expect_error(inlaST.set(response ~ z, f$data, f$basis, coordinates = c("u", "v"),
+                          control = list(fixed_precision = 2)), "Unknown control field")
 })
-

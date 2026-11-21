@@ -1,4 +1,4 @@
-# Two-step sparse INLA estimation.
+# Two-step sparse estimation.
 #
 # Step 1 fits the null model of every feature and computes its Stage 1
 # null-first p-value inside the worker; step 2 fits the spatial model of the
@@ -49,7 +49,7 @@
 
 # The part of a fit that is not an observation-length vector.
 .inlast_compact <- function(z) {
-  z[c("working_error", "working_variance", "eta", "mu", "inla")] <- NULL
+  z[c("working_error", "working_variance", "eta", "mu")] <- NULL
   z
 }
 
@@ -57,9 +57,9 @@
 # (.inlast_scan_chunk). Returns, per feature, the compact null state and the
 # marginal row, or the error record.
 .inlast_null_chunk <- function(payload, spec, null_spec, base_offset,
-                               null_control, threads = 1L, scan_args = list()) {
+                               threads = 1L, scan_args = list()) {
   out <- .inlast_scan_chunk(payload, spec, null_spec, base_offset,
-                            null_control, threads, scan_args)
+                            threads, scan_args)
   .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
   out
 }
@@ -78,9 +78,9 @@
 }
 
 # Stage 1 of one chunk by spde.scan() on the raw field of the target block,
-# with the compact null state that step 2 reuses after a native INLA crash.
+# with the compact null state whose NB size starts the search of step 2.
 .inlast_scan_chunk <- function(payload, spec, null_spec, base_offset,
-                               null_control, threads = 1L, scan_args = list()) {
+                               threads = 1L, scan_args = list()) {
   t0 <- proc.time()[["elapsed"]]
   block <- spec$random[[1L]]
   X <- as.matrix(null_spec$fixed$X)
@@ -93,7 +93,6 @@
     if (is.null(payload$poisson)) NULL else as.logical(payload$poisson)
   scan <- do.call(spde.scan, c(list(
     payload$Y, X, block$A, block$Q, offset = offset, poisson = poisson,
-    size = null_control[["nb_size", exact = TRUE]],
     feature_id = payload$feature_id, threads = threads), scan_args))
   seconds <- (proc.time()[["elapsed"]] - t0) / max(1L, k)
   beta <- attr(scan, "coefficients")
@@ -111,7 +110,7 @@
     null <- list(
       dispersion = 1, family = scan$family[j],
       family_parameters = if (nb) scan$size[j] else numeric(),
-      tau = empty, tau_internal = empty, precision_scale = empty, lambda = empty,
+      tau = empty, lambda = empty,
       smoothing_parameters = rep(NA_real_, n_sp), coefficients = list(),
       fixed_mode = b, fixed_mean = b, random_mode = list(), random_mean = list(),
       constraint_residual_uncorrected = empty, constraint_residual = empty,
@@ -144,7 +143,6 @@
     converged = isTRUE(z$converged),
     log_marginal_likelihood = z$log_marginal_likelihood,
     fit_seconds = z$fit_seconds, null_size = z$null_size, gradient = z$gradient,
-    spatial_fallback = z$spatial_fallback,
     constraint_residual = z$constraint_residual,
     observation_spatial_mean = z$observation_spatial_mean,
     score_a = scores_a, score_error = score_error, mu_bar = mu_bar
@@ -153,16 +151,15 @@
   if (retain_smooth) record$coefficients <- z$coefficients
   if (diagnostics) {
     record$diagnostics <- z[c(
-      "tau", "tau_internal", "precision_scale", "lambda", "constraint_residual", "constraint_residual_uncorrected",
-      "observation_spatial_mean", "estimation", "spatial_fallback"
+      "tau", "lambda", "constraint_residual", "constraint_residual_uncorrected",
+      "observation_spatial_mean", "estimation"
     )]
   }
   record
 }
 
 # Step 2 worker: spatial fits of one chunk of features, their score vectors
-# a_j and the mean mu_bar of the fitted mean. A native INLA crash falls back
-# on the compact null state of the feature (payload$null).
+# a_j and the mean mu_bar of the fitted mean.
 .inlast_spatial_chunk <- function(payload, spec, base_offset, control,
                                   diagnostics, retain_smooth, threads = 1L,
                                   block = 16L) {
@@ -174,21 +171,10 @@
   have_estimation <- FALSE
   for (first in seq.int(1L, k, by = block)) {
     rows <- first:min(k, first + block - 1L)
-    fits <- .inlast_fit_chunk(
+    fits <- .spde_estimate_chunk(
       rows, payload$Y, spec, base_offset, payload$extra_offset, control,
-      diagnostics, payload$poisson, threads, payload$null
+      payload$poisson, threads, payload$null
     )
-    for (kk in seq_along(rows)) {
-      if (!inherits(fits[[kk]], "inlaCrashError")) next
-      j <- rows[kk]
-      feature_offset <- base_offset
-      if (!is.null(payload$extra_offset)) feature_offset <- feature_offset +
-        if (is.matrix(payload$extra_offset)) payload$extra_offset[j, ] else
-          payload$extra_offset
-      fits[[kk]] <- .inlast_spatial_fallback(
-        fits[[kk]], payload$null[[j]], spec, payload$Y[j, ], feature_offset
-      )
-    }
     failed <- vapply(fits, inherits, logical(1L), what = "condition")
     converged <- !failed & vapply(fits, function(z) isTRUE(z$converged), logical(1L))
     dispersion <- rep(NA_real_, length(rows))
@@ -220,7 +206,7 @@
   out
 }
 
-# Checkpoint signature of an INLA estimation: the model, offset and controls
+# Checkpoint signature of an estimation: the model, offset and controls
 # the chunk results depend on. The chunking and the family routing of a feature
 # are not part of it: a chunk file is keyed by its step, its features, their
 # responses and their routing, so a changed chunk_size or a feature that is
@@ -241,25 +227,22 @@
   as.integer(threads)
 }
 
-#' Estimate mgcvST working models with sparse INLA
+#' Stage 1 of the sparse estimation
 #'
-#' Fits one latent Gaussian model per feature with INLA and returns the compact
-#' working-model contract consumed by [inlaST.test()]. No GAM fit is used.
-#'
-#' This function is Stage 1, the method behind [spdeST.scan()]: it fits only
-#' the null model (no spatial field) of every feature and computes the Stage 1
-#' null-first p-value of its marginal score test inside the worker; the
-#' p-values are then adjusted by `adjust` into the Stage 1 q-values
-#' `diagnostics$marginal_q_value`. Stage 2, [inlaST.estimate_spatial()],
-#' fits the spatial model of the chosen features and computes their score vector and the mean of the fitted mean in the worker.
-#' No worker returns an observation-length vector: the manager holds the
-#' compact per-feature estimates only, so its memory grows with the number of
+#' The method behind [spdeST.scan()]: it fits the GLM null model (no spatial
+#' field) of every feature and computes the Stage 1 p-value of its marginal
+#' score test inside the worker ([spde.scan()]); the p-values are then
+#' adjusted by `adjust` into the Stage 1 q-values
+#' `diagnostics$marginal_q_value`. Stage 2, [inlaST.estimate_spatial()], fits
+#' the spatial model of the chosen features by [spde.estimate()] and computes
+#' their score vector and the mean of the fitted mean in the worker. No worker
+#' returns an observation-length vector: the manager holds the compact
+#' per-feature estimates only, so its memory grows with the number of
 #' features and the mesh size, not with the number of observations. Features
 #' without a spatial model are marked `spatial_fitted = FALSE` in the
 #' diagnostics table and are unavailable to [inlaST.test()] and
 #' [inlaST.wgcna()]; `pairs = NULL` in [inlaST.test()] means all pairs among
-#' the features with a spatial model. Use [inlaST.estimate_spatial()] to add
-#' spatial models for more features after step 1.
+#' the features with a spatial model.
 #'
 #' With `checkpoint_dir`, every completed chunk of either step is saved by the
 #' worker that computed it, and a repeated call with the same arguments
@@ -269,17 +252,13 @@
 #' step 2 on the number of selected features), and a changed chunking
 #' recomputes rather than reuses. A chunk whose result holds a failed feature
 #' is computed again on resume. A checkpoint directory written for another
-#' model, offset, control or version is refused. Without `chunk_size`, a run
-#' with a checkpoint directory uses chunks of at most 50 features.
+#' model, offset, control or version is refused.
 #'
 #' @param Y Numeric feature-by-observation matrix.
 #' @param model An object returned by [inlaST.set()].
 #' @param feature_id Unique feature identifiers.
 #' @param BPPARAM A `BiocParallelParam` distributing feature chunks over
-#'   workers. Each worker fits its own features with INLA using
-#'   `control$num_threads` (default `1L`). Setting it to `NULL` lets INLA choose
-#'   its own thread count, which can oversubscribe BiocParallel workers.
-#'   `SerialParam()` keeps everything in one process.
+#'   workers. `SerialParam()` keeps everything in one process.
 #' @param chunk_size Positive integer number of features per task, or `NULL`.
 #'   The default creates one chunk per worker in each step; a smaller value
 #'   makes the checkpoint finer. A chunk payload is built when a worker takes
@@ -287,57 +266,20 @@
 #' @param offset Optional shared observation offset or matrix matching `Y`. A
 #'   feature-by-observation matrix is kept on the fit (`extra_offset`) for a
 #'   later step 2, in addition to the total offset.
-#' @param control Named INLA engine overrides for controls saved by
-#'   [inlaST.set()]. Omitted entries inherit model settings. Each supplied
-#'   prior list replaces the whole prior; numerical `control.inla` entries
-#'   merge by name. Explicit `NULL` resets optional fixed parameters, except
-#'   NB size fixed by the model family. The supported approximation is
-#'   `int_strategy = "eb"`, `latent_strategy = "gaussian"`. `num_threads`
-#'   defaults to `1L`; set it explicitly to raise INLA's thread count per worker.
-#'   Fixed effects always use explicit zero precision in INLA.
-#'   Optional positive `fixed_precision`,
-#'   `gaussian_precision`, and `nb_size` fix latent precision multipliers,
-#'   inverse Gaussian residual variance, and NB size, respectively.
-#'   `fixed_precision` values always refer to the original FEM multiplier,
-#'   including when the model uses observation-scale precision priors. Prior
-#'   lists `precision_prior`, `gaussian_precision_prior` and `nb_size_prior`
-#'   contain `prior`, `param`, and logarithmic `initial` values (default zero).
-#'   Without an `initial` value in `nb_size_prior`, the NB size of a feature
-#'   starts at the size of its Stage 1 null model: from `log(size) = 0` the
-#'   search can leave a weakly overdispersed feature for an unbounded size.
-#'   Spatial precision and NB size default to `prior = "flat"` with no
-#'   parameters on the log scale. Gaussian observation precision defaults to
-#'   `prior = "flat", param = numeric(), initial = 0`, a flat prior on the
-#'   internal log precision `-log(variance)`. On the variance scale this has
-#'   density proportional to `1/variance`; it is a Gaussian dispersion prior,
-#'   distinct from the negative-binomial size prior. Custom normal, registered
-#'   scalar INLA priors, and INLA expression/table priors remain supported.
-#'   Normal parameters are mean and precision. A flat log-hyperparameter
-#'   objective corresponds to density proportional to `1/parameter` on its
-#'   positive scale.
-#'   `control.inla` accepts supported numerical tuning, with Gaussian latent
-#'   strategy and EB integration enforced. With a negative-binomial family each
-#'   feature first gets its offset-and-covariate-only Poisson GLM, and it is
-#'   fitted with the Poisson family when its overdispersion score
-#'   `sum((y - mu)^2 - y) / 2` is not positive, i.e. exactly when its NB2
-#'   maximum-likelihood fit is the Poisson fit (R/family-prescreen.R; there is
-#'   no threshold to set). Stage 1 is [spde.scan()] on the raw sparse field
-#'   of the target block, the same function [mgcvST.estimate()] calls; the
-#'   null must have fixed effects only. The
-#'   per-feature Pearson dispersion of that Poisson fit and the family actually
-#'   used are reported in the diagnostics as
-#'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
-#'   `engine` selects the Stage 2 fitter. `"fable"`, the default, is
-#'   [spde.estimate()]: count families, fixed effects and one SPDE field, no
-#'   prior and no fixed precision or size; `spde` is then a named list of its
-#'   controls, for example `list(tol = 1e-8)`, and the INLA package is not
-#'   needed. `"inla"` fits with INLA and takes the other controls of this
-#'   list. `options(spdeST.engine = )` sets the default of a session.
+#' @param control `list(spde = )`, a named list of [spde.estimate()]
+#'   controls, for example `list(spde = list(tol = 1e-8))`, laid over the
+#'   control saved by [inlaST.set()]. Unknown controls are rejected. With a
+#'   negative-binomial family each feature first gets its
+#'   offset-and-covariate-only Poisson GLM, and it is fitted with the Poisson
+#'   family when its overdispersion score `sum((y - mu)^2 - y) / 2` is not
+#'   positive, i.e. exactly when its NB2 maximum-likelihood fit is the Poisson
+#'   fit (R/family-prescreen.R; there is no threshold to set). The per-feature
+#'   Pearson dispersion of that Poisson fit and the family actually used are
+#'   reported in the diagnostics as `prescreen_phi` and `family_used`.
 #' @param retain_smooth Retain estimated score-component coefficients.
-#' @param diagnostics Retain the per-feature INLA optimizer/hyperparameter
-#'   diagnostics in `inla_diagnostics`.
-#' @param threads OpenMP threads per worker for the sparse marginal and score
-#'   computations of the workers.
+#' @param diagnostics Retain the per-feature record of the fit (precision,
+#'   constraint residual, evaluations) in `inla_diagnostics`.
+#' @param threads OpenMP threads per worker.
 #' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
 #'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
 #' @param q.value Stage 1 discovery threshold in `(0, 1]`.
@@ -345,43 +287,19 @@
 #'   of both steps; see Details.
 #' @param resume Reuse the completed chunks of a compatible checkpoint.
 #' @param scan_control Named list of [spde.scan()] controls.
-#' @details Hyperparameter priors remain part of INLA's empirical-Bayes
-#' estimates; these are not mgcv REML estimates. `mgcv::nb(theta = value)`
-#' fixes NB size, and a conflicting `control$nb_size` is rejected. The
-#' working model uses conditional latent estimates and expected Fisher
-#' variances with INLA `config = FALSE` and variational-Bayes correction
-#' disabled. The small coefficient covariance
-#' is reconstructed by sparse precision solves without an observation-level inverse.
-#' Cross-feature iid effects are treated as independent in pairwise calibration.
-#' Sparse downstream scores rebuild the nuisance covariance from
-#' the same expected Fisher matrix;
-#' this does not establish finite-sample calibration after hyperparameter
-#' estimation. Stage 1 is [spde.scan()]: GLM nulls and the marginal score
-#' test (`diagnostics$marginal_p_value`) calibrated by the saddlepoint
-#' approximation (Kuonen 1999). Pair tests in [inlaST.test()] are
-#' calibrated by a saddlepoint approximation. Every spatial component's constraint
-#' residual and observed spatial mean are retained in the result.
-#' The score uses the SPDE covariance conditioned on observation mean zero.
-#' The sparse score uses a matching expected-curvature nuisance adjustment.
-#' The INLA path is sparse-only: the sparse kernel is the sole score and
-#' marginal implementation, with no dense score or custom marginal callback.
-#' If INLA's native program crashes during the spatial fit (`inlaCrashError`)
-#' after a successful null fit, that null fit supplies the fixed and iid
-#' nuisance effects, family parameters and working state. The spatial effect
-#' is set to zero and its original-FEM precision is assigned `1e8`;
-#' `lambda = dispersion * 1e8`. No additional fit is attempted. The null score
-#' p-value is retained and pair scores use the usual working-model formulas.
-#' `diagnostics$spatial_fallback` identifies these usable fallback states and
-#' the original error remains in `error_class`, `error_message` and `error_call`. Their
-#' spatial likelihood criterion is missing. Input errors and unsuccessful
-#' null fits do not use this fallback. A design the sparse capability gate rejects makes
-#' [inlaST.set()] error at setup, and a model that somehow reaches this
-#' function without that geometry errors here.
-#' Flat hyperpriors need not yield proper hyperparameter posteriors. They are
-#' supported only as empirical-Bayes optimization objectives in the current
-#' single-configuration engine. A returned finite precision or zero optimizer
-#' status does not establish that the maximum is interior; zero spatial
-#' variance and the Poisson limit of the NB model require boundary checks.
+#' @details Stage 2 maximises the Laplace marginal likelihood (REML) of each
+#' feature in the precision of the field and the NB size; there is no prior.
+#' The working model uses the conditional mode and expected Fisher variances.
+#' The small coefficient covariance is reconstructed by sparse precision
+#' solves without an observation-level inverse. Stage 1 is [spde.scan()]: GLM
+#' nulls and the marginal score test (`diagnostics$marginal_p_value`)
+#' calibrated by the saddlepoint approximation (Kuonen 1999). Pair tests in
+#' [inlaST.test()] are calibrated by a saddlepoint approximation. The
+#' constraint residual and the observed spatial mean of the field are
+#' retained in the result. The score uses the SPDE covariance conditioned on
+#' observation mean zero, with a matching expected-curvature nuisance
+#' adjustment. A design the sparse capability gate rejects makes
+#' [inlaST.set()] error at setup.
 #' @return An `inlaST_fit` that is also an `mgcvST_model_fit`. In addition to
 #'   the estimates, it holds `mu_bar` (the mean of each fitted mean),
 #'   `null_state` (the compact null estimates used by a later step 2),
@@ -415,11 +333,7 @@ inlaST.estimate <- function(
   # Validate once in the parent so a misspelled or invalid control cannot turn
   # every feature into an otherwise opaque per-feature failure.
   control <- .inlast_control(.inlast_merge_control(model$inla_control, control))
-  if (!identical(control$engine, "fable") && !requireNamespace("INLA", quietly = TRUE)) {
-    stop("inlaST.estimate() requires the INLA package unless control$engine = 'fable'.")
-  }
-  control <- .inlast_family_control(model, control)
-  if (identical(control$engine, "fable")) .spde_estimate_check(model$inla_spec, control)
+  .spde_estimate_check(model$inla_spec)
   Y <- checked$Y
   feature_id <- checked$feature_id
   chunk_size <- checked$chunk_size
@@ -445,7 +359,6 @@ inlaST.estimate <- function(
   if (any(prescreen$poisson)) .inlast_poisson_spec(model$inla_spec)
   family_used <- rep(model$inla_spec$family, p)
   family_used[prescreen$poisson] <- "poisson"
-  null_control <- .inlast_null_control(control, model$inla_spec)
   if (any(prescreen$poisson)) .inlast_poisson_spec(null_spec)
 
   t0 <- proc.time()[["elapsed"]]
@@ -471,8 +384,7 @@ inlaST.estimate <- function(
     .inlast_chunk_task(),
     fun_name = ".inlast_null_chunk",
     args = list(spec = model$inla_spec, null_spec = null_spec,
-                base_offset = model$offset, null_control = null_control,
-                threads = threads, scan_args = scan_args),
+                base_offset = model$offset, threads = threads, scan_args = scan_args),
     libpaths = .libPaths(), manager = Sys.getpid()
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
@@ -508,8 +420,7 @@ inlaST.estimate <- function(
     index = seq_len(p), feature_id = feature_id, converged = FALSE,
     marginal_p_value = marginal$p_value, marginal_q_value = marginal_q,
     residual_df = NA_real_, criterion = NA_real_,
-    criterion_name = if (identical(control$engine, "fable"))
-      "spde.estimate Laplace marginal likelihood" else "INLA log marginal likelihood",
+    criterion_name = "spde.estimate Laplace marginal likelihood",
     fit_seconds = NA_real_,
     null_size = vapply(null_state, function(z) {
       if (is.null(z)) NA_real_ else if (length(z$family_parameters)) z$family_parameters[1L] else Inf
@@ -519,8 +430,6 @@ inlaST.estimate <- function(
     error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
-    spatial_fallback = FALSE, spatial_fallback_method = NA_character_,
-    spatial_precision_assigned = NA_real_,
     null_error_class = null_error_class, null_error_message = null_error_message,
     null_error_call = null_error_call,
     score_error_class = NA_character_, score_error_message = NA_character_,
@@ -610,7 +519,7 @@ inlaST.estimate <- function(
   ans
 }
 
-#' Add spatial models after step 1 of INLA estimation
+#' Add spatial models after step 1 of the estimation
 #'
 #' Fits the spatial model of further features of a fit returned by
 #' [inlaST.estimate()] and returns the updated fit; the supplied fit is not
@@ -644,10 +553,6 @@ inlaST.estimate_spatial <- function(
   fit <- fitinlaST
   if (!inherits(fit, "inlaST_fit")) {
     stop("fitinlaST must be returned by inlaST.estimate().")
-  }
-  if (!identical(fit$control$engine, "fable") &&
-      !requireNamespace("INLA", quietly = TRUE)) {
-    stop("inlaST.estimate_spatial() requires the INLA package.")
   }
   .mgcvst_check_fit_format(fit)
   adjust <- if (missing(adjust)) fit$stage1$adjust else match.arg(adjust)
@@ -689,7 +594,7 @@ inlaST.estimate_spatial <- function(
   # checkpointed chunk holds several features per thread.
   groups <- .mgcvst_feature_chunks(
     index, chunk_size, BPPARAM, checkpoint = !is.null(store),
-    cap = if (identical(fit$control$engine, "fable")) max(50L, 4L * threads) else 50L)
+    cap = max(50L, 4L * threads))
   make_payload <- function(i) {
     extra_offset <- if (is.null(offset) || !is.matrix(offset)) offset else
       offset[i, , drop = FALSE]
@@ -740,15 +645,6 @@ inlaST.estimate_spatial <- function(
     diag$criterion[j] <- z$log_marginal_likelihood
     diag$fit_seconds[j] <- z$fit_seconds
     diag$spatial_fitted[j] <- TRUE
-    if (!is.null(z$spatial_fallback)) {
-      fallback <- z$spatial_fallback
-      diag$spatial_fallback[j] <- TRUE
-      diag$spatial_fallback_method[j] <- fallback$method
-      diag$spatial_precision_assigned[j] <- fallback$spatial_precision
-      diag$error_class[j] <- fallback$error_class[1L]
-      diag$error_message[j] <- fallback$error_message
-      diag$error_call[j] <- fallback$error_call
-    }
     if (!is.na(z$score_error) && nzchar(z$score_error)) {
       diag$score_error_class[j] <- "sparse_score"
       diag$score_error_message[j] <- if (is.na(diag$score_error_message[j])) {

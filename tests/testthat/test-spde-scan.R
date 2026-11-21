@@ -218,7 +218,7 @@ test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
                   Y = Y, extra_offset = NULL,
                   poisson = fit$diagnostics$family_used != "negative_binomial")
   inla <- spdeST:::.inlast_scan_chunk(payload, spec, null_spec,
-                                      f$data$offset0, list())
+                                      f$data$offset0)
   p_inla <- vapply(inla, function(z) z$marginal$p_value, numeric(1L))
   expect_equal(fit$diagnostics$marginal_p_value, p_inla, tolerance = 1e-5)
   with_random <- null_spec

@@ -2,7 +2,7 @@
 % Please edit documentation in R/inla-estimate.R
 \name{inlaST.estimate_spatial}
 \alias{inlaST.estimate_spatial}
-\title{Add spatial models after step 1 of INLA estimation}
+\title{Add spatial models after step 1 of the estimation}
 \usage{
 inlaST.estimate_spatial(
   fitinlaST,
@@ -32,10 +32,7 @@ logical vector with one value per feature.}
 \code{features = "discoveries"}. The defaults are those of the original call.}
 
 \item{BPPARAM}{A \code{BiocParallelParam} distributing feature chunks over
-workers. Each worker fits its own features with INLA using
-\code{control$num_threads} (default \code{1L}). Setting it to \code{NULL} lets INLA choose
-its own thread count, which can oversubscribe BiocParallel workers.
-\code{SerialParam()} keeps everything in one process.}
+workers. \code{SerialParam()} keeps everything in one process.}
 
 \item{chunk_size}{Positive integer number of features per task, or \code{NULL}.
 The default creates one chunk per worker in each step; a smaller value
@@ -48,8 +45,7 @@ its step 2 chunks are keyed by their features and responses. Pass the
 same \code{chunk_size} as for the original call, or an explicit one: without it
 the chunks depend on the number of workers.}
 
-\item{threads}{OpenMP threads per worker for the sparse marginal and score
-computations of the workers.}
+\item{threads}{OpenMP threads per worker.}
 }
 \value{
 The updated \code{inlaST_fit}.

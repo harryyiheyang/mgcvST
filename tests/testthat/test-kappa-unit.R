@@ -46,7 +46,7 @@ test_that("kappa = NULL is an error because spdeST never estimates kappa", {
   expect_error(spde_basis(mesh, loc, kappa = NULL), "never estimates kappa")
   expect_error(inlaST.set(kappa = NULL), "never estimates kappa")
   expect_error(
-    inlaST.set(response ~ z, d, family = gaussian(), mesh = mesh,
+    inlaST.set(response ~ z, d, family = poisson(), mesh = mesh,
                kappa = NULL, coordinates = c("x", "y")),
     "never estimates kappa"
   )
@@ -55,7 +55,7 @@ test_that("kappa = NULL is an error because spdeST never estimates kappa", {
   basis <- spde_basis(mesh, loc)
   expect_null(basis$penalty)
   expect_error(
-    inlaST.set(response ~ z, d, basis, family = gaussian(), kappa = 0.1),
+    inlaST.set(response ~ z, d, basis, family = poisson(), kappa = 0.1),
     "applies only to the native mesh setup"
   )
   stale <- basis
@@ -65,12 +65,11 @@ test_that("kappa = NULL is an error because spdeST never estimates kappa", {
 })
 
 test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_unit / L", {
-  skip_if_not_installed("INLA")
   skip_if_not_installed("fmesher")
   skip_if_not_installed("geometry")
   d <- .kappa_unit_data2d()
   mesh <- fmesher::fm_rcdt_2d_inla(loc = .kappa_unit_mesh2d()$loc)
-  model <- inlaST.set(response ~ z, d, family = gaussian(), mesh = mesh,
+  model <- inlaST.set(response ~ z, d, family = poisson(), mesh = mesh,
                       coordinates = c("x", "y"))
   span <- .kappa_unit_span(d, c("x", "y"))
   L <- max(span)
@@ -94,7 +93,7 @@ test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_uni
   mesh3 <- fmesher::fm_mesh_3d(loc = xyz, tv = geometry::delaunayn(xyz))
   d3 <- data.frame(x = runif(30L, 0.1, 1.9), y = runif(30L, 0.1, 0.9),
                    z = runif(30L, 0.2, 2.5), a = rnorm(30L))
-  model3 <- inlaST.set(response ~ a, d3, family = gaussian(), mesh = mesh3,
+  model3 <- inlaST.set(response ~ a, d3, family = poisson(), mesh = mesh3,
                        coordinates = c("x", "y", "z"))
   span3 <- .kappa_unit_span(d3, c("x", "y", "z"))
   L3 <- max(span3)
@@ -172,7 +171,6 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
   expect_equal(ratio, 1e6, tolerance = 1e-8)
 
   # Native INLA path: constrained kernel and sparse marginal score.
-  skip_if_not_installed("INLA")
   m_mm <- inlaST.set(response ~ z, mm, family = poisson(), mesh = mesh_mm,
                      coordinates = c("x", "y"))
   m_um <- inlaST.set(response ~ z, um, family = poisson(), mesh = mesh_um,
@@ -191,16 +189,16 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
   eta <- 0.3 + 0.4 * mm$z + 0.5 * sin(mm$x) * cos(mm$y)
   n <- nrow(mm)
   Y <- rbind(a = rpois(n, exp(1 + eta)), b = rpois(n, exp(1 + eta)))
-  # Fixed precisions keep tau * Q identical: Q_um = 1000^-2 Q_mm in 2D.
+  # The estimated precisions keep tau * Q identical: Q_um = 1000^-2 Q_mm in 2D.
   fit_mm <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
-    Y, m_mm, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2)),
+    Y, m_mm, BPPARAM = BiocParallel::SerialParam()),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   fit_um <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
     Y, m_um, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 2e6)),
+    # The search interval of log(tau) is in the unit of Q.
+    control = list(spde = list(log_tau_min = -12 + log(1e6), log_tau_max = 12 + log(1e6)))),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_identical(fit_um$kappa_unit, 0.05)
   expect_equal(fit_um$unit_length / fit_mm$unit_length, 1000)

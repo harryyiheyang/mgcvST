@@ -186,33 +186,29 @@ spde.laml <- function(y, X, A, Q, log_tau, alpha, offset = NULL, constraint = NU
     maxit_halving = as.integer(maxit_halving), eta_max = eta_max, rank_tol = rank_tol)
 }
 
-# The models of engine = "fable": a count family, fixed effects and one SPDE
-# field, the precision and the size both estimated. Another model is fitted
-# with control = list(engine = "inla").
-.spde_estimate_check <- function(spec, control) {
-  other <- " Set control = list(engine = 'inla') for this model."
+# The models of Stage 2: a count family, fixed effects and one SPDE field,
+# with the precision and the NB size both estimated.
+.spde_estimate_check <- function(spec) {
   if (!(spec$family %in% c("poisson", "negative_binomial"))) {
-    stop("engine = 'fable' fits Poisson and negative-binomial models only.", other)
+    stop("The model must have a Poisson or negative-binomial family with a log link.")
   }
   if (length(spec$random) != 1L || !identical(spec$random[[1L]]$kind, "spde")) {
-    stop("engine = 'fable' requires fixed effects and one SPDE field, without other random blocks.",
-         other)
+    stop("The model must have fixed effects and one SPDE field, without other random blocks.")
   }
-  if (!is.null(control$nb_size) || !is.null(control$fixed_precision) ||
-      !is.null(spec$nb_size_fixed)) {
-    stop("engine = 'fable' estimates the precision and the size; neither can be fixed.", other)
+  if (!is.null(spec$nb_size_fixed)) {
+    stop("The NB size is estimated; a family with a fixed theta is not supported.")
   }
   invisible(TRUE)
 }
 
-# Stage 2 fits of one chunk of features by spde.estimate(), as the records of
-# .inlast_fit_feature(): one list per feature, or a condition for a feature
+# Stage 2 fits of one chunk of features by spde.estimate(): one list per
+# feature, or a condition for a feature
 # whose fit failed. The model is the count model with fixed effects and one
 # SPDE field; tau multiplies the raw Q of the block.
 .spde_estimate_chunk <- function(index, Y, spec, base_offset, extra_offset,
                                  control, poisson = NULL, threads = 1L,
                                  null = NULL) {
-  .spde_estimate_check(spec, control)
+  .spde_estimate_check(spec)
   Yk <- Y[index, , drop = FALSE]
   n <- ncol(Yk)
   offset <- if (is.matrix(extra_offset)) {
@@ -263,9 +259,7 @@ spde.laml <- function(y, X, A, Q, log_tau, alpha, offset = NULL, constraint = NU
       working_variance = 1 / mu + if (nb) 1 / fit$size[k] else 0,
       dispersion = 1, family = fit$family[k],
       family_parameters = if (nb) fit$size[k] else numeric(),
-      tau = tau, tau_internal = tau / block$precision_scale,
-      precision_scale = stats::setNames(block$precision_scale, block$name),
-      lambda = tau, smoothing_parameters = smoothing,
+      tau = tau, lambda = tau, smoothing_parameters = smoothing,
       coefficients = coefficients, fixed_mode = b, fixed_mean = b,
       random_mode = random_mode, random_mean = random_mode, eta = eta, mu = mu,
       constraint_residual_uncorrected = residual, constraint_residual = residual,

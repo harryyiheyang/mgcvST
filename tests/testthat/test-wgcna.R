@@ -153,7 +153,9 @@ test_that("inlaST.wgcna rejects an mgcv fit and names the right entry point", {
 
 test_that("INLA WGCNA scores are the test's projected observation-kernel scores", {
   skip_on_cran()
-  skip_if_not_installed("INLA")
+  skip_if_not_installed("WGCNA")
+  skip_if_not_installed("dynamicTreeCut")
+  skip_if_not_installed("fastcluster")
   skip_if_not_installed("geometry")
   set.seed(1731L)
   n <- 60L
@@ -173,8 +175,7 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   model <- inlaST.set(response ~ z, data, basis, family = poisson())
   fit <- spdeST:::inlaST.estimate_spatial(
     inlaST.estimate(
-    Y, model, BPPARAM = BiocParallel::SerialParam(),
-    control = list(fixed_precision = 1.7)),
+    Y, model, BPPARAM = BiocParallel::SerialParam()),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   ids <- rownames(Y)
   used <- match(ids, fit$feature_id)

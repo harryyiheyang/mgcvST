@@ -11,7 +11,6 @@ inlaST.set(
   family = mgcv::nb(),
   setting = "global",
   coordinates = c("x", "y"),
-  precision_scale = c("raw", "observation"),
   G = NULL,
   control = list(),
   ...,
@@ -36,19 +35,11 @@ inlaST.set(
 
 \item{coordinates}{Character vector naming the two coordinate columns.}
 
-\item{precision_scale}{Scale on which the spatial log-precision prior is
-defined. \code{"raw"} retains the original FEM precision parameterization.
-\code{"observation"} normalizes each constrained spatial field to unit mean
-marginal variance at the observed locations when its internal precision
-equals one. A user-supplied proper prior then applies to this standardized
-precision and generally changes the prior on the original FEM multiplier.
-The default flat log prior is invariant to this constant log-scale shift.}
-
 \item{G}{Optional frozen \code{gam.prefit} design, supplied instead of formula,
 data and basis. Its full SPDE terms must satisfy the observation constraint.}
 
-\item{control}{Named engine controls stored in the model and inherited by
-\code{\link[=inlaST.estimate]{inlaST.estimate()}}. See that function for priors and numerical controls.}
+\item{control}{\code{list(spde = )}, a named list of \code{\link[=spde.estimate]{spde.estimate()}} controls
+stored in the model and inherited by \code{\link[=spdeST.estimate]{spdeST.estimate()}}.}
 
 \item{...}{Additional arguments passed to \code{mgcv::gam(..., fit = FALSE)}.}
 
@@ -78,7 +69,7 @@ unit-scale kappa from \code{\link[=spde_basis]{spde_basis()}} and do not accept 
 
 \item{retain_smooth, diagnostics}{Settings of \code{\link[=spdeST.estimate]{spdeST.estimate()}} fixed with
 the model: retain the estimated score-component coefficients; retain the
-per-feature INLA optimizer diagnostics.}
+per-feature record of the fit.}
 }
 \value{
 An \code{inlaST_model} for \code{\link[=spdeST.scan]{spdeST.scan()}}. It stores \code{kappa_unit},
@@ -96,8 +87,8 @@ preparation of \code{\link[=mgcvST.set]{mgcvST.set()}}. Alternatively, supply SP
 separately through \code{basis}, as in \code{\link[=model.set]{model.set()}}. Formula/basis setup enforces
 the observation mean-zero constraint. A supplied \code{G} must already have a
 compatible constrained SPDE design; otherwise rebuild it from formula/data.
-Supported families are Gaussian with identity link, Poisson
-with log link, and negative binomial with log link. Exactly one full
+Supported families are Poisson and negative binomial with log link; the
+NB size is estimated, so a family with a fixed theta is refused. Exactly one full
 fixed-kappa SPDE basis is the tested spatial target, and it is the only
 smooth in a frozen design. Native mesh setup also supports any number of
 admissible iid nuisance blocks. Spatial mean-zero constraints cannot be

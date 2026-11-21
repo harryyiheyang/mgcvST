@@ -165,7 +165,7 @@ spde_mesh <- function(boundary, loc = NULL, target = 100L, max_edge = NULL,
       euler <- mesh$n - E + nrow(mesh$graph$tv)
       zero.rows <- 0L
       if (!is.null(loc.normalized)) {
-        A <- INLA::inla.spde.make.A(mesh, loc = loc.normalized)
+        A <- fmesher::fm_basis(mesh, loc = loc.normalized)
         zero.rows <- sum(Matrix::rowSums(A) == 0)
       }
       if (euler == expected.euler && zero.rows == 0L) break

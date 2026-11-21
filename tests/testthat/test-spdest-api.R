@@ -1,5 +1,4 @@
 .spdest_inla_fixture <- function(n = 120L, seed = 2402L) {
-  skip_if_not_installed("INLA")
   skip_if_not_installed("geometry")
   set.seed(seed)
   vertices <- as.matrix(expand.grid(x = seq(0, 1, length.out = 4L),
@@ -75,7 +74,6 @@ test_that("mgcvST.set fixes the estimation settings with the model", {
 })
 
 test_that("spdeST.scan and spdeST.estimate run the INLA implementation in two calls", {
-  skip_if_not_installed("INLA")
   f <- .spdest_inla_fixture()
   d <- f$data
   n <- nrow(d)

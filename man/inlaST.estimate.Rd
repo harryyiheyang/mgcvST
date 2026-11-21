@@ -2,7 +2,7 @@
 % Please edit documentation in R/inla-estimate.R
 \name{inlaST.estimate}
 \alias{inlaST.estimate}
-\title{Estimate mgcvST working models with sparse INLA}
+\title{Stage 1 of the sparse estimation}
 \usage{
 inlaST.estimate(
   Y,
@@ -30,10 +30,7 @@ inlaST.estimate(
 \item{feature_id}{Unique feature identifiers.}
 
 \item{BPPARAM}{A \code{BiocParallelParam} distributing feature chunks over
-workers. Each worker fits its own features with INLA using
-\code{control$num_threads} (default \code{1L}). Setting it to \code{NULL} lets INLA choose
-its own thread count, which can oversubscribe BiocParallel workers.
-\code{SerialParam()} keeps everything in one process.}
+workers. \code{SerialParam()} keeps everything in one process.}
 
 \item{chunk_size}{Positive integer number of features per task, or \code{NULL}.
 The default creates one chunk per worker in each step; a smaller value
@@ -44,60 +41,23 @@ the chunk, so at most about one chunk of \code{Y} per worker is copied.}
 feature-by-observation matrix is kept on the fit (\code{extra_offset}) for a
 later step 2, in addition to the total offset.}
 
-\item{control}{Named INLA engine overrides for controls saved by
-\code{\link[=inlaST.set]{inlaST.set()}}. Omitted entries inherit model settings. Each supplied
-prior list replaces the whole prior; numerical \code{control.inla} entries
-merge by name. Explicit \code{NULL} resets optional fixed parameters, except
-NB size fixed by the model family. The supported approximation is
-\code{int_strategy = "eb"}, \code{latent_strategy = "gaussian"}. \code{num_threads}
-defaults to \code{1L}; set it explicitly to raise INLA's thread count per worker.
-Fixed effects always use explicit zero precision in INLA.
-Optional positive \code{fixed_precision},
-\code{gaussian_precision}, and \code{nb_size} fix latent precision multipliers,
-inverse Gaussian residual variance, and NB size, respectively.
-\code{fixed_precision} values always refer to the original FEM multiplier,
-including when the model uses observation-scale precision priors. Prior
-lists \code{precision_prior}, \code{gaussian_precision_prior} and \code{nb_size_prior}
-contain \code{prior}, \code{param}, and logarithmic \code{initial} values (default zero).
-Without an \code{initial} value in \code{nb_size_prior}, the NB size of a feature
-starts at the size of its Stage 1 null model: from \code{log(size) = 0} the
-search can leave a weakly overdispersed feature for an unbounded size.
-Spatial precision and NB size default to \code{prior = "flat"} with no
-parameters on the log scale. Gaussian observation precision defaults to
-\verb{prior = "flat", param = numeric(), initial = 0}, a flat prior on the
-internal log precision \code{-log(variance)}. On the variance scale this has
-density proportional to \code{1/variance}; it is a Gaussian dispersion prior,
-distinct from the negative-binomial size prior. Custom normal, registered
-scalar INLA priors, and INLA expression/table priors remain supported.
-Normal parameters are mean and precision. A flat log-hyperparameter
-objective corresponds to density proportional to \code{1/parameter} on its
-positive scale.
-\code{control.inla} accepts supported numerical tuning, with Gaussian latent
-strategy and EB integration enforced. With a negative-binomial family each
-feature first gets its offset-and-covariate-only Poisson GLM, and it is
-fitted with the Poisson family when its overdispersion score
-\code{sum((y - mu)^2 - y) / 2} is not positive, i.e. exactly when its NB2
-maximum-likelihood fit is the Poisson fit (R/family-prescreen.R; there is
-no threshold to set). Stage 1 is \code{\link[=spde.scan]{spde.scan()}} on the raw sparse field
-of the target block, the same function \code{\link[=mgcvST.estimate]{mgcvST.estimate()}} calls; the
-null must have fixed effects only. The
-per-feature Pearson dispersion of that Poisson fit and the family actually
-used are reported in the diagnostics as
-\code{prescreen_phi} and \code{family_used}. Unknown controls are rejected.
-\code{engine} selects the Stage 2 fitter. \code{"fable"}, the default, is
-\code{\link[=spde.estimate]{spde.estimate()}}: count families, fixed effects and one SPDE field, no
-prior and no fixed precision or size; \code{spde} is then a named list of its
-controls, for example \code{list(tol = 1e-8)}, and the INLA package is not
-needed. \code{"inla"} fits with INLA and takes the other controls of this
-list. \code{options(spdeST.engine = )} sets the default of a session.}
+\item{control}{\code{list(spde = )}, a named list of \code{\link[=spde.estimate]{spde.estimate()}}
+controls, for example \code{list(spde = list(tol = 1e-8))}, laid over the
+control saved by \code{\link[=inlaST.set]{inlaST.set()}}. Unknown controls are rejected. With a
+negative-binomial family each feature first gets its
+offset-and-covariate-only Poisson GLM, and it is fitted with the Poisson
+family when its overdispersion score \code{sum((y - mu)^2 - y) / 2} is not
+positive, i.e. exactly when its NB2 maximum-likelihood fit is the Poisson
+fit (R/family-prescreen.R; there is no threshold to set). The per-feature
+Pearson dispersion of that Poisson fit and the family actually used are
+reported in the diagnostics as \code{prescreen_phi} and \code{family_used}.}
 
 \item{retain_smooth}{Retain estimated score-component coefficients.}
 
-\item{diagnostics}{Retain the per-feature INLA optimizer/hyperparameter
-diagnostics in \code{inla_diagnostics}.}
+\item{diagnostics}{Retain the per-feature record of the fit (precision,
+constraint residual, evaluations) in \code{inla_diagnostics}.}
 
-\item{threads}{OpenMP threads per worker for the sparse marginal and score
-computations of the workers.}
+\item{threads}{OpenMP threads per worker.}
 
 \item{adjust}{Multiple-testing adjustment of the Stage 1 p-values:
 \code{"BY"} (the default), \code{"BH"}, \code{"Sidak"} or \code{"none"}.}
@@ -120,25 +80,22 @@ and the diagnostics columns \code{marginal_q_value}, \code{spatial_selected} and
 \code{spatial_fitted}.
 }
 \description{
-Fits one latent Gaussian model per feature with INLA and returns the compact
-working-model contract consumed by \code{\link[=inlaST.test]{inlaST.test()}}. No GAM fit is used.
-}
-\details{
-This function is Stage 1, the method behind \code{\link[=spdeST.scan]{spdeST.scan()}}: it fits only
-the null model (no spatial field) of every feature and computes the Stage 1
-null-first p-value of its marginal score test inside the worker; the
-p-values are then adjusted by \code{adjust} into the Stage 1 q-values
-\code{diagnostics$marginal_q_value}. Stage 2, \code{\link[=inlaST.estimate_spatial]{inlaST.estimate_spatial()}},
-fits the spatial model of the chosen features and computes their score vector and the mean of the fitted mean in the worker.
-No worker returns an observation-length vector: the manager holds the
-compact per-feature estimates only, so its memory grows with the number of
+The method behind \code{\link[=spdeST.scan]{spdeST.scan()}}: it fits the GLM null model (no spatial
+field) of every feature and computes the Stage 1 p-value of its marginal
+score test inside the worker (\code{\link[=spde.scan]{spde.scan()}}); the p-values are then
+adjusted by \code{adjust} into the Stage 1 q-values
+\code{diagnostics$marginal_q_value}. Stage 2, \code{\link[=inlaST.estimate_spatial]{inlaST.estimate_spatial()}}, fits
+the spatial model of the chosen features by \code{\link[=spde.estimate]{spde.estimate()}} and computes
+their score vector and the mean of the fitted mean in the worker. No worker
+returns an observation-length vector: the manager holds the compact
+per-feature estimates only, so its memory grows with the number of
 features and the mesh size, not with the number of observations. Features
 without a spatial model are marked \code{spatial_fitted = FALSE} in the
 diagnostics table and are unavailable to \code{\link[=inlaST.test]{inlaST.test()}} and
 \code{\link[=inlaST.wgcna]{inlaST.wgcna()}}; \code{pairs = NULL} in \code{\link[=inlaST.test]{inlaST.test()}} means all pairs among
-the features with a spatial model. Use \code{\link[=inlaST.estimate_spatial]{inlaST.estimate_spatial()}} to add
-spatial models for more features after step 1.
-
+the features with a spatial model.
+}
+\details{
 With \code{checkpoint_dir}, every completed chunk of either step is saved by the
 worker that computed it, and a repeated call with the same arguments
 resumes from the saved chunks. Chunks are keyed by their step, features,
@@ -147,46 +104,21 @@ resumable run: without it the chunks depend on the number of workers (and
 step 2 on the number of selected features), and a changed chunking
 recomputes rather than reuses. A chunk whose result holds a failed feature
 is computed again on resume. A checkpoint directory written for another
-model, offset, control or version is refused. Without \code{chunk_size}, a run
-with a checkpoint directory uses chunks of at most 50 features.
+model, offset, control or version is refused.
 
-Hyperparameter priors remain part of INLA's empirical-Bayes
-estimates; these are not mgcv REML estimates. \code{mgcv::nb(theta = value)}
-fixes NB size, and a conflicting \code{control$nb_size} is rejected. The
-working model uses conditional latent estimates and expected Fisher
-variances with INLA \code{config = FALSE} and variational-Bayes correction
-disabled. The small coefficient covariance
-is reconstructed by sparse precision solves without an observation-level inverse.
-Cross-feature iid effects are treated as independent in pairwise calibration.
-Sparse downstream scores rebuild the nuisance covariance from
-the same expected Fisher matrix;
-this does not establish finite-sample calibration after hyperparameter
-estimation. Stage 1 is \code{\link[=spde.scan]{spde.scan()}}: GLM nulls and the marginal score
-test (\code{diagnostics$marginal_p_value}) calibrated by the saddlepoint
-approximation (Kuonen 1999). Pair tests in \code{\link[=inlaST.test]{inlaST.test()}} are
-calibrated by a saddlepoint approximation. Every spatial component's constraint
-residual and observed spatial mean are retained in the result.
-The score uses the SPDE covariance conditioned on observation mean zero.
-The sparse score uses a matching expected-curvature nuisance adjustment.
-The INLA path is sparse-only: the sparse kernel is the sole score and
-marginal implementation, with no dense score or custom marginal callback.
-If INLA's native program crashes during the spatial fit (\code{inlaCrashError})
-after a successful null fit, that null fit supplies the fixed and iid
-nuisance effects, family parameters and working state. The spatial effect
-is set to zero and its original-FEM precision is assigned \code{1e8};
-\code{lambda = dispersion * 1e8}. No additional fit is attempted. The null score
-p-value is retained and pair scores use the usual working-model formulas.
-\code{diagnostics$spatial_fallback} identifies these usable fallback states and
-the original error remains in \code{error_class}, \code{error_message} and \code{error_call}. Their
-spatial likelihood criterion is missing. Input errors and unsuccessful
-null fits do not use this fallback. A design the sparse capability gate rejects makes
-\code{\link[=inlaST.set]{inlaST.set()}} error at setup, and a model that somehow reaches this
-function without that geometry errors here.
-Flat hyperpriors need not yield proper hyperparameter posteriors. They are
-supported only as empirical-Bayes optimization objectives in the current
-single-configuration engine. A returned finite precision or zero optimizer
-status does not establish that the maximum is interior; zero spatial
-variance and the Poisson limit of the NB model require boundary checks.
+Stage 2 maximises the Laplace marginal likelihood (REML) of each
+feature in the precision of the field and the NB size; there is no prior.
+The working model uses the conditional mode and expected Fisher variances.
+The small coefficient covariance is reconstructed by sparse precision
+solves without an observation-level inverse. Stage 1 is \code{\link[=spde.scan]{spde.scan()}}: GLM
+nulls and the marginal score test (\code{diagnostics$marginal_p_value})
+calibrated by the saddlepoint approximation (Kuonen 1999). Pair tests in
+\code{\link[=inlaST.test]{inlaST.test()}} are calibrated by a saddlepoint approximation. The
+constraint residual and the observed spatial mean of the field are
+retained in the result. The score uses the SPDE covariance conditioned on
+observation mean zero, with a matching expected-curvature nuisance
+adjustment. A design the sparse capability gate rejects makes
+\code{\link[=inlaST.set]{inlaST.set()}} error at setup.
 }
 \seealso{
 \code{\link[=inlaST.estimate_spatial]{inlaST.estimate_spatial()}} to add spatial models after step 1.
