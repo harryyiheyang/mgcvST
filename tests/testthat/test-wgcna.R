@@ -140,3 +140,30 @@ test_that("WGCNA preserves overlapping block order", {
   expect_identical(W$networks$second$correlation[blocks$first, blocks$first],
                    W$networks$first$correlation)
 })
+
+test_that("keep = 'discoveries' returns the discoveries and a summary of all pairs", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  all <- spdeST.test(fit, moments = "exact", q.value = 0.5, adjust = "BH")
+  dir <- withr::local_tempdir()
+  part <- spdeST.test(fit, moments = "exact", q.value = 0.5, adjust = "BH",
+                      keep = "discoveries", checkpoint_dir = dir)
+  found <- all$results[!is.na(all$results$log_q) & all$results$log_q <= log(0.5), ]
+  expect_gt(nrow(found), 0L)
+  expect_lt(nrow(found), nrow(all$results))
+  expect_equal(part$results, found, ignore_attr = TRUE)
+  expect_identical(part$discoveries, all$discoveries)
+  expect_identical(part$threshold, all$threshold)
+  # No pair file is left, in the checkpoint directory either.
+  expect_length(part$shards, 0L)
+  expect_length(list.files(dir, "[.]parquet$", recursive = TRUE), 0L)
+  ok <- !is.na(all$results$log_p_two_sided)
+  rho <- (all$results$score / all$results$t1)[ok]
+  expect_identical(part$summary$pairs, sum(ok))
+  expect_equal(part$summary$quantiles$rho,
+               unname(stats::quantile(rho, part$summary$quantiles$probability)))
+  expect_equal(part$summary$quantiles$t1,
+               unname(stats::quantile(all$results$t1[ok], part$summary$quantiles$probability)))
+  expect_equal(part$summary$rho_above_one, mean(abs(rho) > 1))
+  expect_null(all$summary)
+})

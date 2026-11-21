@@ -1,3 +1,13 @@
+# spdeST 0.0.1.9078
+
+* `spdeST.test(keep = "discoveries")` returns the discovered pairs alone and
+  leaves no pair file behind, in a checkpoint directory either. All pairs are
+  evaluated and adjusted as before; of the other pairs `$summary` keeps the
+  quantiles of `t1`, `U / t1`, `1 / sqrt(t1)` and `|U / t1|`, the proportion
+  with `|U / t1| > 1` and the proportion with `U / t1 > 0`. The full table of
+  all pairs of ten thousand features has tens of millions of rows and takes
+  gigabytes on disk; the discoveries and the summary take megabytes.
+
 # spdeST 0.0.1.9077
 
 * `spde.scan()` returns the moment (Haseman-Elston-type) estimate of the

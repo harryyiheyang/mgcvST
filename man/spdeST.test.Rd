@@ -19,7 +19,8 @@ spdeST.test(
   n_per_cell = .mgcvst_pca_defaults$n_per_cell,
   seed = .mgcvst_pca_defaults$seed,
   k = NULL,
-  screen = FALSE
+  screen = FALSE,
+  keep = c("all", "discoveries")
 )
 }
 \arguments{
@@ -83,6 +84,17 @@ discoveries, and every \code{log_q} at or below \code{log(q.value)}, are those o
 is off when the bound would be needed below \code{z = 2} (for example
 \code{adjust = "BH"} with \code{q.value = 0.05}). \code{timing$screen} records the
 screening value and the number of screened pairs.}
+
+\item{keep}{\code{"all"} returns every tested pair. \code{"discoveries"} returns the
+pairs with a q-value at or below \code{q.value} alone and writes no pair to a
+lasting file: the pairs are evaluated and adjusted as with \code{"all"}, the
+temporary pair files are removed (those in \code{checkpoint_dir} too), and
+\verb{$summary} holds what is known of all pairs with a p-value, the quantiles
+of \code{t1}, \code{U / t1}, \code{1 / sqrt(t1)} and \verb{|U / t1|}, the proportion with
+\verb{|U / t1| > 1} and the proportion with \code{U / t1 > 0}. Use it for all pairs
+of many features, where the full table has tens of millions of rows;
+\code{\link[=spdeST.wgcna]{spdeST.wgcna()}} needs every pair of its blocks, so test those features
+with \code{keep = "all"}.}
 }
 \value{
 An object of class \code{spdeST_test} with \code{results}, \code{shards},

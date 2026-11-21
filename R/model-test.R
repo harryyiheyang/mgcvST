@@ -15,7 +15,7 @@
                              chunk_size, checkpoint_dir, resume, verbose,
                              moments, rank = NULL, n_per_cell = NULL,
                              seed = NULL, k = NULL, screen = FALSE,
-                             call = NULL) {
+                             keep = "all", call = NULL) {
   if (!is.logical(screen) || length(screen) != 1L || is.na(screen)) {
     stop("screen must be TRUE or FALSE.")
   }
@@ -181,7 +181,8 @@
   }
   finalized <- .mgcvst_pairs_finalize(
     routed$pair_dir, routed$shards, routed$rows, extra, adjust, q.value,
-    temporary = routed$temporary, verbose = verbose
+    temporary = routed$temporary, verbose = verbose,
+    discoveries_only = identical(keep, "discoveries")
   )
 
   failed <- routed$failed
@@ -232,6 +233,7 @@
     list(
       results = finalized$results,
       shards = finalized$shards,
+      keep = keep, summary = finalized$summary,
       feature_id = fit$feature_id,
       failed = failed,
       threshold = finalized$threshold,

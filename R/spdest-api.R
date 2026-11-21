@@ -218,6 +218,16 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' @param chunk_size Maximum number of pairs evaluated per native block and
 #'   written per shard. `NULL` uses 10,000 for the exact route and 1,000,000
 #'   for the PCAlearning route.
+#' @param keep `"all"` returns every tested pair. `"discoveries"` returns the
+#'   pairs with a q-value at or below `q.value` alone and writes no pair to a
+#'   lasting file: the pairs are evaluated and adjusted as with `"all"`, the
+#'   temporary pair files are removed (those in `checkpoint_dir` too), and
+#'   `$summary` holds what is known of all pairs with a p-value, the quantiles
+#'   of `t1`, `U / t1`, `1 / sqrt(t1)` and `|U / t1|`, the proportion with
+#'   `|U / t1| > 1` and the proportion with `U / t1 > 0`. Use it for all pairs
+#'   of many features, where the full table has tens of millions of rows;
+#'   [spdeST.wgcna()] needs every pair of its blocks, so test those features
+#'   with `keep = "all"`.
 #' @param checkpoint_dir Optional checkpoint directory. Reusable feature score
 #'   states and the raw pair shards are saved there, and a repeated call
 #'   resumes completed shards. Pair results are keyed by the algorithm
@@ -297,16 +307,17 @@ spdeST.test <- function(fit, pairs = NULL, q.value = 0.05,
                         rank = .mgcvst_pca_defaults$rank,
                         n_per_cell = .mgcvst_pca_defaults$n_per_cell,
                         seed = .mgcvst_pca_defaults$seed, k = NULL,
-                        screen = FALSE) {
+                        screen = FALSE, keep = c("all", "discoveries")) {
   if (!inherits(fit, "spdeST_fit")) {
     stop("fit must be returned by spdeST.estimate().")
   }
   if (missing(moments)) .mgcvst_moments_missing()
   adjust <- match.arg(adjust)
+  keep <- match.arg(keep)
   .mgcvst_test_run(
     fit, pairs, q.value, adjust, threads, chunk_size,
     checkpoint_dir, resume, verbose, moments = moments, rank = rank,
     n_per_cell = n_per_cell, seed = seed, k = k, screen = screen,
-    call = match.call()
+    keep = keep, call = match.call()
   )
 }

@@ -11,6 +11,18 @@
 # shards; no per-pair character column exists. Shards are written as the pairs
 # are evaluated, so a run never holds a per-pair table of all pairs in memory.
 
+# A pair table without rows.
+.mgcvst_empty_pairs <- function() {
+  z <- list(i = integer(), j = integer(), score = numeric(), t1 = numeric(),
+            log_p_two_sided = numeric(), log_p_positive = numeric(),
+            log_p_negative = numeric(), log_q = numeric(),
+            remainder_kind = integer(), status = integer())
+  as.data.frame(z[.mgcvst_final_columns])
+}
+
+# Probabilities of the summary of a run that keeps the discoveries alone.
+.mgcvst_summary_probs <- c(0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99)
+
 .mgcvst_final_columns <- c(
   "i", "j", "score", "t1", "log_p_two_sided", "log_p_positive", "log_p_negative",
   "log_q", "remainder_kind", "status"
@@ -249,9 +261,14 @@ mgcvst_harmonic <- function(m) {
 # the table in memory and deletes its shards and pair directory, so that
 # nothing is left in the temporary directory; a run that does not fit keeps
 # its final shards, and so does every run with a checkpoint directory.
+#
+# With `discoveries_only` the table holds the discoveries alone, no final
+# shard is written and the pair directory is removed, with a checkpoint
+# directory too: what remains of the other pairs is `summary`, the quantiles
+# of t1 and of U / t1 over the pairs with a p-value.
 .mgcvst_pairs_finalize <- function(pair_dir, shards, rows, extra, adjust,
                                    q.value, temporary, materialize = TRUE,
-                                   verbose = FALSE) {
+                                   verbose = FALSE, discoveries_only = FALSE) {
   n_extra <- if (is.null(extra)) 0 else nrow(extra)
   n_pairs <- sum(as.numeric(rows)) + n_extra
   out_dir <- file.path(pair_dir, paste0("adjusted-", adjust))
@@ -299,8 +316,17 @@ mgcvst_harmonic <- function(m) {
 
   # The in-memory table is decided before the write loop, after the adjustment
   # vectors are released.
-  keep <- materialize && n_pairs > 0 && n_pairs <= .Machine$integer.max &&
+  keep <- !discoveries_only && materialize && n_pairs > 0 &&
+    n_pairs <= .Machine$integer.max &&
     .mgcvst_pair_memory_guard(n_pairs, .mgcvst_result_bytes_per_pair, 0.2)$ok
+  found_parts <- list()
+  # t1 and U / t1 of every pair, for the summary of a run that keeps the
+  # discoveries alone: two numeric vectors, under the memory guard.
+  all_t1 <- all_rho <- NULL
+  if (discoveries_only && n_pairs > 0 &&
+      .mgcvst_pair_memory_guard(n_pairs, 16, 0.2)$ok) {
+    all_t1 <- all_rho <- rep(NA_real_, n_pairs)
+  }
   columns <- NULL
   if (keep) {
     columns <- new.env(parent = emptyenv())
@@ -313,7 +339,7 @@ mgcvst_harmonic <- function(m) {
     columns$remainder_kind <- integer(n_pairs)
     columns$status <- integer(n_pairs)
   }
-  write_files <- !(temporary && keep)
+  write_files <- !discoveries_only && !(temporary && keep)
 
   threshold <- log(q.value)
   counts <- c(tested = 0, with_p = 0, discovered = 0, positive = 0, negative = 0)
@@ -333,6 +359,11 @@ mgcvst_harmonic <- function(m) {
       slot <- at + seq_len(k)
       for (column in .mgcvst_final_columns) columns[[column]][slot] <- part[[column]]
     }
+    if (!is.null(all_t1)) {
+      usable <- !is.na(part$log_p_two_sided)
+      all_t1[at + seq_len(k)] <<- ifelse(usable, part$t1, NA_real_)
+      all_rho[at + seq_len(k)] <<- ifelse(usable, part$score / part$t1, NA_real_)
+    }
     at <<- at + k
     counts[["tested"]] <<- counts[["tested"]] +
       sum(part$status != .mgcvst_pair_status[["feature"]])
@@ -346,6 +377,10 @@ mgcvst_harmonic <- function(m) {
       counts[["negative"]] <<- counts[["negative"]] +
         sum(found & !is.na(part$score) & part$score < 0)
       log_p_threshold <<- max(log_p_threshold, part$log_p_two_sided[found])
+      if (discoveries_only) {
+        found_parts[[length(found_parts) + 1L]] <<-
+          part[found, .mgcvst_final_columns, drop = FALSE]
+      }
     }
     if (write_files) {
       file <- file.path(out_dir, name)
@@ -358,11 +393,38 @@ mgcvst_harmonic <- function(m) {
   for (file in shards) {
     part <- .mgcvst_read_shard(file)
     write_part(part, sub("^shard-", "results-", basename(file)))
-    if (temporary) unlink(file)
+    if (temporary || discoveries_only) unlink(file)
   }
   rm(log_q)
 
   results <- NULL
+  summary <- NULL
+  if (discoveries_only) {
+    results <- if (length(found_parts)) do.call(rbind, found_parts) else
+      .mgcvst_empty_pairs()
+    results <- results[order(results$i, results$j, method = "radix"), , drop = FALSE]
+    rownames(results) <- NULL
+    rm(found_parts)
+    if (!is.null(all_t1)) {
+      probs <- .mgcvst_summary_probs
+      ok <- !is.na(all_rho)
+      summary <- list(
+        quantiles = data.frame(
+          probability = probs,
+          t1 = unname(stats::quantile(all_t1[ok], probs, names = FALSE)),
+          rho = unname(stats::quantile(all_rho[ok], probs, names = FALSE)),
+          se = unname(stats::quantile(1 / sqrt(all_t1[ok]), probs, names = FALSE)),
+          abs_rho = unname(stats::quantile(abs(all_rho[ok]), probs, names = FALSE))),
+        pairs = sum(ok), rho_above_one = mean(abs(all_rho[ok]) > 1),
+        rho_positive = mean(all_rho[ok] > 0))
+      rm(all_t1, all_rho)
+    }
+    unlink(pair_dir, recursive = TRUE)
+    parent <- dirname(pair_dir)
+    if (temporary && startsWith(basename(parent), "mgcvst-pairs-")) {
+      unlink(parent, recursive = TRUE)
+    }
+  }
   if (keep) {
     perm <- order(columns$i, columns$j, method = "radix")
     if (is.unsorted(perm)) {
@@ -393,7 +455,7 @@ mgcvst_harmonic <- function(m) {
          pairs_discovered_negative = NA_real_)
   }
   list(
-    results = results, shards = final, n_pairs = n_pairs,
+    results = results, shards = final, n_pairs = n_pairs, summary = summary,
     adjustment = adjustment,
     threshold = list(q_value = q.value, adjust = adjust,
       log_p_threshold = if (any_discovery) log_p_threshold else NA_real_),
