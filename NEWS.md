@@ -1,3 +1,12 @@
+# spdeST 0.0.1.9080
+
+* `spdeST.test()` writes no checkpoint: the arguments `checkpoint_dir` and
+  `resume` are removed, as in `spdeST.scan()` and `spdeST.estimate()`. The
+  score states and the pair shards are temporary files in `tempdir()` (which
+  follows `TMPDIR`); they are removed when the call returns, and a call that
+  fails removes them as well. The route record, the stored schedules, the
+  manifest and the PCAlearning basis and projection files no longer exist.
+
 # spdeST 0.0.1.9079
 
 * `spdeST.scan()` and `spdeST.estimate()` no longer write checkpoints: the

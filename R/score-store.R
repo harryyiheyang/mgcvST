@@ -1,61 +1,14 @@
-# Store one score state per feature so completed states survive interrupted tests.
-.mgcvst_store_open <- function(path = NULL, signature, feature_ids,
-                               resume = TRUE) {
-  storage <- "double"
-  if (!is.list(signature)) stop("signature must be a list of stable fit identifiers.")
+# One score state per feature, in files of a temporary directory, so that the
+# pair stage holds only the states its memory allows. The directory is removed
+# by .mgcvst_store_cleanup() when the pair stage ends.
+.mgcvst_store_open <- function(feature_ids) {
   if (!is.character(feature_ids) || !length(feature_ids) ||
       anyNA(feature_ids) || any(!nzchar(feature_ids)) ||
       anyDuplicated(feature_ids)) {
     stop("feature_ids must be distinct, non-empty character identifiers.")
   }
-  if (!is.logical(resume) || length(resume) != 1L || is.na(resume)) {
-    stop("resume must be TRUE or FALSE.")
-  }
-
-  temporary <- is.null(path)
-  if (temporary) {
-    path <- .mgcvst_dense_temp_dir()
-    committed <- FALSE
-    on.exit(if (!committed && dir.exists(path))
-      .mgcvst_dense_cleanup(path), add = TRUE)
-  } else {
-    if (!is.character(path) || length(path) != 1L || is.na(path) ||
-        !nzchar(path)) stop("path must be one non-empty directory name.")
-    if (file.exists(path) && !dir.exists(path)) {
-      stop("The score-state store path exists and is not a directory.")
-    }
-    if (!dir.exists(path) && !dir.create(path, recursive = TRUE)) {
-      stop("Could not create the score-state store directory.")
-    }
-    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
-  }
-
-  manifest_path <- file.path(path, "manifest.rds")
-  requested <- list(format = 1L, signature = signature,
-                    feature_ids = feature_ids, storage = storage)
-  if (file.exists(manifest_path)) {
-    if (!resume) stop("The score-state store already exists; use resume = TRUE.")
-    existing <- tryCatch(readRDS(manifest_path), error = function(e) {
-      stop("The score-state store manifest is unreadable: ", conditionMessage(e))
-    })
-    if (!identical(existing, requested)) {
-      stop("The score-state store signature, feature IDs, or storage do not match.")
-    }
-  } else {
-    contents <- list.files(path, all.files = TRUE, no.. = TRUE)
-    if (length(contents)) {
-      stop("The score-state store directory lacks a manifest and is not empty.")
-    }
-    temp <- tempfile("manifest-", tmpdir = path, fileext = ".tmp")
-    on.exit(if (file.exists(temp)) unlink(temp), add = TRUE)
-    saveRDS(requested, temp, compress = FALSE)
-    if (!file.rename(temp, manifest_path)) {
-      stop("Could not commit the score-state store manifest.")
-    }
-  }
-  if (temporary) committed <- TRUE
-  structure(list(path = path, feature_ids = feature_ids, storage = storage,
-                 signature = signature, temporary = temporary),
+  structure(list(path = .mgcvst_dense_temp_dir(), feature_ids = feature_ids,
+                 storage = "double"),
             class = "mgcvst_score_store")
 }
 
@@ -100,7 +53,6 @@
   })
   if (!is.list(unit) || !identical(unit$format, 1L) ||
       !identical(unit$storage, store$storage) ||
-      !identical(unit$signature, store$signature) ||
       !identical(unit$feature_id,
                  store$feature_ids[.mgcvst_store_index(store, feature)])) {
     stop("The score-state shard has incompatible metadata: ", basename(path), ".")
@@ -151,7 +103,6 @@
     error <- NULL
   }
   unit <- list(format = 1L, storage = store$storage,
-               signature = store$signature,
                feature_id = store$feature_ids[.mgcvst_store_index(store, feature)],
                error = error, state = payload)
   temp <- tempfile(paste0(basename(path), "-"), tmpdir = store$path,
@@ -168,7 +119,6 @@
   if (!inherits(store, "mgcvst_score_store")) {
     stop("store must be returned by .mgcvst_store_open().")
   }
-  if (!isTRUE(store$temporary)) return(invisible(FALSE))
   .mgcvst_dense_cleanup(store$path)
   invisible(TRUE)
 }

@@ -29,10 +29,16 @@ test_that("the similarity of two genes is U / t1 of their pair", {
     expect_identical(z$rho[b, a], z$rho[a, b])
   }
   # The shards hold the same pairs as the in-memory table.
-  from_shards <- spdeST.test(.pca_nb_fit(), moments = "exact",
-                             checkpoint_dir = withr::local_tempdir())
+  guard <- spdeST:::.mgcvst_pair_memory_guard
+  from_shards <- testthat::with_mocked_bindings(
+    spdeST.test(.pca_nb_fit(), moments = "exact"),
+    .mgcvst_pair_memory_guard = function(n_pairs, bytes_per_pair, fraction) {
+      if (bytes_per_pair == 64) list(ok = FALSE, need = 0, available = 0) else
+        guard(n_pairs, bytes_per_pair, fraction)
+    }, .package = "spdeST")
+  on.exit(unlink(dirname(dirname(from_shards$shards[1L])), recursive = TRUE), add = TRUE)
+  expect_null(from_shards$results)
   expect_true(length(from_shards$shards) > 0L)
-  from_shards$results <- NULL
   shard_pairs <- spdeST:::.mgcvst_wgcna_pairs(from_shards, used)
   expect_equal(shard_pairs[order(shard_pairs$i, shard_pairs$j), ],
                pairs[order(pairs$i, pairs$j), ], ignore_attr = TRUE)
@@ -145,18 +151,19 @@ test_that("keep = 'discoveries' returns the discoveries and a summary of all pai
   skip_on_cran()
   fit <- .pca_nb_fit()
   all <- spdeST.test(fit, moments = "exact", q.value = 0.5, adjust = "BH")
-  dir <- withr::local_tempdir()
+  before <- list.files(tempdir(), all.files = TRUE, no.. = TRUE)
   part <- spdeST.test(fit, moments = "exact", q.value = 0.5, adjust = "BH",
-                      keep = "discoveries", checkpoint_dir = dir)
+                      keep = "discoveries")
   found <- all$results[!is.na(all$results$log_q) & all$results$log_q <= log(0.5), ]
   expect_gt(nrow(found), 0L)
   expect_lt(nrow(found), nrow(all$results))
   expect_equal(part$results, found, ignore_attr = TRUE)
   expect_identical(part$discoveries, all$discoveries)
   expect_identical(part$threshold, all$threshold)
-  # No pair file is left, in the checkpoint directory either.
+  # No pair file is left.
   expect_length(part$shards, 0L)
-  expect_length(list.files(dir, "[.]parquet$", recursive = TRUE), 0L)
+  expect_identical(setdiff(list.files(tempdir(), all.files = TRUE, no.. = TRUE), before),
+                   character())
   ok <- !is.na(all$results$log_p_two_sided)
   rho <- (all$results$score / all$results$t1)[ok]
   expect_identical(part$summary$pairs, sum(ok))

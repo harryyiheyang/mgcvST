@@ -11,8 +11,6 @@ spdeST.test(
   adjust = c("BY", "BH", "Sidak", "none"),
   threads = NULL,
   chunk_size = NULL,
-  checkpoint_dir = NULL,
-  resume = TRUE,
   verbose = FALSE,
   moments,
   rank = .mgcvst_pca_defaults$rank,
@@ -40,14 +38,6 @@ preparation and the pair kernels. \code{NULL} uses one.}
 \item{chunk_size}{Maximum number of pairs evaluated per native block and
 written per shard. \code{NULL} uses 10,000 for the exact route and 1,000,000
 for the PCAlearning route.}
-
-\item{checkpoint_dir}{Optional checkpoint directory. Reusable feature score
-states and the raw pair shards are saved there, and a repeated call
-resumes completed shards. Pair results are keyed by the algorithm
-contract; a directory holding pair results from another contract is
-refused. With \code{NULL}, temporary storage is used.}
-
-\item{resume}{Reuse compatible completed checkpoint entries.}
 
 \item{verbose}{Logical; report progress and the route.}
 
@@ -88,7 +78,7 @@ screening value and the number of screened pairs.}
 \item{keep}{\code{"all"} returns every tested pair. \code{"discoveries"} returns the
 pairs with a q-value at or below \code{q.value} alone and writes no pair to a
 lasting file: the pairs are evaluated and adjusted as with \code{"all"}, the
-temporary pair files are removed (those in \code{checkpoint_dir} too), and
+temporary pair files are removed, and
 \verb{$summary} holds what is known of all pairs with a p-value, the quantiles
 of \code{t1}, \code{U / t1}, \code{1 / sqrt(t1)} and \verb{|U / t1|}, the proportion with
 \verb{|U / t1| > 1} and the proportion with \code{U / t1 > 0}. Use it for all pairs
@@ -131,8 +121,7 @@ a contraction of the projected coefficients, the shared basis holds the
 one node. The exact route costs time cubic in the score dimension \code{q} for
 every pair, and the PCAlearning route does not depend on \code{q} per pair; the
 PCAlearning route needs more genes than \code{rank}. \code{verbose = TRUE} prints the
-route and \code{k}. A checkpoint directory records its route, and a resumed call
-with another \code{moments} stops with a message.
+route and \code{k}.
 
 With \code{pairs = NULL}, every pair of the available features is tested; the
 pairs are generated and scored in blocks and never held as one matrix. A
@@ -175,12 +164,13 @@ A pair with status 1 or 2 has p = 1 (\code{log_p_two_sided}, \code{log_p_positiv
 adjustment family. Rows are written as Parquet shards while the
 pairs are evaluated, and \verb{$results} is the same table sorted by \verb{(i, j)}
 when it fits the memory guard (56 bytes per pair, 20\% of available memory),
-and \code{NULL} otherwise. Without a \code{checkpoint_dir} the shards are temporary:
-they are deleted once \verb{$results} is built and \verb{$shards} is empty, and when
-\verb{$results} is \code{NULL} they stay in the session's temporary directory and are
-listed in \verb{$shards}. With a \code{checkpoint_dir}, \verb{$shards} lists the final
-files in it. Use a \code{checkpoint_dir} for runs of many millions of pairs, so
-that the shards go to a disk of the right size.
+and \code{NULL} otherwise. The shards and the score states of the features are
+temporary files in the session's temporary directory (\code{tempdir()}, which
+follows \code{TMPDIR}): the score states are deleted when the call returns, the
+shards once \verb{$results} is built, and \verb{$shards} is then empty. Only when
+\verb{$results} is \code{NULL} do the shards stay in the temporary directory until
+the session ends, listed in \verb{$shards}. The test writes no checkpoint and no
+other file; for all pairs of many features use \code{keep = "discoveries"}.
 
 The adjustment is applied once, to the two-sided family, in log space
 by the native kernel, so p-values below the double range keep their

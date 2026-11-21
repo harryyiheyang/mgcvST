@@ -424,14 +424,6 @@ test_that("the observation basis is full rank and enters the pair signature", {
   expect_error(spdeST.test(changed, rank = 3L, seed = 4L, moments = "exact"), "differs from the one recorded")
   expect_error(spdeST.test(local({ x <- fit; x$basis_spec <- NULL; x }), rank = 3L, moments = "exact"),
                "recorded by the estimation (none)", fixed = TRUE)
-  # The pair signature, and with it every pair checkpoint, depends on the basis.
-  signature <- spdeST:::.mgcvst_pair_signature(prepared, basis)
-  other <- basis
-  other$kind <- "truncated"
-  expect_false(identical(signature, spdeST:::.mgcvst_pair_signature(prepared, other)))
-  fewer <- basis
-  fewer$rank <- basis$rank - 1L
-  expect_false(identical(signature, spdeST:::.mgcvst_pair_signature(prepared, fewer)))
 })
 
 # ---- multi-process runs ----------------------------

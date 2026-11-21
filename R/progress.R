@@ -6,7 +6,6 @@
 #
 #   [null] 4,480 / 11,184 features (40%) | 12m 05s elapsed | ETA 18m 10s | 6.2 features/s
 #
-# Work restored from a checkpoint counts as done but not towards the rate.
 # Plain lines (no carriage returns) keep batch logs readable.
 # options(spdeST.progress = FALSE) silences them.
 
@@ -26,23 +25,21 @@
   sprintf("%dh %02dm", s %/% 3600, (s %% 3600) %/% 60)
 }
 
-# A progress tracker of `total` units of work, `resumed` of them already done.
-# Returns a list of functions: add(units) after a piece completes (fresh =
-# FALSE for a piece restored from a checkpoint, which does not count towards
-# the rate), done() at the end (prints the final line once).
-.mgcvst_progress <- function(label, total, unit = "features", resumed = 0,
+# A progress tracker of `total` units of work. Returns a list of functions:
+# add(units) after a piece completes, done() at the end (prints the final
+# line once).
+.mgcvst_progress <- function(label, total, unit = "features",
                              heartbeat = 60, enabled = .mgcvst_progress_enabled()) {
   state <- new.env(parent = emptyenv())
-  state$done <- resumed
-  state$fresh <- 0
+  state$done <- 0
   state$t0 <- proc.time()[["elapsed"]]
   state$last <- state$t0
-  state$tenth <- if (total > 0) floor(10 * resumed / total) else 10
+  state$tenth <- if (total > 0) 0 else 10
   state$finished <- FALSE
   emit <- function() {
     now <- proc.time()[["elapsed"]]
     elapsed <- now - state$t0
-    rate <- if (elapsed > 0) state$fresh / elapsed else NA_real_
+    rate <- if (elapsed > 0) state$done / elapsed else NA_real_
     left <- total - state$done
     eta <- if (left <= 0) 0 else if (is.finite(rate) && rate > 0) left / rate else NA_real_
     message(sprintf(
@@ -55,14 +52,11 @@
     state$last <- now
   }
   if (enabled && total > 0) {
-    message(sprintf("[%s] %s %s%s", label, .mgcvst_format_count(total), unit,
-                    if (resumed > 0) sprintf(", %s restored from the checkpoint",
-                                             .mgcvst_format_count(resumed)) else ""))
+    message(sprintf("[%s] %s %s", label, .mgcvst_format_count(total), unit))
   }
-  add <- function(units, fresh = TRUE) {
+  add <- function(units) {
     if (length(units) != 1L || !is.finite(units)) return(invisible(NULL))
     state$done <- min(total, state$done + units)
-    if (fresh) state$fresh <- state$fresh + units
     if (!enabled || total <= 0) return(invisible(NULL))
     tenth <- floor(10 * state$done / total)
     now <- proc.time()[["elapsed"]]

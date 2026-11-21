@@ -18,43 +18,6 @@
   digest::digest(x, algo = "md5")
 }
 
-# Hash only inputs that determine feature scores and their common coordinates.
-.mgcvst_pair_signature <- function(fit, basis = NULL) {
-  geometry <- fit$geometry
-  smooth <- if (is.list(geometry$smooth)) lapply(geometry$smooth, function(z) {
-    z[c("B", "penalties", "sp_index", "fixed", "score_component")]
-  }) else NULL
-  z <- fit$score_sparse
-  sparse <- list(A = z$A, Q = z$Q, constraint = z$constraint,
-         sp_index = z$sp_index,
-         nuisance_design = geometry$nuisance_design,
-         basis = basis[c("coordinate", "basis", "rank", "kind")],
-         basis_spec = fit$basis_spec,
-         target = fit$target_coefficients, nuisance = fit$nuisance_coefficients,
-         score = fit$score_a, family = fit$feature_family,
-         family_parameters = fit$family_parameters, dispersion = fit$dispersion,
-         smoothing_parameters = fit$smoothing_parameters)
-  spec <- if (is.list(fit$model)) fit$model$spde_spec else NULL
-  if (is.null(spec)) spec <- fit$spde_spec
-  random <- if (is.list(spec$random)) lapply(spec$random, function(z) {
-    list(target = z$target, kind = z$kind, subtype = z$subtype,
-         sp_index = z$sp_index,
-         width = if (is.null(z$A)) NULL else ncol(z$A))
-  }) else NULL
-  inputs <- list(
-    pipeline_version = 4L,
-    feature_id = fit$feature_id,
-    lambda = fit$lambda,
-    geometry = list(B = geometry$B, Q = geometry$Q, X = geometry$X,
-                    score_precision_psd = geometry$score_precision_psd,
-                    nuisance_design = geometry$nuisance_design,
-                    target = geometry$target, smooth = smooth),
-    sparse = sparse, random = random,
-    fixed_width = if (is.null(spec$fixed$X)) NULL else ncol(spec$fixed$X)
-  )
-  list(version = 3L, md5 = .mgcvst_pair_input_hash(inputs))
-}
-
 # Defaults of the exact-moment route: the number of leading singular values
 # kept from the shared basis.
 .mgcvst_exact_defaults <- list(k = 20L)
@@ -140,66 +103,30 @@
   )
 }
 
-# Shared basis V of the exact route: the k leading eigenvectors of the sum of
-# the normalized state matrices over `used`, added in feature order whatever the
-# batching (so the basis, and its sha, are reproducible). `sum` is the running
-# sum when the states were accumulated while they were built, or NULL, in which
-# case the stored states are read in one pass. A saved basis for the same
-# feature set is reused.
-.mgcvst_exact_basis <- function(store, used, width, k, path, sum, batch_size,
-                                verbose) {
-  key <- digest::digest(list(used = used, k = k, width = width), algo = "sha256")
-  file <- if (is.null(path)) NULL else file.path(path, "basis.rds")
-  if (!is.null(file) && file.exists(file)) {
-    saved <- tryCatch(readRDS(file), error = function(e) NULL)
-    if (is.list(saved) && identical(saved$key, key) &&
-        identical(saved$sha, digest::digest(saved$V, algo = "sha256"))) {
-      if (verbose) message("Reused the shared basis (k = ", k, ").")
-      return(saved)
-    }
-  }
-  S <- sum
-  if (is.null(S)) {
-    S <- matrix(0, width, width)
-    for (first in seq.int(1L, length(used), by = batch_size)) {
-      ids <- used[first:min(length(used), first + batch_size - 1L)]
-      states <- lapply(ids, function(id) .mgcvst_store_read(store, id))
-      good <- vapply(states, function(z) is.null(z$error), logical(1L))
-      if (any(good)) {
-        S <- mgcvst_pair_basis_sum_cpp(lapply(states[good], `[[`, "M"), S)
-      }
-    }
-  }
+# Shared basis V of the exact route: the k leading eigenvectors of the sum
+# `S` of the normalized state matrices, added in feature order whatever the
+# batching (so the basis, and its sha, are reproducible).
+.mgcvst_exact_basis <- function(S, n_features, k, verbose) {
   if (!all(is.finite(S)) || !any(S != 0)) {
     stop("No usable score state to build the shared basis.")
   }
   eg <- eigen(S, symmetric = TRUE)
   V <- eg$vectors[, seq_len(k), drop = FALSE]
-  basis <- list(V = V, k = k, q = width, values = eg$values[seq_len(k)],
-                n_features = length(used), key = key,
-                sha = digest::digest(V, algo = "sha256"), version = 1L)
-  if (!is.null(file)) {
-    tmp <- tempfile("basis-", tmpdir = path, fileext = ".tmp")
-    on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
-    saveRDS(basis, tmp, compress = FALSE)
-    if (file.exists(file)) unlink(file)
-    if (!file.rename(tmp, file)) stop("Could not commit the shared basis.")
-  }
-  if (verbose) message("Built the shared basis (k = ", k, ") from ", length(used),
+  if (verbose) message("Built the shared basis (k = ", k, ") from ", n_features,
                        " features.")
-  basis
+  list(V = V, k = k, q = nrow(S), values = eg$values[seq_len(k)],
+       n_features = n_features, sha = digest::digest(V, algo = "sha256"))
 }
 
-# Evaluate the saddlepoint-calibrated pairs of a fit from resumable
-# feature-first score states and stream them to raw Parquet shards. `index`
+# Evaluate the saddlepoint-calibrated pairs of a fit from feature-first score
+# states, kept in a temporary directory, and stream them to raw Parquet shards. `index`
 # is NULL for every pair of the available features, or a two-column matrix
 # of available feature indices i < j. The resident score states adapt to the
 # memory available to the process. The states are the reduced curvature of
 # the fit in its observation `basis`.
 .mgcvst_pair_pipeline <- function(fit, index, threads, chunk_size, verbose,
-                                  checkpoint_dir = NULL, resume = TRUE,
                                   k = .mgcvst_exact_defaults$k, basis,
-                                  route = NULL, screen_z = 0) {
+                                  screen_z = 0) {
   if (!is.numeric(threads) || length(threads) != 1L ||
       !is.finite(threads) || threads < 1L || threads != floor(threads)) {
     stop("threads must be one positive integer.")
@@ -230,23 +157,8 @@
   k <- as.integer(min(k, width))
   if (!is.finite(k) || k < 1L) stop("k must be a positive integer.")
 
-  contract_early <- .mgcvst_contract("exact", screen_z = screen_z)
-  signature <- if (is.null(checkpoint_dir)) {
-    list(version = 2L, temporary = tempfile("mgcvst-pair-run-"))
-  } else .mgcvst_pair_signature(fit, basis)
-  store <- .mgcvst_store_open(checkpoint_dir, signature, fit$feature_id,
-                              resume = resume)
-  if (isTRUE(store$temporary)) on.exit(.mgcvst_store_cleanup(store), add = TRUE)
-  if (!isTRUE(store$temporary)) .mgcvst_route_save(store$path, route)
-  root <- if (is.null(checkpoint_dir)) {
-    tempfile("mgcvst-pairs-")
-  } else store$path
-  # Pair directories of another algorithm contract are refused before any
-  # work; the directory of this run is opened once the shared basis exists.
-  .mgcvst_pairs_refuse_stale(root, contract_early)
-  universe <- if (all_pairs) {
-    list(all = TRUE, used = used, n_feature = length(fit$feature_id))
-  } else list(index = index)
+  store <- .mgcvst_store_open(fit$feature_id)
+  on.exit(.mgcvst_store_cleanup(store), add = TRUE)
 
   n_pairs_hint <- if (all_pairs) length(used) * (length(used) - 1) / 2 else
     nrow(index)
@@ -266,14 +178,12 @@
     max(0, 0.7 * probe$available - reserve)
   } else 512 * 1024^2
 
-  existing <- vapply(used, function(id) .mgcvst_store_has(store, id), logical(1L))
-  resume_count <- sum(existing)
-  missing <- used[!existing]
+  missing <- used
   builds <- 0L
   preparation_started <- proc.time()[["elapsed"]]
-  # When every state is built in this run, in feature order, the sum behind the
-  # shared basis is accumulated as they are built.
-  running <- if (identical(missing, used)) matrix(0, width, width) else NULL
+  # The sum behind the shared basis is accumulated as the states are built, in
+  # feature order.
+  running <- matrix(0, width, width)
   if (length(missing)) {
     builder <- .mgcvst_state_builder(fit, missing, threads, basis)
     first <- 1L
@@ -293,26 +203,22 @@
         stop("The score-state backend returned the wrong feature count.")
       }
       for (j in seq_along(ids)) .mgcvst_store_write(store, ids[j], states[[j]])
-      if (!is.null(running)) {
-        good <- vapply(states, function(z) is.null(z$error), logical(1L))
-        if (any(good)) {
-          running <- mgcvst_pair_basis_sum_cpp(lapply(states[good], `[[`, "M"),
-                                               running)
-        }
+      good <- vapply(states, function(z) is.null(z$error), logical(1L))
+      if (any(good)) {
+        running <- mgcvst_pair_basis_sum_cpp(lapply(states[good], `[[`, "M"),
+                                             running)
       }
       builds <- builds + length(ids)
       rm(states)
       if (verbose) message("Stored score states for ", builds, " of ",
-                           length(missing), " remaining features.")
+                           length(missing), " features.")
       first <- first + length(ids)
     }
     builder$finish()
     rm(builder)
   }
   read_batch <- 32L
-  shared <- .mgcvst_exact_basis(store, used, width, k,
-    path = if (isTRUE(store$temporary)) NULL else store$path,
-    sum = running, batch_size = read_batch, verbose = verbose)
+  shared <- .mgcvst_exact_basis(running, length(used), k, verbose)
   rm(running)
   # Pair bases G_g = H_g^(1/2) V of every used feature, resident, and the
   # traces tr(M_g) and tr(M_g^2) of each state, kept with the test.
@@ -336,7 +242,9 @@
   preparation_elapsed <- proc.time()[["elapsed"]] - preparation_started
   contract <- .mgcvst_contract("exact", k = k, basis_sha = shared$sha,
                                screen_z = screen_z)
-  pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
+  pair_dir <- .mgcvst_pairs_open()
+  finished <- FALSE
+  on.exit(if (!finished) unlink(pair_dir, recursive = TRUE), add = TRUE)
 
   # Resident score states: least-recently-used eviction under `cache_bytes`.
   cache <- new.env(parent = emptyenv())
@@ -392,7 +300,6 @@
   shard_rows <- integer()
   elapsed <- 0
   chunks <- 0L
-  resumed_pairs <- 0
   nodes_above <- 0
   screened <- 0
   evaluate <- function(window, active, id) {
@@ -417,19 +324,13 @@
     progress <- .mgcvst_progress("pairs", length(used) * (length(used) - 1) / 2,
                                  "pairs")
     capacity <- max(2L, min(length(used), floor(cache_bytes / state_estimate)))
-    schedule <- .mgcvst_all_pair_schedule(pair_dir, length(used), capacity,
-                                          chunk_size)
+    schedule <- .mgcvst_all_pair_schedule(length(used), capacity, chunk_size)
     blocks <- schedule$blocks
     for (b in seq_len(nrow(blocks))) {
       pos <- .mgcvst_block_pairs(blocks[b, ])
       window <- cbind(used[pos[, 1L]], used[pos[, 2L]])
-      if (.mgcvst_shard_complete(pair_dir, b, window[, 1L], window[, 2L])) {
-        resumed_pairs <- resumed_pairs + nrow(window)
-        progress$add(nrow(window), fresh = FALSE)
-      } else {
-        evaluate(window, sort(unique(as.vector(window))), b)
-        progress$add(nrow(window))
-      }
+      evaluate(window, sort(unique(as.vector(window))), b)
+      progress$add(nrow(window))
       shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, b))
       shard_rows <- c(shard_rows, nrow(window))
       chunks <- chunks + 1L
@@ -442,23 +343,13 @@
     pair_schedule <- "resident_gene_tiles"
   } else {
     ord <- .mgcvst_pair_order(index, used,
-      max(2L, floor(cache_bytes / state_estimate)), pair_dir)
+      max(2L, floor(cache_bytes / state_estimate)))
     index <- index[ord, , drop = FALSE]
     n_pairs <- nrow(index)
     progress <- .mgcvst_progress("pairs", n_pairs, "pairs")
     first <- 1L
     last_probe <- proc.time()[["elapsed"]]
     while (first <= n_pairs) {
-      saved <- .mgcvst_shard_window(pair_dir, first, index)
-      if (!is.na(saved)) {
-        resumed_pairs <- resumed_pairs + saved
-        shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, first))
-        shard_rows <- c(shard_rows, saved)
-        chunks <- chunks + 1L
-        first <- first + saved
-        progress$add(saved, fresh = FALSE)
-        next
-      }
       if (proc.time()[["elapsed"]] - last_probe >= 2) {
         probe <- .mgcvst_memory_probe()
         if (is.finite(probe$available)) {
@@ -490,18 +381,17 @@
     pair_schedule <- "resident_gene_blocks"
   }
 
+  finished <- TRUE
   list(
     pair_dir = pair_dir, shards = shard_files, rows = shard_rows,
-    n_pairs = n_pairs, temporary = is.null(checkpoint_dir),
+    n_pairs = n_pairs,
     failed = data.frame(
       feature_id = fit$feature_id[as.integer(names(failed))],
       error = unname(failed), stringsAsFactors = FALSE
     ),
     elapsed = elapsed,
     metadata = list(
-      path = if (isTRUE(store$temporary)) NULL else store$path,
-      pair_dir = pair_dir, builds = builds, resume_count = resume_count,
-      resumed_pairs = resumed_pairs,
+      builds = builds,
       preparation_backend = "sparse_reduced",
       pair_schedule = pair_schedule, chunks = chunks, k = k,
       basis_sha = shared$sha, q = width, nodes_above_leading = nodes_above,
@@ -509,7 +399,7 @@
       cache_hits = cache$hits, cache_misses = cache$misses,
       cache_evictions = cache$evictions, cache_bytes = cache_bytes,
       resident_bytes = cache$bytes, preparation_elapsed = preparation_elapsed,
-      signature = signature, contract = contract
+      contract = contract
     ),
     features = data.frame(feature_index = used, trace_M = trace_M,
                           trace_M2 = trace_M2)

@@ -1,10 +1,6 @@
 test_that("score-state shards round-trip exactly", {
-  path <- tempfile("mgcvst-score-store-")
-  on.exit(unlink(path, recursive = TRUE), add = TRUE)
-  store <- spdeST:::.mgcvst_store_open(
-    path, signature = list(fit = "example", basis_rank = 2L),
-    feature_ids = c("gene/one", "gene:two")
-  )
+  store <- spdeST:::.mgcvst_store_open(c("gene/one", "gene:two"))
+  on.exit(spdeST:::.mgcvst_store_cleanup(store), add = TRUE)
   M <- matrix(c(0.75, 0.125, 0.125, 1.25), 2L)
   state <- list(a = c(1.125, -0.375), M = M, width = c(global = 2L))
   expect_false(spdeST:::.mgcvst_store_has(store, "gene/one"))
@@ -16,76 +12,31 @@ test_that("score-state shards round-trip exactly", {
   expect_identical(actual$width, state$width)
   expect_error(spdeST:::.mgcvst_store_write(store, 1L, state),
                "already exists")
-  expect_false("storage" %in% names(formals(spdeST:::.mgcvst_store_open)))
+  expect_identical(names(formals(spdeST:::.mgcvst_store_open)), "feature_ids")
 })
 
-test_that("score-state stores resume only with identical metadata", {
-  path <- tempfile("mgcvst-score-resume-")
-  on.exit(unlink(path, recursive = TRUE), add = TRUE)
-  signature <- list(fit = "a", projection = list(coverage = 0.995, rank = 2L))
-  store <- spdeST:::.mgcvst_store_open(
-    path, signature = signature, feature_ids = c("a", "b")
-  )
-  state <- list(a = c(1, 2), M = diag(c(0.5, 1.5)))
-  spdeST:::.mgcvst_store_write(store, "a", state)
-  reopened <- spdeST:::.mgcvst_store_open(
-    path, signature = signature, feature_ids = c("a", "b"), resume = TRUE
-  )
-  expect_true(spdeST:::.mgcvst_store_has(reopened, "a"))
-  expect_false(spdeST:::.mgcvst_store_has(reopened, "b"))
-  expect_equal(spdeST:::.mgcvst_store_read(reopened, "a")$M, state$M)
-  expect_error(spdeST:::.mgcvst_store_open(
-    path, signature = list(fit = "other"), feature_ids = c("a", "b")
-  ), "do not match")
-  expect_error(spdeST:::.mgcvst_store_open(
-    path, signature = signature, feature_ids = c("b", "a")
-  ), "do not match")
-  expect_error(spdeST:::.mgcvst_store_open(
-    path, signature = signature, feature_ids = c("a", "b"), resume = FALSE
-  ), "already exists")
-})
-
-test_that("incomplete writes are ignored and damaged shards fail clearly", {
-  path <- tempfile("mgcvst-score-partial-")
-  on.exit(unlink(path, recursive = TRUE), add = TRUE)
-  store <- spdeST:::.mgcvst_store_open(
-    path, signature = list(fit = "partial"), feature_ids = c("a", "b")
-  )
+test_that("damaged shards fail clearly", {
+  store <- spdeST:::.mgcvst_store_open(c("a", "b"))
+  on.exit(spdeST:::.mgcvst_store_cleanup(store), add = TRUE)
+  spdeST:::.mgcvst_store_write(store, "a", list(a = 1, M = matrix(2)))
+  expect_equal(spdeST:::.mgcvst_store_read(store, "a")$M, matrix(2))
   writeBin(as.raw(c(1L, 2L, 3L)),
-           file.path(path, "feature-0000000001.rds-interrupted.tmp"))
-  reopened <- spdeST:::.mgcvst_store_open(
-    path, signature = list(fit = "partial"), feature_ids = c("a", "b")
-  )
-  expect_false(spdeST:::.mgcvst_store_has(reopened, "a"))
-  spdeST:::.mgcvst_store_write(reopened, "a", list(a = 1, M = matrix(2)))
-  expect_equal(spdeST:::.mgcvst_store_read(reopened, "a")$M, matrix(2))
-  writeBin(as.raw(c(1L, 2L, 3L)),
-           file.path(path, "feature-0000000001.rds"))
-  expect_error(spdeST:::.mgcvst_store_read(reopened, "a"), "unreadable")
-  expect_error(spdeST:::.mgcvst_store_write(reopened, "a",
-    list(a = 1, M = matrix(2))), "already exists")
+           file.path(store$path, "feature-0000000001.rds"))
+  expect_error(spdeST:::.mgcvst_store_read(store, "a"), "unreadable")
+  expect_error(spdeST:::.mgcvst_store_read(store, "b"), "has not been written")
 })
 
-test_that("failed features are isolated and only temporary stores are cleaned", {
-  path <- tempfile("mgcvst-score-errors-")
-  on.exit(unlink(path, recursive = TRUE), add = TRUE)
-  store <- spdeST:::.mgcvst_store_open(
-    path, signature = list(fit = "errors"), feature_ids = c("bad", "good")
-  )
+test_that("failed features are isolated and the store is a temporary directory that cleanup removes", {
+  store <- spdeST:::.mgcvst_store_open(c("bad", "good"))
   spdeST:::.mgcvst_store_write(store, "bad", list(error = "fit failed"))
   spdeST:::.mgcvst_store_write(store, "good",
     list(a = c(1, 2), M = diag(2)))
   expect_identical(spdeST:::.mgcvst_store_read(store, "bad"),
                    list(error = "fit failed"))
   expect_equal(spdeST:::.mgcvst_store_read(store, "good")$M, diag(2))
-  expect_false(spdeST:::.mgcvst_store_cleanup(store))
-  expect_true(dir.exists(path))
-
-  temporary <- spdeST:::.mgcvst_store_open(
-    signature = list(fit = "temp"), feature_ids = "a"
-  )
-  temp_path <- temporary$path
-  expect_true(dir.exists(temp_path))
-  expect_true(spdeST:::.mgcvst_store_cleanup(temporary))
-  expect_false(dir.exists(temp_path))
+  expect_true(startsWith(normalizePath(store$path, winslash = "/"),
+                         normalizePath(tempdir(), winslash = "/")))
+  expect_true(dir.exists(store$path))
+  expect_true(spdeST:::.mgcvst_store_cleanup(store))
+  expect_false(dir.exists(store$path))
 })

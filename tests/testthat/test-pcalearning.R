@@ -128,8 +128,7 @@ test_that("spdeST.test and spdeST.test share their arguments and reject removed 
     expect_false(name %in% names(formals(spdeST.test)))
     expect_false(name %in% names(formals(spdeST.test)))
   }
-  shared <- c("pairs", "q.value", "adjust", "threads", "chunk_size",
-              "checkpoint_dir", "resume", "verbose")
+  shared <- c("pairs", "q.value", "adjust", "threads", "chunk_size", "verbose")
   # The shared arguments keep the same positions; the route and the PCAlearning
   # controls follow them, so a positional call means the same in both tests.
   controls <- c("moments", "rank", "n_per_cell", "seed", "k", "screen", "keep")
@@ -315,7 +314,7 @@ test_that("PCAlearning pair kernel reproduces the approx-liu-p rank-10 traces", 
   expect_true(all(e2 > 0 & e2 <= 0.0267))
 })
 
-test_that("PCAlearning checkpoints resume to the uninterrupted result", {
+test_that("PCAlearning pairs are the same for all pairs, an explicit list and any chunk_size", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   G <- length(fit$feature_id)
@@ -326,107 +325,31 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
     .package = "spdeST"
   )
   basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
-  run <- function(index, dir, rank = 3L, resume = TRUE, n_per_cell = 3L, k = NULL) {
-    spdeST:::.mgcvst_pair_pcalearning(
-      fit, index, 2L, 1000L, FALSE, basis, rank = rank, k = k,
-      n_per_cell = n_per_cell, seed = 1L, checkpoint_dir = dir, resume = resume
+  run <- function(index, chunk_size) {
+    z <- spdeST:::.mgcvst_pair_pcalearning(
+      fit, index, 2L, chunk_size, FALSE, basis, rank = 3L, n_per_cell = 3L,
+      seed = 1L
     )
+    on.exit(unlink(z$pair_dir, recursive = TRUE), add = TRUE)
+    out <- do.call(rbind, lapply(z$shards, spdeST:::.mgcvst_read_shard))
+    out <- out[order(out$i, out$j), ]
+    rownames(out) <- NULL
+    list(pairs = out, chunks = z$metadata$chunks,
+         projected = z$metadata$pca_learning$projected_genes)
   }
-  rows <- function(x) .pca_pairs(x)
-  index <- t(combn(G, 2L))
-  reference <- run(index, NULL)
-  expect_null(reference$metadata$pca_learning$checkpoint$path)
-
-  dir <- tempfile("mgcvst-pca-checkpoint-")
-  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  # Interrupted run: only genes 1-6 are requested, so genes 2, 4, 6 are projected.
-  part <- run(t(combn(6L, 2L)), dir)
-  expect_identical(part$metadata$pca_learning$checkpoint$projected_genes, 3L)
-  expect_setequal(list.files(dir, "^(manifest|pca-)"),
-                  c("manifest.rds", "pca-basis.rds", "pca-projection-000001.rds"))
-  expect_length(list.files(dir, "^pairs-"), 1L)
-  same <- function(x) {
-    expect_identical(rows(x), rows(reference))
-    expect_identical(x$metadata$pca_learning$coefficients,
-                     reference$metadata$pca_learning$coefficients)
-    expect_identical(x$metadata$pca_learning$genes, reference$metadata$pca_learning$genes)
+  reference <- run(t(combn(G, 2L)), 1000L)
+  expect_identical(nrow(reference$pairs), as.integer(choose(G, 2)))
+  expect_identical(reference$projected, G - 4L)
+  # The pair list and the gene blocks, and their chunks, agree to roundoff.
+  for (index in list(NULL, t(combn(G, 2L)))) {
+    whole <- run(index, 1000L)
+    expect_equal(whole$pairs, reference$pairs, tolerance = 1e-12)
+    for (chunk_size in c(5L, 2L)) {
+      z <- run(index, chunk_size)
+      expect_gt(z$chunks, 1L)
+      expect_equal(z$pairs, whole$pairs, tolerance = 1e-12)
+    }
   }
-  resumed <- run(index, dir)
-  z <- resumed$metadata$pca_learning$checkpoint
-  expect_true(z$basis_resumed)
-  expect_identical(c(z$resumed_genes, z$projected_genes), c(3L, 1L))
-  same(resumed)
-  expect_identical(resumed$metadata$resumed_pairs, 0)
-
-  # Completed pair shards are reused by a repeated run, and a lost block is
-  # recomputed into a new block.
-  repeated <- run(index, dir)
-  expect_identical(repeated$metadata$resumed_pairs, 28)
-  unlink(file.path(dir, "pca-projection-000001.rds"))
-  again <- run(index, dir)
-  expect_identical(again$metadata$pca_learning$checkpoint$projected_genes, 3L)
-  expect_true(file.exists(file.path(dir, "pca-projection-000003.rds")))
-  same(again)
-  complete <- run(index, dir)
-  expect_identical(complete$metadata$pca_learning$checkpoint$projected_genes, 0L)
-  same(complete)
-
-  # A checkpoint written for another rank or another k is refused, so a
-  # checkpoint made under the earlier defaults (rank 20, k 50) is not resumed
-  # under rank 30 and k 80.
-  expect_error(run(index, dir, rank = 2L), "different fit, score basis, route, rank")
-  expect_error(run(index, dir, k = 5L), "different fit, score basis, route, rank, k")
-  expect_error(run(index, dir, k = 50L), "different fit, score basis, route, rank, k")
-  expect_error(run(index, dir, resume = FALSE), "already exists")
-
-  # A manifest of an earlier algorithm contract is refused, not resumed.
-  manifest <- file.path(dir, "manifest.rds")
-  current <- readRDS(manifest)
-  earlier <- current
-  earlier$signature$version <- 2L
-  earlier$signature$method <- "pca_learning"
-  earlier$signature$contract <- NULL
-  saveRDS(earlier, manifest)
-  expect_error(run(index, dir), "earlier algorithm contract")
-  # Earlier and future kernels are refused by name before their PCAlearning
-  # basis can be reused, including kernel 4's single-node calibration and
-  # kernel 5, which fitted a remainder to the full spectrum, and kernel 6 (BDCSVD).
-  for (kernel in c(1:6, 8L)) {
-    earlier <- current
-    earlier$signature$contract$kernel_version <- kernel
-    saveRDS(earlier, manifest)
-    expect_error(run(index, dir),
-                 sprintf("spa_v1, kernel %d; this version writes spa_v1, kernel 7", kernel))
-  }
-  saveRDS(current, manifest)
-  expect_identical(rows(run(index, dir)), rows(reference))
-
-  # Pair shards of another algorithm contract are refused as well.
-  old <- file.path(dir, "pairs-0123456789")
-  dir.create(old)
-  for (kernel in c(1:6, 8L)) {
-    old_contract <- current$signature$contract
-    old_contract$kernel_version <- kernel
-    saveRDS(list(version = 3L, contract = old_contract, universe_sha = "x"),
-            file.path(old, "contract.rds"))
-    expect_error(run(index, dir),
-                 sprintf("kernel %d; this call writes spa_v1, pcalearning, kernel 7", kernel))
-  }
-  unlink(file.path(old, "contract.rds"))
-  saveRDS(list(), file.path(old, "block-0000000001.rds"))
-  expect_error(run(index, dir), "different algorithm contract")
-  unlink(old, recursive = TRUE)
-
-  public <- tempfile("mgcvst-pca-public-")
-  on.exit(unlink(public, recursive = TRUE), add = TRUE)
-  test <- function() spdeST.test(fit, pairs = t(combn(fit$feature_id, 2L)),
-                                 threads = 2L, rank = 3L, checkpoint_dir = public,
-                                 resume = TRUE, moments = "pcalearning")
-  first <- test()
-  expect_true(file.exists(file.path(public, "pca-basis.rds")))
-  expect_identical(readRDS(file.path(public, "route.rds"))$moments, "pcalearning")
-  expect_identical(test()$results, first$results)
-  expect_identical(first$checkpoint_dir, normalizePath(public, winslash = "/"))
 })
 
 test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory", {
@@ -459,48 +382,7 @@ test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory",
   expect_error(run(3L), "trace tables for rank = 3 .* use a smaller rank")
 })
 
-test_that("a PCAlearning resume follows the stored schedule whatever chunk_size it is given", {
-  skip_on_cran()
-  fit <- .pca_nb_fit()
-  G <- length(fit$feature_id)
-  local_mocked_bindings(
-    .mgcvst_pca_training = function(scales, universe, n_per_cell, seed) {
-      list(train = universe[c(1L, 3L, 5L, 7L)], cell = rep(1L, nrow(scales)))
-    },
-    .package = "spdeST"
-  )
-  basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
-  run <- function(index, dir, chunk_size) {
-    spdeST:::.mgcvst_pair_pcalearning(
-      fit, index, 2L, chunk_size, FALSE, basis, rank = 3L, n_per_cell = 3L,
-      seed = 1L, checkpoint_dir = dir
-    )
-  }
-  for (index in list(NULL, t(combn(G, 2L)))) {
-    dir <- tempfile("mgcvst-pca-chunks-")
-    on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-    first <- run(index, dir, 5L)
-    expect_identical(first$metadata$resumed_pairs, 0)
-    expect_gt(first$metadata$chunks, 1L)
-    for (later in c(1000L, 2L)) {
-      again <- run(index, dir, later)
-      expect_identical(again$metadata$chunk_size, 5L)
-      expect_identical(again$metadata$chunks, first$metadata$chunks)
-      expect_identical(again$metadata$resumed_pairs, choose(G, 2))
-      expect_identical(.pca_pairs(again), .pca_pairs(first))
-    }
-  }
-  # The stored schedule is checked against the universe it was written for.
-  schedule <- file.path(first$metadata$pair_dir, "schedule.rds")
-  stored <- spdeST:::.mgcvst_schedule_load(schedule)
-  expect_identical(stored$kind, "pcalearning")
-  stored$n <- stored$n + 1L
-  unlink(schedule)
-  spdeST:::.mgcvst_schedule_save(schedule, stored)
-  expect_error(run(index, dir, 5L), "pair schedule is damaged or incompatible")
-})
-
-test_that("PCAlearning controls fail before the basis, and the pair directory follows the basis", {
+test_that("PCAlearning controls fail before the basis, and a failed basis leaves no file", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   calls <- 0L
@@ -518,13 +400,13 @@ test_that("PCAlearning controls fail before the basis, and the pair directory fo
   expect_error(spdeST.test(fit, threads = 1.5, moments = "exact"), "threads must be one positive integer")
   expect_identical(calls, 0L)
 
-  dir <- tempfile("mgcvst-pca-order-")
-  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  before <- list.files(tempdir(), all.files = TRUE, no.. = TRUE)
   local_mocked_bindings(.mgcvst_pca_basis = function(...) stop("basis failure"),
                         .package = "spdeST")
-  expect_error(spdeST.test(fit, rank = 3L, checkpoint_dir = dir, moments = "pcalearning"),
+  expect_error(spdeST.test(fit, rank = 3L, moments = "pcalearning"),
                "basis failure")
-  expect_length(list.files(dir, "^pairs-"), 0L)
+  expect_identical(setdiff(list.files(tempdir(), all.files = TRUE, no.. = TRUE), before),
+                   character())
 })
 
 test_that("the PCAlearning Gram matrix and basis are bitwise identical for 1 and 4 threads", {

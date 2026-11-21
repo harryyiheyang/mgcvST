@@ -64,30 +64,6 @@ test_that("the pair test reports its route and k, and the contract records them"
                "achievable PCAlearning rank .*moments = \"exact\"")
 })
 
-test_that("a checkpoint directory records its route and a resume with another route stops", {
-  fit <- .routing_fit()
-  dir <- tempfile("mgcvst-route-")
-  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  first <- spdeST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
-  expect_identical(readRDS(file.path(dir, "route.rds"))$moments, "exact")
-  expect_error(spdeST.test(fit, checkpoint_dir = dir, moments = "pcalearning", rank = 2L),
-               "written with moments = \"exact\".*asks for moments = \"pcalearning\"")
-  # The refusal comes before any work: nothing was added to the directory.
-  expect_false(file.exists(file.path(dir, "pca-basis.rds")))
-  again <- spdeST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
-  expect_identical(again$timing$pair_pipeline$resumed_pairs, 28)
-  expect_identical(again$results, first$results)
-
-  other <- tempfile("mgcvst-route-pca-")
-  on.exit(unlink(other, recursive = TRUE), add = TRUE)
-  pca <- spdeST.test(fit, checkpoint_dir = other, moments = "pcalearning", rank = 2L, k = 3L)
-  expect_identical(readRDS(file.path(other, "route.rds"))$moments, "pcalearning")
-  expect_error(spdeST.test(fit, checkpoint_dir = other, moments = "exact"),
-               "written with moments = \"pcalearning\".*asks for moments = \"exact\"")
-  expect_identical(spdeST.test(fit, checkpoint_dir = other, moments = "pcalearning",
-                               rank = 2L, k = 3L)$results, pca$results)
-})
-
 test_that("a fit takes either route and the exact route agrees with the full spectrum", {
   skip_on_cran()
   fit <- .pca_nb_fit()

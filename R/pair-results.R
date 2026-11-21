@@ -7,8 +7,8 @@
 # pair and 1 / sqrt(t1) its null standard error), the natural-log two-sided, positive and negative p-values, the
 # adjusted two-sided log q-value, the kind of remainder used by the
 # calibration (0 none, 1 one node, 2 two nodes, 3 Gaussian) and a status code.
-# Feature names are looked up from the `feature_id` vector stored beside the
-# shards; no per-pair character column exists. Shards are written as the pairs
+# Feature names are looked up from the `feature_id` vector of the test; no
+# per-pair character column exists. Shards are written as the pairs
 # are evaluated, so a run never holds a per-pair table of all pairs in memory.
 
 # A pair table without rows.
@@ -38,23 +38,15 @@
 .mgcvst_pair_status <- c(ok = 0L, moments = 1L, p_value = 2L, feature = 3L,
                          screened = 4L)
 
-# Algorithm contract of the pair p-values. Every checkpoint of pair results is
-# keyed by it, and a checkpoint written under another contract is refused. The
-# rank `k` and the sha of the shared basis are results of the run, not part of
-# the algorithm: a directory is refused when its contract differs in the
-# contract string, the route, the remainder order, the kernel version or the
-# schema.
-# Stage 2 is calibrated by a saddlepoint approximation on k leading singular
+# Algorithm contract of the pair p-values, returned with a test so that its
+# calibration can be identified.
+# Stage 3 is calibrated by a saddlepoint approximation on k leading singular
 # values of the pair spectrum plus a remainder that matches the remaining power
 # sums: four moments with two nodes on the exact route (`remainder_order` 4),
-# two moments with one node on the PCAlearning route (2). The rank `k` and the
-# sha of the shared basis are known only once the basis exists, so the pair
-# directory of a run is opened (and the contract written) after the basis is
-# built; only the refusal of stale directories happens earlier. Kernel 5
-# corrects incompatible single-node remainder moments; kernel 6 drops the
-# remainder when k = q (full spectrum); kernel 7 takes the leading singular
-# values from the Gram eigenvalues instead of Eigen's BDCSVD; earlier pair
-# results and PCAlearning checkpoints belong to a different calibration.
+# two moments with one node on the PCAlearning route (2). Kernel 5 corrects
+# incompatible single-node remainder moments; kernel 6 drops the remainder when
+# k = q (full spectrum); kernel 7 takes the leading singular values from the
+# Gram eigenvalues instead of Eigen's BDCSVD.
 .mgcvst_contract <- function(route, k = NA_integer_, basis_sha = NA_character_,
                              screen_z = 0) {
   stopifnot(route %in% c("exact", "pcalearning"))
@@ -62,8 +54,7 @@
        remainder_order = if (identical(route, "exact")) 4L else 2L,
        basis_sha = as.character(basis_sha), kernel_version = 7L,
        schema = "compact_v2")
-  # A screened run is another contract (its screening value is part of it); an
-  # unscreened run keeps the contract of earlier versions.
+  # A screened run is another contract (its screening value is part of it).
   if (screen_z > 0) out$screen_z <- as.numeric(screen_z)
   out
 }
@@ -87,11 +78,6 @@
 mgcvst_harmonic <- function(m) {
   if (m <= 1e6) sum(1 / seq_len(m)) else
     log(m) + 0.5772156649015329 + 1 / (2 * m) - 1 / (12 * m^2)
-}
-
-# The part of a contract that defines the algorithm.
-.mgcvst_contract_algorithm <- function(contract) {
-  contract[setdiff(names(contract), c("k", "basis_sha"))]
 }
 
 .mgcvst_pairs_frame <- function(i, j, score = NA_real_, log_p_two_sided = NA_real_,
@@ -158,94 +144,13 @@ mgcvst_harmonic <- function(m) {
   invisible(file)
 }
 
-# Refuse pair results written under another algorithm contract. An older
-# checkpoint is never resumed silently: its p-values come from another
-# calibration.
-.mgcvst_pairs_refuse_stale <- function(root, contract) {
-  dirs <- list.files(root, "^pairs-", full.names = TRUE)
-  dirs <- dirs[dir.exists(dirs)]
-  for (dir in dirs) {
-    record <- file.path(dir, "contract.rds")
-    found <- if (file.exists(record)) {
-      tryCatch(readRDS(record)$contract, error = function(e) NULL)
-    } else NULL
-    if (!identical(.mgcvst_contract_algorithm(found),
-                   .mgcvst_contract_algorithm(contract))) {
-      stop("The checkpoint directory ", root, " holds pair results written ",
-           "under a different algorithm contract (",
-           if (is.null(found)) "none recorded" else
-             paste0(found$calibration_contract, ", ", found$route, ", kernel ",
-                    found$kernel_version),
-           "; this call writes ", contract$calibration_contract, ", ",
-           contract$route, ", kernel ", contract$kernel_version, "): ", basename(dir),
-           ". Use a new checkpoint_dir, or delete the pairs-* directories to ",
-           "keep the reusable feature score states.", call. = FALSE)
-    }
-  }
-  invisible(NULL)
-}
-
-# Open (or resume) the directory of raw pair shards of one pair universe.
-.mgcvst_pairs_open <- function(root, universe, contract, resume = TRUE) {
-  if (!dir.exists(root) && !dir.create(root, recursive = TRUE)) {
+# A new temporary directory for the raw pair shards of one call.
+.mgcvst_pairs_open <- function() {
+  dir <- tempfile("mgcvst-pairs-")
+  if (!dir.create(dir, recursive = TRUE)) {
     stop("Could not create the pair result directory.")
   }
-  .mgcvst_pairs_refuse_stale(root, contract)
-  # The universe of an explicit pair list holds the full index; it is hashed in
-  # bounded pieces rather than serialised whole.
-  sha <- digest::digest(list(version = 3L, contract = contract,
-                             universe = .mgcvst_pair_input_hash(universe)),
-                        algo = "sha256")
-  dir <- file.path(root, paste0("pairs-", sha))
-  record <- list(version = 3L, contract = contract, universe_sha = sha)
-  if (dir.exists(dir)) {
-    if (!resume) {
-      stop("The pair results in ", dir, " already exist; use resume = TRUE or ",
-           "a new checkpoint_dir.")
-    }
-    if (!identical(tryCatch(readRDS(file.path(dir, "contract.rds")),
-                            error = function(e) NULL), record)) {
-      stop("The pair results in ", dir, " are damaged or were written for ",
-           "another pair universe.")
-    }
-  } else {
-    if (!dir.create(dir)) stop("Could not create the pair result directory.")
-    tmp <- tempfile("contract-", tmpdir = dir, fileext = ".tmp")
-    saveRDS(record, tmp, compress = FALSE)
-    if (!file.rename(tmp, file.path(dir, "contract.rds"))) {
-      stop("Could not commit the pair result contract.")
-    }
-  }
   dir
-}
-
-# TRUE when the raw shard `id` exists and holds exactly the pairs
-# (`i`, `j`); an existing shard of other pairs is an error.
-.mgcvst_shard_complete <- function(dir, id, i, j) {
-  file <- .mgcvst_shard_file(dir, id)
-  if (!file.exists(file)) return(FALSE)
-  z <- .mgcvst_read_shard(file, c("i", "j"))
-  if (!identical(z$i, as.integer(i)) || !identical(z$j, as.integer(j))) {
-    stop("The pair result shard ", basename(file), " is damaged or does not ",
-         "match this pair schedule.")
-  }
-  TRUE
-}
-
-# Number of pairs of an existing raw shard starting a window at `first` of the
-# ordered pair matrix `index`; NA when the shard is absent.
-.mgcvst_shard_window <- function(dir, id, index) {
-  file <- .mgcvst_shard_file(dir, id)
-  if (!file.exists(file)) return(NA_integer_)
-  z <- .mgcvst_read_shard(file, c("i", "j"))
-  n <- nrow(z)
-  rows <- seq.int(id, length.out = n)
-  if (!n || max(rows) > nrow(index) || !identical(z$i, as.integer(index[rows, 1L])) ||
-      !identical(z$j, as.integer(index[rows, 2L]))) {
-    stop("The pair result shard ", basename(file), " is damaged or does not ",
-         "match this pair schedule.")
-  }
-  n
 }
 
 # Adjust the two-sided family once, write the final shards (the raw columns
@@ -257,17 +162,16 @@ mgcvst_harmonic <- function(m) {
 #
 # When the compact table fits the memory guard it is built in one pass while
 # the pairs are written: the columns are preallocated, filled shard by shard,
-# and put in (i, j) order by a single permutation. A temporary run then holds
-# the table in memory and deletes its shards and pair directory, so that
-# nothing is left in the temporary directory; a run that does not fit keeps
-# its final shards, and so does every run with a checkpoint directory.
+# and put in (i, j) order by a single permutation. The table is then held in
+# memory and the shards and the pair directory are deleted; a run that does
+# not fit keeps its final shards in the temporary directory.
 #
 # With `discoveries_only` the table holds the discoveries alone, no final
-# shard is written and the pair directory is removed, with a checkpoint
-# directory too: what remains of the other pairs is `summary`, the quantiles
-# of t1 and of U / t1 over the pairs with a p-value.
+# shard is written and the pair directory is removed: what remains of the
+# other pairs is `summary`, the quantiles of t1 and of U / t1 over the pairs
+# with a p-value.
 .mgcvst_pairs_finalize <- function(pair_dir, shards, rows, extra, adjust,
-                                   q.value, temporary, materialize = TRUE,
+                                   q.value, materialize = TRUE,
                                    verbose = FALSE, discoveries_only = FALSE) {
   n_extra <- if (is.null(extra)) 0 else nrow(extra)
   n_pairs <- sum(as.numeric(rows)) + n_extra
@@ -339,7 +243,7 @@ mgcvst_harmonic <- function(m) {
     columns$remainder_kind <- integer(n_pairs)
     columns$status <- integer(n_pairs)
   }
-  write_files <- !discoveries_only && !(temporary && keep)
+  write_files <- !discoveries_only && !keep
 
   threshold <- log(q.value)
   counts <- c(tested = 0, with_p = 0, discovered = 0, positive = 0, negative = 0)
@@ -393,7 +297,7 @@ mgcvst_harmonic <- function(m) {
   for (file in shards) {
     part <- .mgcvst_read_shard(file)
     write_part(part, sub("^shard-", "results-", basename(file)))
-    if (temporary || discoveries_only) unlink(file)
+    unlink(file)
   }
   rm(log_q)
 
@@ -419,11 +323,6 @@ mgcvst_harmonic <- function(m) {
         rho_positive = mean(all_rho[ok] > 0))
       rm(all_t1, all_rho)
     }
-    unlink(pair_dir, recursive = TRUE)
-    parent <- dirname(pair_dir)
-    if (temporary && startsWith(basename(parent), "mgcvst-pairs-")) {
-      unlink(parent, recursive = TRUE)
-    }
   }
   if (keep) {
     perm <- order(columns$i, columns$j, method = "radix")
@@ -439,13 +338,7 @@ mgcvst_harmonic <- function(m) {
     class(results) <- "data.frame"
     rm(columns)
   }
-  if (temporary && (keep || !length(final))) {
-    parent <- dirname(pair_dir)
-    unlink(pair_dir, recursive = TRUE)
-    if (startsWith(basename(parent), "mgcvst-pairs-")) {
-      unlink(parent, recursive = TRUE)
-    }
-  }
+  if (!length(final)) unlink(pair_dir, recursive = TRUE)
   discovered <- if (adjustment$computed) {
     list(pairs_discovered = counts[["discovered"]],
          pairs_discovered_positive = counts[["positive"]],

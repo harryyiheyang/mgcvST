@@ -97,11 +97,7 @@ test_that("zero p-values, rounding above zero and missing values are handled", {
 
 test_that("compact result shards carry one adjustment and the sign split", {
   withr::local_seed(11L)
-  dir <- tempfile("mgcvst-finalize-")
-  dir.create(dir)
-  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  contract <- spdeST:::.mgcvst_contract("exact")
-  pair_dir <- spdeST:::.mgcvst_pairs_open(dir, list(test = 1L), contract)
+  pair_dir <- spdeST:::.mgcvst_pairs_open()
   make <- function(i, j, score, p2) {
     spdeST:::.mgcvst_pairs_frame(i, j, score, log(p2),
       log_p_positive = ifelse(score > 0, log(p2 / 2), log1p(-p2 / 2)),
@@ -117,11 +113,14 @@ test_that("compact result shards carry one adjustment and the sign split", {
   by <- spdeST:::.mgcvst_log_adjust(lp, "BY")$log_q
 
   out <- spdeST:::.mgcvst_pairs_finalize(pair_dir, files, c(3L, 3L), extra, "BY",
-                                         0.05, temporary = FALSE)
+                                         0.05)
   expect_true(out$adjustment$computed)
   expect_equal(out$n_pairs, 8)
-  expect_length(out$shards, 3L)
-  expect_true(all(file.exists(out$shards)) && all(file.exists(files)))
+  # A run that holds the table in memory deletes its raw shards, writes no
+  # final shards and removes its pair directory.
+  expect_length(out$shards, 0L)
+  expect_false(any(file.exists(files)))
+  expect_false(dir.exists(pair_dir))
   r <- out$results
   expect_named(r, c("i", "j", "score", "t1", "log_p_two_sided", "log_p_positive",
                     "log_p_negative", "log_q", "remainder_kind", "status"))
@@ -144,23 +143,18 @@ test_that("compact result shards carry one adjustment and the sign split", {
   expect_equal(out$discoveries$pairs_with_p_value, 6)
   expect_equal(out$threshold$log_p_threshold, max(lp[hit]))
 
-  # A repeated finalize rewrites the shards. A temporary run that holds the
-  # table in memory deletes its raw shards, writes no final shards and removes
-  # its pair directory.
+  pair_dir <- spdeST:::.mgcvst_pairs_open()
+  files <- spdeST:::.mgcvst_shard_file(pair_dir, 1:2)
+  spdeST:::.mgcvst_write_parquet(a, files[1L])
+  spdeST:::.mgcvst_write_parquet(b, files[2L])
   again <- spdeST:::.mgcvst_pairs_finalize(pair_dir, files, c(3L, 3L), extra, "BH",
-                                           0.05, temporary = TRUE)
-  expect_false(any(file.exists(files)))
-  expect_length(again$shards, 0L)
-  expect_false(dir.exists(pair_dir))
+                                           0.05)
   expect_equal(again$results$log_q[match(key(a), key(again$results))],
                spdeST:::.mgcvst_log_adjust(lp, "BH")$log_q[1:3], tolerance = 1e-14)
 })
 
 test_that("the in-memory table is built in one pass and put in (i, j) order", {
-  root <- tempfile("mgcvst-pairs-")
-  on.exit(unlink(root, recursive = TRUE), add = TRUE)
-  contract <- spdeST:::.mgcvst_contract("exact")
-  pair_dir <- spdeST:::.mgcvst_pairs_open(root, list(test = 3L), contract)
+  pair_dir <- spdeST:::.mgcvst_pairs_open()
   make <- function(i, j) {
     spdeST:::.mgcvst_pairs_frame(i, j, score = i - j, log_p_two_sided = -(i + j),
       log_p_positive = -(i + j) - 1, log_p_negative = -0.01 * (i + j))
@@ -171,7 +165,7 @@ test_that("the in-memory table is built in one pass and put in (i, j) order", {
   spdeST:::.mgcvst_write_parquet(first, files[1L])
   spdeST:::.mgcvst_write_parquet(second, files[2L])
   kept <- spdeST:::.mgcvst_pairs_finalize(pair_dir, files, c(2L, 3L), NULL, "BH",
-                                          0.05, temporary = FALSE)
+                                          0.05)
   r <- kept$results
   expect_identical(paste(r$i, r$j), c("1 2", "1 3", "2 3", "2 4", "3 4"))
   expect_identical(vapply(r, typeof, ""), c(i = "integer", j = "integer",
@@ -179,14 +173,8 @@ test_that("the in-memory table is built in one pass and put in (i, j) order", {
     log_p_negative = "double", log_q = "double", remainder_kind = "integer",
     status = "integer"))
   expect_identical(attr(r, "row.names"), 1:5)
-  # The table is the sorted union of the final shards.
-  from_shards <- do.call(rbind, lapply(kept$shards, spdeST:::.mgcvst_read_shard))
-  from_shards <- from_shards[order(from_shards$i, from_shards$j), ]
-  rownames(from_shards) <- NULL
-  expect_equal(r, from_shards)
-
   # The memory guard is evaluated before the shards are written: with room for
-  # the table a temporary run keeps no files; without room it keeps its final
+  # the table a run keeps no files; without room it keeps its final
   # shards and no table.
   guard_calls <- character()
   roomy <- TRUE
@@ -196,27 +184,26 @@ test_that("the in-memory table is built in one pass and put in (i, j) order", {
       list(ok = bytes_per_pair != 64 || roomy, need = 0, available = 1e12)
     },
     .package = "spdeST")
-  temp_dir <- function(universe) {
-    root <- tempfile("mgcvst-pairs-")
-    dir <- spdeST:::.mgcvst_pairs_open(root, list(test = universe), contract)
+  temp_dir <- function() {
+    dir <- spdeST:::.mgcvst_pairs_open()
     f <- spdeST:::.mgcvst_shard_file(dir, 1:2)
     spdeST:::.mgcvst_write_parquet(first, f[1L])
     spdeST:::.mgcvst_write_parquet(second, f[2L])
-    list(root = root, dir = dir, files = f)
+    list(dir = dir, files = f)
   }
-  a <- temp_dir(4L)
+  a <- temp_dir()
   held <- spdeST:::.mgcvst_pairs_finalize(a$dir, a$files, c(2L, 3L), NULL, "BY",
-                                          0.05, temporary = TRUE)
+                                          0.05)
   expect_identical(guard_calls, c("24", "64"))
   expect_identical(nrow(held$results), 5L)
   expect_length(held$shards, 0L)
-  expect_false(dir.exists(a$root))
+  expect_false(dir.exists(a$dir))
 
   roomy <- FALSE
-  b <- temp_dir(5L)
-  on.exit(unlink(b$root, recursive = TRUE), add = TRUE)
+  b <- temp_dir()
+  on.exit(unlink(b$dir, recursive = TRUE), add = TRUE)
   spilled <- spdeST:::.mgcvst_pairs_finalize(b$dir, b$files, c(2L, 3L), NULL, "BY",
-                                             0.05, temporary = TRUE)
+                                             0.05)
   expect_null(spilled$results)
   expect_length(spilled$shards, 2L)
   expect_true(all(file.exists(spilled$shards)))
@@ -226,18 +213,15 @@ test_that("the in-memory table is built in one pass and put in (i, j) order", {
 })
 
 test_that("the memory guard skips the adjustment and the in-memory table", {
-  dir <- tempfile("mgcvst-guard-")
-  dir.create(dir)
-  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  contract <- spdeST:::.mgcvst_contract("exact")
-  pair_dir <- spdeST:::.mgcvst_pairs_open(dir, list(test = 2L), contract)
+  pair_dir <- spdeST:::.mgcvst_pairs_open()
+  on.exit(unlink(pair_dir, recursive = TRUE), add = TRUE)
   frame <- spdeST:::.mgcvst_pairs_frame(1:3, 2:4, c(1, -1, 2), log(c(0.1, 0.2, 0.3)))
   file <- spdeST:::.mgcvst_shard_file(pair_dir, 1L)
   spdeST:::.mgcvst_write_parquet(frame, file)
   testthat::local_mocked_bindings(
     .mgcvst_memory_probe = function(...) list(available = 100), .package = "spdeST")
   expect_warning(out <- spdeST:::.mgcvst_pairs_finalize(
-    pair_dir, file, 3L, NULL, "BY", 0.05, temporary = FALSE), "adjustment skipped")
+    pair_dir, file, 3L, NULL, "BY", 0.05), "adjustment skipped")
   expect_false(out$adjustment$computed)
   expect_match(out$adjustment$reason, "safe memory line")
   expect_null(out$results)
@@ -247,8 +231,8 @@ test_that("the memory guard skips the adjustment and the in-memory table", {
   expect_identical(z$log_p_two_sided, frame$log_p_two_sided)
   expect_true(is.na(out$discoveries$pairs_discovered))
   # Unadjusted p-values need no adjustment memory.
-  none <- spdeST:::.mgcvst_pairs_finalize(pair_dir, file, 3L, NULL, "none", 0.15,
-                                          temporary = FALSE)
+  spdeST:::.mgcvst_write_parquet(frame, file)
+  none <- spdeST:::.mgcvst_pairs_finalize(pair_dir, file, 3L, NULL, "none", 0.15)
   expect_true(none$adjustment$computed)
   expect_identical(spdeST:::.mgcvst_read_shard(none$shards)$log_q, frame$log_p_two_sided)
   expect_equal(none$discoveries$pairs_discovered, 1)
@@ -262,7 +246,7 @@ test_that("adjustment arguments are validated and shared by both tests", {
   expect_error(spdeST.test(fit, threads = 0L, moments = "exact"), "threads")
   expect_error(spdeST.test(fit, chunk_size = 0, moments = "exact"), "chunk_size")
   expect_error(spdeST.test(fit, verbose = NA, moments = "exact"), "verbose")
-  expect_error(spdeST.test(fit, checkpoint_dir = c("a", "b"), moments = "exact"), "checkpoint_dir")
+  expect_error(spdeST.test(fit, checkpoint_dir = "a", moments = "exact"), "unused argument")
   by <- spdeST.test(fit, moments = "exact")
   for (adjust in c("BH", "Sidak", "none")) {
     x <- spdeST.test(fit, adjust = adjust, moments = "exact")

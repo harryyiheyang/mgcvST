@@ -12,7 +12,7 @@
 # pairs of the route the user chose ("exact" moments or "pcalearning") to
 # shards, adjust the two-sided family once and assemble the result.
 .mgcvst_test_run <- function(fit, pairs, q.value, adjust, threads,
-                             chunk_size, checkpoint_dir, resume, verbose,
+                             chunk_size, verbose,
                              moments, rank = NULL, n_per_cell = NULL,
                              seed = NULL, k = NULL, screen = FALSE,
                              keep = "all", call = NULL) {
@@ -37,14 +37,6 @@
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
     stop("verbose must be TRUE or FALSE.")
   }
-  if (!is.logical(resume) || length(resume) != 1L || is.na(resume)) {
-    stop("resume must be TRUE or FALSE.")
-  }
-  if (!is.null(checkpoint_dir) && (!is.character(checkpoint_dir) ||
-      length(checkpoint_dir) != 1L || is.na(checkpoint_dir) ||
-      !nzchar(checkpoint_dir))) {
-    stop("checkpoint_dir must be NULL or one directory name.")
-  }
   if (is.null(threads)) threads <- 1L
   if (!is.numeric(threads) || length(threads) != 1L || !is.finite(threads) ||
       threads < 1 || threads != floor(threads) ||
@@ -67,8 +59,6 @@
   }
   # Validated before any basis is built.
   pca <- .mgcvst_pca_check_args(rank, n_per_cell, seed, k)
-  # A resumed run follows the route of its checkpoint directory.
-  .mgcvst_route_check(checkpoint_dir, resume, moments)
   old_threads <- .mgcvst_thread_limit()
   on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
 
@@ -156,23 +146,19 @@
       routed <- .mgcvst_pair_pcalearning(
         fit, index, threads, chunk_size, verbose, basis = basis,
         rank = pca$rank, n_per_cell = pca$n_per_cell, seed = pca$seed,
-        k = route$k, checkpoint_dir = checkpoint_dir, resume = resume,
-        route = route, screen_z = screening$z
+        k = route$k, screen_z = screening$z
       )
     } else {
       routed <- .mgcvst_pair_pipeline(
         fit, index, threads, chunk_size, verbose,
-        checkpoint_dir = checkpoint_dir, resume = resume, k = route$k,
-        basis = basis, route = route, screen_z = screening$z
+        k = route$k, basis = basis, screen_z = screening$z
       )
     }
     if (screen) screen_record <- c(screening, list(
       screened = routed$metadata$screened))
   } else {
-    root <- tempfile("mgcvst-pairs-")
-    dir.create(root)
-    routed <- list(pair_dir = root, shards = character(), rows = integer(),
-                   n_pairs = 0, temporary = TRUE,
+    routed <- list(pair_dir = .mgcvst_pairs_open(), shards = character(),
+                   rows = integer(), n_pairs = 0,
                    failed = data.frame(feature_id = character(),
                                        error = character()),
                    elapsed = 0, metadata = list(
@@ -181,7 +167,7 @@
   }
   finalized <- .mgcvst_pairs_finalize(
     routed$pair_dir, routed$shards, routed$rows, extra, adjust, q.value,
-    temporary = routed$temporary, verbose = verbose,
+    verbose = verbose,
     discoveries_only = identical(keep, "discoveries")
   )
 
@@ -246,8 +232,6 @@
       calibration = "saddlepoint",
       moments = if (is.null(route)) NA_character_ else route$moments,
       contract = routed$metadata$contract,
-      checkpoint_dir = if (isTRUE(routed$temporary)) NULL else
-        normalizePath(checkpoint_dir, winslash = "/", mustWork = FALSE),
       call = call
     ),
     class = "spdeST_test"

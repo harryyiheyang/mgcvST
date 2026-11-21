@@ -209,34 +209,6 @@
   8 * q^2 * r + 4 * q^2 * (r * (r + 1) / 2) + 4 * q * 32 * r^2 + 8 * r^4
 }
 
-# Atomic RDS commit in a checkpoint directory.
-.mgcvst_pca_save <- function(object, path, file) {
-  target <- file.path(path, file)
-  tmp <- tempfile("pca-", tmpdir = path, fileext = ".tmp")
-  on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
-  saveRDS(object, tmp, compress = FALSE)
-  if (file.exists(target) || !file.rename(tmp, target)) {
-    stop("Could not commit the PCAlearning checkpoint file ", file, ".")
-  }
-  invisible(NULL)
-}
-
-# Completed projection blocks: feature_index, A, C, fro2, trace, error, R and
-# scale per gene. A block written before trace was kept has no trace (NA).
-.mgcvst_pca_blocks_read <- function(path) {
-  files <- sort(list.files(path, "^pca-projection-[0-9]{6}\\.rds$"))
-  lapply(files, function(file) {
-    z <- readRDS(file.path(path, file))
-    fields <- c("feature_index", "A", "C", "fro2", "trace", "error", "R", "scale")
-    body <- z[intersect(fields, names(z))]
-    if (!identical(z$checksum, digest::digest(body, algo = "sha256"))) {
-      stop("The PCAlearning checkpoint block is damaged: ", file, ".")
-    }
-    if (is.null(body$trace)) body$trace <- rep(NA_real_, length(body$feature_index))
-    body
-  })
-}
-
 # Defaults of the PCAlearning controls of the pair tests, in one place: the
 # rank r of the trace tables and the number k of leading singular values taken
 # from the shared basis. On the full-rank MAGIC basis (q = 1961) rank 20 with
@@ -268,74 +240,43 @@
 }
 
 # Everything the pair kernels need of the genes `used`: the training genes and
-# the PCAlearning basis B (learned, or read from the checkpoint directory
-# `path`), the shared basis V, the coefficients C, the factors R_g of V, the
+# the PCAlearning basis B, the shared basis V, the coefficients C, the factors R_g of V, the
 # scales, the score coordinates A, the degree-2 monomials K2 and the trace
 # table T2. Genes without a usable state (`failed_gene`) carry neutral values.
 # The pair stage and the validation scripts both start from this object.
 .mgcvst_pca_prepare <- function(fit, used, basis, q, rank, n_per_cell, seed, k,
-                                threads, path = NULL, verbose = FALSE,
+                                threads, verbose = FALSE,
                                 started = proc.time()[["elapsed"]]) {
   k_requested <- k
-  basis_file <- if (is.null(path)) NULL else file.path(path, "pca-basis.rds")
   available <- .mgcvst_feature_available(fit)
-  basis_resumed <- !is.null(basis_file) && file.exists(basis_file)
-  if (basis_resumed) {
-    saved <- readRDS(basis_file)
-    if (!identical(saved$checksum, digest::digest(saved[c("sampled", "learned")],
-                                                  algo = "sha256"))) {
-      stop("The PCAlearning checkpoint basis is damaged: ", basis_file, ".")
-    }
-    sampled <- saved$sampled
-    learned <- saved$learned
-    t_sample <- 0
-    if (verbose) message("Resumed the rank-", rank, " PCAlearning basis.")
-  } else {
-    scales <- .mgcvst_pca_scales(fit)
-    sampled <- .mgcvst_pca_training(scales, which(available), n_per_cell, seed)
-    sampled$scales <- scales
-    t_sample <- proc.time()[["elapsed"]] - started
-    if (verbose) message("Sampled ", length(sampled$train),
-                         " PCAlearning training genes.")
-  }
+  scales <- .mgcvst_pca_scales(fit)
+  sampled <- .mgcvst_pca_training(scales, which(available), n_per_cell, seed)
+  sampled$scales <- scales
+  t_sample <- proc.time()[["elapsed"]] - started
+  if (verbose) message("Sampled ", length(sampled$train),
+                       " PCAlearning training genes.")
   # The producer serves the training genes as well as the genes of the pairs.
   producer <- .mgcvst_pca_producer(fit, sort(unique(c(used, sampled$train))),
                                    basis, threads)
-  if (!basis_resumed) {
-    learned <- .mgcvst_pca_basis(producer, sampled$train,
-                                 sampled$scales$tau[sampled$train], rank,
-                                 k_requested, threads)
-    if (verbose) message("Learned the rank-", rank, " PCAlearning basis and the ",
-                         "shared basis of k = ", learned$k, ".")
-    if (!is.null(path)) {
-      body <- list(sampled = sampled, learned = learned)
-      body$checksum <- digest::digest(body, algo = "sha256")
-      .mgcvst_pca_save(body, path, "pca-basis.rds")
-    }
-  }
+  learned <- .mgcvst_pca_basis(producer, sampled$train,
+                               sampled$scales$tau[sampled$train], rank,
+                               k_requested, threads)
+  if (verbose) message("Learned the rank-", rank, " PCAlearning basis and the ",
+                       "shared basis of k = ", learned$k, ".")
   scales <- sampled$scales
   kv <- learned$k
 
   # Training genes reuse their first materialization; the others are projected
-  # in checkpoint blocks of 256 genes.
+  # in blocks of 256 genes.
   t0 <- proc.time()[["elapsed"]]
   rest <- setdiff(used, learned$train)
-  blocks <- if (is.null(path)) list() else .mgcvst_pca_blocks_read(path)
-  done <- unlist(lapply(blocks, `[[`, "feature_index"))
-  resumed_genes <- sum(rest %in% done)
-  missing <- setdiff(rest, done)
-  next_block <- if (is.null(path)) 0L else max(0L, as.integer(substr(
-    list.files(path, "^pca-projection-[0-9]{6}\\.rds$"), 16L, 21L)))
+  blocks <- list()
+  missing <- rest
   for (first in if (length(missing)) seq.int(1L, length(missing), by = 256L) else integer()) {
     ids <- missing[first:min(length(missing), first + 255L)]
     z <- producer$materialize(ids, B = learned$B, V = learned$V)
     block <- list(feature_index = ids, A = z$A, C = z$C, fro2 = z$fro2,
                   trace = z$trace, error = z$error, R = z$R, scale = z$scale)
-    if (!is.null(path)) {
-      next_block <- next_block + 1L
-      .mgcvst_pca_save(c(block, list(checksum = digest::digest(block, algo = "sha256"))),
-                       path, sprintf("pca-projection-%06d.rds", next_block))
-    }
     blocks[[length(blocks) + 1L]] <- block
     if (verbose) message("Projected ", min(length(missing), first + 255L), " of ",
                          length(missing), " PCAlearning genes.")
@@ -399,8 +340,7 @@
        trace = trace_M,
        gene_error = gene_error, failed_gene = failed_gene, trained = tr,
        sampled = sampled, scales = scales, learned = learned, tables = tables,
-       basis_check = basis_check, basis_resumed = basis_resumed,
-       resumed_genes = resumed_genes, projected_genes = length(missing),
+       basis_check = basis_check, projected_genes = length(missing),
        t_sample = t_sample, t_project = t_project)
 }
 
@@ -414,8 +354,7 @@
                                      n_per_cell = .mgcvst_pca_defaults$n_per_cell,
                                      seed = .mgcvst_pca_defaults$seed,
                                      k = .mgcvst_pca_defaults$k,
-                                     checkpoint_dir = NULL, resume = TRUE,
-                                     route = NULL, screen_z = 0) {
+                                     screen_z = 0) {
   started <- proc.time()[["elapsed"]]
   controls <- .mgcvst_pca_check_args(rank, n_per_cell, seed, k)
   rank <- controls$rank
@@ -450,55 +389,8 @@
     used <- sort(unique(as.vector(index)))
   }
 
-  contract_early <- .mgcvst_contract("pcalearning")
-  path <- NULL
-  if (!is.null(checkpoint_dir)) {
-    signature <- list(version = 3L, method = "spa_pcalearning",
-                      contract = contract_early,
-                      fit = .mgcvst_pair_signature(fit, basis), rank = rank,
-                      n_per_cell = n_per_cell, seed = seed, k = k_requested,
-                      levels = 2L, q = q)
-    manifest <- file.path(checkpoint_dir, "manifest.rds")
-    if (resume && file.exists(manifest)) {
-      old <- readRDS(manifest)$signature
-      if (is.null(old$method)) {
-        stop("The checkpoint in ", checkpoint_dir, " holds the score states of ",
-             "the exact route; use a new checkpoint_dir for the PCAlearning ",
-             "route.", call. = FALSE)
-      }
-      # The PCAlearning basis of the directory belongs to its contract, so a
-      # directory of another kernel version is refused as a whole.
-      if (!identical(.mgcvst_contract_algorithm(old$contract),
-                     .mgcvst_contract_algorithm(contract_early))) {
-        stop("The checkpoint in ", checkpoint_dir, " was written under an ",
-             "earlier algorithm contract (",
-             if (is.null(old$contract)) "none recorded" else
-               paste0(old$contract$calibration_contract, ", kernel ",
-                      old$contract$kernel_version),
-             "; this version writes ", contract_early$calibration_contract,
-             ", kernel ", contract_early$kernel_version, "); its PCAlearning ",
-             "basis is not reused. Use a new checkpoint_dir.")
-      }
-      if (!identical(old, signature)) {
-        stop("The checkpoint in ", checkpoint_dir, " was written for a different ",
-             "fit, score basis, route, rank, k, n_per_cell, or seed; use a new ",
-             "checkpoint_dir.")
-      }
-    }
-    path <- .mgcvst_store_open(checkpoint_dir, signature, fit$feature_id,
-                               resume = resume)$path
-    .mgcvst_route_save(path, route)
-  }
-  root <- if (is.null(path)) tempfile("mgcvst-pairs-") else path
-  # Pair directories of another algorithm contract are refused before any
-  # work; the directory of this run is opened once the shared basis exists.
-  .mgcvst_pairs_refuse_stale(root, contract_early)
-  universe <- if (all_pairs) {
-    list(all = TRUE, used = used, n_feature = length(fit$feature_id))
-  } else list(index = index)
-
   prep <- .mgcvst_pca_prepare(fit, used, basis, q, rank, n_per_cell, seed,
-                              k_requested, threads, path, verbose, started)
+                              k_requested, threads, verbose, started)
   A <- prep$A; C <- prep$C; C_out <- prep$C_out; K2 <- prep$K2; T2 <- prep$T2
   R <- prep$R; scale <- prep$scale; kv <- prep$k; fro2 <- prep$fro2
   trace_M <- prep$trace
@@ -532,32 +424,13 @@
 
   contract <- .mgcvst_contract("pcalearning", k = kv, basis_sha = learned$V_sha,
                                screen_z = screen_z)
-  pair_dir <- .mgcvst_pairs_open(root, universe, contract, resume)
-  # The block schedule depends on chunk_size, so it is fixed when the pair
-  # directory is first used and a resumed run follows the stored one, whatever
-  # chunk_size it is given.
-  n_schedule <- if (all_pairs) length(used) else nrow(index)
-  schedule_file <- file.path(pair_dir, "schedule.rds")
-  if (file.exists(schedule_file)) {
-    stored <- .mgcvst_schedule_load(schedule_file)
-    if (!identical(stored$kind, "pcalearning") || !identical(stored$n, n_schedule) ||
-        !identical(stored$all_pairs, all_pairs)) {
-      stop("The stored pair schedule is damaged or incompatible.")
-    }
-    if (verbose && !identical(stored$chunk_size, as.integer(chunk_size))) {
-      message("Resumed with the stored chunk_size = ", stored$chunk_size, ".")
-    }
-    chunk_size <- stored$chunk_size
-  } else {
-    chunk_size <- as.integer(min(chunk_size, .Machine$integer.max))
-    .mgcvst_schedule_save(schedule_file, list(
-      kind = "pcalearning", all_pairs = all_pairs, n = n_schedule,
-      chunk_size = chunk_size))
-  }
+  pair_dir <- .mgcvst_pairs_open()
+  finished <- FALSE
+  on.exit(if (!finished) unlink(pair_dir, recursive = TRUE), add = TRUE)
+  chunk_size <- as.integer(min(chunk_size, .Machine$integer.max))
 
   t0 <- proc.time()[["elapsed"]]
   chunks <- 0L
-  resumed_pairs <- 0
   nodes_above <- 0
   screened <- 0
   shard_files <- character()
@@ -579,16 +452,12 @@
       len <- n_used - left
       li <- rep(left, len)
       lj <- sequence(len, from = left + 1L)
-      if (.mgcvst_shard_complete(pair_dir, id, used[li], used[lj])) {
-        resumed_pairs <- resumed_pairs + length(li)
-      } else {
-        out <- mgcvst_pca_spa_block_cpp(A, C, K2, T2, R, scale, first, last, threads,
-                                        screen_z = screen_z)
-        nodes_above <- nodes_above + attr(out, "nodes_above_leading")
-        screened <- screened + attr(out, "screened")
-        .mgcvst_write_parquet(pair_frame(li, lj, out),
-                              .mgcvst_shard_file(pair_dir, id))
-      }
+      out <- mgcvst_pca_spa_block_cpp(A, C, K2, T2, R, scale, first, last, threads,
+                                      screen_z = screen_z)
+      nodes_above <- nodes_above + attr(out, "nodes_above_leading")
+      screened <- screened + attr(out, "screened")
+      .mgcvst_write_parquet(pair_frame(li, lj, out),
+                            .mgcvst_shard_file(pair_dir, id))
       shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, id))
       shard_rows <- c(shard_rows, length(li))
       chunks <- chunks + 1L
@@ -599,22 +468,19 @@
     n <- nrow(index)
     for (first in seq.int(1L, n, by = chunk_size)) {
       z <- first:min(n, first + chunk_size - 1L)
-      if (.mgcvst_shard_complete(pair_dir, first, index[z, 1L], index[z, 2L])) {
-        resumed_pairs <- resumed_pairs + length(z)
-      } else {
-        out <- mgcvst_pca_spa_pairs_cpp(A, C, K2, T2, R, scale, local[z, 1L],
-                                        local[z, 2L], threads, screen_z)
-        nodes_above <- nodes_above + attr(out, "nodes_above_leading")
-        screened <- screened + attr(out, "screened")
-        .mgcvst_write_parquet(pair_frame(local[z, 1L], local[z, 2L], out),
-                              .mgcvst_shard_file(pair_dir, first))
-      }
+      out <- mgcvst_pca_spa_pairs_cpp(A, C, K2, T2, R, scale, local[z, 1L],
+                                      local[z, 2L], threads, screen_z)
+      nodes_above <- nodes_above + attr(out, "nodes_above_leading")
+      screened <- screened + attr(out, "screened")
+      .mgcvst_write_parquet(pair_frame(local[z, 1L], local[z, 2L], out),
+                            .mgcvst_shard_file(pair_dir, first))
       shard_files <- c(shard_files, .mgcvst_shard_file(pair_dir, first))
       shard_rows <- c(shard_rows, length(z))
       chunks <- chunks + 1L
     }
   }
   pair_elapsed <- proc.time()[["elapsed"]] - t0
+  finished <- TRUE
 
   C <- C_out
   e2 <- fro2 - rowSums(C^2)
@@ -637,7 +503,7 @@
   rownames(failed) <- NULL
   list(
     pair_dir = pair_dir, shards = shard_files, rows = shard_rows,
-    n_pairs = sum(shard_rows), temporary = is.null(path), failed = failed,
+    n_pairs = sum(shard_rows), failed = failed,
     elapsed = pair_elapsed,
     features = data.frame(feature_index = used, trace_M = trace_M,
                           trace_M2 = fro2),
@@ -645,17 +511,14 @@
       preparation_backend = "sparse",
       pair_schedule = if (all_pairs) "pcalearning_gene_blocks" else
         "pcalearning_pair_list",
-      chunks = chunks, chunk_size = chunk_size, resumed_pairs = resumed_pairs,
-      pair_dir = pair_dir, k = kv, basis_sha = learned$V_sha, q = q,
+      chunks = chunks, chunk_size = chunk_size, k = kv, basis_sha = learned$V_sha, q = q,
       nodes_above_leading = nodes_above,
       screen_z = screen_z, screened = screened,
       preparation_elapsed = preparation_elapsed, contract = contract,
       pca_learning = list(
         rank = rank, n_per_cell = n_per_cell,
         seed = seed, k = kv, q = q, training = training,
-        checkpoint = list(path = path, basis_resumed = prep$basis_resumed,
-                          resumed_genes = prep$resumed_genes,
-                          projected_genes = prep$projected_genes),
+        projected_genes = prep$projected_genes,
         basis_orthonormality = prep$basis_check,
         gram_values = learned$values, rotation = learned$rotation,
         coefficients = C, genes = genes,

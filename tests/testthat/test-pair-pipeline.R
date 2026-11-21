@@ -132,38 +132,13 @@ test_that("an invalid exact-route p-value is p = 1, keeps its status and stays i
                tolerance = 1e-12)
 })
 
-test_that("stale pair results are refused before work and the pair directory follows the states", {
-  built <- 0L
-  .pair_pipeline_mocks(materialize = function(ids) {
-    built <<- built + length(ids)
-    lapply(ids, .pair_pipeline_state)
-  })
+test_that("a run whose state preparation fails leaves no file behind", {
   fit <- .pair_pipeline_fit()
-  dir <- tempfile("mgcvst-pair-open-")
-  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE, checkpoint_dir = dir,
-                                 basis = .pair_pipeline_basis)
-  expect_identical(built, 4L)
-  # Leave one missing state and a pair directory of another contract.
-  unlink(list.files(dir, "^pairs-", full.names = TRUE), recursive = TRUE)
-  unlink(file.path(dir, "feature-0000000004.rds"))
-  stale <- file.path(dir, "pairs-0123")
-  dir.create(stale)
-  saveRDS(list(), file.path(stale, "block-0000000001.rds"))
-  built <- 0L
-  expect_error(spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
-                                              checkpoint_dir = dir,
-                                              basis = .pair_pipeline_basis),
-               "different algorithm contract")
-  expect_identical(built, 0L)
-  expect_false(file.exists(file.path(dir, "feature-0000000004.rds")))
-  unlink(stale, recursive = TRUE)
-
-  # A run whose state preparation fails leaves no pair directory behind.
+  before <- list.files(tempdir(), all.files = TRUE, no.. = TRUE)
   .pair_pipeline_mocks(materialize = function(ids) stop("state failure"))
   expect_error(spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
-                                              checkpoint_dir = dir,
                                               basis = .pair_pipeline_basis),
                "state failure")
-  expect_length(list.files(dir, "^pairs-"), 0L)
+  expect_identical(setdiff(list.files(tempdir(), all.files = TRUE, no.. = TRUE), before),
+                   character())
 })

@@ -204,12 +204,9 @@ nodes, 3 Gaussian) and `status`; feature names are
 in the adjustment family) and 3 when a gene has no usable score state (no
 p-value, not adjusted). The adjustment (`adjust = "BY"`, `"BH"`, `"Sidak"` or
 `"none"`) is applied once to the two-sided family in log space, and positive and
-negative discoveries are split by the sign of the score. A `checkpoint_dir`
-stores the feature score states, the shared basis and the pair shards under the
-algorithm contract `spa_v1`, which records the route, `k`, the remainder order
-and the sha of the shared basis; a directory holding pair results from another
-contract is refused. The directory records its route, and a resume with another
-`moments` stops with a message.
+negative discoveries are split by the sign of the score. The test writes no
+checkpoint: the score states and the pair shards are temporary files in
+`tempdir()` and are removed when the call returns.
 
 ## Included data and observed spatial locations
 

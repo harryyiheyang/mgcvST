@@ -141,8 +141,7 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' one node. The exact route costs time cubic in the score dimension `q` for
 #' every pair, and the PCAlearning route does not depend on `q` per pair; the
 #' PCAlearning route needs more genes than `rank`. `verbose = TRUE` prints the
-#' route and `k`. A checkpoint directory records its route, and a resumed call
-#' with another `moments` stops with a message.
+#' route and `k`.
 #'
 #' With `pairs = NULL`, every pair of the available features is tested; the
 #' pairs are generated and scored in blocks and never held as one matrix. A
@@ -185,12 +184,13 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' adjustment family. Rows are written as Parquet shards while the
 #' pairs are evaluated, and `$results` is the same table sorted by `(i, j)`
 #' when it fits the memory guard (56 bytes per pair, 20% of available memory),
-#' and `NULL` otherwise. Without a `checkpoint_dir` the shards are temporary:
-#' they are deleted once `$results` is built and `$shards` is empty, and when
-#' `$results` is `NULL` they stay in the session's temporary directory and are
-#' listed in `$shards`. With a `checkpoint_dir`, `$shards` lists the final
-#' files in it. Use a `checkpoint_dir` for runs of many millions of pairs, so
-#' that the shards go to a disk of the right size.
+#' and `NULL` otherwise. The shards and the score states of the features are
+#' temporary files in the session's temporary directory (`tempdir()`, which
+#' follows `TMPDIR`): the score states are deleted when the call returns, the
+#' shards once `$results` is built, and `$shards` is then empty. Only when
+#' `$results` is `NULL` do the shards stay in the temporary directory until
+#' the session ends, listed in `$shards`. The test writes no checkpoint and no
+#' other file; for all pairs of many features use `keep = "discoveries"`.
 #'
 #' The adjustment is applied once, to the two-sided family, in log space
 #' by the native kernel, so p-values below the double range keep their
@@ -218,19 +218,13 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' @param keep `"all"` returns every tested pair. `"discoveries"` returns the
 #'   pairs with a q-value at or below `q.value` alone and writes no pair to a
 #'   lasting file: the pairs are evaluated and adjusted as with `"all"`, the
-#'   temporary pair files are removed (those in `checkpoint_dir` too), and
+#'   temporary pair files are removed, and
 #'   `$summary` holds what is known of all pairs with a p-value, the quantiles
 #'   of `t1`, `U / t1`, `1 / sqrt(t1)` and `|U / t1|`, the proportion with
 #'   `|U / t1| > 1` and the proportion with `U / t1 > 0`. Use it for all pairs
 #'   of many features, where the full table has tens of millions of rows;
 #'   [spdeST.wgcna()] needs every pair of its blocks, so test those features
 #'   with `keep = "all"`.
-#' @param checkpoint_dir Optional checkpoint directory. Reusable feature score
-#'   states and the raw pair shards are saved there, and a repeated call
-#'   resumes completed shards. Pair results are keyed by the algorithm
-#'   contract; a directory holding pair results from another contract is
-#'   refused. With `NULL`, temporary storage is used.
-#' @param resume Reuse compatible completed checkpoint entries.
 #' @param verbose Logical; report progress and the route.
 #' @param moments `"exact"` or `"pcalearning"`, the route of the pair
 #'   calibration. Required: there is no default, and a call without it stops.
@@ -299,8 +293,8 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' @export
 spdeST.test <- function(fit, pairs = NULL, q.value = 0.05,
                         adjust = c("BY", "BH", "Sidak", "none"),
-                        threads = NULL, chunk_size = NULL, checkpoint_dir = NULL,
-                        resume = TRUE, verbose = FALSE, moments,
+                        threads = NULL, chunk_size = NULL, verbose = FALSE,
+                        moments,
                         rank = .mgcvst_pca_defaults$rank,
                         n_per_cell = .mgcvst_pca_defaults$n_per_cell,
                         seed = .mgcvst_pca_defaults$seed, k = NULL,
@@ -313,7 +307,7 @@ spdeST.test <- function(fit, pairs = NULL, q.value = 0.05,
   keep <- match.arg(keep)
   .mgcvst_test_run(
     fit, pairs, q.value, adjust, threads, chunk_size,
-    checkpoint_dir, resume, verbose, moments = moments, rank = rank,
+    verbose, moments = moments, rank = rank,
     n_per_cell = n_per_cell, seed = seed, k = k, screen = screen,
     keep = keep, call = match.call()
   )
