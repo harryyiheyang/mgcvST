@@ -1,9 +1,10 @@
 # spdeST 0.0.1.9073
 
 * Names follow the single pipeline. `inlaST.set()` is `spdeST.set()` and
-  `inlaST.wgcna()` is `spdeST.wgcna()`; the internal `inlaST.estimate()`,
-  `inlaST.estimate_spatial()` and `inlaST.test()` are no longer functions of
-  their own (`spdeST.scan()`, `spdeST.estimate()`, `spdeST.test()`).
+  `inlaST.wgcna()` is `spdeST.wgcna()`; `inlaST.test()` is merged into
+  `spdeST.test()`, and the internal `inlaST.estimate()` and
+  `inlaST.estimate_spatial()` are `.spdest_scan()` and `.spdest_estimate()`,
+  the bodies of `spdeST.scan()` and `spdeST.estimate()`.
 * Classes: a model is an `spdeST_model`, a Stage 1 result an `spdeST_scan`,
   a Stage 2 result an `spdeST_fit`, a pair test an `spdeST_test`, a module
   result an `spdeST_wgcna`, a basis an `spdeST_basis`. The classes
