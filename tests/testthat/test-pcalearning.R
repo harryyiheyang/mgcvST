@@ -132,7 +132,7 @@ test_that("spdeST.test and spdeST.test share their arguments and reject removed 
               "checkpoint_dir", "resume", "verbose")
   # The shared arguments keep the same positions; the route and the PCAlearning
   # controls follow them, so a positional call means the same in both tests.
-  controls <- c("moments", "rank", "n_per_cell", "seed", "k", "screen")
+  controls <- c("moments", "rank", "n_per_cell", "seed", "k", "screen", "keep")
   expect_identical(names(formals(spdeST.test)), c("fit", shared, controls))
   expect_identical(names(formals(spdeST.test)), c("fit", shared, controls))
   expect_identical(formals(spdeST.test)[controls], formals(spdeST.test)[controls])
