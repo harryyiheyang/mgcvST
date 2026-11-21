@@ -125,10 +125,12 @@ public:
       lfact_ += R::lgammafn(y[i] + 1.0);
     }
     for (int j = static_cast<int>(tail_.size()) - 2; j >= 0; --j) tail_[j] += tail_[j + 1];
+    separate();
     // Start as glm.fit() does for the Poisson family, with no field.
     const Vec m0 = (y.array() + 0.1).matrix();
     const Vec z = (m0.array().log() - off_.array() + (y - m0).array() / m0.array()).matrix();
-    const Vec sw = m0.array().sqrt().matrix();
+    Vec sw = m0.array().sqrt().matrix();
+    for (int i : gone_) sw[i] = 0;
     Eigen::CompleteOrthogonalDecomposition<Mat> qr;
     qr.setThreshold(ctl_.rank_tol);
     qr.compute(sw.asDiagonal() * X_);
@@ -200,7 +202,19 @@ public:
     return NA_REAL;
   }
 
-  const Vec& beta() const { return beta_; }
+  // The fixed effects, moved along each separating direction until the
+  // fitted means of its rows are at most rank_tol: their limit is zero.
+  Vec beta() const {
+    Vec beta = beta_;
+    for (size_t k = 0; k < sep_.size(); ++k) {
+      const Vec z = X_ * sep_[k];
+      const Vec eta = off_ + A_ * u_ + X_ * beta;
+      double t = 0;
+      for (int i : sep_rows_[k]) t = std::max(t, (eta[i] - std::log(ctl_.rank_tol)) / -z[i]);
+      beta += t * sep_[k];
+    }
+    return beta;
+  }
   const Vec& u() const { return u_; }
   int evaluations = 0, newton = 0;
 
@@ -210,9 +224,62 @@ private:
   bool linear_predictor(const Vec& beta, const Vec& u, Vec& eta, Vec& mu) const {
     eta = off_ + A_ * u;
     if (p_) eta.noalias() += X_ * beta;
+    for (int i : gone_) eta[i] = 0;
     if (!eta.allFinite() || !(eta.array() < ctl_.eta_max).all()) return false;
     mu = eta.array().exp();
+    for (int i : gone_) mu[i] = 0;
     return true;
+  }
+
+  // Separation: a direction v of the fixed effects with Xv = 0 on every row
+  // with a count and Xv <= 0 elsewhere (a factor level without counts). The
+  // likelihood rises along v for ever and the fitted means of the rows with
+  // Xv < 0 go to zero. Those rows take their limit, mean zero, so that the
+  // criterion is the one of the model without them and without v. The
+  // directions tried are the null vectors of the rows with a count, one per
+  // column a pivoted QR leaves out, each tried on the rows still in.
+  void separate() {
+    gone_.clear();
+    sep_.clear();
+    sep_rows_.clear();
+    if (!p_ || !(y_.array() > 0).any()) return;
+    std::vector<char> out(n_, 0);
+    {
+      std::vector<int> pos;
+      for (int i = 0; i < n_; ++i) if (y_[i] > 0) pos.push_back(i);
+      Mat Xp(pos.size(), p_);
+      for (size_t k = 0; k < pos.size(); ++k) Xp.row(k) = X_.row(pos[k]);
+      Eigen::ColPivHouseholderQR<Mat> qr;
+      qr.setThreshold(ctl_.rank_tol);
+      qr.compute(Xp);
+      const int r = qr.rank();
+      if (r == p_) return;
+      const Mat R = qr.matrixR().topRows(r);
+      const Mat R1 = R.leftCols(r).triangularView<Eigen::Upper>();
+      for (int j = r; j < p_; ++j) {
+        Vec v = Vec::Zero(p_);
+        if (r) v.head(r) = -R1.triangularView<Eigen::Upper>().solve(R.col(j));
+        v[j] = 1;
+        v = qr.colsPermutation() * v;
+        const Vec z = X_ * v;
+        const double small = ctl_.rank_tol * X_.cwiseAbs().maxCoeff() * v.cwiseAbs().maxCoeff();
+        double lo = 0, hi = 0;
+        for (int i = 0; i < n_; ++i) {
+          if (out[i] || y_[i] > 0) continue;
+          lo = std::min(lo, z[i]);
+          hi = std::max(hi, z[i]);
+        }
+        if ((lo < -small) == (hi > small)) continue;  // aliased, or two signs
+        if (hi > small) v = -v;
+        std::vector<int> rows;
+        for (int i = 0; i < n_; ++i) {
+          if (!out[i] && !(y_[i] > 0) && std::abs(z[i]) > small) { out[i] = 1; rows.push_back(i); }
+        }
+        gone_.insert(gone_.end(), rows.begin(), rows.end());
+        sep_.push_back(v);
+        sep_rows_.push_back(rows);
+      }
+    }
   }
 
   double penalised(const Vec& mu, const Vec& u, double tau, double alpha) const {
@@ -294,6 +361,9 @@ private:
   const Control& ctl_;
   const int n_, m_, p_;
   Vec y_, off_, beta_, u_;
+  std::vector<int> gone_;
+  std::vector<Vec> sep_;
+  std::vector<std::vector<int>> sep_rows_;
   std::vector<double> tail_;
   double lfact_ = 0, logdet_S_ = 0, logdet_K_ = 0;
   Eigen::SimplicialLDLT<SpMat> llt_;

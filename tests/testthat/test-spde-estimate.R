@@ -239,3 +239,31 @@ test_that("the criterion holds when the field can nearly take up the intercept",
                  reference(f$Y[1L, ], log_tau, alpha), tolerance = 1e-8)
   }
 })
+
+test_that("a factor level without counts leaves the criterion of the model without it", {
+  f <- estimate_fixture()
+  level <- seq_len(f$n) %% 3L
+  X <- cbind(1, as.numeric(level == 1L), as.numeric(level == 2L))
+  y <- f$Y[1L, ]
+  y[level != 0L] <- 0
+  keep <- level == 0L
+  for (alpha in c(0, 0.3)) {
+    log_tau <- seq(-6, 4, by = 2)
+    full <- spde.laml(y, X, f$A, f$Q, log_tau, alpha, offset = f$off,
+                      constraint = f$constraint)
+    # Each point on its own, not warm-started from its neighbour.
+    cold <- vapply(log_tau, function(x) spde.laml(
+      y, X, f$A, f$Q, x, alpha, offset = f$off, constraint = f$constraint), 0)
+    reduced <- spde.laml(y[keep], X[keep, 1L, drop = FALSE], f$A[keep, , drop = FALSE],
+                         f$Q, log_tau, alpha, offset = f$off[keep],
+                         constraint = f$constraint)
+    expect_equal(full, reduced, tolerance = 1e-8)
+    expect_equal(cold, reduced, tolerance = 1e-8)
+  }
+  Y <- methods::as(Matrix::Matrix(rbind(a = y), sparse = TRUE), "CsparseMatrix")
+  fit <- spde.estimate(Y, X, f$A, f$Q, offset = f$off, constraint = f$constraint)
+  expect_true(fit$converged)
+  beta <- attr(fit, "coefficients")[, 1L]
+  eta <- f$off + as.numeric(X %*% beta + f$A %*% attr(fit, "field")[, 1L])
+  expect_lte(max(exp(eta[!keep])), 1e-11 * (1 + 1e-8))
+})

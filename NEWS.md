@@ -1,3 +1,20 @@
+# spdeST 0.0.1.9070
+
+* `spde.estimate()` and `spde.laml()` find separation before they fit a
+  feature: a direction of the fixed effects that is zero on every
+  observation with a count and of one sign elsewhere, such as a factor
+  level without counts. The fitted means of that level go to zero and its
+  coefficient to minus infinity; the test for an aliased fixed effect
+  dropped the direction at some evaluations and not at others, by how far
+  the coefficient had drifted, and the criterion took values about ten
+  apart. Those observations now take mean zero from the start, so the
+  criterion is the one of the model without them and without the
+  direction, and the coefficient returned puts their fitted means at
+  `rank_tol`. The directions tried are those a pivoted QR of the rows with
+  a count leaves out; separation along a combination of them is not
+  searched for. In the Visium-B data with cell types 5 Poisson genes with
+  counts in one cell type only had stopped away from the maximum.
+
 # spdeST 0.0.1.9069
 
 * `spde.estimate()` and `spde.laml()` solve the Newton step of the mode
