@@ -3,16 +3,17 @@
 \name{spdeST.wgcna}
 \alias{spdeST.wgcna}
 \alias{print.spdeST_wgcna}
-\title{Identify co-expression modules from a fit}
+\title{Identify co-expression modules from the pair test}
 \usage{
-spdeST.wgcna(fit, indices, wgcna.para = NULL, verbose = FALSE, threads = 1L)
+spdeST.wgcna(test, indices, wgcna.para = NULL, verbose = FALSE)
 
 \method{print}{spdeST_wgcna}(x, ...)
 }
 \arguments{
-\item{fit}{A fit returned by \code{\link[=spdeST.estimate]{spdeST.estimate()}}.}
+\item{test}{A result of \code{\link[=spdeST.test]{spdeST.test()}} that holds every pair of the
+selected genes (\code{pairs = NULL} tests every pair of the fitted features).}
 
-\item{indices}{Required gene IDs, integer positions in \code{fit$feature_id},
+\item{indices}{Required gene IDs, integer positions in \code{test$feature_id},
 or a named list of such vectors. Each block must contain at least two distinct
 genes. A vector defines the block named \code{selected}. Gene order is preserved.}
 
@@ -25,38 +26,38 @@ grey (zero) labels, without changing the requested module size.}
 
 \item{verbose}{Whether to display compact progress messages.}
 
-\item{threads}{Positive OpenMP thread count controlling score construction.}
-
 \item{x}{An \code{spdeST_wgcna} result.}
 
 \item{...}{Unused.}
 }
 \value{
 An \code{spdeST_wgcna} object with \code{modules} (component, feature ID, integer
-module, color), named \code{networks} (feature IDs, covariance, correlation,
-adjacency, TOM, tree, labels, modules, coordinate count \code{q}, and status),
-\code{score} (aligned \code{A}, group names and widths), \code{settings}, and \code{timing}.
+module, color), named \code{networks} (feature IDs, \code{correlation} (the
+estimates \code{U / t1}, not limited), \code{limited} (the number of pairs outside
+\verb{[-1, 1]}), adjacency, TOM, tree, labels, modules and status),
+\code{settings}, and \code{timing}.
 A zero module label means unassigned (grey). Module labels are local to
 each input block. No biological annotations are inferred automatically.
 }
 \description{
-Builds the gene-by-gene similarity \eqn{S_{ij} = (R'a_i)'(R'a_j)} of the
-genes of each selected block, where \code{R} is the observation-kernel
-coordinate basis used by \code{\link[=spdeST.test]{spdeST.test()}} (all \code{q - 1} directions of the
-constrained field) and \eqn{a_i} are the score vectors stored on the fit,
-divided by the basis rank \code{r}. It then runs
+The similarity of two genes is the Haseman-Elston-type estimate of their
+latent spatial correlation, \code{rho_ij = U_ij / t1_ij}, with the score \code{U_ij}
+and its information \code{t1_ij} of the pair in a result of \code{\link[=spdeST.test]{spdeST.test()}}; a
+gene has similarity 1 with itself. No score is recomputed. The estimate of
+a pair with little information can lie outside \verb{[-1, 1]}; the adjacency is
+defined on \verb{[-1, 1]}, so such an estimate enters it as \code{-1} or \code{1}, and
+the number of these pairs is returned. The function then runs
 \code{WGCNA::adjacency.fromSimilarity()}, \code{WGCNA::TOMsimilarity()},
 \code{fastcluster::hclust()}, \code{dynamicTreeCut::cutreeDynamic()} and
-\code{WGCNA::labels2colors()}. Blocks are selected explicitly; no gene is
-selected by estimation or testing, and all pairs within a block enter its
-covariance. No centering, ridge, or covariance projection is applied, and
-the supplied fit is not modified.
+\code{WGCNA::labels2colors()}. Blocks are selected explicitly; every pair of a
+block must have been tested.
 }
 \examples{
 \dontrun{
 scan <- spdeST.scan(Y, model)
 fit <- spdeST.estimate(scan, Y, features = "all")
-W <- spdeST.wgcna(fit, indices = genes, threads = 4L)
+test <- spdeST.test(fit, moments = "exact")
+W <- spdeST.wgcna(test, indices = genes)
 W$modules
 }
 }

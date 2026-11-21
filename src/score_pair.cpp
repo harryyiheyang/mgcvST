@@ -425,3 +425,55 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
 // The instruction set of the SIMD kernels chosen for this process.
 // [[Rcpp::export]]
 std::string mgcvst_simd_cpp() { return mgcvst::la().isa; }
+
+// Haseman-Elston-type correlation matrix of p selected features from pair
+// rows: rho_ij = U_ij / t1_ij, the diagonal is 1. `position` maps a feature
+// index (1-based) to its row in the matrix, 0 for a feature that is not
+// selected. `similarity` is rho limited to [-1, 1]; `limited` counts the
+// pairs outside it and `missing` the pairs of selected features without a
+// finite score and a positive finite t1.
+// [[Rcpp::export]]
+Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i,
+                                     const Rcpp::IntegerVector& j,
+                                     const Rcpp::NumericVector& score,
+                                     const Rcpp::NumericVector& t1,
+                                     const Rcpp::IntegerVector& position,
+                                     int p) {
+  const R_xlen_t n = i.size();
+  if (j.size() != n || score.size() != n || t1.size() != n) {
+    Rcpp::stop("i, j, score and t1 must have one entry per pair.");
+  }
+  if (p < 2) Rcpp::stop("At least two features are required.");
+  const int features = position.size();
+  Rcpp::NumericMatrix rho(p, p);
+  std::fill(rho.begin(), rho.end(), NA_REAL);
+  for (int k = 0; k < p; ++k) rho(k, k) = 1.0;
+  for (R_xlen_t k = 0; k < n; ++k) {
+    if (i[k] < 1 || i[k] > features || j[k] < 1 || j[k] > features) {
+      Rcpp::stop("A pair holds a feature index outside the fit.");
+    }
+    const int a = position[i[k] - 1], b = position[j[k] - 1];
+    if (a < 1 || b < 1 || a == b) continue;
+    if (a > p || b > p) Rcpp::stop("position holds a row outside the matrix.");
+    if (!std::isfinite(score[k]) || !std::isfinite(t1[k]) || !(t1[k] > 0)) continue;
+    const double r = score[k] / t1[k];
+    rho(a - 1, b - 1) = r;
+    rho(b - 1, a - 1) = r;
+  }
+  Rcpp::NumericMatrix similarity = Rcpp::clone(rho);
+  double limited = 0, missing = 0;
+  for (int b = 0; b < p; ++b) {
+    for (int a = b + 1; a < p; ++a) {
+      const double r = rho(a, b);
+      if (!std::isfinite(r)) { missing += 1; continue; }
+      if (std::abs(r) > 1.0) {
+        limited += 1;
+        similarity(a, b) = similarity(b, a) = r > 0 ? 1.0 : -1.0;
+      }
+    }
+  }
+  return Rcpp::List::create(Rcpp::Named("rho") = rho,
+                            Rcpp::Named("similarity") = similarity,
+                            Rcpp::Named("limited") = limited,
+                            Rcpp::Named("missing") = missing);
+}

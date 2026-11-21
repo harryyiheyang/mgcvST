@@ -274,6 +274,22 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_he_correlation_cpp
+Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i, const Rcpp::IntegerVector& j, const Rcpp::NumericVector& score, const Rcpp::NumericVector& t1, const Rcpp::IntegerVector& position, int p);
+RcppExport SEXP _spdeST_mgcvst_he_correlation_cpp(SEXP iSEXP, SEXP jSEXP, SEXP scoreSEXP, SEXP t1SEXP, SEXP positionSEXP, SEXP pSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type i(iSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type j(jSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type score(scoreSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type t1(t1SEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type position(positionSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_he_correlation_cpp(i, j, score, t1, position, p));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_spa_cpp
 Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U, const Rcpp::NumericMatrix& S, const Rcpp::NumericMatrix& Tm, int order, int threads);
 RcppExport SEXP _spdeST_mgcvst_spa_cpp(SEXP USEXP, SEXP SSEXP, SEXP TmSEXP, SEXP orderSEXP, SEXP threadsSEXP) {
@@ -496,6 +512,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_pair_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_basis_cpp, 3},
     {"_spdeST_mgcvst_pair_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_spa_cpp, 9},
     {"_spdeST_mgcvst_simd_cpp", (DL_FUNC) &_spdeST_mgcvst_simd_cpp, 0},
+    {"_spdeST_mgcvst_he_correlation_cpp", (DL_FUNC) &_spdeST_mgcvst_he_correlation_cpp, 6},
     {"_spdeST_mgcvst_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_cpp, 5},
     {"_spdeST_mgcvst_spa_quadform_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_quadform_cpp, 5},
     {"_spdeST_mgcvst_sparse_prepare_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_prepare_cpp, 2},

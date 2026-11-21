@@ -69,6 +69,10 @@ mgcvst_simd_cpp <- function() {
     .Call(`_spdeST_mgcvst_simd_cpp`)
 }
 
+mgcvst_he_correlation_cpp <- function(i, j, score, t1, position, p) {
+    .Call(`_spdeST_mgcvst_he_correlation_cpp`, i, j, score, t1, position, p)
+}
+
 mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
     .Call(`_spdeST_mgcvst_spa_cpp`, U, S, Tm, order, threads)
 }

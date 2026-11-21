@@ -234,8 +234,7 @@
 #' per-feature estimates only, so its memory grows with the number of
 #' features and the mesh size, not with the number of observations. Features
 #' without a spatial model are marked `spatial_fitted = FALSE` in the
-#' diagnostics table and are unavailable to [spdeST.test()] and
-#' [spdeST.wgcna()]; `pairs = NULL` in [spdeST.test()] means all pairs among
+#' diagnostics table and are unavailable to [spdeST.test()]; `pairs = NULL` in [spdeST.test()] means all pairs among
 #' the features with a spatial model.
 #'
 #' With `checkpoint_dir`, every completed chunk of either step is saved by the

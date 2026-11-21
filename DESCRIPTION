@@ -1,6 +1,6 @@
 Package: spdeST
 Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
-Version: 0.0.1.9075
+Version: 0.0.1.9076
 Authors@R: person(given = "Yihe", family = "Yang",
     email = "yxy1234@case.edu", role = c("aut", "cre"))
 Description: Provides topology-aware boundary learning and finite-element mesh
@@ -10,7 +10,8 @@ Description: Provides topology-aware boundary learning and finite-element mesh
     score scan selects the spatial features, a sparse Laplace REML fit of the
     Poisson or negative-binomial SPDE model estimates them, and a sparse score
     kernel with a signed quadratic-form saddlepoint calibration tests their
-    pairs. WGCNA module analysis uses the score covariance within explicitly
+    pairs. WGCNA module analysis uses the pairwise estimate of the latent spatial
+    correlation, the score divided by its information, within explicitly
     selected feature blocks.
 License: MIT + file LICENSE
 Encoding: UTF-8

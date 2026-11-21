@@ -495,7 +495,6 @@ test_that("the scan step fits the null model of every feature and the spatial mo
   bad <- spdeST.test(fit, pairs = rbind(c(chosen[1L], rest[1L])), rank = 3L, seed = 4L, moments = "exact")
   expect_identical(bad$results$status, 3L)
   expect_match(bad$failed$error, "not selected in step 2")
-  expect_error(spdeST.wgcna(fit, indices = fit$feature_id), "no spatial fit")
 
   none <- .spdest_scan(d$Y, d$model, BPPARAM = sp)
   expect_false(any(none$diagnostics$spatial_fitted))
@@ -658,7 +657,6 @@ test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
   for (old in list(missing, local({ x <- fit; x$format <- NULL; x }),
                    local({ x <- fit; x$format <- 1L; x }))) {
     expect_error(spdeST.test(old, rank = 2L, moments = "exact"), "re-run spdeST.estimate")
-    expect_error(spdeST.wgcna(old, indices = fit$feature_id[1:3]), "re-run spdeST.estimate")
     expect_error(.spdest_estimate(old, d$Y), "re-run spdeST.estimate")
   }
 })
@@ -680,19 +678,11 @@ test_that("the observation basis is full rank and enters the pair signature", {
   expect_identical(tested$timing$route$q, d$m - 1L)
   expect_identical(tested$timing$score_projection$r, d$m - 1L)
   expect_identical(tested$timing$score_projection$basis_kind, "full_rank")
-  # WGCNA uses the same basis, and its normalizer is q - 1.
-  scores <- spdeST:::.mgcvst_wgcna_scores(fit, 1:3, 1L, FALSE)
-  expect_identical(scores$normalization, d$m - 1L)
-  expect_equal(unname(scores$A),
-               unname(crossprod(basis$coordinate, fit$score_a[, 1:3])),
-               tolerance = 1e-12)
-  # The estimation records the basis; a test or WGCNA run with another one fails.
+  # The estimation records the basis; a test with another one fails.
   expect_identical(fit$basis_spec, list(kind = "full_rank", rank = d$m - 1L))
   changed <- fit
   changed$basis_spec$kind <- "truncated"
   expect_error(spdeST.test(changed, rank = 3L, seed = 4L, moments = "exact"), "differs from the one recorded")
-  expect_error(spdeST:::.mgcvst_wgcna_scores(changed, 1:3, 1L, FALSE),
-               "differs from the one recorded")
   expect_error(spdeST.test(local({ x <- fit; x$basis_spec <- NULL; x }), rank = 3L, moments = "exact"),
                "recorded by the estimation (none)", fixed = TRUE)
   # The pair signature, and with it every pair checkpoint, depends on the basis.

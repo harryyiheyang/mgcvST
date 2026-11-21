@@ -74,86 +74,68 @@
   blocks
 }
 
-# --------------------------------------------------------------------------
-# Shared WGCNA front end and back end.
-#
-# Argument validation, gene blocks, working-model validity and the
-# optional-package check; then similarity -> correlation -> adjacency -> TOM
-# -> tree -> dynamic cut -> colours.
-# --------------------------------------------------------------------------
-
-# Validate the arguments shared by both entry points and resolve gene blocks.
-.mgcvst_wgcna_prepare <- function(fit, indices, wgcna.para, verbose, threads,
-                                  caller) {
-  if (!inherits(fit, "spdeST_scan")) {
-    stop(caller, "() requires a fit returned by spdeST.estimate().")
+# Validate the arguments and resolve the gene blocks.
+.mgcvst_wgcna_prepare <- function(test, indices, wgcna.para, verbose) {
+  if (!inherits(test, "spdeST_test")) {
+    stop("spdeST.wgcna() requires a result of spdeST.test().")
   }
-  .mgcvst_check_fit_format(fit)
   if (missing(indices) || is.null(indices)) {
     stop("indices must explicitly select the genes to analyze.")
   }
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
     stop("verbose must be TRUE or FALSE.")
   }
-  threads <- as.integer(threads)
-  if (length(threads) != 1L || is.na(threads) || threads < 1L) {
-    stop("threads must be one positive integer.")
-  }
   para <- .mgcvst_wgcna_parameters(wgcna.para)
-  ids <- fit$feature_id
+  ids <- test$feature_id
   if (!is.character(ids) || anyNA(ids) || any(!nzchar(ids)) || anyDuplicated(ids)) {
-    stop("The fit must have unique, non-empty feature IDs.")
+    stop("The test must have unique, non-empty feature IDs.")
   }
   blocks <- .mgcvst_wgcna_indices(indices, ids)
-  used <- unique(unlist(blocks, use.names = FALSE))
-  geometry <- fit$geometry
-  if (is.null(geometry)) stop("The fit does not retain score geometry.")
-  # One global spatial score process supplies the WGCNA coordinates.
-  if (!identical(names(geometry$target), "global")) {
-    stop("The fit must carry exactly one score component named 'global'.")
-  }
-  if (!is.matrix(fit$score_a) || ncol(fit$score_a) != length(ids) ||
-      length(fit$dispersion) != length(ids)) {
-    stop("The compact fit dimensions are incompatible with feature_id.")
-  }
-  valid <- is.finite(fit$dispersion[used]) & fit$dispersion[used] > 0 &
-    colSums(!is.finite(fit$score_a[, used, drop = FALSE])) == 0L
-  if (any(!valid)) {
-    unfitted <- if (is.null(fit$diagnostics$spatial_fitted)) rep(FALSE, length(used)) else
-      !fit$diagnostics$spatial_fitted[used]
-    if (any(!valid & unfitted)) {
-      stop("Selected features have no spatial fit; add one with spdeST.estimate(): ",
-           paste(ids[used[!valid & unfitted]], collapse = ", "), ".")
-    }
-    stop("Selected features lack valid working models: ",
-         paste(ids[used[!valid]], collapse = ", "), ".")
-  }
   if (!requireNamespace("WGCNA", quietly = TRUE) ||
       !requireNamespace("dynamicTreeCut", quietly = TRUE) ||
       !requireNamespace("fastcluster", quietly = TRUE)) {
     stop("Install packages 'WGCNA', 'dynamicTreeCut', and 'fastcluster' to use ",
-         caller, "().")
+         "spdeST.wgcna().")
   }
-  list(para = para, ids = ids, blocks = blocks, used = used, threads = threads)
+  list(para = para, ids = ids, blocks = blocks,
+       used = unique(unlist(blocks, use.names = FALSE)))
 }
 
-# Similarity, adjacency, TOM, tree and module labels for every requested block.
-# `score` is whatever the backend-specific score builder returned.
-.mgcvst_wgcna_networks <- function(score, blocks, ids, para, verbose) {
+# The pair rows (i, j, score, t1) of the test whose two features are selected.
+.mgcvst_wgcna_pairs <- function(test, used) {
+  columns <- c("i", "j", "score", "t1")
+  keep <- function(z) z[z$i %in% used & z$j %in% used, columns, drop = FALSE]
+  if (is.data.frame(test$results)) return(keep(test$results))
+  if (!length(test$shards) || !all(file.exists(test$shards))) {
+    stop("The test holds neither its pair table nor its result shards.")
+  }
+  do.call(rbind, lapply(test$shards, function(file) {
+    keep(.mgcvst_read_shard(file, columns))
+  }))
+}
+
+# Correlation, adjacency, TOM, tree and module labels for every requested block.
+.mgcvst_wgcna_networks <- function(pairs, blocks, ids, para, verbose) {
   networks <- modules <- vector("list", length(blocks))
   names(networks) <- names(modules) <- names(blocks)
   for (nm in names(blocks)) {
-    id <- ids[blocks[[nm]]]
-    A <- score$A[, match(id, score$feature_id), drop = FALSE]
-    normalization <- if (is.null(score$normalization)) nrow(A) else
-      score$normalization
-    S <- .magic_mm(A, A, transA = TRUE) / normalization
-    dimnames(S) <- list(id, id)
-    if (any(!is.finite(S)) || any(diag(S) <= 0)) {
-      stop("Block '", nm, "' has an invalid score covariance.")
+    index <- blocks[[nm]]
+    id <- ids[index]
+    position <- integer(length(ids))
+    position[index] <- seq_along(index)
+    z <- mgcvst_he_correlation_cpp(pairs$i, pairs$j, pairs$score, pairs$t1,
+                                   position, length(index))
+    if (z$missing > 0) {
+      lacking <- id[rowSums(is.na(z$rho)) > 0L]
+      stop("Block '", nm, "': ", z$missing, " pairs of the selected features have ",
+           "no score and information in the test (features ",
+           paste(utils::head(lacking, 10L), collapse = ", "),
+           if (length(lacking) > 10L) ", ..." else "",
+           "). Test every pair of the block with spdeST.test().")
     }
-    R <- stats::cov2cor(S)
-    adj <- WGCNA::adjacency.fromSimilarity(R, type = para$networkType,
+    R <- z$rho
+    dimnames(R) <- list(id, id)
+    adj <- WGCNA::adjacency.fromSimilarity(z$similarity, type = para$networkType,
                                            power = para$power)
     TOM <- WGCNA::TOMsimilarity(adj, TOMType = para$TOMType, verbose = 0)
     dimnames(adj) <- dimnames(TOM) <- list(id, id)
@@ -168,14 +150,15 @@
     tab <- data.frame(feature_id = id, module = unname(labels),
                       color = WGCNA::labels2colors(labels),
                       stringsAsFactors = FALSE)
-    networks[[nm]] <- list(feature_id = id, covariance = S, correlation = R,
+    networks[[nm]] <- list(feature_id = id, correlation = R, limited = z$limited,
       adjacency = adj, TOM = TOM, tree = H, labels = labels, modules = tab,
-      q = nrow(A), status = status)
+      status = status)
     modules[[nm]] <- data.frame(component = nm, tab, stringsAsFactors = FALSE)
     if (verbose) {
       message("Block '", nm, "': ", length(id), " genes, ",
               length(unique(labels[labels > 0L])), " modules, ",
-              sum(labels == 0L), " grey; ", status, ".")
+              sum(labels == 0L), " grey; ", z$limited,
+              " pairs limited to [-1, 1]; ", status, ".")
     }
   }
   tab <- do.call(rbind, modules)
@@ -183,41 +166,23 @@
   list(modules = tab, networks = networks)
 }
 
-# Assemble the public result. Shared so both entry points return one shape.
-.mgcvst_wgcna_result <- function(score, prepared, verbose, started,
-                                 score_seconds, call) {
-  t0 <- proc.time()[["elapsed"]]
-  z <- .mgcvst_wgcna_networks(score, prepared$blocks, prepared$ids,
-                              prepared$para, verbose)
-  structure(list(
-    modules = z$modules, networks = z$networks, score = score,
-    settings = list(
-      group = "global",
-      indices = lapply(prepared$blocks, function(i) prepared$ids[i]),
-      wgcna.para = prepared$para
-    ),
-    timing = list(score_seconds = score_seconds,
-                  network_seconds = proc.time()[["elapsed"]] - t0,
-                  total_seconds = proc.time()[["elapsed"]] - started),
-    call = call), class = "spdeST_wgcna")
-}
-
-#' Identify co-expression modules from a fit
+#' Identify co-expression modules from the pair test
 #'
-#' Builds the gene-by-gene similarity \eqn{S_{ij} = (R'a_i)'(R'a_j)} of the
-#' genes of each selected block, where `R` is the observation-kernel
-#' coordinate basis used by [spdeST.test()] (all `q - 1` directions of the
-#' constrained field) and \eqn{a_i} are the score vectors stored on the fit,
-#' divided by the basis rank `r`. It then runs
+#' The similarity of two genes is the Haseman-Elston-type estimate of their
+#' latent spatial correlation, `rho_ij = U_ij / t1_ij`, with the score `U_ij`
+#' and its information `t1_ij` of the pair in a result of [spdeST.test()]; a
+#' gene has similarity 1 with itself. No score is recomputed. The estimate of
+#' a pair with little information can lie outside `[-1, 1]`; the adjacency is
+#' defined on `[-1, 1]`, so such an estimate enters it as `-1` or `1`, and
+#' the number of these pairs is returned. The function then runs
 #' `WGCNA::adjacency.fromSimilarity()`, `WGCNA::TOMsimilarity()`,
 #' `fastcluster::hclust()`, `dynamicTreeCut::cutreeDynamic()` and
-#' `WGCNA::labels2colors()`. Blocks are selected explicitly; no gene is
-#' selected by estimation or testing, and all pairs within a block enter its
-#' covariance. No centering, ridge, or covariance projection is applied, and
-#' the supplied fit is not modified.
+#' `WGCNA::labels2colors()`. Blocks are selected explicitly; every pair of a
+#' block must have been tested.
 #'
-#' @param fit A fit returned by [spdeST.estimate()].
-#' @param indices Required gene IDs, integer positions in `fit$feature_id`,
+#' @param test A result of [spdeST.test()] that holds every pair of the
+#'   selected genes (`pairs = NULL` tests every pair of the fitted features).
+#' @param indices Required gene IDs, integer positions in `test$feature_id`,
 #'   or a named list of such vectors. Each block must contain at least two distinct
 #'   genes. A vector defines the block named `selected`. Gene order is preserved.
 #' @param wgcna.para `NULL`, an empty list, or named partial overrides of:
@@ -227,32 +192,41 @@
 #'   Blocks smaller than `minClusterSize` retain their matrices and receive
 #'   grey (zero) labels, without changing the requested module size.
 #' @param verbose Whether to display compact progress messages.
-#' @param threads Positive OpenMP thread count controlling score construction.
 #' @return An `spdeST_wgcna` object with `modules` (component, feature ID, integer
-#'   module, color), named `networks` (feature IDs, covariance, correlation,
-#'   adjacency, TOM, tree, labels, modules, coordinate count `q`, and status),
-#'   `score` (aligned `A`, group names and widths), `settings`, and `timing`.
+#'   module, color), named `networks` (feature IDs, `correlation` (the
+#'   estimates `U / t1`, not limited), `limited` (the number of pairs outside
+#'   `[-1, 1]`), adjacency, TOM, tree, labels, modules and status),
+#'   `settings`, and `timing`.
 #'   A zero module label means unassigned (grey). Module labels are local to
 #'   each input block. No biological annotations are inferred automatically.
 #' @examples
 #' \dontrun{
 #' scan <- spdeST.scan(Y, model)
 #' fit <- spdeST.estimate(scan, Y, features = "all")
-#' W <- spdeST.wgcna(fit, indices = genes, threads = 4L)
+#' test <- spdeST.test(fit, moments = "exact")
+#' W <- spdeST.wgcna(test, indices = genes)
 #' W$modules
 #' }
 #' @export
-spdeST.wgcna <- function(fit, indices,
-                         wgcna.para = NULL, verbose = FALSE, threads = 1L) {
+spdeST.wgcna <- function(test, indices, wgcna.para = NULL, verbose = FALSE) {
   started <- proc.time()[["elapsed"]]
   call <- match.call()
-  prepared <- .mgcvst_wgcna_prepare(fit, indices, wgcna.para, verbose,
-                                    threads, "spdeST.wgcna")
+  prepared <- .mgcvst_wgcna_prepare(test, indices, wgcna.para, verbose)
+  pairs <- .mgcvst_wgcna_pairs(test, prepared$used)
+  pair_seconds <- proc.time()[["elapsed"]] - started
   t0 <- proc.time()[["elapsed"]]
-  score <- .mgcvst_wgcna_scores(fit, prepared$used,
-                                     prepared$threads, verbose)
-  score_seconds <- proc.time()[["elapsed"]] - t0
-  .mgcvst_wgcna_result(score, prepared, verbose, started, score_seconds, call)
+  z <- .mgcvst_wgcna_networks(pairs, prepared$blocks, prepared$ids,
+                              prepared$para, verbose)
+  structure(list(
+    modules = z$modules, networks = z$networks,
+    settings = list(
+      indices = lapply(prepared$blocks, function(i) prepared$ids[i]),
+      wgcna.para = prepared$para
+    ),
+    timing = list(pair_seconds = pair_seconds,
+                  network_seconds = proc.time()[["elapsed"]] - t0,
+                  total_seconds = proc.time()[["elapsed"]] - started),
+    call = call), class = "spdeST_wgcna")
 }
 
 #' @rdname spdeST.wgcna
@@ -261,7 +235,6 @@ spdeST.wgcna <- function(fit, indices,
 #' @export
 print.spdeST_wgcna <- function(x, ...) {
   cat("spdeST WGCNA modules\n")
-  cat("  score groups:", paste(x$settings$group, collapse = ", "), "\n")
   for (nm in names(x$networks)) {
     z <- x$networks[[nm]]
     cat(" ", nm, ":", length(z$feature_id), "genes;",

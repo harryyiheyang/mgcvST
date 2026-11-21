@@ -89,11 +89,10 @@
   fit
 }
 
-# The observation-kernel basis shared by every pair method and by
-# spdeST.wgcna(): all q = m - 1 directions of the constrained field, ordered by
-# their observation-kernel eigenvalue. No coverage truncation is applied, so the
-# projection is an orthogonal change of coordinates of the m-dimensional
-# whitened score and the WGCNA normalization is the same m - 1.
+# The observation-kernel basis shared by every pair method: all q = m - 1
+# directions of the constrained field, ordered by their observation-kernel
+# eigenvalue. No coverage truncation is applied, so the projection is an
+# orthogonal change of coordinates of the m-dimensional whitened score.
 .spdest_sparse_observation_basis <- function(fit) {
   fit <- .spdest_sparse_prepare(fit)
   geometry <- fit$score_sparse

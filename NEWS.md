@@ -1,3 +1,19 @@
+# spdeST 0.0.1.9076
+
+* `spdeST.wgcna()` builds its network from the estimate of the latent spatial
+  correlation of each pair, `U / t1`, read from a result of `spdeST.test()`.
+  Its first argument is that result, not a fit. The former similarity,
+  `cov2cor(crossprod(A) / q)` of the score vectors, is removed: it is a
+  correlation of the score vectors, which carries their estimation error, and
+  is not an estimate of the latent correlation. The `threads` argument and
+  the result fields `score`, `covariance` and `q` are removed; `correlation`
+  now holds `U / t1`.
+* Every pair of a block must have a score and a positive information in the
+  test; otherwise `spdeST.wgcna()` stops and names the count. An estimate
+  outside `[-1, 1]` is set to the nearer limit for the adjacency, which WGCNA
+  requires, and the number of such pairs is returned as `limited`.
+* The matrix is filled in compiled code (`mgcvst_he_correlation_cpp`).
+
 # spdeST 0.0.1.9075
 
 * Documentation of `spdeST.test()`: the sentence on `sum(U) / sum(t1)` over
