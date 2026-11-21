@@ -146,8 +146,8 @@ no remainder; 1: one node; 2: two nodes; 3: Gaussian term) and the integer
 }
 
 
-\code{U / t1} is the Haseman-Elston-type estimate of the cross-feature
-covariance of the pair, with null standard error \code{1 / sqrt(t1)}, and
+\code{U / t1} is the Haseman-Elston-type estimate of the latent spatial
+correlation of the pair, with null standard error \code{1 / sqrt(t1)}, and
 \code{sum(U) / sum(t1)} pools pairs. \verb{$features} holds, for every feature of a
 tested pair, \code{trace_M = tr(M_g)} (the expected \verb{a_g' a_g}) and
 \code{trace_M2 = tr(M_g^2)}; the PCAlearning route also keeps the coefficients

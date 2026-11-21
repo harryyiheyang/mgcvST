@@ -1,3 +1,12 @@
+# spdeST 0.0.1.9074
+
+* Documentation of `spdeST.test()`: `U / t1` estimates the latent spatial
+  correlation of the pair, not a covariance. The score vector of a feature is
+  divided by `sqrt(tau)`, so the field variances are standardized. In
+  simulated negative-binomial pairs with correlation 0, 0.3 and 0.6 (150
+  pairs each, unequal field variances and count levels) the mean of `U / t1`
+  was within 0.03 of 0, at 0.30, and between 0.56 and 0.62.
+
 # spdeST 0.0.1.9073
 
 * Names follow the single pipeline. `inlaST.set()` is `spdeST.set()` and
