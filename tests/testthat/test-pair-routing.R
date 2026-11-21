@@ -5,7 +5,7 @@
 
 test_that("the route is chosen by the user: moments has no default and no automatic value", {
   fit <- .routing_fit()
-  test <- function(...) inlaST.test(fit, ...)
+  test <- function(...) spdeST.test(fit, ...)
   expect_error(test(), "moments must be given")
   expect_error(test(verbose = TRUE), "moments must be given")
   expect_error(test(pairs = rbind(c(1L, 2L))), "moments must be given")
@@ -18,8 +18,8 @@ test_that("the route is chosen by the user: moments has no default and no automa
 
 test_that("the pair test reports its route and k, and the contract records them", {
   fit <- .routing_fit()
-  q <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))$rank
-  messages <- testthat::capture_messages(exact <- inlaST.test(fit, moments = "exact",
+  q <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))$rank
+  messages <- testthat::capture_messages(exact <- spdeST.test(fit, moments = "exact",
                                                               verbose = TRUE))
   expect_match(paste(messages, collapse = ""),
                sprintf("Pair test: exact moments \\(k = 20\\) on q = %d, 28 pairs and 1 thread\\.", q))
@@ -42,13 +42,13 @@ test_that("the pair test reports its route and k, and the contract records them"
 
   # k above q is the full-spectrum saddlepoint (k = q), which leaves no
   # remainder; the default k = 20 differs from it only by the remainder.
-  full <- inlaST.test(fit, moments = "exact", k = 1000L)
+  full <- spdeST.test(fit, moments = "exact", k = 1000L)
   expect_identical(full$contract$k, q)
   expect_true(all(full$results$status == 0L))
   expect_true(all(full$results$remainder_kind == 0L))
   expect_equal(exact$results$log_p_two_sided, full$results$log_p_two_sided, tolerance = 1e-5)
   messages <- testthat::capture_messages(
-    pca <- inlaST.test(fit, moments = "pcalearning", rank = 2L, k = 3L, verbose = TRUE))
+    pca <- spdeST.test(fit, moments = "pcalearning", rank = 2L, k = 3L, verbose = TRUE))
   expect_match(paste(messages, collapse = ""),
                sprintf("PCAlearning \\(rank 2, k = 3\\) on q = %d", q))
   expect_identical(pca$moments, "pcalearning")
@@ -60,7 +60,7 @@ test_that("the pair test reports its route and k, and the contract records them"
   expect_true(is.numeric(pca$timing$pcalearning$nodes_above_leading))
   expect_equal(pca$results$log_p_two_sided, full$results$log_p_two_sided, tolerance = 0.3)
   # Too few genes for the rank: the message points to the exact route.
-  expect_error(inlaST.test(fit, moments = "pcalearning", rank = 9L),
+  expect_error(spdeST.test(fit, moments = "pcalearning", rank = 9L),
                "achievable PCAlearning rank .*moments = \"exact\"")
 })
 
@@ -68,32 +68,32 @@ test_that("a checkpoint directory records its route and a resume with another ro
   fit <- .routing_fit()
   dir <- tempfile("mgcvst-route-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  first <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  first <- spdeST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(readRDS(file.path(dir, "route.rds"))$moments, "exact")
-  expect_error(inlaST.test(fit, checkpoint_dir = dir, moments = "pcalearning", rank = 2L),
+  expect_error(spdeST.test(fit, checkpoint_dir = dir, moments = "pcalearning", rank = 2L),
                "written with moments = \"exact\".*asks for moments = \"pcalearning\"")
   # The refusal comes before any work: nothing was added to the directory.
   expect_false(file.exists(file.path(dir, "pca-basis.rds")))
-  again <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  again <- spdeST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(again$timing$pair_pipeline$resumed_pairs, 28)
   expect_identical(again$results, first$results)
 
   other <- tempfile("mgcvst-route-pca-")
   on.exit(unlink(other, recursive = TRUE), add = TRUE)
-  pca <- inlaST.test(fit, checkpoint_dir = other, moments = "pcalearning", rank = 2L, k = 3L)
+  pca <- spdeST.test(fit, checkpoint_dir = other, moments = "pcalearning", rank = 2L, k = 3L)
   expect_identical(readRDS(file.path(other, "route.rds"))$moments, "pcalearning")
-  expect_error(inlaST.test(fit, checkpoint_dir = other, moments = "exact"),
+  expect_error(spdeST.test(fit, checkpoint_dir = other, moments = "exact"),
                "written with moments = \"pcalearning\".*asks for moments = \"exact\"")
-  expect_identical(inlaST.test(fit, checkpoint_dir = other, moments = "pcalearning",
+  expect_identical(spdeST.test(fit, checkpoint_dir = other, moments = "pcalearning",
                                rank = 2L, k = 3L)$results, pca$results)
 })
 
-test_that("an INLA fit takes either route and the exact route agrees with the full spectrum", {
+test_that("a fit takes either route and the exact route agrees with the full spectrum", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
   reference <- .pca_exact_reference(fit, pairs)
-  exact <- inlaST.test(fit, pairs = pairs, threads = 2L, moments = "exact", k = 1000L)
+  exact <- spdeST.test(fit, pairs = pairs, threads = 2L, moments = "exact", k = 1000L)
   expect_identical(exact$contract$k, reference$q)
   expect_identical(exact$contract$route, "exact")
   expect_equal(exact$results$score, reference$score, tolerance = 1e-10)
@@ -101,18 +101,18 @@ test_that("an INLA fit takes either route and the exact route agrees with the fu
   expect_equal(-exact$results$log_p_two_sided / log(10), -reference$log_p / log(10),
                tolerance = 1e-6)
   # The default k = 20 differs from the full spectrum by the remainder only.
-  default <- inlaST.test(fit, pairs = pairs, threads = 2L, moments = "exact")
+  default <- spdeST.test(fit, pairs = pairs, threads = 2L, moments = "exact")
   expect_equal(-default$results$log_p_two_sided / log(10), -reference$log_p / log(10),
                tolerance = 1e-3)
   expect_identical(default$timing$pair_pipeline$preparation_backend, "sparse_reduced")
   # The same states serve the PCAlearning route.
-  pca <- inlaST.test(fit, pairs = pairs, threads = 2L, moments = "pcalearning",
+  pca <- spdeST.test(fit, pairs = pairs, threads = 2L, moments = "pcalearning",
                      rank = length(fit$feature_id), k = 1000L)
   expect_equal(-pca$results$log_p_two_sided / log(10), -reference$log_p / log(10),
                tolerance = 1e-3)
   # One and four threads give identical exact results.
-  one <- inlaST.test(fit, pairs = pairs, threads = 1L, moments = "exact")
-  four <- inlaST.test(fit, pairs = pairs, threads = 4L, moments = "exact")
+  one <- spdeST.test(fit, pairs = pairs, threads = 1L, moments = "exact")
+  four <- spdeST.test(fit, pairs = pairs, threads = 4L, moments = "exact")
   expect_identical(one$results, four$results)
   expect_identical(one$contract$basis_sha, four$contract$basis_sha)
 })
@@ -145,7 +145,7 @@ test_that("a pair the kernel cannot evaluate has p = 1, keeps its status and sta
   for (moments in c("exact", "pcalearning")) {
     for (adjust in c("BY", "BH", "Sidak", "none")) {
       info <- paste(moments, adjust)
-      z <- inlaST.test(fit, pairs = pairs, moments = moments, rank = 2L, k = 3L,
+      z <- spdeST.test(fit, pairs = pairs, moments = moments, rank = 2L, k = 3L,
                        adjust = adjust)
       r <- z$results
       expect_identical(sort(r$status), c(0L, 1L, 2L), info = info)

@@ -1,3 +1,22 @@
+# spdeST 0.0.1.9073
+
+* Names follow the single pipeline. `inlaST.set()` is `spdeST.set()` and
+  `inlaST.wgcna()` is `spdeST.wgcna()`; the internal `inlaST.estimate()`,
+  `inlaST.estimate_spatial()` and `inlaST.test()` are no longer functions of
+  their own (`spdeST.scan()`, `spdeST.estimate()`, `spdeST.test()`).
+* Classes: a model is an `spdeST_model`, a Stage 1 result an `spdeST_scan`,
+  a Stage 2 result an `spdeST_fit`, a pair test an `spdeST_test`, a module
+  result an `spdeST_wgcna`, a basis an `spdeST_basis`. The classes
+  `inlaST_*` and `mgcvST_*` are gone: a model, a basis or a fit saved by an
+  earlier version is not accepted and is built again.
+* Model fields `inla_spec` and `inla_control` are `spde_spec` and
+  `spde_control`; `timing$inla_projection` of a pair test is
+  `timing$score_projection`; `inla_diagnostics` of a fit is
+  `fit_diagnostics`. The option `mgcvST.progress` is `spdeST.progress`, the
+  environment variable of the examples `SPDEST_EXAMPLE_OUTPUT`. Estimation
+  checkpoints of earlier versions are not resumed.
+* No numerical change.
+
 # spdeST 0.0.1.9072
 
 * The package has one pipeline: `inlaST.set()` -> `spdeST.scan()` ->

@@ -5,18 +5,18 @@
 // __AVX512F__, which R's default package flags never define, so Eigen products
 // in ordinary translation units run on SSE2. This file is compiled three times
 // by src/Makevars (the ordinary flags, -mavx2 -mfma, and AVX-512), each copy
-// with MGCVST_LA_ISA set and with the Eigen namespace renamed to Eigen_<isa>,
+// with SPDEST_LA_ISA set and with the Eigen namespace renamed to Eigen_<isa>,
 // so that the copies of every Eigen template are distinct symbols and the
 // linker never mixes them. Only Eigen and plain arrays are used here (no std
 // containers, no Rcpp): nothing in this file is an inline function shared with
 // the rest of the package.
-#ifndef MGCVST_LA_ISA
-#error "MGCVST_LA_ISA must be defined (generic, avx2 or avx512)"
+#ifndef SPDEST_LA_ISA
+#error "SPDEST_LA_ISA must be defined (generic, avx2 or avx512)"
 #endif
 #define EIGEN_DONT_PARALLELIZE
-#define MGCVST_CAT2(a, b) a##b
-#define MGCVST_CAT(a, b) MGCVST_CAT2(a, b)
-#define Eigen MGCVST_CAT(Eigen_, MGCVST_LA_ISA)
+#define SPDEST_CAT2(a, b) a##b
+#define SPDEST_CAT(a, b) SPDEST_CAT2(a, b)
+#define Eigen SPDEST_CAT(Eigen_, SPDEST_LA_ISA)
 #include <Eigen/Dense>
 #include <cmath>
 #include "la_dispatch.h"
@@ -185,10 +185,10 @@ int score_state(const double* T0, int n, int q, const double* variance, const do
 
 }  // namespace
 
-#define MGCVST_LA_TABLE MGCVST_CAT(mgcvst_la_, MGCVST_LA_ISA)
-#define MGCVST_STR2(x) #x
-#define MGCVST_STR(x) MGCVST_STR2(x)
-extern const mgcvst::LaFns MGCVST_LA_TABLE;
-const mgcvst::LaFns MGCVST_LA_TABLE = {work_new, work_free, set_left, moments, trace1, spectrum_tn,
+#define SPDEST_LA_TABLE SPDEST_CAT(mgcvst_la_, SPDEST_LA_ISA)
+#define SPDEST_STR2(x) #x
+#define SPDEST_STR(x) SPDEST_STR2(x)
+extern const mgcvst::LaFns SPDEST_LA_TABLE;
+const mgcvst::LaFns SPDEST_LA_TABLE = {work_new, work_free, set_left, moments, trace1, spectrum_tn,
                                        spectrum_nt, dgemm_nn, sgemm_tn, score_state,
-                                       MGCVST_STR(MGCVST_LA_ISA)};
+                                       SPDEST_STR(SPDEST_LA_ISA)};

@@ -238,7 +238,7 @@
 
 # Worker-side wrapper that returns the result of a chunk together with the key
 # of its payload. It lives in baseenv(), like the worker functions it calls, so
-# that a worker needs nothing from mgcvST to deserialize it.
+# that a worker needs nothing from spdeST to deserialize it.
 .mgcvst_keyed_task <- function() {
   task <- function(payload, .worker, ...) {
     list(key = payload$chunk_key, result = .worker(payload, ...))

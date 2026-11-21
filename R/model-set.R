@@ -14,9 +14,9 @@
   ))
 }
 
-#' Construct the mgcv model behind inlaST.set()
+#' Construct the mgcv model behind spdeST.set()
 #'
-#' Builds the `mgcv::gam(..., fit = FALSE)` setup from which [inlaST.set()]
+#' Builds the `mgcv::gam(..., fit = FALSE)` setup from which [spdeST.set()]
 #' takes its design. The response name on the left-hand side is a label: it
 #' need not be a column of `data`, because the helper replaces it with an
 #' internal response bridge before constructing the mgcv setup. Linear terms,
@@ -36,7 +36,7 @@
 #'   `setting = "global_local"` is not supported.
 #' @param coordinates Character vector naming the two coordinate columns.
 #' @param ... Additional arguments passed to `mgcv::gam(..., fit = FALSE)`.
-#' @return An object of class `mgcvST_model`. It
+#' @return An object of class `spdeST_model`. It
 #'   stores the basis `kappa_unit`, `unit_length`, `coordinate_span` and
 #'   `kappa_internal`.
 #' @keywords internal
@@ -68,7 +68,7 @@ model.set <- function(
   xy <- as.matrix(data[, coordinates, drop = FALSE])
   storage.mode(xy) <- "double"
   if (any(!is.finite(xy))) stop("Coordinate columns must be finite numeric values.")
-  if (!inherits(basis, "mgcvST_spde_basis")) {
+  if (!inherits(basis, "spdeST_basis")) {
     stop("basis must be an object returned by spde_basis().")
   }
   basis <- list(global = basis)
@@ -78,19 +78,19 @@ model.set <- function(
     basis[[component]]$score.component <- component
   }
 
-  bridge <- ".mgcvST_response"
+  bridge <- ".spdeST_response"
   if (bridge %in% names(data)) {
-    stop("data must not contain the reserved column .mgcvST_response.")
+    stop("data must not contain the reserved column .spdeST_response.")
   }
   env <- new.env(parent = environment(formula))
-  env$.mgcvST_basis_global <- basis$global
+  env$.spdeST_basis_global <- basis$global
   env$s <- mgcv::s
   formula0 <- formula
   environment(formula0) <- env
   formula0[[2L]] <- as.name(bridge)
   formula0 <- .mgcvst_formula_add(
     formula0,
-    .mgcvst_spde_call(coordinates, ".mgcvST_basis_global"),
+    .mgcvst_spde_call(coordinates, ".spdeST_basis_global"),
     as.name(bridge)
   )
   environment(formula0) <- env
@@ -139,20 +139,20 @@ model.set <- function(
       kappa_internal = kappa$kappa_internal,
       offset = if (is.null(G$offset)) numeric(nrow(data)) else as.numeric(G$offset)
     ),
-    class = "mgcvST_model"
+    class = "spdeST_model"
   )
 }
 
-#' Print an mgcvST model setting
+#' Print an spdeST model setting
 #'
 #' @param x An object returned by `model.set()`.
 #' @param ... Unused.
 #' @return `x`, invisibly.
 #' @export
-print.mgcvST_model <- function(x, ...) {
-  cat("mgcvST model setting\n")
+print.spdeST_model <- function(x, ...) {
+  cat("spdeST model setting\n")
   cat("  setting:", x$setting, "\n")
-  cat("  response bridge:", x$response, "-> .mgcvST_response\n")
+  cat("  response bridge:", x$response, "-> .spdeST_response\n")
   cat("  components:", paste(x$components, collapse = ", "), "\n")
   cat("  kappa (unit scale, fixed):", format(x$kappa_unit), "\n")
   cat("  unit length L:", format(x$unit_length), "\n")

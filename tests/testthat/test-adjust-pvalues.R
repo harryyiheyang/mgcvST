@@ -257,15 +257,15 @@ test_that("the memory guard skips the adjustment and the in-memory table", {
 test_that("adjustment arguments are validated and shared by both tests", {
   skip_on_cran()
   fit <- .pca_nb_fit()
-  expect_error(inlaST.test(fit, adjust = "holm", moments = "exact"), "should be one of")
-  expect_error(inlaST.test(fit, q.value = 0, moments = "exact"), "q.value")
-  expect_error(inlaST.test(fit, threads = 0L, moments = "exact"), "threads")
-  expect_error(inlaST.test(fit, chunk_size = 0, moments = "exact"), "chunk_size")
-  expect_error(inlaST.test(fit, verbose = NA, moments = "exact"), "verbose")
-  expect_error(inlaST.test(fit, checkpoint_dir = c("a", "b"), moments = "exact"), "checkpoint_dir")
-  by <- inlaST.test(fit, moments = "exact")
+  expect_error(spdeST.test(fit, adjust = "holm", moments = "exact"), "should be one of")
+  expect_error(spdeST.test(fit, q.value = 0, moments = "exact"), "q.value")
+  expect_error(spdeST.test(fit, threads = 0L, moments = "exact"), "threads")
+  expect_error(spdeST.test(fit, chunk_size = 0, moments = "exact"), "chunk_size")
+  expect_error(spdeST.test(fit, verbose = NA, moments = "exact"), "verbose")
+  expect_error(spdeST.test(fit, checkpoint_dir = c("a", "b"), moments = "exact"), "checkpoint_dir")
+  by <- spdeST.test(fit, moments = "exact")
   for (adjust in c("BH", "Sidak", "none")) {
-    x <- inlaST.test(fit, adjust = adjust, moments = "exact")
+    x <- spdeST.test(fit, adjust = adjust, moments = "exact")
     expect_equal(x$results$log_p_two_sided, by$results$log_p_two_sided)
     expect_identical(x$threshold$adjust, adjust)
     expect_equal(x$results$log_q, spdeST:::.mgcvst_log_adjust(x$results$log_p_two_sided,
@@ -274,6 +274,6 @@ test_that("adjustment arguments are validated and shared by both tests", {
   }
   expect_equal(by$results$log_q, spdeST:::.mgcvst_log_adjust(by$results$log_p_two_sided,
                                                              "BY")$log_q)
-  expect_s3_class(by, "mgcvST_test")
+  expect_s3_class(by, "spdeST_test")
   expect_output(print(by), "adjustment: BY")
 })

@@ -1,7 +1,7 @@
 # Small penalized nuisance blocks share the dense expected-information solve
 # used for fixed effects. Fixed columns have zero precision; every proper iid
 # block repeats its fitted precision over the block's coefficient columns.
-.inlast_iid_nuisance_precision <- function(fixed_columns, block_width,
+.spdest_iid_nuisance_precision <- function(fixed_columns, block_width,
                                            block_precision, features = NULL) {
   fixed_columns <- as.integer(fixed_columns)
   block_width <- as.integer(block_width)

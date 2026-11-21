@@ -4,7 +4,7 @@
 \name{spdeST-package}
 \alias{spdeST}
 \alias{spdeST-package}
-\title{SPDE smoothing and covariance testing for spatial features (mgcv and INLA implementations)}
+\title{SPDE smoothing and covariance testing for spatial features}
 \description{
 \code{spdeST} combines topology-aware boundary learning and mesh construction, a proper
 Matérn SPDE smooth for \code{mgcv}, compact marginal estimation, and finite-rank

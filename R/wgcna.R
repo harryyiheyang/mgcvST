@@ -85,7 +85,7 @@
 # Validate the arguments shared by both entry points and resolve gene blocks.
 .mgcvst_wgcna_prepare <- function(fit, indices, wgcna.para, verbose, threads,
                                   caller) {
-  if (!inherits(fit, "inlaST_fit")) {
+  if (!inherits(fit, "spdeST_scan")) {
     stop(caller, "() requires a fit returned by spdeST.estimate().")
   }
   .mgcvst_check_fit_format(fit)
@@ -199,7 +199,7 @@
     timing = list(score_seconds = score_seconds,
                   network_seconds = proc.time()[["elapsed"]] - t0,
                   total_seconds = proc.time()[["elapsed"]] - started),
-    call = call), class = "mgcvST_wgcna")
+    call = call), class = "spdeST_wgcna")
 }
 
 #' Identify co-expression modules from a fit
@@ -216,8 +216,8 @@
 #' covariance. No centering, ridge, or covariance projection is applied, and
 #' the supplied fit is not modified.
 #'
-#' @param fitmgcvST A fit returned by [spdeST.estimate()].
-#' @param indices Required gene IDs, integer positions in `fitmgcvST$feature_id`,
+#' @param fit A fit returned by [spdeST.estimate()].
+#' @param indices Required gene IDs, integer positions in `fit$feature_id`,
 #'   or a named list of such vectors. Each block must contain at least two distinct
 #'   genes. A vector defines the block named `selected`. Gene order is preserved.
 #' @param wgcna.para `NULL`, an empty list, or named partial overrides of:
@@ -228,7 +228,7 @@
 #'   grey (zero) labels, without changing the requested module size.
 #' @param verbose Whether to display compact progress messages.
 #' @param threads Positive OpenMP thread count controlling score construction.
-#' @return An `mgcvST_wgcna` object with `modules` (component, feature ID, integer
+#' @return An `spdeST_wgcna` object with `modules` (component, feature ID, integer
 #'   module, color), named `networks` (feature IDs, covariance, correlation,
 #'   adjacency, TOM, tree, labels, modules, coordinate count `q`, and status),
 #'   `score` (aligned `A`, group names and widths), `settings`, and `timing`.
@@ -238,29 +238,29 @@
 #' \dontrun{
 #' scan <- spdeST.scan(Y, model)
 #' fit <- spdeST.estimate(scan, Y, features = "all")
-#' W <- inlaST.wgcna(fit, indices = genes, threads = 4L)
+#' W <- spdeST.wgcna(fit, indices = genes, threads = 4L)
 #' W$modules
 #' }
 #' @export
-inlaST.wgcna <- function(fitmgcvST, indices,
+spdeST.wgcna <- function(fit, indices,
                          wgcna.para = NULL, verbose = FALSE, threads = 1L) {
   started <- proc.time()[["elapsed"]]
   call <- match.call()
-  prepared <- .mgcvst_wgcna_prepare(fitmgcvST, indices, wgcna.para, verbose,
-                                    threads, "inlaST.wgcna")
+  prepared <- .mgcvst_wgcna_prepare(fit, indices, wgcna.para, verbose,
+                                    threads, "spdeST.wgcna")
   t0 <- proc.time()[["elapsed"]]
-  score <- .mgcvst_inla_wgcna_scores(fitmgcvST, prepared$used,
+  score <- .mgcvst_wgcna_scores(fit, prepared$used,
                                      prepared$threads, verbose)
   score_seconds <- proc.time()[["elapsed"]] - t0
   .mgcvst_wgcna_result(score, prepared, verbose, started, score_seconds, call)
 }
 
-#' @rdname inlaST.wgcna
-#' @param x An `mgcvST_wgcna` result.
+#' @rdname spdeST.wgcna
+#' @param x An `spdeST_wgcna` result.
 #' @param ... Unused.
 #' @export
-print.mgcvST_wgcna <- function(x, ...) {
-  cat("mgcvST WGCNA modules\n")
+print.spdeST_wgcna <- function(x, ...) {
+  cat("spdeST WGCNA modules\n")
   cat("  score groups:", paste(x$settings$group, collapse = ", "), "\n")
   for (nm in names(x$networks)) {
     z <- x$networks[[nm]]

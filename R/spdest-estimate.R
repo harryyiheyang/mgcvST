@@ -12,14 +12,14 @@
 # to them, and -- worse -- a DIFFERENT build of the same package sitting in the
 # default library would be picked up silently. Sending the manager's .libPaths()
 # with every task fixes both. The wrapper lives in baseenv() so that a worker
-# which cannot yet load mgcvST is still able to deserialize it; only after the
+# which cannot yet load spdeST is still able to deserialize it; only after the
 # library stack is set does it reach into the namespace for the real worker
 # function, named by `fun_name`. Every serialized argument (sparse Matrix
-# blocks, plain lists and vectors) is likewise free of mgcvST classes.
-.inlast_chunk_task <- function() {
+# blocks, plain lists and vectors) is likewise free of spdeST classes.
+.spdest_chunk_task <- function() {
   task <- function(payload, fun_name, args, libpaths, manager = NULL) {
     if (length(libpaths)) .libPaths(unique(c(libpaths, .libPaths())))
-    # A worker can arrive with mgcvST already loaded from another library:
+    # A worker can arrive with spdeST already loaded from another library:
     # deserialising exported globals (e.g. testthat's topLevelEnvironment
     # option under SnowParam's exportglobals) loads the namespace by name
     # BEFORE this body runs, resolving against the worker's default paths.
@@ -48,11 +48,11 @@
 }
 
 # Step 1 worker: Stage 1 of one chunk of features by spde.scan()
-# (.inlast_scan_chunk). Returns, per feature, the compact null state and the
+# (.spdest_scan_chunk). Returns, per feature, the compact null state and the
 # marginal row, or the error record.
-.inlast_null_chunk <- function(payload, spec, null_spec, base_offset,
+.spdest_null_chunk <- function(payload, spec, null_spec, base_offset,
                                threads = 1L, scan_args = list()) {
-  out <- .inlast_scan_chunk(payload, spec, null_spec, base_offset,
+  out <- .spdest_scan_chunk(payload, spec, null_spec, base_offset,
                             threads, scan_args)
   .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
   out
@@ -60,7 +60,7 @@
 
 # Stage 1 is spde.scan(): the null must have no random block, a count family
 # and a fixed-effects design.
-.inlast_scan_check <- function(null_spec) {
+.spdest_scan_check <- function(null_spec) {
   family <- null_spec$family
   if (length(null_spec$random) ||
       !(length(family) == 1L && family %in% c("negative_binomial", "poisson")) ||
@@ -73,7 +73,7 @@
 
 # Stage 1 of one chunk by spde.scan() on the raw field of the target block,
 # with the compact null state whose NB size starts the search of step 2.
-.inlast_scan_chunk <- function(payload, spec, null_spec, base_offset,
+.spdest_scan_chunk <- function(payload, spec, null_spec, base_offset,
                                threads = 1L, scan_args = list()) {
   t0 <- proc.time()[["elapsed"]]
   block <- spec$random[[1L]]
@@ -125,14 +125,14 @@
 
 # What the manager keeps of one spatial fit: the compact estimates, never an
 # observation-length vector.
-.inlast_spatial_record <- function(z, spec, scores_a, score_error, mu_bar,
+.spdest_spatial_record <- function(z, spec, scores_a, score_error, mu_bar,
                                    retain_smooth, diagnostics, estimation) {
   record <- list(
     dispersion = z$dispersion, family = z$family,
     family_parameters = z$family_parameters,
     smoothing_parameters = z$smoothing_parameters,
     target = as.numeric(z$random_mode[[1L]]),
-    nuisance = if (ncol(spec$nuisance_design)) .inlast_nuisance_mode(z, spec) else
+    nuisance = if (ncol(spec$nuisance_design)) .spdest_nuisance_mode(z, spec) else
       numeric(),
     converged = isTRUE(z$converged),
     log_marginal_likelihood = z$log_marginal_likelihood,
@@ -154,10 +154,10 @@
 
 # Step 2 worker: spatial fits of one chunk of features, their score vectors
 # a_j and the mean mu_bar of the fitted mean.
-.inlast_spatial_chunk <- function(payload, spec, base_offset, control,
+.spdest_spatial_chunk <- function(payload, spec, base_offset, control,
                                   diagnostics, retain_smooth, threads = 1L,
                                   block = 16L) {
-  geometry <- .inlast_score_geometry_from_spec(spec)
+  geometry <- .spdest_score_geometry_from_spec(spec)
   nuisance_design <- as.matrix(spec$nuisance_design)
   n_sp <- spec$geometry_sp_length
   k <- length(payload$index)
@@ -177,7 +177,7 @@
       dispersion[kk] <- fits[[kk]]$dispersion
       smoothing[kk, ] <- fits[[kk]]$smoothing_parameters
     }
-    scores <- .inlast_estimate_scores(
+    scores <- .spdest_estimate_scores(
       fits, geometry, spec, nuisance_design, dispersion, smoothing,
       which(converged), threads = threads
     )
@@ -186,7 +186,7 @@
       out[[rows[kk]]] <- if (failed[kk]) {
         list(error = .mgcvst_condition(z))
       } else {
-        record <- .inlast_spatial_record(
+        record <- .spdest_spatial_record(
           z, spec, scores$a[, kk], scores$error[kk], mean(z$mu),
           retain_smooth, diagnostics, estimation = !have_estimation
         )
@@ -205,16 +205,16 @@
 # are not part of it: a chunk file is keyed by its step, its features, their
 # responses and their routing, so a changed chunk_size or a feature that is
 # routed differently recomputes its chunk, and never mixes.
-.inlast_estimation_signature <- function(model, control, offset, feature_id,
+.spdest_estimation_signature <- function(model, control, offset, feature_id,
                                          retain_smooth, diagnostics) {
   .mgcvst_pair_input_hash(list(
-    format = .mgcvst_fit_format, spec = model$inla_spec, offset = model$offset,
+    format = .mgcvst_fit_format, spec = model$spde_spec, offset = model$offset,
     extra_offset = offset, control = control, feature_id = feature_id,
     retain_smooth = retain_smooth, diagnostics = diagnostics
   ))
 }
 
-.inlast_check_threads <- function(threads) {
+.spdest_check_threads <- function(threads) {
   if (length(threads) != 1L || !is.numeric(threads) || !is.finite(threads) ||
       threads < 1 || threads > .Machine$integer.max ||
       threads != as.integer(threads)) stop("threads must be a positive integer.")
@@ -227,15 +227,15 @@
 #' field) of every feature and computes the Stage 1 p-value of its marginal
 #' score test inside the worker ([spde.scan()]); the p-values are then
 #' adjusted by `adjust` into the Stage 1 q-values
-#' `diagnostics$marginal_q_value`. Stage 2, [inlaST.estimate_spatial()], fits
+#' `diagnostics$marginal_q_value`. Stage 2, [spdeST.estimate()], fits
 #' the spatial model of the chosen features by [spde.estimate()] and computes
 #' their score vector and the mean of the fitted mean in the worker. No worker
 #' returns an observation-length vector: the manager holds the compact
 #' per-feature estimates only, so its memory grows with the number of
 #' features and the mesh size, not with the number of observations. Features
 #' without a spatial model are marked `spatial_fitted = FALSE` in the
-#' diagnostics table and are unavailable to [inlaST.test()] and
-#' [inlaST.wgcna()]; `pairs = NULL` in [inlaST.test()] means all pairs among
+#' diagnostics table and are unavailable to [spdeST.test()] and
+#' [spdeST.wgcna()]; `pairs = NULL` in [spdeST.test()] means all pairs among
 #' the features with a spatial model.
 #'
 #' With `checkpoint_dir`, every completed chunk of either step is saved by the
@@ -249,7 +249,7 @@
 #' model, offset, control or version is refused.
 #'
 #' @param Y Numeric feature-by-observation matrix.
-#' @param model An object returned by [inlaST.set()].
+#' @param model An object returned by [spdeST.set()].
 #' @param feature_id Unique feature identifiers.
 #' @param BPPARAM A `BiocParallelParam` distributing feature chunks over
 #'   workers. `SerialParam()` keeps everything in one process.
@@ -262,7 +262,7 @@
 #'   later step 2, in addition to the total offset.
 #' @param control `list(spde = )`, a named list of [spde.estimate()]
 #'   controls, for example `list(spde = list(tol = 1e-8))`, laid over the
-#'   control saved by [inlaST.set()]. Unknown controls are rejected. With a
+#'   control saved by [spdeST.set()]. Unknown controls are rejected. With a
 #'   negative-binomial family each feature first gets its
 #'   offset-and-covariate-only Poisson GLM, and it is fitted with the Poisson
 #'   family when its overdispersion score `sum((y - mu)^2 - y) / 2` is not
@@ -272,7 +272,7 @@
 #'   reported in the diagnostics as `prescreen_phi` and `family_used`.
 #' @param retain_smooth Retain estimated score-component coefficients.
 #' @param diagnostics Retain the per-feature record of the fit (precision,
-#'   constraint residual, evaluations) in `inla_diagnostics`.
+#'   constraint residual, evaluations) in `fit_diagnostics`.
 #' @param threads OpenMP threads per worker.
 #' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
 #'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
@@ -288,21 +288,20 @@
 #' solves without an observation-level inverse. Stage 1 is [spde.scan()]: GLM
 #' nulls and the marginal score test (`diagnostics$marginal_p_value`)
 #' calibrated by the saddlepoint approximation (Kuonen 1999). Pair tests in
-#' [inlaST.test()] are calibrated by a saddlepoint approximation. The
+#' [spdeST.test()] are calibrated by a saddlepoint approximation. The
 #' constraint residual and the observed spatial mean of the field are
 #' retained in the result. The score uses the SPDE covariance conditioned on
 #' observation mean zero, with a matching expected-curvature nuisance
 #' adjustment. A design the sparse capability gate rejects makes
-#' [inlaST.set()] error at setup.
-#' @return An `inlaST_fit` that is also an `mgcvST_model_fit`. In addition to
+#' [spdeST.set()] error at setup.
+#' @return An `spdeST_scan`. In addition to
 #'   the estimates, it holds `mu_bar` (the mean of each fitted mean),
 #'   `null_state` (the compact null estimates used by a later step 2),
 #'   `y_digest` (a digest of each response row, which a later step 2 checks)
 #'   and the diagnostics columns `marginal_q_value`, `spatial_selected` and
 #'   `spatial_fitted`.
-#' @seealso [inlaST.estimate_spatial()] to add spatial models after step 1.
-#' @keywords internal
-inlaST.estimate <- function(
+#' @noRd
+.spdest_scan <- function(
     Y, model, feature_id = rownames(Y),
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
     offset = NULL, control = list(), retain_smooth = FALSE,
@@ -312,22 +311,22 @@ inlaST.estimate <- function(
   scan_args <- .spdest_scan_control(scan_control)
   adjust <- match.arg(adjust)
   q.value <- .mgcvst_check_q_value(q.value)
-  threads <- .inlast_check_threads(threads)
+  threads <- .spdest_check_threads(threads)
   # One BLAS thread in this process before any worker is forked, so that a
   # forked worker never inherits a threaded BLAS; restored on exit.
   old_threads <- .mgcvst_thread_limit()
   on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
-  checked <- .inlast_validate_estimate(
+  checked <- .spdest_validate_estimate(
     Y, model, feature_id, BPPARAM, chunk_size, offset, control,
     retain_smooth, diagnostics
   )
   # Sparse-only: the geometry builder is the capability gate. It stops with the
   # reason when the model cannot be scored; there is no dense alternative.
-  score_sparse <- .inlast_sparse_score_geometry(model)
+  score_sparse <- .spdest_sparse_score_geometry(model)
   # Validate once in the parent so a misspelled or invalid control cannot turn
   # every feature into an otherwise opaque per-feature failure.
-  control <- .inlast_control(.inlast_merge_control(model$inla_control, control))
-  .spde_estimate_check(model$inla_spec)
+  control <- .spdest_control(.spdest_merge_control(model$spde_control, control))
+  .spde_estimate_check(model$spde_spec)
   Y <- checked$Y
   feature_id <- checked$feature_id
   chunk_size <- checked$chunk_size
@@ -336,32 +335,32 @@ inlaST.estimate <- function(
   # maximum-likelihood fit is the Poisson fit (overdispersion score <= 0) is
   # fitted with the Poisson family. The family is fixed inside the spec, so a routed
   # feature is fitted against a Poisson twin of the same spec
-  # (.inlast_poisson_spec()); the twin is rebuilt once per chunk in the worker
+  # (.spdest_poisson_spec()); the twin is rebuilt once per chunk in the worker
   # rather than shipped, because it shares every sparse block with the original.
   screen_offset <- if (is.null(offset)) model$offset else
     if (is.matrix(offset)) sweep(offset, 2L, model$offset, "+") else
       model$offset + offset
   prescreen <- .mgcvst_prescreen_route(
-    Y, X = model$inla_spec$fixed$X, offset = screen_offset,
-    active = identical(model$inla_spec$family, "negative_binomial"),
+    Y, X = model$spde_spec$fixed$X, offset = screen_offset,
+    active = identical(model$spde_spec$family, "negative_binomial"),
     threads = threads
   )
-  null_spec <- .inlast_null_spec(model$inla_spec)
-  .inlast_scan_check(null_spec)
+  null_spec <- .spdest_null_spec(model$spde_spec)
+  .spdest_scan_check(null_spec)
   # Validate the twin once in the parent so a spec the switch cannot handle
   # fails here rather than inside every affected worker.
-  if (any(prescreen$poisson)) .inlast_poisson_spec(model$inla_spec)
-  family_used <- rep(model$inla_spec$family, p)
+  if (any(prescreen$poisson)) .spdest_poisson_spec(model$spde_spec)
+  family_used <- rep(model$spde_spec$family, p)
   family_used[prescreen$poisson] <- "poisson"
-  if (any(prescreen$poisson)) .inlast_poisson_spec(null_spec)
+  if (any(prescreen$poisson)) .spdest_poisson_spec(null_spec)
 
   t0 <- proc.time()[["elapsed"]]
   y_digest <- .mgcvst_row_digests(Y)
-  signature <- .inlast_estimation_signature(
+  signature <- .spdest_estimation_signature(
     model, control, offset, feature_id, retain_smooth, diagnostics
   )
   signature <- .mgcvst_pair_input_hash(list(signature, scan_args = scan_args))
-  store <- .mgcvst_chunk_store(checkpoint_dir, "inla", signature, resume)
+  store <- .mgcvst_chunk_store(checkpoint_dir, "spde", signature, resume)
   groups <- .mgcvst_feature_chunks(seq_len(p), chunk_size, BPPARAM,
                                    checkpoint = !is.null(store))
   # A payload is built only when its chunk is computed and a worker is free.
@@ -375,16 +374,16 @@ inlaST.estimate <- function(
   null_t0 <- proc.time()[["elapsed"]]
   step1 <- .mgcvst_run_chunks(
     groups, make_payload, "null", store, y_digest, prescreen$poisson, BPPARAM,
-    .inlast_chunk_task(),
-    fun_name = ".inlast_null_chunk",
-    args = list(spec = model$inla_spec, null_spec = null_spec,
+    .spdest_chunk_task(),
+    fun_name = ".spdest_null_chunk",
+    args = list(spec = model$spde_spec, null_spec = null_spec,
                 base_offset = model$offset, threads = threads, scan_args = scan_args),
     libpaths = .libPaths(), manager = Sys.getpid()
   )
   null_elapsed <- proc.time()[["elapsed"]] - null_t0
   nulls <- unlist(step1$results, recursive = FALSE)
 
-  n_sp <- model$inla_spec$geometry_sp_length
+  n_sp <- model$spde_spec$geometry_sp_length
   m <- ncol(score_sparse$A)
   px <- ncol(model$geometry$nuisance_design)
   null_error_class <- null_error_message <- null_error_call <- rep(NA_character_, p)
@@ -438,7 +437,7 @@ inlaST.estimate <- function(
   }
   coefficient <- if (retain_smooth) {
     lapply(model$geometry$target, function(j) {
-      matrix(NA_real_, p, .inlast_target_width(model, j),
+      matrix(NA_real_, p, .spdest_target_width(model, j),
              dimnames = list(feature_id, NULL))
     })
   } else NULL
@@ -446,8 +445,8 @@ inlaST.estimate <- function(
   component_lambda <- matrix(NA_real_, p, length(model$geometry$target),
     dimnames = list(feature_id, names(model$geometry$target)))
   constraint_residual <- observation_spatial_mean <- matrix(
-    NA_real_, p, length(model$inla_spec$random),
-    dimnames = list(feature_id, vapply(model$inla_spec$random, `[[`, character(1L), "name"))
+    NA_real_, p, length(model$spde_spec$random),
+    dimnames = list(feature_id, vapply(model$spde_spec$random, `[[`, character(1L), "name"))
   )
   total_offset <- if (is.null(offset)) model$offset else if (is.matrix(offset))
     sweep(offset, 2L, model$offset, "+") else model$offset + offset
@@ -457,7 +456,7 @@ inlaST.estimate <- function(
     lambda = component_lambda[, "global"],
     component_lambda = component_lambda,
     smoothing_parameters = matrix(NA_real_, p, n_sp,
-      dimnames = list(feature_id, model$inla_spec$sp_names)),
+      dimnames = list(feature_id, model$spde_spec$sp_names)),
     family_parameters = stats::setNames(vector("list", p), feature_id),
     feature_family = family_used,
     target_coefficients = matrix(NA_real_, m, p, dimnames = list(NULL, feature_id)),
@@ -496,13 +495,13 @@ inlaST.estimate <- function(
     estimation = NULL,
     constraint_residual = constraint_residual,
     observation_spatial_mean = observation_spatial_mean,
-    inla_diagnostics = if (diagnostics) stats::setNames(vector("list", p), feature_id) else NULL,
+    fit_diagnostics = if (diagnostics) stats::setNames(vector("list", p), feature_id) else NULL,
     mean_constraint = "observation",
     mean_constraint_active = TRUE,
     stage1 = list(adjust = adjust, q.value = q.value,
                   null_engine = "spde.scan"),
     call = match.call()
-  ), class = c("inlaST_fit", "mgcvST_model_fit", "mgcvST_fit", "spdeST"))
+  ), class = c("spdeST_scan", "spdeST"))
   kappa <- .spde_kappa_fields(model)
   ans[names(kappa)] <- kappa
   rm(step1)
@@ -513,43 +512,42 @@ inlaST.estimate <- function(
 #' Add spatial models after step 1 of the estimation
 #'
 #' Fits the spatial model of further features of a fit returned by
-#' [inlaST.estimate()] and returns the updated fit; the supplied fit is not
+#' [spdeST.scan()] and returns the updated fit; the supplied fit is not
 #' changed. Features that already have a spatial model are skipped. The
 #' responses `Y` must be those of step 1, which is checked against the digests
 #' stored in the fit. The controls, offset, family routing and retention
 #' options of the original call are reused.
 #'
-#' @param fitinlaST A fit returned by [inlaST.estimate()] (version 0.0.1.9032 or
+#' @param fit A fit returned by [spdeST.scan()] (version 0.0.1.9032 or
 #'   later).
-#' @param Y The feature-by-observation matrix given to [inlaST.estimate()].
+#' @param Y The feature-by-observation matrix given to [spdeST.scan()].
 #' @param features The features to add: `"discoveries"` (the default; Stage 1
 #'   q-value at most `q.value` under `adjust`, computed from the stored Stage 1
 #'   p-values), `"all"`, a vector of feature IDs or one-based indices, or a
 #'   logical vector with one value per feature.
 #' @param adjust,q.value Adjustment and threshold used when
 #'   `features = "discoveries"`. The defaults are those of the original call.
-#' @inheritParams inlaST.estimate
+#' @inheritParams .spdest_scan
 #' @param checkpoint_dir,resume Resumable chunk checkpoints as in
-#'   [inlaST.estimate()]. The directory of the original call can be reused:
+#'   [spdeST.scan()]. The directory of the original call can be reused:
 #'   its step 2 chunks are keyed by their features and responses. Pass the
 #'   same `chunk_size` as for the original call, or an explicit one: without it
 #'   the chunks depend on the number of workers.
-#' @return The updated `inlaST_fit`.
-#' @keywords internal
-inlaST.estimate_spatial <- function(
-    fitinlaST, Y, features = "discoveries",
+#' @return The updated `spdeST_scan`.
+#' @noRd
+.spdest_estimate <- function(
+    fit, Y, features = "discoveries",
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
     checkpoint_dir = NULL, resume = TRUE, threads = 1L) {
-  fit <- fitinlaST
-  if (!inherits(fit, "inlaST_fit")) {
-    stop("fitinlaST must be returned by inlaST.estimate().")
+  if (!inherits(fit, "spdeST_scan")) {
+    stop("fit must be returned by spdeST.scan().")
   }
   .mgcvst_check_fit_format(fit)
   adjust <- if (missing(adjust)) fit$stage1$adjust else match.arg(adjust)
   q.value <- if (missing(q.value)) fit$stage1$q.value else
     .mgcvst_check_q_value(q.value)
-  threads <- .inlast_check_threads(threads)
+  threads <- .spdest_check_threads(threads)
   # One BLAS thread in this process before any worker is forked, so that a
   # forked worker never inherits a threaded BLAS; restored on exit.
   old_threads <- .mgcvst_thread_limit()
@@ -563,20 +561,20 @@ inlaST.estimate_spatial <- function(
   index <- .mgcvst_select_spatial(features, fit$feature_id, marginal_q, q.value)
   index <- setdiff(index, which(fit$diagnostics$spatial_fitted))
   .mgcvst_check_responses(fit, Y, index)
-  store <- .mgcvst_chunk_store(checkpoint_dir, "inla", fit$signature, resume)
+  store <- .mgcvst_chunk_store(checkpoint_dir, "spde", fit$signature, resume)
   t0 <- proc.time()[["elapsed"]]
   fit$diagnostics$spatial_selected[index] <- TRUE
-  fit <- .inlast_apply_spatial(fit, Y, index, BPPARAM, chunk_size, threads, store)
+  fit <- .spdest_apply_spatial(fit, Y, index, BPPARAM, chunk_size, threads, store)
   fit$timing$elapsed <- fit$timing$elapsed + proc.time()[["elapsed"]] - t0
   fit
 }
 
 # Step 2: fit the spatial model of the features `index` that have none yet and
 # write the compact results into `fit`.
-.inlast_apply_spatial <- function(fit, Y, index, BPPARAM, chunk_size, threads,
+.spdest_apply_spatial <- function(fit, Y, index, BPPARAM, chunk_size, threads,
                                   store) {
   model <- fit$model
-  spec <- model$inla_spec
+  spec <- model$spde_spec
   index <- setdiff(index, which(fit$diagnostics$spatial_fitted))
   if (!length(index)) return(fit)
   offset <- fit$extra_offset
@@ -596,10 +594,10 @@ inlaST.estimate_spatial <- function(
   fit_t0 <- proc.time()[["elapsed"]]
   step2 <- .mgcvst_run_chunks(
     groups, make_payload, "spatial", store, fit$y_digest, poisson, BPPARAM,
-    .inlast_chunk_task(),
-    fun_name = ".inlast_spatial_chunk",
+    .spdest_chunk_task(),
+    fun_name = ".spdest_spatial_chunk",
     args = list(spec = spec, base_offset = model$offset, control = fit$control,
-                diagnostics = !is.null(fit$inla_diagnostics),
+                diagnostics = !is.null(fit$fit_diagnostics),
                 retain_smooth = fit$retain_smooth, threads = threads),
     libpaths = .libPaths(), manager = Sys.getpid()
   )
@@ -644,7 +642,7 @@ inlaST.estimate_spatial <- function(
     }
     fit$constraint_residual[j, ] <- z$constraint_residual
     fit$observation_spatial_mean[j, ] <- z$observation_spatial_mean
-    if (!is.null(fit$inla_diagnostics)) fit$inla_diagnostics[j] <- list(z$diagnostics)
+    if (!is.null(fit$fit_diagnostics)) fit$fit_diagnostics[j] <- list(z$diagnostics)
     if (!is.null(fit$smooth_coefficients)) {
       for (name in names(fit$smooth_coefficients)) {
         fit$smooth_coefficients[[name]][j, ] <- z$coefficients[[name]]
@@ -667,5 +665,6 @@ inlaST.estimate_spatial <- function(
   fit$timing$resumed_spatial_chunks <- fit$timing$resumed_spatial_chunks +
     step2$resumed
   fit$timing$spatial_payloads <- fit$timing$spatial_payloads + step2$built
+  class(fit) <- unique(c("spdeST_fit", class(fit)))
   fit
 }

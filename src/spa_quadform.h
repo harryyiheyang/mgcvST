@@ -1,5 +1,5 @@
-#ifndef MGCVST_SPA_QUADFORM_H
-#define MGCVST_SPA_QUADFORM_H
+#ifndef SPDEST_SPA_QUADFORM_H
+#define SPDEST_SPA_QUADFORM_H
 
 #include <Rcpp.h>
 #include <cmath>

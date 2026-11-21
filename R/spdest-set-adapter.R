@@ -1,6 +1,6 @@
 # Replace only SPDE xt arguments before delegating the complete formula to
-# the same mgcv parser/design freezer used by mgcvST.set().
-.inlast_prepare_formula <- function(formula, data) {
+# the same mgcv parser/design freezer used by spdeST.set().
+.spdest_prepare_formula <- function(formula, data) {
   if (!inherits(formula, "formula") || length(formula) != 3L ||
       !is.symbol(formula[[2L]])) {
     stop("Supply a two-sided formula with a single response name.")
@@ -21,22 +21,22 @@
       if (inherits(spec, "spde.smooth.spec")) {
         if (length(spec$term) != 2L || !identical(spec$by, "NA") ||
             !is.null(spec$id)) {
-          stop("INLA SPDE terms require two coordinates and do not support by or linked id terms.")
+          stop("SPDE terms require two coordinates and do not support by or linked id terms.")
         }
         xy <- lapply(spec$term, function(term) eval(str2lang(term), evaluation))
         if (any(vapply(xy, length, integer(1L)) != nrow(data)) ||
             any(!vapply(xy, is.numeric, logical(1L)))) {
           stop("Each SPDE coordinate must be a numeric observation-length vector.")
         }
-        value <- .inlast_prepare_basis(spec$xt, do.call(cbind, xy))
+        value <- .spdest_prepare_basis(spec$xt, do.call(cbind, xy))
         component <- .spde_basis_component(spec)$component
         if (component %in% names(prepared)) {
-          stop("Supply exactly one spatial SPDE term; mgcvST carries a single ",
+          stop("Supply exactly one spatial SPDE term; spdeST carries a single ",
                "spatial score process.")
         }
         value$basis$component <- value$basis$score.component <- component
         prepared[[component]] <<- value
-        key <- paste0(".inlaST_prepared_", component)
+        key <- paste0(".spdeST_prepared_", component)
         assign(key, value$basis, env)
         expr$xt <- as.name(key)
         return(expr)
@@ -56,27 +56,27 @@
 
 # External G is already a frozen model. Preserve its coefficient coordinates
 # and check that they really represent the required observation constraint.
-.inlast_prepare_frozen_components <- function(base) {
+.spdest_prepare_frozen_components <- function(base) {
   prepared <- list()
   for (component in base$components) {
     j <- base$geometry$target[[component]]
     sm <- base$G$smooth[[j]]
     if (!inherits(sm, "spde.smooth")) {
-      stop("inlaST.set(G=...) requires a full SPDE basis (bs = 'spde').")
+      stop("spdeST.set(G=...) requires a full SPDE basis (bs = 'spde').")
     }
     if (!identical(sm$by, "NA") || !is.null(sm$id) || length(sm$term) != 2L ||
         !all(sm$term %in% names(base$G$mf))) {
       stop("The external G must retain two SPDE coordinate columns without by/id terms.")
     }
     xy <- as.matrix(base$G$mf[, sm$term, drop = FALSE])
-    value <- .inlast_prepare_basis(sm$basis, xy)
+    value <- .spdest_prepare_basis(sm$basis, xy)
     Z <- as.matrix(sm$basis$projection)
     m <- ncol(value$raw$A)
     valid <- identical(dim(Z), c(m, m - 1L)) && all(is.finite(Z))
     if (valid) valid <- max(abs(crossprod(Z) - diag(ncol(Z)))) < 1e-8 &&
       max(abs(crossprod(value$raw$constraint, Z))) < 1e-10
     if (!valid) {
-      stop("The external G does not enforce observation mean-zero; rebuild with inlaST.set(formula, data, ...).")
+      stop("The external G does not enforce observation mean-zero; rebuild with spdeST.set(formula, data, ...).")
     }
     B <- as.matrix(value$raw$A %*% Z)
     Q <- crossprod(Z, as.matrix(value$raw$Q %*% Z))

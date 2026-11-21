@@ -1,5 +1,5 @@
-#ifndef MGCVST_INLA_SPARSE_H
-#define MGCVST_INLA_SPARSE_H
+#ifndef SPDEST_SPARSE_SCORE_H
+#define SPDEST_SPARSE_SCORE_H
 
 #include <RcppEigen.h>
 #include <algorithm>
@@ -110,7 +110,7 @@ struct SparsePrepared {
 inline const SparsePrepared* prepared_cache(SEXP prepared, int m,
                                             const Vec& constraint) {
   if (TYPEOF(prepared) != EXTPTRSXP || R_ExternalPtrAddr(prepared) == NULL) {
-    Rcpp::stop("prepared must be a valid sparse INLA cache.");
+    Rcpp::stop("prepared must be a valid sparse score cache.");
   }
   Rcpp::XPtr<SparsePrepared> pointer(prepared);
   const SparsePrepared* cache = pointer.get();
@@ -159,7 +159,7 @@ inline std::vector<ReconstructionUnit> parse_units(const Rcpp::List& units, int 
         value.hinv_g.size() != m || value.a.size() != m ||
         !std::isfinite(value.tau) || value.tau <= 0 ||
         !std::isfinite(value.hden) || value.hden <= 0) {
-      Rcpp::stop("A serialized sparse INLA unit is malformed.");
+      Rcpp::stop("A serialized sparse score unit is malformed.");
     }
     parsed.push_back(std::move(value));
   }

@@ -27,12 +27,12 @@ code. `mgcv` builds the fixed-effect design and supplies the smooth
 
 ## Pipeline
 
-The model object from `inlaST.set()` carries every setting that can be fixed
+The model object from `spdeST.set()` carries every setting that can be fixed
 in advance; the `spdeST.*` functions take only the arguments of their own
 stage.
 
 ```r
-model <- inlaST.set(formula, data, family = mgcv::nb(), mesh = mesh)
+model <- spdeST.set(formula, data, family = mgcv::nb(), mesh = mesh)
 scan  <- spdeST.scan(Y, model, offset = NULL, adjust = "BY", q.value = 0.05)
 fit   <- spdeST.estimate(scan, Y, features = "discoveries")
 res   <- spdeST.test(fit, pairs = NULL, moments = "pcalearning")
@@ -92,7 +92,7 @@ repeated call resumes from the saved chunks. `Y` must be the matrix given to
 
 ## WGCNA modules from fitted score covariance
 
-`inlaST.wgcna()` identifies modules within gene blocks selected for downstream
+`spdeST.wgcna()` identifies modules within gene blocks selected for downstream
 analysis. It accepts a result of `spdeST.estimate()`
 and preserves the current fit's score definition, including its nuisance
 adjustment. Each block uses the uncentered score covariance `crossprod(A) / q`,
@@ -103,12 +103,12 @@ WGCNA adjacency, topological overlap and dynamic tree cutting.
 install.packages(c("WGCNA", "dynamicTreeCut", "fastcluster"))
 
 # fit is a result of spdeST.estimate(); genes contains the selected feature IDs.
-W <- inlaST.wgcna(fit, indices = genes)
+W <- spdeST.wgcna(fit, indices = genes)
 W$modules
 W$networks$selected$TOM
 
 # Analyze previously selected blocks separately, preserving their gene order.
-W <- inlaST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2), wgcna.para = list(power = 6))
+W <- spdeST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2), wgcna.para = list(power = 6))
 ```
 
 The defaults are signed adjacency, power 6, signed TOM, average linkage,
@@ -117,7 +117,7 @@ only the supplied settings. Module labels are local to each gene
 block; label zero indicates an unassigned gene. The result retains score coordinates, covariance,
 correlation, adjacency, TOM and the clustering tree for further analysis.
 
-See `help("inlaST.wgcna")` for the interface.
+See `help("spdeST.wgcna")` for the interface.
 
 ## Model, estimation and pair test
 
@@ -130,7 +130,7 @@ data(MISO_E13, package = "spdeST")
 d <- MISO_E13$covariates
 basis <- spde_basis(MISO_E13$meshes$spde, as.matrix(d[c("x", "y")]),
                     kappa = 0.1, project_intercept = TRUE)
-model <- inlaST.set(
+model <- spdeST.set(
   response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
   d, family = mgcv::nb()
 )
@@ -148,15 +148,15 @@ mean-zero constraint, with fixed `kappa` and the raw sparse precision `Q`.
 `spde.estimate()` maximizes the Laplace REML criterion over the spatial
 precision `tau` and the NB size, without a prior on either. The family is
 Poisson or negative binomial; the model has one global SPDE field and
-fixed-effect nuisance terms, and `inlaST.set()` refuses a model with smooth
+fixed-effect nuisance terms, and `spdeST.set()` refuses a model with smooth
 nuisance terms or additional random blocks. Controls of the estimator are
-supplied as `inlaST.set(..., control = list(spde = list(...)))`, stored in
+supplied as `spdeST.set(..., control = list(spde = list(...)))`, stored in
 the model and used by every stage.
 
 The formula may hold the `s(x, y, bs = "spde", xt = basis)` term as above; the
-model may also be given as `inlaST.set(formula, data, basis)`, as a prepared
-design `inlaST.set(G = gam(..., fit = FALSE))`, or as
-`inlaST.set(formula, data, mesh = mesh, kappa = kappa)`, the sparse setup that
+model may also be given as `spdeST.set(formula, data, basis)`, as a prepared
+design `spdeST.set(G = gam(..., fit = FALSE))`, or as
+`spdeST.set(formula, data, mesh = mesh, kappa = kappa)`, the sparse setup that
 forms no dense basis and also takes tetrahedral meshes.
 
 `spdeST.test()` tests each gene pair by the signed
@@ -282,7 +282,7 @@ grid::popViewport()
 The following chunk fits `Mapt` and `Map1b` on the MISO mesh. It fixes
 the unit-scale `kappa = 0.1`, estimates only the smoothing parameter by REML,
 and uses the full projected SPDE basis. For the pairwise test, the raw
-`gam(..., fit = FALSE)` setup is prepared by `inlaST.set(G = ...)`.
+`gam(..., fit = FALSE)` setup is prepared by `spdeST.set(G = ...)`.
 
 ```{r miso-fit-and-score}
 D_miso_mapt <- D_miso
@@ -317,7 +317,7 @@ G_miso <- gam(
 )
 Y_miso_pair <- t(as.matrix(MISO_E13$expression[, c("Mapt", "Map1b")]))
 scan_pair_miso <- spdeST.scan(
-  Y_miso_pair, inlaST.set(G = G_miso), BPPARAM = BiocParallel::SerialParam()
+  Y_miso_pair, spdeST.set(G = G_miso), BPPARAM = BiocParallel::SerialParam()
 )
 fit_pair_miso <- spdeST.estimate(
   scan_pair_miso, Y_miso_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
@@ -420,7 +420,7 @@ G_visium <- gam(
 )
 Y_visium_pair <- t(as.matrix(Visium_B$expression[, c("mt_co3", "BRAFhuman")]))
 scan_pair_visium <- spdeST.scan(
-  Y_visium_pair, inlaST.set(G = G_visium), BPPARAM = BiocParallel::SerialParam()
+  Y_visium_pair, spdeST.set(G = G_visium), BPPARAM = BiocParallel::SerialParam()
 )
 fit_pair_visium <- spdeST.estimate(
   scan_pair_visium, Y_visium_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
@@ -523,7 +523,7 @@ G_miso <- gam(
 Y_miso <- t(as.matrix(MISO_E13$expression[, genes_miso, drop = FALSE]))
 
 scan_batch_miso <- spdeST.scan(
-  Y_miso, inlaST.set(G = G_miso), feature_id = genes_miso,
+  Y_miso, spdeST.set(G = G_miso), feature_id = genes_miso,
   BPPARAM = BiocParallel::SerialParam()
 )
 fit_batch_miso <- spdeST.estimate(
@@ -543,12 +543,12 @@ cbind(
 
 For the packaged three-core versions, set an output directory and source the
 two scripts below. Each script writes fit diagnostics, pair results, and
-compact R objects to `MGCVST_EXAMPLE_OUTPUT`.
+compact R objects to `SPDEST_EXAMPLE_OUTPUT`.
 
 ```{r packaged-data-examples, eval=FALSE}
 dir.create("spdeST-results", showWarnings = FALSE)
 Sys.setenv(
-  MGCVST_EXAMPLE_OUTPUT = normalizePath("spdeST-results")
+  SPDEST_EXAMPLE_OUTPUT = normalizePath("spdeST-results")
 )
 
 source(system.file("examples", "MISO_E13.R", package = "spdeST"))
@@ -569,7 +569,7 @@ plot(mesh)
 
 ## Three-dimensional MAGIC example
 
-The mesh setup `inlaST.set(mesh = )` also supports tetrahedral meshes for stacked
+The mesh setup `spdeST.set(mesh = )` also supports tetrahedral meshes for stacked
 sections. The MAGIC example contains 97,830 measured spots on 93 sections,
 with their recorded, unequal z spacing retained. Its supplied mesh has
 1,962 nodes and 7,676 tetrahedra. Tfap2b is one of the regional markers

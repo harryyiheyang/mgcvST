@@ -28,7 +28,7 @@ Rcpp::NumericMatrix mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList,
   }
 #ifndef _OPENMP
   if (threads > 1) {
-    Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
+    Rcpp::stop("spdeST was compiled without OpenMP support; use threads = 1.");
   }
 #endif
 
@@ -145,7 +145,7 @@ Rcpp::List mgcvst_pair_basis_cpp(const Rcpp::List& H, const Rcpp::NumericMatrix&
   if (threads < 1) Rcpp::stop("threads must be a positive integer.");
 #ifndef _OPENMP
   if (threads > 1) {
-    Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
+    Rcpp::stop("spdeST was compiled without OpenMP support; use threads = 1.");
   }
 #endif
   std::vector<const double*> Hptr(n);
@@ -233,7 +233,7 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
   }
 #ifndef _OPENMP
   if (threads > 1) {
-    Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
+    Rcpp::stop("spdeST was compiled without OpenMP support; use threads = 1.");
   }
 #endif
   // Normalize each feature before matrix products; retain public score units.

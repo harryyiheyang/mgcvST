@@ -71,12 +71,12 @@
 
 #' Print compact feature-fit diagnostics
 #'
-#' @param x An `mgcvST_fit` object.
+#' @param x An `spdeST_scan` object.
 #' @param ... Unused.
 #' @return `x`, invisibly.
 #' @export
-print.mgcvST_fit <- function(x, ...) {
-  cat("Compact mgcvST feature fit\n")
+print.spdeST_scan <- function(x, ...) {
+  cat("Compact spdeST feature fit\n")
   cat("  features:", length(x$feature_id), "\n")
   cat("  fitted:", sum(.mgcvst_feature_available(x)), "\n")
   if (!is.null(x$diagnostics$spatial_selected)) {

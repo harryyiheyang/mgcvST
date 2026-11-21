@@ -80,7 +80,7 @@ test_that("discoveries and their q-values do not change with the screen", {
   }
 })
 
-test_that("inlaST.test(screen = TRUE) keeps the discoveries of both routes", {
+test_that("spdeST.test(screen = TRUE) keeps the discoveries of both routes", {
   skip_if_not_installed("geometry")
   set.seed(31)
   n <- 900L
@@ -97,12 +97,12 @@ test_that("inlaST.test(screen = TRUE) keeps the discoveries of both routes", {
   Y <- t(sapply(seq_len(p), function(g) rpois(n, exp(2 + drop(field %*% load[g, ])))))
   rownames(Y) <- paste0("g", seq_len(p))
   data$response <- Y[1L, ]
-  model <- inlaST.set(response ~ z, data, basis, family = stats::poisson())
+  model <- spdeST.set(response ~ z, data, basis, family = stats::poisson())
   sp <- BiocParallel::SerialParam()
-  fit <- spdeST:::inlaST.estimate_spatial(inlaST.estimate(Y, model, BPPARAM = sp),
+  fit <- spdeST:::.spdest_estimate(.spdest_scan(Y, model, BPPARAM = sp),
                                           Y, features = "all", BPPARAM = sp)
-  full <- inlaST.test(fit, moments = "exact")
-  scr <- inlaST.test(fit, moments = "exact", screen = TRUE)
+  full <- spdeST.test(fit, moments = "exact")
+  scr <- spdeST.test(fit, moments = "exact", screen = TRUE)
   expect_gte(scr$timing$screen$z, 2)
   skipped <- scr$results$status == 4L
   expect_true(any(skipped))
@@ -118,8 +118,8 @@ test_that("inlaST.test(screen = TRUE) keeps the discoveries of both routes", {
                     full$results$log_p_two_sided[skipped] + 1e-12))
   # The PCAlearning route: the same discoveries, bounds below the route's own
   # p-values, and evaluated pairs unchanged.
-  full <- inlaST.test(fit, moments = "pcalearning", rank = 5L, k = 10L)
-  scr <- inlaST.test(fit, moments = "pcalearning", rank = 5L, k = 10L, screen = TRUE)
+  full <- spdeST.test(fit, moments = "pcalearning", rank = 5L, k = 10L)
+  scr <- spdeST.test(fit, moments = "pcalearning", rank = 5L, k = 10L, screen = TRUE)
   skipped <- scr$results$status == 4L
   expect_true(any(skipped))
   expect_identical(scr$timing$screen$screened, as.numeric(sum(skipped)))

@@ -27,8 +27,8 @@
   has_offset <- vapply(terms, function(x) {
     is.call(x) && identical(x[[1L]], as.name("offset"))
   }, logical(1L))
-  data$.mgcvST_setup_offset <- if (is.null(G$offset)) numeric(nrow(data)) else G$offset
-  terms <- c(terms[!has_offset], list(call("offset", as.name(".mgcvST_setup_offset"))))
+  data$.spdeST_setup_offset <- if (is.null(G$offset)) numeric(nrow(data)) else G$offset
+  terms <- c(terms[!has_offset], list(call("offset", as.name(".spdeST_setup_offset"))))
   formula <- .mgcvst_rebuild_formula(G$formula, terms)
   env <- new.env(parent = environment(formula))
   env$s <- mgcv::s
@@ -134,5 +134,5 @@
     offset = geometry$offset,
     timing = list(setup_seconds = proc.time()[["elapsed"]] - t0,
                   lpmatrix_seconds = 0, elapsed = proc.time()[["elapsed"]] - t0)
-  ), class = "mgcvST_model")
+  ), class = "spdeST_model")
 }

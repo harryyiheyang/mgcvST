@@ -2,7 +2,7 @@
 % Please edit documentation in R/model-set.R
 \name{model.set}
 \alias{model.set}
-\title{Construct the mgcv model behind inlaST.set()}
+\title{Construct the mgcv model behind spdeST.set()}
 \usage{
 model.set(
   formula,
@@ -32,12 +32,12 @@ model.set(
 \item{...}{Additional arguments passed to \code{mgcv::gam(..., fit = FALSE)}.}
 }
 \value{
-An object of class \code{mgcvST_model}. It
+An object of class \code{spdeST_model}. It
 stores the basis \code{kappa_unit}, \code{unit_length}, \code{coordinate_span} and
 \code{kappa_internal}.
 }
 \description{
-Builds the \code{mgcv::gam(..., fit = FALSE)} setup from which \code{\link[=inlaST.set]{inlaST.set()}}
+Builds the \code{mgcv::gam(..., fit = FALSE)} setup from which \code{\link[=spdeST.set]{spdeST.set()}}
 takes its design. The response name on the left-hand side is a label: it
 need not be a column of \code{data}, because the helper replaces it with an
 internal response bridge before constructing the mgcv setup. Linear terms,

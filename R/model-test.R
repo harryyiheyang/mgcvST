@@ -57,7 +57,7 @@
       chunk_size != floor(chunk_size))) {
     stop("chunk_size must be one positive integer.")
   }
-  if (!inherits(fit, "inlaST_fit")) {
+  if (!inherits(fit, "spdeST_scan")) {
     stop("The test requires a fit returned by spdeST.estimate().")
   }
   .mgcvst_check_fit_format(fit)
@@ -121,9 +121,9 @@
   route <- NULL
   screen_record <- NULL
   if (n_tested > 0) {
-    fit <- .inlast_sparse_prepare(fit)
+    fit <- .spdest_sparse_prepare(fit)
     t_basis <- proc.time()[["elapsed"]]
-    basis <- .inlast_check_basis(fit, .inlast_sparse_observation_basis(fit))
+    basis <- .spdest_check_basis(fit, .spdest_sparse_observation_basis(fit))
     basis_elapsed <- proc.time()[["elapsed"]] - t_basis
     basis_rank <- basis$rank
     basis_kind <- basis$kind
@@ -211,7 +211,7 @@
   if (!is.null(route)) {
     # The observation basis of the fit: q is the dimension of the
     # field, r the number of basis directions (the score dimension).
-    timing$inla_projection <- list(
+    timing$score_projection <- list(
       q = ncol(fit$score_sparse$Q), r = basis_rank, basis_kind = basis_kind,
       basis = "constrained_observation_kernel_A_Qg_inverse_At",
       basis_elapsed = basis_elapsed
@@ -248,7 +248,7 @@
         normalizePath(checkpoint_dir, winslash = "/", mustWork = FALSE),
       call = call
     ),
-    class = "mgcvST_test"
+    class = "spdeST_test"
   )
   if (!is.null(pca_learning)) ans$pca_learning <- pca_learning
   # Per-feature traces of the score curvature M_g of every feature in a tested
@@ -264,13 +264,13 @@
 
 #' Print covariance-test diagnostics
 #'
-#' @param x An `mgcvST_test` object.
+#' @param x An `spdeST_test` object.
 #' @param ... Unused.
 #' @return `x`, invisibly.
 #' @export
-print.mgcvST_test <- function(x, ...) {
+print.spdeST_test <- function(x, ...) {
   d <- x$discoveries
-  cat("mgcvST quadratic-form covariance tests\n")
+  cat("spdeST quadratic-form covariance tests\n")
   cat("  tested pair universe:", format(d$pairs_requested, big.mark = ","), "\n")
   cat("  pairs with p-value:", format(d$pairs_with_p_value, big.mark = ","), "\n")
   cat("  adjustment:", x$threshold$adjust,

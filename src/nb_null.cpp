@@ -31,9 +31,7 @@
 //      derivative at beta(alpha).
 // The gamma-function terms depend on the counts only through the tail counts
 // c_j = #{i : y_i > j}, so each outer step costs O(n + max y), exactly.
-// The result is the joint maximum-likelihood estimate, which is the INLA
-// conditional mode under the flat priors of the INLA branch up to the Laplace
-// correction of the size.
+// The result is the joint maximum-likelihood estimate.
 
 namespace {
 

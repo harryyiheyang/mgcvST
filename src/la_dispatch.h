@@ -2,10 +2,10 @@
 // symmetric eigenvalue problems of the pair tests; compiled for generic,
 // AVX2+FMA and AVX-512 by src/Makevars). la() returns the best table the CPU
 // supports, chosen once per process; the environment variable
-// MGCVST_SIMD=avx512|avx2|generic caps the choice. The generic copy is compiled
+// SPDEST_SIMD=avx512|avx2|generic caps the choice. The generic copy is compiled
 // with the package's ordinary flags. This is the package's only SIMD dispatch.
-#ifndef MGCVST_LA_DISPATCH_H
-#define MGCVST_LA_DISPATCH_H
+#ifndef SPDEST_LA_DISPATCH_H
+#define SPDEST_LA_DISPATCH_H
 
 #include <cstdlib>
 #include <string>
@@ -51,7 +51,7 @@ struct LaFns {
 }  // namespace mgcvst
 
 extern const mgcvst::LaFns mgcvst_la_generic;
-#if defined(MGCVST_LA_X86)
+#if defined(SPDEST_LA_X86)
 extern const mgcvst::LaFns mgcvst_la_avx2;
 extern const mgcvst::LaFns mgcvst_la_avx512;
 #endif
@@ -59,9 +59,9 @@ extern const mgcvst::LaFns mgcvst_la_avx512;
 namespace mgcvst {
 
 inline const LaFns& pick_la() {
-  const char* env = std::getenv("MGCVST_SIMD");
+  const char* env = std::getenv("SPDEST_SIMD");
   const std::string want = env ? env : "";
-#if defined(MGCVST_LA_X86) && (defined(__GNUC__) || defined(__clang__))
+#if defined(SPDEST_LA_X86) && (defined(__GNUC__) || defined(__clang__))
   __builtin_cpu_init();
   const bool a512 = __builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512dq") &&
                     __builtin_cpu_supports("avx512vl") && __builtin_cpu_supports("avx512bw") &&

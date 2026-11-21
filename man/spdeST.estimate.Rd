@@ -44,7 +44,7 @@ An \code{spdeST_fit} object for \code{\link[=spdeST.test]{spdeST.test()}}.
 Fits the spatial model of the features chosen by \code{features} by
 \code{\link[=spde.estimate]{spde.estimate()}}: the Laplace marginal likelihood (REML) of each feature
 is maximised in the precision of the field and the NB size, with the
-settings fixed in \code{\link[=inlaST.set]{inlaST.set()}} and the offset given to \code{\link[=spdeST.scan]{spdeST.scan()}}.
+settings fixed in \code{\link[=spdeST.set]{spdeST.set()}} and the offset given to \code{\link[=spdeST.scan]{spdeST.scan()}}.
 Stage 1 is not recomputed. The fit keeps the score vectors and the
 per-feature materials that \code{\link[=spdeST.test]{spdeST.test()}} needs.
 }

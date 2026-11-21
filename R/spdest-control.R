@@ -1,6 +1,6 @@
 # The controls and the model specification of Stage 2 (spde.estimate()).
 
-.inlast_merge_control <- function(base = list(), override = list()) {
+.spdest_merge_control <- function(base = list(), override = list()) {
   validate <- function(x, label) {
     if (is.null(x)) x <- list()
     if (!is.list(x)) stop(label, " must be a list.")
@@ -18,11 +18,11 @@
 }
 
 # control = list(spde = <named spde.estimate() controls>).
-.inlast_control <- function(control = list()) {
+.spdest_control <- function(control = list()) {
   if (is.null(control)) control <- list()
   if (!is.list(control)) stop("control must be a list.")
   .mgcvst_refuse_screen_control(control)
-  out <- .inlast_merge_control(list(spde = list()), control)
+  out <- .spdest_merge_control(list(spde = list()), control)
   unknown <- setdiff(names(out), "spde")
   if (length(unknown)) {
     stop("Unknown control field", if (length(unknown) > 1L) "s" else "",
@@ -40,7 +40,7 @@
   out
 }
 
-.inlast_validate_spec <- function(spec, y, offset) {
+.spdest_validate_spec <- function(spec, y, offset) {
   if (!is.list(spec) || is.null(spec$fixed) || is.null(spec$random)) {
     stop("spec must contain fixed and random model blocks.")
   }
@@ -131,7 +131,7 @@
   )
 }
 
-.inlast_null_spec <- function(spec) {
+.spdest_null_spec <- function(spec) {
   target <- which(vapply(spec$random, function(z) isTRUE(z$target), logical(1L)))
   random <- spec$random[-target]
   spec$random <- random

@@ -29,7 +29,7 @@ test_that("pair results carry t1 and the test keeps per-feature traces", {
   skip_if_not_installed("arrow")
   skip_on_cran()
   fit <- .pca_nb_fit()
-  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
   G <- length(fit$feature_id)
   exact <- spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 100L, FALSE, k = 1000L,
                                           basis = basis)

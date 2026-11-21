@@ -1,6 +1,6 @@
 #define USE_FC_LEN_T
 #define EIGEN_DONT_PARALLELIZE
-#include "inla_sparse.h"
+#include "sparse_score.h"
 #include "spa_quadform.h"
 #ifdef _OPENMP
 #include <omp.h>
@@ -110,7 +110,7 @@ Rcpp::List mgcvst_spde_score_cpp(
   spa.root_tol = spa_root_tol;
   spa.root_maxit = spa_root_maxit;
 #ifndef _OPENMP
-  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
+  if (threads > 1) Rcpp::stop("spdeST was compiled without OpenMP; use threads = 1.");
 #endif
 
   QFactor qfactor;

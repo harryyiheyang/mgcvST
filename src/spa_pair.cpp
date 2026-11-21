@@ -26,7 +26,7 @@ Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U,
   if (order != 2 && order != 4) Rcpp::stop("order must be 2 or 4.");
   if (threads < 1) Rcpp::stop("threads must be a positive integer.");
 #ifndef _OPENMP
-  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP support; use threads = 1.");
+  if (threads > 1) Rcpp::stop("spdeST was compiled without OpenMP support; use threads = 1.");
 #endif
   Rcpp::NumericMatrix out(N, 5);
   double* o = out.begin();

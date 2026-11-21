@@ -1,7 +1,7 @@
 # Build the observation-centred projected basis used by the existing score
-# engine and the raw sparse SPDE matrices used by INLA. The basis keeps the
+# engine and the raw sparse SPDE matrices used by spde.estimate(). The basis keeps the
 # kappa_internal fixed by spde_basis() from its own observation coordinates.
-.inlast_prepare_basis <- function(basis, coordinates) {
+.spdest_prepare_basis <- function(basis, coordinates) {
   .spde_basis_validate(basis)
   mesh <- list(xy = basis$mesh_vertices, tv = basis$mesh_triangles)
   coordinates <- as.matrix(coordinates)
@@ -42,54 +42,54 @@
   )
 }
 
-.inlast_family <- function(family) {
+.spdest_family <- function(family) {
   label <- tolower(family$family)
   link <- tolower(family$link)
   if (identical(label, "poisson") && identical(link, "log")) return("poisson")
   if (grepl("^negative binomial", label) && identical(link, "log")) {
     return("negative_binomial")
   }
-  stop("inlaST.set() supports Poisson(log) and negative-binomial(log) families.")
+  stop("spdeST.set() supports Poisson(log) and negative-binomial(log) families.")
 }
 
 # Soft guard on the width of the nuisance design. The nuisance design is carried
 # dense through the score kernel's exact GLS Vp / P construction, so an
 # accidentally huge one (a factor with hundreds of levels, a wide interaction)
 # is a performance and conditioning hazard rather than a supported model.
-.INLAST_MAX_NUISANCE_COLUMNS <- 1000L
+.SPDEST_MAX_NUISANCE_COLUMNS <- 1000L
 
-.inlast_check_nuisance_width <- function(p_x, detail = NULL) {
+.spdest_check_nuisance_width <- function(p_x, detail = NULL) {
   p_x <- as.integer(p_x)
-  if (length(p_x) == 1L && !is.na(p_x) && p_x > .INLAST_MAX_NUISANCE_COLUMNS) {
+  if (length(p_x) == 1L && !is.na(p_x) && p_x > .SPDEST_MAX_NUISANCE_COLUMNS) {
     stop("The nuisance design has ", p_x, " columns, above the supported ",
-         "maximum of ", .INLAST_MAX_NUISANCE_COLUMNS,
+         "maximum of ", .SPDEST_MAX_NUISANCE_COLUMNS,
          ". A high-dimensional nuisance design needs a dedicated ",
-         "implementation; the INLA path carries the nuisance design densely",
+         "implementation; the model carries the nuisance design densely",
          if (is.null(detail)) "." else paste0(": ", detail, "."))
   }
   invisible(p_x)
 }
 
 # One message for both setup paths: the Stage 1 null is a GLM.
-.inlast_reject_nuisance_smooth <- function(labels) {
-  stop("The null of inlaST.set() is a GLM: enter covariates as linear terms ",
+.spdest_reject_nuisance_smooth <- function(labels) {
+  stop("The null of spdeST.set() is a GLM: enter covariates as linear terms ",
        "or factors, not smooth terms (",
        paste(as.character(labels), collapse = ", "), ").", call. = FALSE)
 }
 
-# Convert frozen mgcv geometry to an INLA latent-model specification. Keeping
+# Convert frozen mgcv geometry to a latent-model specification. Keeping
 # this conversion here makes the public object independently serializable.
 #
 # The spatial target is the single random block. Every
 # remaining (parametric) column is a fixed effect, and is exactly the nuisance
 # design the sparse score kernel consumes. A non-target smooth is rejected here.
-.inlast_model_spec <- function(model, raw_component) {
+.spdest_model_spec <- function(model, raw_component) {
   geometry <- model$geometry
   n <- nrow(model$L)
   target_index <- unname(geometry$target)
   nuisance_smooth <- setdiff(seq_along(geometry$smooth), target_index)
   if (length(nuisance_smooth)) {
-    .inlast_reject_nuisance_smooth(
+    .spdest_reject_nuisance_smooth(
       vapply(geometry$smooth[nuisance_smooth], `[[`, character(1L), "label")
     )
   }
@@ -100,7 +100,7 @@
   geometry$nuisance_columns <- nuisance
   geometry$nuisance_design <- model$L[, nuisance, drop = FALSE]
   geometry$nuisance_projection <- "expected_Fisher_penalized_Vp"
-  .inlast_check_nuisance_width(length(nuisance))
+  .spdest_check_nuisance_width(length(nuisance))
   model$geometry <- geometry
 
   random <- vector("list", length(target_index))
@@ -108,7 +108,7 @@
     j <- target_index[k]
     sm <- geometry$smooth[[j]]
     if (sm$fixed || length(sm$penalties) != 1L || length(sm$sp_index) != 1L) {
-      stop("inlaST.set() requires one fitted penalty for the target SPDE smoother; ",
+      stop("spdeST.set() requires one fitted penalty for the target SPDE smoother; ",
            "unsupported smooth: '", sm$label, "'.")
     }
     component <- names(geometry$target)[k]
@@ -135,12 +135,12 @@
   if (length(nuisance_index) != ncol(geometry$nuisance_design) ||
       !isTRUE(all.equal(as.matrix(combined_design[, nuisance_index, drop = FALSE]),
                         geometry$nuisance_design, tolerance = 1e-10))) {
-    stop("The INLA nuisance coefficient map does not match the score geometry.")
+    stop("The nuisance coefficient map does not match the score geometry.")
   }
 
   spec <- list(
     n = n,
-    family = .inlast_family(model$G$family),
+    family = .spdest_family(model$G$family),
     fixed = list(X = fixed_X, names = fixed_names),
     random = random,
     nuisance_design = geometry$nuisance_design,
@@ -163,7 +163,7 @@
 # the spec, so a prescreened feature is fitted by handing the engine this spec
 # instead. Everything else -- design, sparse blocks, constraint, offset -- is
 # shared by reference, so the twin costs nothing beyond the family switch.
-.inlast_poisson_spec <- function(spec) {
+.spdest_poisson_spec <- function(spec) {
   if (!identical(spec$family, "negative_binomial")) {
     stop("The Poisson prescreen applies to negative-binomial models only.")
   }
@@ -193,14 +193,14 @@
 #' supported.
 #'
 #' @section Nuisance smooths:
-#' The native INLA setup supports one spatial target and any number of
+#' The mesh setup supports one spatial target and any number of
 #' categorical `s(group, bs = "re")` terms or `s(..., bs = "gp")` terms whose
 #' penalty is full rank after the observation intercept is projected out.
 #' Each GP design and penalty are transformed together and whitened to an iid
 #' block. Every iid block retains its estimated precision penalty in the small
 #' nuisance `Vp` block alongside the unpenalized fixed effects. Numeric
 #' random-effect groups, `by=` nuisance terms, rank-deficient GP penalties and
-#' other smooth bases are outside the native INLA model.
+#' other smooth bases are outside the mesh model.
 #'
 #' Parametric covariates are supported: numeric columns, factors and
 #' their interactions all enter the nuisance design as fixed effects. A second
@@ -237,17 +237,17 @@
 #' @param retain_smooth,diagnostics Settings of [spdeST.estimate()] fixed with
 #'   the model: retain the estimated score-component coefficients; retain the
 #'   per-feature record of the fit.
-#' @return An `inlaST_model` for [spdeST.scan()]. It stores `kappa_unit`,
+#' @return An `spdeST_model` for [spdeST.scan()]. It stores `kappa_unit`,
 #'   `unit_length`, `coordinate_span` and `kappa_internal`, and the
 #'   estimation settings in `estimation`.
 #' @export
-inlaST.set <- function(
+spdeST.set <- function(
     formula = NULL, data = NULL, basis = NULL, family = mgcv::nb(),
     setting = "global", coordinates = c("x", "y"), G = NULL, control = list(),
     ..., mesh = NULL, kappa = 0.05, retain_smooth = FALSE, diagnostics = FALSE) {
   estimation <- list(retain_smooth = .spdest_flag(retain_smooth, "retain_smooth"),
                      diagnostics = .spdest_flag(diagnostics, "diagnostics"))
-  model <- .inlast_set_model(
+  model <- .spdest_set_model(
     formula = formula, data = data, basis = basis, family = family,
     setting = setting, coordinates = coordinates, G = G, control = control, ...,
     mesh = mesh, kappa = kappa,
@@ -257,7 +257,7 @@ inlaST.set <- function(
   model
 }
 
-.inlast_set_model <- function(
+.spdest_set_model <- function(
     formula = NULL, data = NULL, basis = NULL, family = mgcv::nb(),
     setting = "global", coordinates = c("x", "y"), G = NULL, control = list(),
     ..., mesh = NULL, kappa = 0.05, .family_supplied = FALSE,
@@ -289,10 +289,10 @@ inlaST.set <- function(
       stop("The native mesh setup does not accept extra mgcv setup arguments: ",
            paste(names(list(...)), collapse = ", "), ".")
     }
-    native <- .inlast_set_native(
+    native <- .spdest_set_native(
       formula = formula, data = data, family = family, mesh = mesh,
       kappa = kappa, coordinates = coordinates,
-      setting = setting, control = .inlast_control(control)
+      setting = setting, control = .spdest_control(control)
     )
     native$timing <- list(setup_seconds = proc.time()[["elapsed"]] - t0,
                           elapsed = proc.time()[["elapsed"]] - t0)
@@ -304,13 +304,13 @@ inlaST.set <- function(
          "spde_basis().")
   }
   requested_setting <- setting
-  control <- .inlast_control(control)
+  control <- .spdest_control(control)
   dots <- list(...)
   forbidden <- intersect(names(dots),
                          c("weights", "prior.weights", "subset", "na.action",
                            "paraPen", "H", "method", "fit"))
   if (length(forbidden)) {
-    stop("inlaST.set() does not support these setup arguments: ",
+    stop("spdeST.set() does not support these setup arguments: ",
          paste(forbidden, collapse = ", "), ".")
   }
   if (!is.null(G)) {
@@ -319,11 +319,11 @@ inlaST.set <- function(
       stop("Supply G alone as the design, or formula, data, family and setup arguments.")
     }
     base <- .mgcvst_set_prepare(G = G, .allow_poisson = TRUE)
-    prepared <- .inlast_prepare_frozen_components(base)
+    prepared <- .spdest_prepare_frozen_components(base)
   } else if (is.null(basis)) {
     data <- as.data.frame(data)
     if (is.null(data) || !nrow(data)) stop("data must be one shared non-empty data frame.")
-    complete <- .inlast_prepare_formula(formula, data)
+    complete <- .spdest_prepare_formula(formula, data)
     base <- .mgcvst_set_prepare(complete$formula, data, family,
                                 ..., .allow_poisson = TRUE)
     prepared <- complete$prepared[base$components]
@@ -335,7 +335,7 @@ inlaST.set <- function(
       stop("Both coordinate columns must be present in data.")
     }
     xy <- as.matrix(data[, coordinates, drop = FALSE])
-    prepared <- lapply(supplied[components], .inlast_prepare_basis,
+    prepared <- lapply(supplied[components], .spdest_prepare_basis,
                        coordinates = xy)
     constrained_basis <- lapply(prepared, `[[`, "basis")$global
     base <- model.set(
@@ -344,51 +344,51 @@ inlaST.set <- function(
     )
   }
   if (!is.null(base$G$w) && any(base$G$w != 1)) {
-    stop("inlaST.set() currently requires unit observation weights.")
+    stop("spdeST.set() currently requires unit observation weights.")
   }
-  built <- .inlast_model_spec(base, lapply(prepared, `[[`, "raw"))
+  built <- .spdest_model_spec(base, lapply(prepared, `[[`, "raw"))
   model <- built$model
-  model$inla_spec <- built$spec
+  model$spde_spec <- built$spec
   model$mean_constraint <- "observation"
   model$mean_constraint_active <- TRUE
-  .spde_estimate_check(model$inla_spec)
-  model$inla_control <- control
-  # INLA is sparse-only: there is no dense score and no fallback. Reject a
+  .spde_estimate_check(model$spde_spec)
+  model$spde_control <- control
+  # The score is sparse-only. Reject a
   # structure the sparse kernel cannot carry here, at setup, where the reason is
   # still attributable to the design the caller just supplied.
-  capability <- .inlast_sparse_score_capability(model)
+  capability <- .spdest_sparse_score_capability(model)
   if (!capability$eligible) {
-    stop("inlaST.set() builds sparse-score models only, and this design is ",
-         "not eligible: ", capability$reason, ". The dense INLA score was ",
-         "removed; rebuild the design with a single global fixed-kappa SPDE ",
+    stop("spdeST.set() builds sparse-score models only, and this design is ",
+         "not eligible: ", capability$reason, ". Rebuild ",
+         "the design with a single global fixed-kappa SPDE ",
          "target and no extra random blocks.")
   }
   model$timing$elapsed <- proc.time()[["elapsed"]] - t0
-  class(model) <- c("inlaST_model", "mgcvST_model")
+  class(model) <- "spdeST_model"
   model
 }
 
-.inlast_validate_estimate <- function(Y, model, feature_id, BPPARAM, chunk_size,
+.spdest_validate_estimate <- function(Y, model, feature_id, BPPARAM, chunk_size,
                                       offset, control, retain_smooth, diagnostics) {
-  if (!inherits(model, "inlaST_model") || is.null(model$inla_spec)) {
-    stop("model must be returned by inlaST.set().")
+  if (!inherits(model, "spdeST_model") || is.null(model$spde_spec)) {
+    stop("model must be returned by spdeST.set().")
   }
   if (!isTRUE(model$mean_constraint_active) ||
       !identical(model$mean_constraint, "observation") ||
-      !isTRUE(model$inla_spec$mean_constraint_active)) {
+      !isTRUE(model$spde_spec$mean_constraint_active)) {
     stop("The required observation mean-zero constraint is not active.")
   }
   if (!is.matrix(Y)) Y <- as.matrix(Y)
   if (length(dim(Y)) != 2L || !nrow(Y) || !ncol(Y)) {
     stop("Y must be a non-empty finite numeric feature-by-observation matrix.")
   }
-  if (ncol(Y) != model$inla_spec$n) {
+  if (ncol(Y) != model$spde_spec$n) {
     stop("ncol(Y) must equal the number of observations in model.")
   }
   # Checked in blocks of rows: no temporary of the size of Y, no copy of a
   # double or integer matrix.
   Y <- .mgcvst_check_response_matrix(
-    Y, counts = model$inla_spec$family %in% c("poisson", "negative_binomial"))
+    Y, counts = model$spde_spec$family %in% c("poisson", "negative_binomial"))
   if (is.null(feature_id)) feature_id <- rownames(Y)
   if (is.null(feature_id)) feature_id <- as.character(seq_len(nrow(Y)))
   feature_id <- as.character(feature_id)
@@ -400,7 +400,7 @@ inlaST.set <- function(
     stop("BPPARAM must inherit from 'BiocParallelParam'.")
   }
   chunk_size <- .mgcvst_check_chunk_size(chunk_size)
-  if (!is.list(control)) stop("control must be a list of INLA controls.")
+  if (!is.list(control)) stop("control must be a named list.")
   for (name in c("retain_smooth", "diagnostics")) {
     value <- get(name)
     if (!is.logical(value) || length(value) != 1L || is.na(value)) {
@@ -418,17 +418,17 @@ inlaST.set <- function(
   list(Y = Y, feature_id = feature_id, chunk_size = chunk_size)
 }
 
-.inlast_nuisance_mode <- function(fit, spec) {
+.spdest_nuisance_mode <- function(fit, spec) {
   map <- spec$nuisance_map
   width <- ncol(spec$nuisance_design)
   if (!is.list(map) || length(map) != width) {
-    stop("The INLA nuisance coefficient map is incomplete.")
+    stop("The nuisance coefficient map is incomplete.")
   }
   value <- vapply(map, function(z) {
     if (identical(z$source, "fixed")) {
       if (length(z$index) != 1L || is.na(z$index) || z$index < 1L ||
           z$index > length(fit$fixed_mode)) {
-        stop("The INLA fixed nuisance coefficient map is invalid.")
+        stop("The fixed nuisance coefficient map is invalid.")
       }
       return(as.numeric(fit$fixed_mode[z$index]))
     }
@@ -437,11 +437,11 @@ inlaST.set <- function(
           z$block > length(fit$random_mode) || length(z$index) != 1L ||
           is.na(z$index) || z$index < 1L ||
           z$index > length(fit$random_mode[[z$block]])) {
-        stop("The INLA random nuisance coefficient map is invalid.")
+        stop("The random nuisance coefficient map is invalid.")
       }
       return(as.numeric(fit$random_mode[[z$block]][z$index]))
     }
-    stop("The INLA nuisance coefficient map has an unknown source.")
+    stop("The nuisance coefficient map has an unknown source.")
   }, numeric(1L))
   names(value) <- colnames(spec$nuisance_design)
   value

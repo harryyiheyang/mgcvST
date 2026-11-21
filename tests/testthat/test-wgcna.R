@@ -13,12 +13,12 @@ test_that("WGCNA parameters and gene blocks have explicit contracts", {
   expect_error(parameters(list(minClusterSize = 2.5)), "integer of at least 2")
 
   fit <- .pca_nb_fit()
-  expect_error(inlaST.wgcna(fit), "indices must explicitly")
-  expect_error(inlaST.wgcna(fit, c(1.1, 2)), "valid integer feature positions")
-  expect_error(inlaST.wgcna(fit, c("g1", "missing")), "Unknown feature ID")
-  expect_error(inlaST.wgcna(fit, c("g1", "g1")),
+  expect_error(spdeST.wgcna(fit), "indices must explicitly")
+  expect_error(spdeST.wgcna(fit, c(1.1, 2)), "valid integer feature positions")
+  expect_error(spdeST.wgcna(fit, c("g1", "missing")), "Unknown feature ID")
+  expect_error(spdeST.wgcna(fit, c("g1", "g1")),
                "at least two distinct features")
-  expect_error(inlaST.wgcna(fit, list(c(1, 2))), "uniquely named")
+  expect_error(spdeST.wgcna(fit, list(c(1, 2))), "uniquely named")
 })
 
 test_that("WGCNA uses current fitted score states and matches a hand network", {
@@ -31,10 +31,10 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   before <- serialize(fit, NULL)
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   para <- list(power = 4, minClusterSize = 2L, deepSplit = 0L)
-  W <- inlaST.wgcna(fit, ids, wgcna.para = para)
+  W <- spdeST.wgcna(fit, ids, wgcna.para = para)
 
   used <- match(ids, fit$feature_id)
-  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
   A <- crossprod(basis$coordinate, fit$score_a[, used, drop = FALSE])
   dimnames(A) <- list(NULL, ids)
   S <- crossprod(A) / nrow(A)
@@ -69,10 +69,10 @@ test_that("WGCNA preserves overlapping block order", {
   ids <- fit$feature_id
   blocks <- list(second = ids[c(3L, 1L, 2L)], first = ids[c(2L, 1L, 3L)])
 
-  W <- inlaST.wgcna(fit, blocks)
+  W <- spdeST.wgcna(fit, blocks)
 
-  prepared <- spdeST:::.inlast_sparse_prepare(fit)
-  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
+  prepared <- spdeST:::.spdest_sparse_prepare(fit)
+  basis <- spdeST:::.spdest_sparse_observation_basis(prepared)
   used <- match(W$score$feature_id, ids)
   A <- crossprod(basis$coordinate, fit$score_a[, used, drop = FALSE])
   dimnames(A) <- list(NULL, W$score$feature_id)
@@ -105,23 +105,23 @@ test_that("WGCNA scores are the test's projected observation-kernel scores", {
     a = rpois(n, exp(1 + eta)), b = rpois(n, exp(1 + eta)),
     c = rpois(n, exp(1 + eta)), d = rpois(n, exp(1 + eta))
   )
-  model <- inlaST.set(response ~ z, data, basis, family = poisson())
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(
+  model <- spdeST.set(response ~ z, data, basis, family = poisson())
+  fit <- spdeST:::.spdest_estimate(
+    .spdest_scan(
     Y, model, BPPARAM = BiocParallel::SerialParam()),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   ids <- rownames(Y)
   used <- match(ids, fit$feature_id)
 
-  W <- inlaST.wgcna(fit, ids)
-  prepared <- spdeST:::.inlast_sparse_prepare(fit)
-  basis_r <- spdeST:::.inlast_sparse_observation_basis(prepared)
+  W <- spdeST.wgcna(fit, ids)
+  prepared <- spdeST:::.spdest_sparse_prepare(fit)
+  basis_r <- spdeST:::.spdest_sparse_observation_basis(prepared)
   A <- crossprod(basis_r$coordinate, fit$score_a[, used, drop = FALSE])
   dimnames(A) <- list(NULL, ids)
   expect_equal(W$score$A, A, tolerance = 1e-12)
 
   pairs <- t(utils::combn(ids, 2L))
-  T <- inlaST.test(fit, pairs = pairs, rank = 1L, moments = "exact")
+  T <- spdeST.test(fit, pairs = pairs, rank = 1L, moments = "exact")
   i <- match(fit$feature_id[T$results$i], ids)
   j <- match(fit$feature_id[T$results$j], ids)
   expect_equal(T$results$score,

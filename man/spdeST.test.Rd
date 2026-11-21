@@ -85,7 +85,7 @@ is off when the bound would be needed below \code{z = 2} (for example
 screening value and the number of screened pairs.}
 }
 \value{
-An object of class \code{mgcvST_test} with \code{results}, \code{shards},
+An object of class \code{spdeST_test} with \code{results}, \code{shards},
 \code{feature_id}, \code{failed} (features without a usable score state and the
 reason), \code{threshold}, \code{discoveries}, \code{adjustment}, \code{timing}
 (\code{timing$route} holds the route, \code{k} and the score dimension \code{q}),
@@ -113,7 +113,7 @@ score covariances, every pair needs the four exact trace moments
 nodes (one node or a Gaussian term when the moments do not allow two nodes).
 With \code{moments = "pcalearning"}, the score covariances are projected onto a
 rank-\code{rank} basis learned from training genes (see Details of
-\code{\link[=inlaST.test]{inlaST.test()}}), the pair traces \verb{tr(H_i H_j)} and \verb{tr((H_i H_j)^2)} come from
+\code{\link[=spdeST.test]{spdeST.test()}}), the pair traces \verb{tr(H_i H_j)} and \verb{tr((H_i H_j)^2)} come from
 a contraction of the projected coefficients, the shared basis holds the
 \code{k = 80} leading eigenvectors of the training genes, and the remainder is
 one node. The exact route costs time cubic in the score dimension \code{q} for
@@ -176,4 +176,35 @@ are positive and those with a negative score negative. The adjustment needs
 the two-sided log p-values and the adjusted values in memory (24 bytes per
 pair, 40\% of available memory); when that does not hold it is skipped, with
 a warning, and \code{log_q} is \code{NA}.
+
+The dimension of the field, the number of basis directions and the
+basis time are stored in \code{timing$score_projection}, the pair-stage timings
+in \code{timing$pair_pipeline} (exact route) or \code{timing$pcalearning}.
+
+The PCAlearning route projects every score covariance \code{H_j} onto
+a rank-\code{rank} orthonormal basis learned from stratified training genes.
+Each gene receives the variance scales \code{sigma_g2 = dispersion / lambda}
+and \code{sigma_e2 = 1 + mean(mu) / theta} for negative-binomial genes (1 for
+Poisson genes), with \code{mean(mu)} stored at estimation as \code{mu_bar}. Genes are
+stratified into 10 quantile bins of \code{log(sigma_g2)} crossed with one
+Poisson bin and 9 quantile bins of \code{log(sigma_e2)}, and \code{n_per_cell} genes
+are drawn per cell, with the quota of sparse cells reallocated
+proportionally to cell size. The training matrices
+\verb{tau_j H_j}, \code{tau_j = sigma_e2 / sigma_g2}, define an orthonormal basis \code{B}
+through the eigen decomposition of their Gram matrix, which is summed in
+a fixed block order so that the result does not depend on the number of
+threads. Every tested gene is summarized by its basis coefficients \code{c_j},
+and its residual \verb{e_j^2 = ||H_j||_F^2 - ||c_j||^2} is reported. The pair
+traces \verb{tr(H_i H_j) = c_i' c_j} and \verb{tr((H_i H_j)^2)} are those of the
+projected matrices, which the level-2 trace table of \code{B} gives by
+contraction of the degree-2 monomials of the coefficients. The leading
+singular values of each pair come from the shared basis \code{V}
+(the \code{k} leading eigenvectors of the sum of the training matrices, each
+divided by its largest absolute entry): with \code{R_j} the upper Cholesky
+factor of \verb{V' H_j V} divided by that entry, they are the singular values
+of \verb{R_i R_j'}. The result element
+\code{pca_learning} stores the training genes, the Gram eigenvalues and
+rotation defining \code{B}, the coefficients \code{c_j}, the per-gene table with
+\verb{e2_relative = e_j^2 / ||H_j||_F^2}, and the stage timings, including the
+trace-table precomputation.
 }

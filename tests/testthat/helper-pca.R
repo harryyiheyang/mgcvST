@@ -20,10 +20,10 @@
       rnbinom(n, mu = exp(eta), size = if (g %% 3 == 0) 1e4 else 2 + g)
     }, numeric(n)))
     dimnames(Y) <- list(paste0("g", seq_len(G)), NULL)
-    model <- inlaST.set(response ~ z + offset(offset0), data, basis,
+    model <- spdeST.set(response ~ z + offset(offset0), data, basis,
                         family = mgcv::nb())
-    cached <<- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(Y, model, BPPARAM = BiocParallel::SerialParam()),
+    cached <<- spdeST:::.spdest_estimate(
+    .spdest_scan(Y, model, BPPARAM = BiocParallel::SerialParam()),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
     cached
   }
@@ -38,10 +38,10 @@
 # coordinates: the reference that a full-rank PCAlearning basis and the exact
 # route with k = q reproduce.
 .pca_exact_reference <- function(fit, pairs) {
-  prepared <- spdeST:::.inlast_sparse_prepare(fit)
-  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
-  units <- spdeST:::.inlast_sparse_units(prepared, seq_along(fit$feature_id), threads = 1L)
-  states <- spdeST:::.inlast_sparse_materialize_reduced(prepared, units, basis, threads = 1L)
+  prepared <- spdeST:::.spdest_sparse_prepare(fit)
+  basis <- spdeST:::.spdest_sparse_observation_basis(prepared)
+  units <- spdeST:::.spdest_sparse_units(prepared, seq_along(fit$feature_id), threads = 1L)
+  states <- spdeST:::.spdest_sparse_materialize_reduced(prepared, units, basis, threads = 1L)
   local <- matrix(match(pairs, fit$feature_id), ncol = 2L)
   roots <- lapply(states, function(z) .spa_sqrtm(z$M))
   score <- vapply(seq_len(nrow(local)), function(j) {
@@ -78,11 +78,11 @@
 .pair_pipeline_mocks <- function(env = parent.frame(),
                                  materialize = function(ids) lapply(ids, .pair_pipeline_state)) {
   testthat::local_mocked_bindings(
-    .inlast_sparse_prepare = function(fit) fit,
-    .inlast_sparse_units = function(fit, features, threads = 1L) {
+    .spdest_sparse_prepare = function(fit) fit,
+    .spdest_sparse_units = function(fit, features, threads = 1L) {
       lapply(features, function(i) list(id = i))
     },
-    .inlast_sparse_materialize_reduced = function(fit, units, basis, threads = 1L) {
+    .spdest_sparse_materialize_reduced = function(fit, units, basis, threads = 1L) {
       materialize(vapply(units, `[[`, integer(1L), "id"))
     },
     .package = "spdeST", .env = env

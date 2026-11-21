@@ -104,18 +104,18 @@
 # weighted-vech H_j and, when the shared basis `V` is given, the factors R_j
 # (k^2 x n). Failed genes carry `error`.
 .mgcvst_pca_producer <- function(fit, used, basis, threads) {
-  fit <- .inlast_sparse_prepare(fit)
+  fit <- .spdest_sparse_prepare(fit)
   g <- fit$score_sparse
   q <- as.integer(basis$rank)
   produce <- function(ids, B, V, pack) {
-    units <- .inlast_sparse_units(fit, ids, threads = threads)
+    units <- .spdest_sparse_units(fit, ids, threads = threads)
     unit_error <- vapply(units, function(z) {
       if (is.null(z$error)) NA_character_ else as.character(z$error)
     }, character(1L))
     good <- which(is.na(unit_error))
     out <- list(error = unit_error)
     if (length(good)) {
-      z <- mgcvst_inla_sparse_materialize_pca_cpp(
+      z <- mgcvst_sparse_materialize_pca_cpp(
         units[good], g$cache$general_Q, as.numeric(g$constraint),
         basis$coordinate, basis$basis, B, rep(pack, length(good)),
         threads, g$cache$prepared, V
@@ -434,7 +434,7 @@
                         "use a smaller rank."),
                  rank, q, table_bytes / 1024^3, available_memory / 1024^3))
   }
-  fit <- .inlast_sparse_prepare(fit)
+  fit <- .spdest_sparse_prepare(fit)
 
   available <- .mgcvst_feature_available(fit)
   all_pairs <- is.null(index)

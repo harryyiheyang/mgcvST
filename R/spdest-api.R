@@ -1,6 +1,6 @@
 # spdeST user interface.
 #
-#   model <- inlaST.set(...)                         # every fixed setting
+#   model <- spdeST.set(...)                         # every fixed setting
 #   scan  <- spdeST.scan(Y, model, ...)              # Stage 1
 #   fit   <- spdeST.estimate(scan, Y, ...)           # Stage 2, chosen features
 #   res   <- spdeST.test(fit, ...)                   # pair test
@@ -38,7 +38,7 @@
 #' Stage 1 spatial score scan
 #'
 #' Tests every feature for a spatial SPDE variance component against its null
-#' model. The model from [inlaST.set()] carries every fixed setting. Stage 1
+#' model. The model from [spdeST.set()] carries every fixed setting. Stage 1
 #' fits GLM nulls by maximum likelihood (NB2, or Poisson when the overdispersion score
 #' `sum((y - mu)^2 - y) / 2` is not positive) and the score test of the raw
 #' sparse SPDE field with the null projection `P0`, calibrated by the
@@ -47,7 +47,7 @@
 #' with smooth terms or random effects is refused.
 #'
 #' @param Y Feature-by-observation response matrix.
-#' @param model Result of [inlaST.set()].
+#' @param model Result of [spdeST.set()].
 #' @param offset `NULL`, a length-n vector, or a feature-by-observation matrix
 #'   added to the model offset. It is kept for [spdeST.estimate()].
 #' @param feature_id Feature identifiers.
@@ -70,7 +70,7 @@ spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
                         BPPARAM = NULL, chunk_size = NULL, threads = 1L,
                         checkpoint_dir = NULL, resume = TRUE,
                         scan_control = list()) {
-  if (!inherits(model, "inlaST_model")) stop("model must be returned by inlaST.set().")
+  if (!inherits(model, "spdeST_model")) stop("model must be returned by spdeST.set().")
   settings <- utils::modifyList(list(retain_smooth = FALSE, diagnostics = FALSE),
                                 if (is.null(model$estimation)) list() else model$estimation)
   args <- c(
@@ -81,9 +81,7 @@ spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
     .spdest_supplied(BPPARAM = BPPARAM, chunk_size = chunk_size,
                      checkpoint_dir = checkpoint_dir)
   )
-  fit <- do.call(inlaST.estimate, args)
-  class(fit) <- c("spdeST_scan", class(fit))
-  fit
+  do.call(.spdest_scan, args)
 }
 
 #' Stage 2 spatial estimation of the selected features
@@ -91,7 +89,7 @@ spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
 #' Fits the spatial model of the features chosen by `features` by
 #' [spde.estimate()]: the Laplace marginal likelihood (REML) of each feature
 #' is maximised in the precision of the field and the NB size, with the
-#' settings fixed in [inlaST.set()] and the offset given to [spdeST.scan()].
+#' settings fixed in [spdeST.set()] and the offset given to [spdeST.scan()].
 #' Stage 1 is not recomputed. The fit keeps the score vectors and the
 #' per-feature materials that [spdeST.test()] needs.
 #'
@@ -116,9 +114,7 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
     .spdest_supplied(adjust = adjust, q.value = q.value, BPPARAM = BPPARAM,
                      chunk_size = chunk_size, checkpoint_dir = checkpoint_dir)
   )
-  fit <- do.call(inlaST.estimate_spatial, args)
-  class(fit) <- unique(c("spdeST_fit", "spdeST_scan", class(fit)))
-  fit
+  do.call(.spdest_estimate, args)
 }
 
 #' Pairwise spatial covariance test
@@ -142,7 +138,7 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' nodes (one node or a Gaussian term when the moments do not allow two nodes).
 #' With `moments = "pcalearning"`, the score covariances are projected onto a
 #' rank-`rank` basis learned from training genes (see Details of
-#' [inlaST.test()]), the pair traces `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from
+#' [spdeST.test()]), the pair traces `tr(H_i H_j)` and `tr((H_i H_j)^2)` come from
 #' a contraction of the projected coefficients, the shared basis holds the
 #' `k = 80` leading eigenvectors of the training genes, and the remainder is
 #' one node. The exact route costs time cubic in the score dimension `q` for
@@ -252,7 +248,37 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #'   is off when the bound would be needed below `z = 2` (for example
 #'   `adjust = "BH"` with `q.value = 0.05`). `timing$screen` records the
 #'   screening value and the number of screened pairs.
-#' @return An object of class `mgcvST_test` with `results`, `shards`,
+#' @details The dimension of the field, the number of basis directions and the
+#'   basis time are stored in `timing$score_projection`, the pair-stage timings
+#'   in `timing$pair_pipeline` (exact route) or `timing$pcalearning`.
+#'
+#'   The PCAlearning route projects every score covariance `H_j` onto
+#'   a rank-`rank` orthonormal basis learned from stratified training genes.
+#'   Each gene receives the variance scales `sigma_g2 = dispersion / lambda`
+#'   and `sigma_e2 = 1 + mean(mu) / theta` for negative-binomial genes (1 for
+#'   Poisson genes), with `mean(mu)` stored at estimation as `mu_bar`. Genes are
+#'   stratified into 10 quantile bins of `log(sigma_g2)` crossed with one
+#'   Poisson bin and 9 quantile bins of `log(sigma_e2)`, and `n_per_cell` genes
+#'   are drawn per cell, with the quota of sparse cells reallocated
+#'   proportionally to cell size. The training matrices
+#'   `tau_j H_j`, `tau_j = sigma_e2 / sigma_g2`, define an orthonormal basis `B`
+#'   through the eigen decomposition of their Gram matrix, which is summed in
+#'   a fixed block order so that the result does not depend on the number of
+#'   threads. Every tested gene is summarized by its basis coefficients `c_j`,
+#'   and its residual `e_j^2 = ||H_j||_F^2 - ||c_j||^2` is reported. The pair
+#'   traces `tr(H_i H_j) = c_i' c_j` and `tr((H_i H_j)^2)` are those of the
+#'   projected matrices, which the level-2 trace table of `B` gives by
+#'   contraction of the degree-2 monomials of the coefficients. The leading
+#'   singular values of each pair come from the shared basis `V`
+#'   (the `k` leading eigenvectors of the sum of the training matrices, each
+#'   divided by its largest absolute entry): with `R_j` the upper Cholesky
+#'   factor of `V' H_j V` divided by that entry, they are the singular values
+#'   of `R_i R_j'`. The result element
+#'   `pca_learning` stores the training genes, the Gram eigenvalues and
+#'   rotation defining `B`, the coefficients `c_j`, the per-gene table with
+#'   `e2_relative = e_j^2 / ||H_j||_F^2`, and the stage timings, including the
+#'   trace-table precomputation.
+#' @return An object of class `spdeST_test` with `results`, `shards`,
 #'   `feature_id`, `failed` (features without a usable score state and the
 #'   reason), `threshold`, `discoveries`, `adjustment`, `timing`
 #'   (`timing$route` holds the route, `k` and the score dimension `q`),
@@ -270,11 +296,12 @@ spdeST.test <- function(fit, pairs = NULL, q.value = 0.05,
   if (!inherits(fit, "spdeST_fit")) {
     stop("fit must be returned by spdeST.estimate().")
   }
-  args <- list(fit, pairs = pairs, q.value = q.value, adjust = match.arg(adjust),
-               threads = threads, chunk_size = chunk_size,
-               checkpoint_dir = checkpoint_dir, resume = resume,
-               verbose = verbose, rank = rank, n_per_cell = n_per_cell,
-               seed = seed, k = k, screen = screen)
-  if (!missing(moments)) args$moments <- moments
-  do.call(inlaST.test, args)
+  if (missing(moments)) .mgcvst_moments_missing()
+  adjust <- match.arg(adjust)
+  .mgcvst_test_run(
+    fit, pairs, q.value, adjust, threads, chunk_size,
+    checkpoint_dir, resume, verbose, moments = moments, rank = rank,
+    n_per_cell = n_per_cell, seed = seed, k = k, screen = screen,
+    call = match.call()
+  )
 }

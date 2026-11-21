@@ -22,7 +22,7 @@
   lapply(files, function(file) readRDS(file)$result)
 }
 
-.ts_inla <- local({
+.ts_fit <- local({
   cached <- NULL
   function() {
     skip_if_not_installed("geometry")
@@ -43,9 +43,9 @@
       rnbinom(n, mu = exp(eta), size = 3 + g)
     }, numeric(n)))
     dimnames(Y) <- list(paste0("g", seq_len(G)), NULL)
-    model <- inlaST.set(response ~ z + offset(offset0), data, basis, family = mgcv::nb())
+    model <- spdeST.set(response ~ z + offset(offset0), data, basis, family = mgcv::nb())
     cached <<- list(Y = Y, model = model, n = n,
-                    m = ncol(model$inla_spec$random[[1L]]$A))
+                    m = ncol(model$spde_spec$random[[1L]]$A))
     cached
   }
 })
@@ -111,7 +111,7 @@ test_that("Stage 1 q-values are the log-space adjustment of the null p-values", 
 test_that("chunk checkpoints are resumed, and refused when they do not match", {
   dir <- tempfile("mgcvst-chunks-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "spde", "signature-a", TRUE)
   digest <- c("a", "b", "c", "d")
   calls <- 0L
   work <- function(payload, scale) {
@@ -164,42 +164,42 @@ test_that("chunk checkpoints are resumed, and refused when they do not match", {
   # The manifest ties the directory to one estimator, format and signature.
   expect_error(spdeST:::.mgcvst_chunk_store(dir, "mgcv", "signature-a", TRUE),
                "another estimator or by a version before 0.0.1.9032")
-  expect_error(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-b", TRUE),
+  expect_error(spdeST:::.mgcvst_chunk_store(dir, "spde", "signature-b", TRUE),
                "different model, offset or controls")
-  expect_error(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", FALSE),
+  expect_error(spdeST:::.mgcvst_chunk_store(dir, "spde", "signature-a", FALSE),
                "already exists")
   manifest <- file.path(dir, "estimation-manifest.rds")
   record <- readRDS(manifest)
   earlier <- record
   earlier$format <- 1L
   saveRDS(earlier, manifest)
-  expect_error(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE),
+  expect_error(spdeST:::.mgcvst_chunk_store(dir, "spde", "signature-a", TRUE),
                "before 0.0.1.9032")
   saveRDS(record, manifest)
-  expect_identical(spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)$kind,
-                   "inla")
+  expect_identical(spdeST:::.mgcvst_chunk_store(dir, "spde", "signature-a", TRUE)$kind,
+                   "spde")
   # Files left by an interrupted write are removed when a run resumes.
   stray <- file.path(dir, c("chunk-1a2b.tmp", "manifest-3c4d.tmp"))
   writeLines("x", stray[1L])
   writeLines("y", stray[2L])
-  spdeST:::.mgcvst_chunk_store(dir, "inla", "signature-a", TRUE)
+  spdeST:::.mgcvst_chunk_store(dir, "spde", "signature-a", TRUE)
   expect_false(any(file.exists(stray)))
   expect_true(file.exists(manifest))
   loose <- tempfile("mgcvst-loose-")
   dir.create(loose)
   on.exit(unlink(loose, recursive = TRUE), add = TRUE)
   writeLines("x", file.path(loose, "other.txt"))
-  expect_error(spdeST:::.mgcvst_chunk_store(loose, "inla", "signature-a", TRUE),
+  expect_error(spdeST:::.mgcvst_chunk_store(loose, "spde", "signature-a", TRUE),
                "no manifest")
-  expect_null(spdeST:::.mgcvst_chunk_store(NULL, "inla", "signature-a", TRUE))
-  expect_error(spdeST:::.mgcvst_chunk_store(c("a", "b"), "inla", "s", TRUE),
+  expect_null(spdeST:::.mgcvst_chunk_store(NULL, "spde", "signature-a", TRUE))
+  expect_error(spdeST:::.mgcvst_chunk_store(c("a", "b"), "spde", "s", TRUE),
                "checkpoint_dir")
 })
 
 test_that("chunk payloads are built lazily, only for the chunks that are computed", {
   dir <- tempfile("mgcvst-lazy-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "spde", "signature", TRUE)
   digest <- letters[1:6]
   groups <- list(1:2, 3:4, 5:6)
   built <- integer()
@@ -237,7 +237,7 @@ test_that("chunk payloads are built lazily, only for the chunks that are compute
   skip_on_cran()
   sink_dir <- tempfile("mgcvst-lazy-snow-")
   on.exit(unlink(sink_dir, recursive = TRUE), add = TRUE)
-  store2 <- spdeST:::.mgcvst_chunk_store(sink_dir, "inla", "signature", TRUE)
+  store2 <- spdeST:::.mgcvst_chunk_store(sink_dir, "spde", "signature", TRUE)
   calls <- new.env()
   calls$n <- 0L
   make2 <- function(index) {
@@ -282,7 +282,7 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
   # features and a resumed run reads the same values back.
   dir <- tempfile("mgcvst-keyed-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "spde", "signature", TRUE)
   saving <- function(payload, scale) {
     out <- as.list(payload$index * scale)
     spdeST:::.mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
@@ -334,7 +334,7 @@ test_that("chunk results are placed by key, whatever the order bpiterate returns
 test_that("a chunk that holds a failed feature is computed again on resume", {
   dir <- tempfile("mgcvst-failed-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  store <- spdeST:::.mgcvst_chunk_store(dir, "inla", "signature", TRUE)
+  store <- spdeST:::.mgcvst_chunk_store(dir, "spde", "signature", TRUE)
   digest <- letters[1:4]
   groups <- list(1:2, 3:4)
   attempts <- 0L
@@ -409,8 +409,8 @@ test_that("chunk_size is one positive integer in every entry point", {
   }
   # No truncation anywhere: the estimators and the add-later functions agree.
   expect_identical(
-    names(formals(inlaST.estimate_spatial)),
-    c("fitinlaST", "Y", "features", "adjust", "q.value", "BPPARAM", "chunk_size",
+    names(formals(.spdest_estimate)),
+    c("fit", "Y", "features", "adjust", "q.value", "BPPARAM", "chunk_size",
       "checkpoint_dir", "resume", "threads"))
 })
 
@@ -444,17 +444,17 @@ test_that("a fit estimated before the two-step estimators is refused only where 
   expect_error(check(list(format = 99L)), "newer version")
 })
 
-# ---- INLA branch ------------------------------------------------------------
+# ---- estimation ----------------------------------------------------------
 
-test_that("inlaST.estimate fits the null model of every feature and the spatial model of the discoveries", {
+test_that("the scan step fits the null model of every feature and the spatial model of the discoveries", {
   skip_on_cran()
-  d <- .ts_inla()
+  d <- .ts_fit()
   sp <- BiocParallel::SerialParam()
-  all <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp),
+  all <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp),
     d$Y, features = "all", BPPARAM = sp)
   expect_identical(all$format, 2L)
-  expect_s3_class(all, "inlaST_fit")
+  expect_s3_class(all, "spdeST_scan")
   p <- all$diagnostics$marginal_p_value
   expect_true(all(is.finite(p)))
   expect_equal(all$diagnostics$marginal_q_value, p.adjust(p, "BY"), tolerance = 1e-12)
@@ -463,8 +463,8 @@ test_that("inlaST.estimate fits the null model of every feature and the spatial 
 
   q <- all$diagnostics$marginal_q_value
   cut <- sqrt(sort(q)[3L] * sort(q)[4L])
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp, q.value = cut),
+  fit <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp, q.value = cut),
     d$Y, features = "discoveries", BPPARAM = sp)
   chosen <- which(q <= cut)
   rest <- setdiff(seq_along(q), chosen)
@@ -488,74 +488,74 @@ test_that("inlaST.estimate fits the null model of every feature and the spatial 
   expect_output(print(fit), "spatial models: 3 of 6 features")
 
   # The test covers the fitted features; the others are not failures.
-  tested <- inlaST.test(fit, rank = 3L, seed = 4L, moments = "exact")
+  tested <- spdeST.test(fit, rank = 3L, seed = 4L, moments = "exact")
   expect_identical(nrow(tested$results), 3L)
   expect_true(all(c(tested$results$i, tested$results$j) %in% chosen))
   expect_identical(nrow(tested$failed), 0L)
-  bad <- inlaST.test(fit, pairs = rbind(c(chosen[1L], rest[1L])), rank = 3L, seed = 4L, moments = "exact")
+  bad <- spdeST.test(fit, pairs = rbind(c(chosen[1L], rest[1L])), rank = 3L, seed = 4L, moments = "exact")
   expect_identical(bad$results$status, 3L)
   expect_match(bad$failed$error, "not selected in step 2")
-  expect_error(inlaST.wgcna(fit, indices = fit$feature_id), "no spatial fit")
+  expect_error(spdeST.wgcna(fit, indices = fit$feature_id), "no spatial fit")
 
-  none <- inlaST.estimate(d$Y, d$model, BPPARAM = sp)
+  none <- .spdest_scan(d$Y, d$model, BPPARAM = sp)
   expect_false(any(none$diagnostics$spatial_fitted))
   expect_true(all(is.na(none$score_a)))
   expect_identical(none$diagnostics$marginal_p_value, p)
-  by_id <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp),
+  by_id <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp),
     d$Y, features = c("g6", "g1"), BPPARAM = sp)
   expect_identical(which(by_id$diagnostics$spatial_fitted), c(1L, 6L))
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model),
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model),
     d$Y, features = "g99"), "unknown feature IDs")
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, q.value = 2),
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, q.value = 2),
     d$Y, features = "discoveries"), "q.value")
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, adjust = "holm"),
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, adjust = "holm"),
     d$Y, features = "discoveries"), "should be one of")
 })
 
-test_that("inlaST.estimate_spatial adds spatial models to a step 1 fit", {
+test_that("the estimation step adds spatial models to a step 1 fit", {
   skip_on_cran()
-  d <- .ts_inla()
+  d <- .ts_fit()
   sp <- BiocParallel::SerialParam()
-  all <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp),
+  all <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp),
     d$Y, features = "all", BPPARAM = sp)
-  none <- inlaST.estimate(d$Y, d$model, BPPARAM = sp)
-  two <- inlaST.estimate_spatial(none, d$Y, c("g2", "g5"), BPPARAM = sp)
+  none <- .spdest_scan(d$Y, d$model, BPPARAM = sp)
+  two <- .spdest_estimate(none, d$Y, c("g2", "g5"), BPPARAM = sp)
   expect_false(any(none$diagnostics$spatial_fitted))
   expect_identical(which(two$diagnostics$spatial_fitted), c(2L, 5L))
   expect_false(is.null(two$estimation))
-  full <- inlaST.estimate_spatial(two, d$Y, "all", BPPARAM = sp)
+  full <- .spdest_estimate(two, d$Y, "all", BPPARAM = sp)
   fields <- c("score_a", "target_coefficients", "nuisance_coefficients", "mu_bar",
               "dispersion", "lambda", "component_lambda", "smoothing_parameters",
               "family_parameters", "null_state", "constraint_residual",
               "observation_spatial_mean", "feature_family", "y_digest")
   .ts_same_estimates(full, all, fields)
-  expect_identical(inlaST.test(full, rank = 3L, seed = 4L, moments = "exact")$results,
-                   inlaST.test(all, rank = 3L, seed = 4L, moments = "exact")$results)
+  expect_identical(spdeST.test(full, rank = 3L, seed = 4L, moments = "exact")$results,
+                   spdeST.test(all, rank = 3L, seed = 4L, moments = "exact")$results)
   q <- all$diagnostics$marginal_q_value
   cut <- sqrt(sort(q)[3L] * sort(q)[4L])
-  some <- inlaST.estimate_spatial(none, d$Y, q.value = cut, BPPARAM = sp)
+  some <- .spdest_estimate(none, d$Y, q.value = cut, BPPARAM = sp)
   expect_identical(some$diagnostics$spatial_fitted, q <= cut)
 
-  expect_error(inlaST.estimate_spatial(none, d$Y[, rev(seq_len(ncol(d$Y)))], "g1"),
+  expect_error(.spdest_estimate(none, d$Y[, rev(seq_len(ncol(d$Y)))], "g1"),
                "Y differs from the responses of step 1 for g1")
-  expect_error(inlaST.estimate_spatial(none, d$Y[, -1L], "g1"), "Y must be the feature")
-  expect_error(inlaST.estimate_spatial(none, d$Y, "g99"), "unknown feature IDs")
-  expect_error(inlaST.estimate_spatial(list(), d$Y), "must be returned by inlaST.estimate")
+  expect_error(.spdest_estimate(none, d$Y[, -1L], "g1"), "Y must be the feature")
+  expect_error(.spdest_estimate(none, d$Y, "g99"), "unknown feature IDs")
+  expect_error(.spdest_estimate(list(), d$Y), "must be returned by spdeST.scan")
 })
 
-test_that("INLA workers return compact results and a checkpoint resumes exactly", {
+test_that("workers return compact results and a checkpoint resumes exactly", {
   skip_on_cran()
-  d <- .ts_inla()
+  d <- .ts_fit()
   sp <- BiocParallel::SerialParam()
-  dir <- tempfile("mgcvst-two-step-inla-")
+  dir <- tempfile("spdest-two-step-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  first <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp,
+  first <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp,
                            chunk_size = 2L, checkpoint_dir = dir),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir)
   expect_identical(first$timing$resumed_null_chunks, 0L)
@@ -581,8 +581,8 @@ test_that("INLA workers return compact results and a checkpoint resumes exactly"
   fields <- c("score_a", "target_coefficients", "nuisance_coefficients", "mu_bar",
               "dispersion", "lambda", "smoothing_parameters", "family_parameters",
               "null_state")
-  again <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp,
+  again <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp,
                            chunk_size = 2L, checkpoint_dir = dir),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir)
   expect_identical(again$timing$resumed_null_chunks, 3L)
@@ -590,8 +590,8 @@ test_that("INLA workers return compact results and a checkpoint resumes exactly"
   .ts_same_estimates(again, first, fields)
 
   unlink(list.files(dir, "^spatial-", full.names = TRUE)[1L])
-  partial <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp,
+  partial <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp,
                              chunk_size = 2L, checkpoint_dir = dir),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir)
   expect_identical(partial$timing$resumed_null_chunks, 3L)
@@ -601,45 +601,45 @@ test_that("INLA workers return compact results and a checkpoint resumes exactly"
   # Step 2 reuses the directory of step 1.
   later <- tempfile("mgcvst-two-step-later-")
   on.exit(unlink(later, recursive = TRUE), add = TRUE)
-  none <- inlaST.estimate(d$Y, d$model, BPPARAM = sp,
+  none <- .spdest_scan(d$Y, d$model, BPPARAM = sp,
                           chunk_size = 2L, checkpoint_dir = later)
-  added <- inlaST.estimate_spatial(none, d$Y, "all", BPPARAM = sp, chunk_size = 2L,
+  added <- .spdest_estimate(none, d$Y, "all", BPPARAM = sp, chunk_size = 2L,
                                    checkpoint_dir = later)
   expect_length(list.files(later, "^spatial-"), 3L)
   .ts_same_estimates(added, first, fields)
-  resumed <- inlaST.estimate_spatial(none, d$Y, "all", BPPARAM = sp, chunk_size = 2L,
+  resumed <- .spdest_estimate(none, d$Y, "all", BPPARAM = sp, chunk_size = 2L,
                                      checkpoint_dir = later)
   expect_identical(resumed$timing$resumed_spatial_chunks, 3L)
 
   # A different offset or control is refused; a changed response recomputes.
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp,
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp,
     chunk_size = 2L, offset = rep(0.1, d$n), checkpoint_dir = dir),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir),
     "different model, offset or controls")
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp,
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp,
     chunk_size = 2L, control = list(spde = list(tol = 1e-6)),
     checkpoint_dir = dir),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir), "different model, offset or controls")
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp,
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp,
     chunk_size = 2L, checkpoint_dir = dir, resume = FALSE),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir, resume = FALSE), "already exists")
   mgcv_dir <- tempfile("mgcvst-two-step-mgcv-")
   on.exit(unlink(mgcv_dir, recursive = TRUE), add = TRUE)
   spdeST:::.mgcvst_chunk_store(mgcv_dir, "mgcv", "x", TRUE)
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp, checkpoint_dir = mgcv_dir),
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp, checkpoint_dir = mgcv_dir),
     d$Y, features = "discoveries", BPPARAM = sp, checkpoint_dir = mgcv_dir),
                "another estimator")
 })
 
 test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
   skip_on_cran()
-  d <- .ts_inla()
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = BiocParallel::SerialParam()),
+  d <- .ts_fit()
+  fit <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = BiocParallel::SerialParam()),
     d$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   scales <- spdeST:::.mgcvst_pca_scales(fit)
   expect_identical(scales$mu_bar, unname(fit$mu_bar))
@@ -657,31 +657,31 @@ test_that("mu_bar is stored at estimation and read by the PCAlearning scales", {
   expect_error(spdeST:::.mgcvst_pca_scales(missing), "does not store mu_bar")
   for (old in list(missing, local({ x <- fit; x$format <- NULL; x }),
                    local({ x <- fit; x$format <- 1L; x }))) {
-    expect_error(inlaST.test(old, rank = 2L, moments = "exact"), "re-run spdeST.estimate")
-    expect_error(inlaST.wgcna(old, indices = fit$feature_id[1:3]), "re-run spdeST.estimate")
-    expect_error(inlaST.estimate_spatial(old, d$Y), "re-run spdeST.estimate")
+    expect_error(spdeST.test(old, rank = 2L, moments = "exact"), "re-run spdeST.estimate")
+    expect_error(spdeST.wgcna(old, indices = fit$feature_id[1:3]), "re-run spdeST.estimate")
+    expect_error(.spdest_estimate(old, d$Y), "re-run spdeST.estimate")
   }
 })
 
 test_that("the observation basis is full rank and enters the pair signature", {
   skip_on_cran()
-  d <- .ts_inla()
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = BiocParallel::SerialParam()),
+  d <- .ts_fit()
+  fit <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = BiocParallel::SerialParam()),
     d$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-  prepared <- spdeST:::.inlast_sparse_prepare(fit)
-  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
+  prepared <- spdeST:::.spdest_sparse_prepare(fit)
+  basis <- spdeST:::.spdest_sparse_observation_basis(prepared)
   expect_identical(basis$kind, "full_rank")
   expect_identical(basis$rank, d$m - 1L)
   expect_identical(ncol(basis$coordinate), d$m - 1L)
   # The basis is built once and is the one the test reports.
-  tested <- inlaST.test(fit, rank = 3L, seed = 4L, moments = "exact")
-  expect_identical(tested$timing$inla_projection$q, d$m)
+  tested <- spdeST.test(fit, rank = 3L, seed = 4L, moments = "exact")
+  expect_identical(tested$timing$score_projection$q, d$m)
   expect_identical(tested$timing$route$q, d$m - 1L)
-  expect_identical(tested$timing$inla_projection$r, d$m - 1L)
-  expect_identical(tested$timing$inla_projection$basis_kind, "full_rank")
+  expect_identical(tested$timing$score_projection$r, d$m - 1L)
+  expect_identical(tested$timing$score_projection$basis_kind, "full_rank")
   # WGCNA uses the same basis, and its normalizer is q - 1.
-  scores <- spdeST:::.mgcvst_inla_wgcna_scores(fit, 1:3, 1L, FALSE)
+  scores <- spdeST:::.mgcvst_wgcna_scores(fit, 1:3, 1L, FALSE)
   expect_identical(scores$normalization, d$m - 1L)
   expect_equal(unname(scores$A),
                unname(crossprod(basis$coordinate, fit$score_a[, 1:3])),
@@ -690,10 +690,10 @@ test_that("the observation basis is full rank and enters the pair signature", {
   expect_identical(fit$basis_spec, list(kind = "full_rank", rank = d$m - 1L))
   changed <- fit
   changed$basis_spec$kind <- "truncated"
-  expect_error(inlaST.test(changed, rank = 3L, seed = 4L, moments = "exact"), "differs from the one recorded")
-  expect_error(spdeST:::.mgcvst_inla_wgcna_scores(changed, 1:3, 1L, FALSE),
+  expect_error(spdeST.test(changed, rank = 3L, seed = 4L, moments = "exact"), "differs from the one recorded")
+  expect_error(spdeST:::.mgcvst_wgcna_scores(changed, 1:3, 1L, FALSE),
                "differs from the one recorded")
-  expect_error(inlaST.test(local({ x <- fit; x$basis_spec <- NULL; x }), rank = 3L, moments = "exact"),
+  expect_error(spdeST.test(local({ x <- fit; x$basis_spec <- NULL; x }), rank = 3L, moments = "exact"),
                "recorded by the estimation (none)", fixed = TRUE)
   # The pair signature, and with it every pair checkpoint, depends on the basis.
   signature <- spdeST:::.mgcvst_pair_signature(prepared, basis)
@@ -709,7 +709,7 @@ test_that("the observation basis is full rank and enters the pair signature", {
 
 .ts_fields_mgcv <- c("working_error", "working_variance", "dispersion", "lambda",
                      "smoothing_parameters", "nuisance_covariance", "family_parameters")
-.ts_fields_inla <- c("score_a", "target_coefficients", "nuisance_coefficients",
+.ts_fields <- c("score_a", "target_coefficients", "nuisance_coefficients",
                      "mu_bar", "dispersion", "lambda", "smoothing_parameters",
                      "family_parameters", "null_state")
 
@@ -723,14 +723,14 @@ test_that("the observation basis is full rank and enters the pair signature", {
   saveRDS(z, file)
 }
 
-test_that("INLA: a resumed run builds no payload, repeats failed chunks and cleans strays", {
+test_that("a resumed run builds no payload, repeats failed chunks and cleans strays", {
   skip_on_cran()
-  d <- .ts_inla()
+  d <- .ts_fit()
   sp <- BiocParallel::SerialParam()
-  dir <- tempfile("mgcvst-inla-resume-")
+  dir <- tempfile("spdest-resume-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  estimate <- function() spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp, chunk_size = 2L,
+  estimate <- function() spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp, chunk_size = 2L,
                     checkpoint_dir = dir),
     d$Y, features = "all", BPPARAM = sp, chunk_size = 2L, checkpoint_dir = dir)
   first <- estimate()
@@ -740,33 +740,33 @@ test_that("INLA: a resumed run builds no payload, repeats failed chunks and clea
   again <- estimate()
   expect_false(file.exists(stray))
   expect_identical(c(again$timing$null_payloads, again$timing$spatial_payloads), c(0L, 0L))
-  .ts_same_estimates(again, first, .ts_fields_inla)
+  .ts_same_estimates(again, first, .ts_fields)
 
   .ts_fail_chunk(list.files(dir, "^spatial-", full.names = TRUE)[2L])
   retried <- estimate()
   expect_identical(retried$timing$resumed_spatial_chunks, 2L)
   expect_identical(retried$timing$spatial_payloads, 1L)
   expect_true(all(retried$diagnostics$spatial_fitted))
-  .ts_same_estimates(retried, first, .ts_fields_inla)
+  .ts_same_estimates(retried, first, .ts_fields)
 
   .ts_fail_chunk(list.files(dir, "^null-", full.names = TRUE)[1L])
   null_again <- estimate()
   expect_identical(null_again$timing$resumed_null_chunks, 2L)
   expect_true(all(is.finite(null_again$diagnostics$marginal_p_value)))
-  .ts_same_estimates(null_again, first, .ts_fields_inla)
+  .ts_same_estimates(null_again, first, .ts_fields)
 })
 
-test_that("INLA: another selection in the same directory recomputes step 2 and never mixes", {
+test_that("another selection in the same directory recomputes step 2 and never mixes", {
   skip_on_cran()
-  d <- .ts_inla()
+  d <- .ts_fit()
   sp <- BiocParallel::SerialParam()
-  all <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp),
+  all <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp),
     d$Y, features = "all", BPPARAM = sp)
-  dir <- tempfile("mgcvst-inla-selection-")
+  dir <- tempfile("spdest-selection-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  estimate <- function(spatial) spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp, chunk_size = 1L,
+  estimate <- function(spatial) spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp, chunk_size = 1L,
                     checkpoint_dir = dir),
     d$Y, features = spatial, BPPARAM = sp, chunk_size = 1L, checkpoint_dir = dir)
   one <- estimate(c("g1", "g2"))
@@ -780,14 +780,14 @@ test_that("INLA: another selection in the same directory recomputes step 2 and n
   expect_true(all(is.na(two$score_a[, 4:6])))
   q <- all$diagnostics$marginal_q_value
   cut <- sqrt(sort(q)[2L] * sort(q)[3L])
-  dir2 <- tempfile("mgcvst-inla-qvalue-")
+  dir2 <- tempfile("spdest-qvalue-")
   on.exit(unlink(dir2, recursive = TRUE), add = TRUE)
-  small <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp, q.value = cut, chunk_size = 1L,
+  small <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp, q.value = cut, chunk_size = 1L,
                            checkpoint_dir = dir2),
     d$Y, features = "discoveries", BPPARAM = sp, chunk_size = 1L, checkpoint_dir = dir2)
-  large <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp, q.value = 1, chunk_size = 1L,
+  large <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp, q.value = 1, chunk_size = 1L,
                            checkpoint_dir = dir2),
     d$Y, features = "discoveries", BPPARAM = sp, chunk_size = 1L, checkpoint_dir = dir2)
   expect_identical(sum(small$diagnostics$spatial_fitted), 2L)
@@ -796,67 +796,67 @@ test_that("INLA: another selection in the same directory recomputes step 2 and n
   expect_identical(large$score_a, all$score_a)
 })
 
-test_that("INLA: Y may be integer or unnamed, and chunk_size is validated everywhere", {
+test_that("Y may be integer or unnamed, and chunk_size is validated everywhere", {
   skip_on_cran()
-  d <- .ts_inla()
+  d <- .ts_fit()
   sp <- BiocParallel::SerialParam()
-  reference <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, BPPARAM = sp),
+  reference <- spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, BPPARAM = sp),
     d$Y, features = "all", BPPARAM = sp)
   integer_Y <- d$Y
   storage.mode(integer_Y) <- "integer"
-  from_integer <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(integer_Y, d$model, BPPARAM = sp),
+  from_integer <- spdeST:::.spdest_estimate(
+    .spdest_scan(integer_Y, d$model, BPPARAM = sp),
     integer_Y, features = "all", BPPARAM = sp)
-  .ts_same_estimates(from_integer, reference, .ts_fields_inla)
+  .ts_same_estimates(from_integer, reference, .ts_fields)
   named <- d$Y
   colnames(named) <- paste0("obs", seq_len(ncol(named)))
-  none <- inlaST.estimate(named, d$model, BPPARAM = sp)
-  added <- inlaST.estimate_spatial(none, unname(d$Y), "all", BPPARAM = sp)
-  .ts_same_estimates(added, reference, .ts_fields_inla)
-  added_integer <- inlaST.estimate_spatial(none, integer_Y, "all", BPPARAM = sp)
-  .ts_same_estimates(added_integer, reference, .ts_fields_inla)
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(d$Y, d$model, chunk_size = 1.5),
+  none <- .spdest_scan(named, d$model, BPPARAM = sp)
+  added <- .spdest_estimate(none, unname(d$Y), "all", BPPARAM = sp)
+  .ts_same_estimates(added, reference, .ts_fields)
+  added_integer <- .spdest_estimate(none, integer_Y, "all", BPPARAM = sp)
+  .ts_same_estimates(added_integer, reference, .ts_fields)
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(d$Y, d$model, chunk_size = 1.5),
     d$Y, features = "discoveries", chunk_size = 1.5),
                "chunk_size must be one positive integer")
-  expect_error(inlaST.estimate_spatial(none, d$Y, "all", chunk_size = 2.5),
+  expect_error(.spdest_estimate(none, d$Y, "all", chunk_size = 2.5),
                "chunk_size must be one positive integer")
   bad <- d$Y
   bad[2L, 3L] <- -1
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(bad, d$model),
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(bad, d$model),
     bad, features = "discoveries"), "Count responses must be non-negative integers")
   bad[2L, 3L] <- 0.5
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(bad, d$model),
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(bad, d$model),
     bad, features = "discoveries"), "Count responses must be non-negative integers")
   bad[2L, 3L] <- NA
-  expect_error(spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(bad, d$model),
+  expect_error(spdeST:::.spdest_estimate(
+    .spdest_scan(bad, d$model),
     bad, features = "discoveries"), "finite numeric feature-by-observation matrix")
 })
 
-test_that("INLA: a multi-process run with checkpoint_dir resumes under another backend", {
+test_that("a multi-process run with checkpoint_dir resumes under another backend", {
   skip_on_cran()
-  d <- .ts_inla()
+  d <- .ts_fit()
   Y <- d$Y[1:3, , drop = FALSE]
-  dir <- tempfile("mgcvst-inla-snow-")
+  dir <- tempfile("spdest-snow-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
   snow <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
-  first <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(Y, d$model, BPPARAM = snow, chunk_size = 1L,
+  first <- spdeST:::.spdest_estimate(
+    .spdest_scan(Y, d$model, BPPARAM = snow, chunk_size = 1L,
                            checkpoint_dir = dir),
     Y, features = "all", BPPARAM = snow, chunk_size = 1L, checkpoint_dir = dir)
   expect_length(list.files(dir, "^null-"), 3L)
   expect_length(list.files(dir, "^spatial-"), 3L)
   expect_length(list.files(dir, "[.]tmp$"), 0L)
   expect_true(all(first$diagnostics$spatial_fitted))
-  again <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(Y, d$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L, checkpoint_dir = dir),
+  again <- spdeST:::.spdest_estimate(
+    .spdest_scan(Y, d$model, BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L, checkpoint_dir = dir),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam(), chunk_size = 1L, checkpoint_dir = dir)
   expect_identical(c(again$timing$resumed_null_chunks, again$timing$resumed_spatial_chunks),
                    c(3L, 3L))
   expect_identical(c(again$timing$null_payloads, again$timing$spatial_payloads), c(0L, 0L))
-  .ts_same_estimates(again, first, .ts_fields_inla)
+  .ts_same_estimates(again, first, .ts_fields)
 })

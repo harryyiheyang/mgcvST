@@ -1,4 +1,4 @@
-.inlast_sparse_fixture <- function(n = 72L, seed = 1701L) {
+.spdest_sparse_fixture <- function(n = 72L, seed = 1701L) {
   skip_if_not_installed("geometry")
   set.seed(seed)
   vertices <- as.matrix(expand.grid(
@@ -24,43 +24,43 @@
   list(data = data, basis = basis, Y = Y, mesh = mesh)
 }
 
-test_that("sparse INLA downstream takes no BiocParallel backend and agrees across OpenMP counts", {
+test_that("the pair test takes no BiocParallel backend and agrees across OpenMP counts", {
   skip_on_cran()
-  f <- .inlast_sparse_fixture(n = 64L, seed = 1711L)
-  model <- inlaST.set(
+  f <- .spdest_sparse_fixture(n = 64L, seed = 1711L)
+  model <- spdeST.set(
     response ~ z + offset(offset0), f$data, f$basis, family = poisson()
   )
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(
+  fit <- spdeST:::.spdest_estimate(
+    .spdest_scan(
     f$Y, model,
     BPPARAM = BiocParallel::SerialParam()),
     f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(all(is.finite(fit$diagnostics$marginal_p_value)))
   pairs <- t(combn(rownames(f$Y), 2L))
-  serial <- inlaST.test(fit, pairs = pairs, rank = 1L, chunk_size = 1L, moments = "exact")
-  threaded <- inlaST.test(fit, pairs = pairs, rank = 1L, threads = 2L,
+  serial <- spdeST.test(fit, pairs = pairs, rank = 1L, chunk_size = 1L, moments = "exact")
+  threaded <- spdeST.test(fit, pairs = pairs, rank = 1L, threads = 2L,
                           chunk_size = 1L, moments = "exact")
   expect_identical(nrow(serial$results), nrow(pairs))
   expect_equal(threaded$results, serial$results, tolerance = 1e-10)
   bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
-  expect_error(inlaST.test(fit, pairs = pairs, BPPARAM = bp, moments = "exact"), "unused argument")
+  expect_error(spdeST.test(fit, pairs = pairs, BPPARAM = bp, moments = "exact"), "unused argument")
 })
 
-test_that("a nuisance smooth is rejected at set() on both INLA paths", {
+test_that("a nuisance smooth is rejected at set() by both setups", {
   skip_on_cran()
-  f <- .inlast_sparse_fixture(n = 56L, seed = 1721L)
+  f <- .spdest_sparse_fixture(n = 56L, seed = 1721L)
   s <- mgcv::s
   # The Stage 1 null is a GLM on both paths.
-  expected <- "The null of inlaST.set\\(\\) is a GLM"
+  expected <- "The null of spdeST.set\\(\\) is a GLM"
   expect_error(
-    inlaST.set(
+    spdeST.set(
       response ~ s(z, k = 5) + offset(offset0),
       f$data, f$basis, family = poisson()
     ),
     expected
   )
   expect_error(
-    inlaST.set(
+    spdeST.set(
       response ~ s(z, k = 5) + offset(offset0), data = f$data,
       family = poisson(), mesh = f$mesh, kappa = 1.2,
       coordinates = c("x", "y")
@@ -69,20 +69,20 @@ test_that("a nuisance smooth is rejected at set() on both INLA paths", {
   )
 })
 
-test_that("parametric covariates remain fully supported on both INLA paths", {
+test_that("parametric covariates remain fully supported by both setups", {
   skip_on_cran()
-  f <- .inlast_sparse_fixture(n = 56L, seed = 1721L)
+  f <- .spdest_sparse_fixture(n = 56L, seed = 1721L)
   f$data$lu <- as.numeric(scale(f$data$exposure))
-  legacy <- inlaST.set(
+  legacy <- spdeST.set(
     response ~ lu + offset(offset0), f$data, f$basis, family = poisson()
   )
-  expect_length(legacy$inla_spec$random, 1L)
-  expect_true(spdeST:::.inlast_sparse_score_capability(legacy)$eligible)
-  expect_identical(legacy$inla_spec$fixed$names, c("(Intercept)", "lu"))
-  expect_equal(unname(as.matrix(legacy$inla_spec$fixed$X)),
-               unname(as.matrix(legacy$inla_spec$nuisance_design)))
-  fit <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(
+  expect_length(legacy$spde_spec$random, 1L)
+  expect_true(spdeST:::.spdest_sparse_score_capability(legacy)$eligible)
+  expect_identical(legacy$spde_spec$fixed$names, c("(Intercept)", "lu"))
+  expect_equal(unname(as.matrix(legacy$spde_spec$fixed$X)),
+               unname(as.matrix(legacy$spde_spec$nuisance_design)))
+  fit <- spdeST:::.spdest_estimate(
+    .spdest_scan(
     f$Y, legacy, diagnostics = TRUE, BPPARAM = BiocParallel::SerialParam()),
     f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
   expect_true(all(fit$diagnostics$converged))
@@ -90,22 +90,22 @@ test_that("parametric covariates remain fully supported on both INLA paths", {
 
   # A factor covariate is a parametric term too.
   f$data$grp <- factor(rep(c("a", "b", "c"), length.out = nrow(f$data)))
-  factored <- inlaST.set(
+  factored <- spdeST.set(
     response ~ grp + offset(offset0), f$data, f$basis, family = poisson()
   )
-  expect_identical(ncol(factored$inla_spec$fixed$X), 3L)
-  expect_length(factored$inla_spec$random, 1L)
+  expect_identical(ncol(factored$spde_spec$fixed$X), 3L)
+  expect_length(factored$spde_spec$random, 1L)
 })
 
 test_that("a second spatial SPDE term is still rejected at set()", {
   skip_on_cran()
-  f <- .inlast_sparse_fixture(n = 56L, seed = 1723L)
+  f <- .spdest_sparse_fixture(n = 56L, seed = 1723L)
   s <- mgcv::s
   basis <- f$basis
   # Complete-formula route: two spatial SPDE terms would need two random
   # blocks, which the sparse kernel cannot carry.
   expect_error(
-    inlaST.set(
+    spdeST.set(
       response ~ s(x, y, bs = "spde", xt = basis) +
         s(x, y, bs = "spde", xt = basis) + offset(offset0),
       data = f$data, family = poisson()
@@ -115,15 +115,15 @@ test_that("a second spatial SPDE term is still rejected at set()", {
 })
 
 test_that("a wide parametric nuisance design is rejected with a dedicated message", {
-  expect_error(spdeST:::.inlast_check_nuisance_width(1001L),
+  expect_error(spdeST:::.spdest_check_nuisance_width(1001L),
                "dedicated implementation")
-  expect_silent(spdeST:::.inlast_check_nuisance_width(1000L))
+  expect_silent(spdeST:::.spdest_check_nuisance_width(1000L))
   skip_on_cran()
-  f <- .inlast_sparse_fixture(n = 1100L, seed = 1725L)
+  f <- .spdest_sparse_fixture(n = 1100L, seed = 1725L)
   # A factor with many levels expands to a wide dense nuisance design.
   f$data$grp <- factor(rep(seq_len(1010L), length.out = nrow(f$data)))
   expect_error(
-    inlaST.set(
+    spdeST.set(
       response ~ grp + offset(offset0), f$data, f$basis, family = poisson()
     ),
     "dedicated implementation"

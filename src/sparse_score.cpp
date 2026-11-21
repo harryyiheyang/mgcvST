@@ -1,6 +1,6 @@
 #define USE_FC_LEN_T
 #define EIGEN_DONT_PARALLELIZE
-#include "inla_sparse.h"
+#include "sparse_score.h"
 #include "pca_reduce.h"
 #ifdef _OPENMP
 #include <omp.h>
@@ -29,7 +29,7 @@ struct FeatureResult {
 } // namespace
 
 // [[Rcpp::export]]
-SEXP mgcvst_inla_sparse_prepare_cpp(
+SEXP mgcvst_sparse_prepare_cpp(
     const Eigen::MappedSparseMatrix<double>& Q_map,
     const Eigen::Map<Eigen::VectorXd> constraint) {
   const SpMat Q = Q_map;
@@ -45,12 +45,12 @@ SEXP mgcvst_inla_sparse_prepare_cpp(
     Rcpp::stop("The sparse SPDE precision factorization or constraint failed.");
   }
   Rcpp::XPtr<SparsePrepared> pointer(cache.release(), true);
-  pointer.attr("class") = "mgcvst_inla_sparse_prepared";
+  pointer.attr("class") = "mgcvst_sparse_prepared";
   return pointer;
 }
 
 // [[Rcpp::export]]
-bool mgcvst_inla_sparse_prepared_valid_cpp(SEXP prepared) {
+bool mgcvst_sparse_prepared_valid_cpp(SEXP prepared) {
   return TYPEOF(prepared) == EXTPTRSXP && R_ExternalPtrAddr(prepared) != NULL;
 }
 
@@ -59,7 +59,7 @@ bool mgcvst_inla_sparse_prepared_valid_cpp(SEXP prepared) {
 // Z' B' A' A B Z, where B' Q B = I and Z spans the complement of the native
 // constraint in B coordinates.
 // [[Rcpp::export]]
-Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(
+Rcpp::List mgcvst_sparse_observation_basis_cpp(
     const Eigen::MappedSparseMatrix<double>& A_map,
     const Eigen::Map<Eigen::VectorXd> constraint,
     SEXP prepared = R_NilValue) {
@@ -100,7 +100,7 @@ Rcpp::List mgcvst_inla_sparse_observation_basis_cpp(
 // redundant whitened coordinates of dimension m (rank m - 1 after the
 // constraint).
 // [[Rcpp::export]]
-Rcpp::List mgcvst_inla_sparse_batch_cpp(
+Rcpp::List mgcvst_sparse_batch_cpp(
     const Eigen::MappedSparseMatrix<double>& A_map,
     const Eigen::MappedSparseMatrix<double>& Q_map,
     const Eigen::Map<Eigen::VectorXd> constraint,
@@ -145,7 +145,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
   if (threads < 1) Rcpp::stop("threads must be positive.");
   if (block_size < 1) Rcpp::stop("block_size must be positive.");
 #ifndef _OPENMP
-  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
+  if (threads > 1) Rcpp::stop("spdeST was compiled without OpenMP; use threads = 1.");
 #endif
 
   std::unique_ptr<SparsePrepared> local_cache;
@@ -260,7 +260,7 @@ Rcpp::List mgcvst_inla_sparse_batch_cpp(
 // Materialize reduced curvature directly from sparse feature units.  basis is
 // physical C = B R; coordinate is the matching whitened R.
 // [[Rcpp::export]]
-Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
+Rcpp::List mgcvst_sparse_materialize_reduced_cpp(
     const Rcpp::List& units,
     const Eigen::MappedSparseMatrix<double>& Q_map,
     const Eigen::Map<Eigen::VectorXd> constraint,
@@ -277,10 +277,10 @@ Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
   }
   if (threads < 1) Rcpp::stop("threads must be positive.");
 #ifndef _OPENMP
-  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
+  if (threads > 1) Rcpp::stop("spdeST was compiled without OpenMP; use threads = 1.");
 #endif
-  if (!mgcvst_inla_sparse_prepared_valid_cpp(prepared)) {
-    Rcpp::stop("prepared must be a valid sparse INLA cache.");
+  if (!mgcvst_sparse_prepared_valid_cpp(prepared)) {
+    Rcpp::stop("prepared must be a valid sparse score cache.");
   }
   Rcpp::XPtr<SparsePrepared> pointer(prepared);
   const SparsePrepared* cache = pointer.get();
@@ -344,7 +344,7 @@ Rcpp::List mgcvst_inla_sparse_materialize_reduced_cpp(
 // upper Cholesky factor R of V' (H / scale) V is returned as a column of a
 // k^2 x features matrix. H itself is never returned.
 // [[Rcpp::export]]
-Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
+Rcpp::List mgcvst_sparse_materialize_pca_cpp(
     const Rcpp::List& units,
     const Eigen::MappedSparseMatrix<double>& Q_map,
     const Eigen::Map<Eigen::VectorXd> constraint,
@@ -373,10 +373,10 @@ Rcpp::List mgcvst_inla_sparse_materialize_pca_cpp(
   const Eigen::Map<const Mat> Vm(Vr.begin(), q, Vr.ncol());
   const int kv = Vm.cols();
 #ifndef _OPENMP
-  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
+  if (threads > 1) Rcpp::stop("spdeST was compiled without OpenMP; use threads = 1.");
 #endif
-  if (!mgcvst_inla_sparse_prepared_valid_cpp(prepared)) {
-    Rcpp::stop("prepared must be a valid sparse INLA cache.");
+  if (!mgcvst_sparse_prepared_valid_cpp(prepared)) {
+    Rcpp::stop("prepared must be a valid sparse score cache.");
   }
   Rcpp::XPtr<SparsePrepared> pointer(prepared);
   const SparsePrepared* cache = pointer.get();

@@ -1,4 +1,4 @@
-# Per-feature count-family screen shared by the INLA and mgcv paths.
+# Per-feature count-family screen.
 #
 #' Poisson routing for count families
 #'
@@ -26,15 +26,14 @@
 #' exact.
 #'
 #' @section Which family a routed gene actually gets:
-#' A routed gene is fitted with the Poisson family (dispersion 1) in both the
-#' **mgcv** path (`stats::poisson(link = "log")`) and the **INLA** path.
+#' A routed gene is fitted with the Poisson family (dispersion 1).
 NULL
 
 # The removed control is refused by name, so an old script fails loudly
 # instead of silently routing differently.
 .mgcvst_refuse_screen_control <- function(control) {
   if (!is.null(names(control)) && "poisson_screen_phi" %in% names(control)) {
-    stop("control$poisson_screen_phi was removed in mgcvST 0.0.1.9047: a ",
+    stop("control$poisson_screen_phi was removed in spdeST 0.0.1.9047: a ",
          "negative-binomial feature is fitted as Poisson exactly when its ",
          "overdispersion score sum((y - mu)^2 - y) / 2 is not positive.",
          call. = FALSE)

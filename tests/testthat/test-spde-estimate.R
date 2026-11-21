@@ -126,14 +126,14 @@ test_that("the three stages run and a feature's record is its spde.estimate() fi
              g2 = stats::rnbinom(n, mu = mu * exp(.8 * wave), size = 6),
              g3 = stats::rbinom(n, 40L, pmin(mu * exp(-.8 * wave) / 40, .95)),
              g4 = stats::rnbinom(n, mu = mu, size = 2))
-  expect_error(inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
+  expect_error(spdeST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
                           control = list(engine = "inla")), "Unknown control field")
-  expect_error(inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
+  expect_error(spdeST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
                           control = list(spde = list(tolerance = 1))),
                "spde.estimate\\(\\) controls")
-  model <- inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
+  model <- spdeST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
                       diagnostics = TRUE)
-  withr::local_options(mgcvST.progress = FALSE)
+  withr::local_options(spdeST.progress = FALSE)
   sp <- BiocParallel::SerialParam()
   scan <- spdeST.scan(Y, model, BPPARAM = sp)
   fit <- spdeST.estimate(scan, Y, features = c("g1", "g2", "g3"), BPPARAM = sp)
@@ -145,15 +145,15 @@ test_that("the three stages run and a feature's record is its spde.estimate() fi
   expect_length(fit$family_parameters[[3L]], 0L)
 
   # The record of a feature is the direct spde.estimate() fit of the block.
-  block <- model$inla_spec$random[[1L]]
-  direct <- spde.estimate(Y[1:3, ], model$inla_spec$fixed$X, block$A, block$Q,
+  block <- model$spde_spec$random[[1L]]
+  direct <- spde.estimate(Y[1:3, ], model$spde_spec$fixed$X, block$A, block$Q,
                           offset = model$offset)
   expect_equal(unname(fit$smoothing_parameters[1:3, block$sp_index]), direct$tau, tolerance = 1e-5)
   expect_equal(unlist(fit$family_parameters[1:2], use.names = FALSE), direct$size[1:2],
                tolerance = 1e-5)
   expect_equal(unname(fit$target_coefficients[, 1:3]), unname(attr(direct, "field")),
                tolerance = 1e-4)
-  expect_identical(fit$inla_diagnostics[[1L]]$estimation$engine, "spde.estimate")
+  expect_identical(fit$fit_diagnostics[[1L]]$estimation$engine, "spde.estimate")
   # The size of the null model is the start of the search and is kept.
   expect_equal(unname(fit$diagnostics$null_size[1:2]),
                vapply(fit$null_state[1:2], `[[`, numeric(1L), "family_parameters"),
@@ -175,8 +175,8 @@ test_that("the three stages run and a feature's record is its spde.estimate() fi
 })
 
 test_that("a model outside the scope of spde.estimate() is refused and chunks follow the cap", {
-  expect_identical(.inlast_control(), list(spde = list()))
-  expect_error(.inlast_control(list(control.inla = list(tolerance = 1e-6))), "Unknown control field")
+  expect_identical(.spdest_control(), list(spde = list()))
+  expect_error(.spdest_control(list(control.inla = list(tolerance = 1e-6))), "Unknown control field")
   expect_error(.spde_estimate_check(list(family = "gaussian", random = list(list(kind = "spde")))),
                "Poisson or negative-binomial")
   expect_error(.spde_estimate_check(list(family = "poisson", random = list())), "one SPDE field")

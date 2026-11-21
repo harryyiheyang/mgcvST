@@ -1,6 +1,6 @@
-# Native sparse setup for the INLA path.
+# Sparse setup from a mesh.
 #
-# The builder assembles the INLA latent-model specification directly from
+# The builder assembles the latent-model specification directly from
 # (mesh, coordinates, kappa). It retains the sparse projector `A`, mesh
 # precision `Q`, constraint vector `g`, and the small dense nuisance design.
 # The mesh dimension is detected from the mesh object, so 2D triangulations and
@@ -23,8 +23,7 @@
 # mass matrix, `M1` the stiffness matrix and `M2 = M1 M0^-1 M1`.  Here `kappa`
 # is the mesh-scale `kappa_internal`.  It is derived from the caller's
 # unit-scale kappa and never estimated; the single precision multiplier
-# `tau` is the smoothing parameter estimated by INLA (`generic0` with
-# `Cmatrix = Q`).
+# `tau` is the smoothing parameter estimated by spde.estimate().
 #
 # Unit-scale kappa.  The caller supplies `kappa_unit`.  With `L` the largest
 # per-axis span of the observation coordinates and `s` the mesh coordinate
@@ -66,16 +65,14 @@
 # `mean(A u) = 0`.  This is the observation-mean constraint, deliberately NOT
 # the integral (`1' M0 u = 0`) constraint: it is the one that makes `beta0` the
 # mean of the linear predictor at the data, and it is what the score test's
-# null covariance conditions on.  It is passed to INLA as a hard linear
-# constraint (`extraconstr = list(A = matrix(g, 1), e = 0)`) and the `generic0`
-# `rankdef` is incremented by one so that `tau` is normalised on the
-# `q - 1`-dimensional constrained support.
+# null covariance conditions on.  It is a hard linear constraint of the fit, so that `tau`
+# acts on the `q - 1`-dimensional constrained support.
 #
 # Implied design.  The legacy path realised the constraint by an explicit
 # orthonormal null-space basis `Z` (`q` by `q - 1`, `g' Z = 0`) and then formed
 # the dense `B = A Z`.  `B` has exactly zero column means, which is the sense in
 # which "column-centre the smooth design" describes the constraint.  The native
-# path keeps `(A, Q, g)` and lets INLA impose `g' u = 0`; the two
+# path keeps `(A, Q, g)` and the fit imposes `g' u = 0`; the two
 # parameterisations give the same fitted field `A u` and the same marginal
 # likelihood, and the sparse score kernel consumes `(A, Q, g)` directly, so `Z`
 # is never needed.  `projection` is consequently `NULL` on native blocks, and
@@ -85,7 +82,7 @@
 # Normalise the supported mesh containers to (dimension, vertices, cells,
 # coordinate transform).  `spde_mesh` carries the unit-width rescaling used when
 # the mesh was built, so observation coordinates must be mapped through it.
-.inlast_native_mesh <- function(mesh) {
+.spdest_native_mesh <- function(mesh) {
   if (inherits(mesh, "spde_mesh")) {
     core <- mesh$mesh
     transform <- mesh$transform
@@ -129,10 +126,10 @@
 # used, so the native and legacy precisions agree to the last bit.  In 3D the
 # same quantities come from fmesher (`c0` lumped mass, `g1` stiffness,
 # `g2 = g1 c0^-1 g1`), which is the reference implementation for tetrahedra.
-.inlast_native_fem <- function(m) {
+.spdest_native_fem <- function(m) {
   if (m$dim == 2L) {
     fem <- .spde_basis_fem(list(xy = m$loc, tv = m$cells))
-    return(list(M0 = fem$M0, M1 = fem$M1, M2 = fem$M2, source = "mgcvST_fem2d"))
+    return(list(M0 = fem$M0, M1 = fem$M1, M2 = fem$M2, source = "spdeST_fem2d"))
   }
   if (!requireNamespace("fmesher", quietly = TRUE)) {
     stop("A 3D native SPDE model requires the fmesher package.")
@@ -147,7 +144,7 @@
 }
 
 # Sparse observation-to-node projector.  Rows sum to one in both dimensions.
-.inlast_native_projector <- function(m, loc) {
+.spdest_native_projector <- function(m, loc) {
   if (m$dim == 2L) {
     return(.spde_basis_project(list(xy = m$loc, tv = m$cells), loc))
   }
@@ -170,7 +167,7 @@
 # The spatial term is supplied by mesh/kappa/coordinates. The rest of the
 # formula is the GLM null: linear terms, factors (0-1 model-matrix columns)
 # and the offset; a smooth term is refused.
-.inlast_native_design <- function(formula, data) {
+.spdest_native_design <- function(formula, data) {
   if (!inherits(formula, "formula") || length(formula) != 3L ||
       !is.symbol(formula[[2L]])) {
     stop("Supply a two-sided formula with a single response name.")
@@ -181,7 +178,7 @@
   if (response %in% all.vars(formula[[3L]])) {
     stop("The response cannot also be a covariate or offset.")
   }
-  # The response is a per-feature bridge supplied later by inlaST.estimate();
+  # The response is a per-feature bridge supplied later by spdeST.scan();
   # mirror the legacy setup and install a zero placeholder when absent.
   if (!response %in% names(data)) data[[response]] <- numeric(nrow(data))
   terms <- stats::terms(formula, data = data)
@@ -194,11 +191,11 @@
   if (any(smooth)) {
     spatial <- grepl("bs\\s*=\\s*[\"']spde", labels[smooth])
     if (any(spatial)) {
-      stop("The native INLA path takes its single spatial term from mesh and ",
+      stop("The mesh path takes its single spatial term from mesh and ",
            "kappa; remove the spatial smooth term(s) from the formula: ",
            paste(labels[smooth][spatial], collapse = ", "), ".")
     }
-    .inlast_reject_nuisance_smooth(labels[smooth])
+    .spdest_reject_nuisance_smooth(labels[smooth])
   }
   y <- as.numeric(stats::model.response(mf))
   offset <- stats::model.offset(mf)
@@ -218,7 +215,7 @@
 
 # Observation coordinates in their original units. They define the unit length
 # for kappa and are mapped through the mesh's own coordinate transform later.
-.inlast_native_coordinates <- function(data, coordinates, m) {
+.spdest_native_coordinates <- function(data, coordinates, m) {
   if (!is.character(coordinates) || length(coordinates) != m$dim ||
       anyDuplicated(coordinates) || !all(coordinates %in% names(data))) {
     stop("coordinates must name ", m$dim,
@@ -234,7 +231,7 @@
 
 # Matern smoothness and practical range for the detected mesh dimension.
 # `range_unit` is in unit lengths; `range` is in observation coordinate units.
-.inlast_native_matern <- function(kappa, dim, alpha = 2) {
+.spdest_native_matern <- function(kappa, dim, alpha = 2) {
   nu <- alpha - dim / 2
   if (nu <= 0) stop("alpha = 2 does not give a valid Matern field in dimension ", dim, ".")
   range_unit <- sqrt(8 * nu) / kappa$kappa_unit
@@ -248,7 +245,7 @@
 
 # Width of a target block's retained coefficient vector.  Legacy blocks store
 # the dense projected basis; native blocks store only its column count.
-.inlast_target_width <- function(model, j) {
+.spdest_target_width <- function(model, j) {
   sm <- model$geometry$smooth[[j]]
   if (!is.null(sm$B)) return(ncol(sm$B))
   width <- sm[["coef_dim", exact = TRUE]]
@@ -259,27 +256,27 @@
 }
 
 # Assemble the native model.  The returned object carries the very same
-# `inla_spec` contract that `.inlast_model_spec()` produces for legacy models,
-# so `inlaST.estimate()`, the sparse score kernel and the marginal test all run
+# `spde_spec` contract that `.spdest_model_spec()` produces for legacy models,
+# so `spdeST.scan()`, the sparse score kernel and the marginal test all run
 # unchanged. The spatial projector stays sparse. Only the bounded nuisance
 # design (the fixed columns) is carried densely.
-.inlast_set_native <- function(formula, data, family, mesh, kappa, coordinates,
+.spdest_set_native <- function(formula, data, family, mesh, kappa, coordinates,
                                setting, control) {
   if (!identical(setting, "global")) {
-    stop("The native INLA path supports setting = 'global' with one spatial field.")
+    stop("The mesh path supports setting = 'global' with one spatial field.")
   }
-  m <- .inlast_native_mesh(mesh)
-  design <- .inlast_native_design(formula, data)
-  .inlast_check_nuisance_width(ncol(design$X))
-  raw_loc <- .inlast_native_coordinates(as.data.frame(data), coordinates, m)
+  m <- .spdest_native_mesh(mesh)
+  design <- .spdest_native_design(formula, data)
+  .spdest_check_nuisance_width(ncol(design$X))
+  raw_loc <- .spdest_native_coordinates(as.data.frame(data), coordinates, m)
   n <- length(design$y)
   if (nrow(raw_loc) != n) stop("The coordinates and the model frame disagree in length.")
   kappa <- .spde_kappa_scale(kappa, raw_loc, m$scale)
   loc <- sweep(raw_loc, 2L, m$center, "-") / m$scale
 
-  A <- .inlast_native_projector(m, loc)
+  A <- .spdest_native_projector(m, loc)
   A <- methods::as(methods::as(A, "generalMatrix"), "CsparseMatrix")
-  fem <- .inlast_native_fem(m)
+  fem <- .spdest_native_fem(m)
   Q <- .spde_fem_precision(fem, kappa$kappa_internal)
   Q <- methods::as(Q, "symmetricMatrix")
   if (!inherits(Q, "dsCMatrix")) Q <- methods::as(Q, "dsCMatrix")
@@ -312,7 +309,7 @@
   sp_names <- label
   spec <- list(
     n = n,
-    family = .inlast_family(family),
+    family = .spdest_family(family),
     fixed = list(X = X, names = fixed_names),
     random = random,
     nuisance_design = U,
@@ -328,7 +325,7 @@
     spec$nb_size_fixed <- as.numeric(family$getTheta(trans = TRUE))
   }
   if (!p_x) {
-    stop("The native INLA path requires at least one parametric column; keep the intercept.")
+    stop("The mesh path requires at least one parametric column; keep the intercept.")
   }
 
   geometry <- list(
@@ -360,8 +357,8 @@
     coordinate_span = kappa$coordinate_span,
     kappa_internal = kappa$kappa_internal,
     family = family,
-    inla_spec = spec,
-    spde = c(.inlast_native_matern(kappa, m$dim),
+    spde_spec = spec,
+    spde = c(.spdest_native_matern(kappa, m$dim),
              list(mesh_vertices = m$q, mesh_cells = nrow(m$cells),
                   fem_source = fem$source,
                   constraint = "observation mean: colMeans(A) %*% u = 0")),
@@ -371,12 +368,12 @@
     native = TRUE,
     timing = list(setup_seconds = NA_real_, elapsed = NA_real_)
   )
-  .spde_estimate_check(model$inla_spec)
-  model$inla_control <- control
-  class(model) <- c("inlaST_native_model", "inlaST_model", "mgcvST_model")
-  capability <- .inlast_sparse_score_capability(model)
+  .spde_estimate_check(model$spde_spec)
+  model$spde_control <- control
+  class(model) <- c("spdeST_native_model", "spdeST_model")
+  capability <- .spdest_sparse_score_capability(model)
   if (!capability$eligible) {
-    stop("The native INLA model is not sparse-score eligible: ", capability$reason, ".")
+    stop("The mesh model is not sparse-score eligible: ", capability$reason, ".")
   }
   model
 }

@@ -53,7 +53,7 @@
   marked <- which(nzchar(score_component))
   if (length(marked) != 1L || sum(score_component == "global") != 1L) {
     stop("The model must mark exactly one global SPDE score component. The ",
-         "second 'local' geographic process was removed from mgcvST.")
+         "second 'local' geographic process was removed from spdeST.")
   }
   target <- stats::setNames(marked, "global")
   for (name in names(target)) {

@@ -8,10 +8,10 @@
 #
 # Work restored from a checkpoint counts as done but not towards the rate.
 # Plain lines (no carriage returns) keep batch logs readable.
-# options(mgcvST.progress = FALSE) silences them.
+# options(spdeST.progress = FALSE) silences them.
 
 .mgcvst_progress_enabled <- function() {
-  isTRUE(getOption("mgcvST.progress", TRUE))
+  isTRUE(getOption("spdeST.progress", TRUE))
 }
 
 .mgcvst_format_count <- function(x) {

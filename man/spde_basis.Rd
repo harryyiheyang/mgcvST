@@ -2,12 +2,12 @@
 % Please edit documentation in R/spde-basis.R
 \name{spde_basis}
 \alias{spde_basis}
-\alias{print.mgcvST_spde_basis}
-\title{Prepare an SPDE basis for mgcvST fitting}
+\alias{print.spdeST_basis}
+\title{Prepare an SPDE basis for spdeST fitting}
 \usage{
 spde_basis(mesh, loc, kappa = 0.05, project_intercept = TRUE)
 
-\method{print}{mgcvST_spde_basis}(x, ...)
+\method{print}{spdeST_basis}(x, ...)
 }
 \arguments{
 \item{mesh}{A \code{\link[=spde_mesh]{spde_mesh()}}, \code{fm_mesh_2d}, or list containing \code{loc} and
@@ -40,7 +40,7 @@ A self-contained object to pass directly as \code{xt}.
 \description{
 Constructs the observation projector and the fixed-kappa SPDE precision
 once. The returned object is self-contained: fitting with \code{bs = "spde"}
-requires neither INLA, fmesher nor sf.
+requires neither fmesher nor sf.
 Basis construction and prediction use geometry for barycentric interpolation
 on the saved mesh. No FEM or precision is recomputed. Outside-mesh
 coordinates cause an error. Every evaluation uses the supplied coordinates,

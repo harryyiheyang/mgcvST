@@ -1,5 +1,5 @@
-#ifndef MGCVST_SPA_PAIR_H
-#define MGCVST_SPA_PAIR_H
+#ifndef SPDEST_SPA_PAIR_H
+#define SPDEST_SPA_PAIR_H
 
 // Saddlepoint calibration of the signed cross-gene score, shared by the exact
 // and the PCAlearning pair routes.

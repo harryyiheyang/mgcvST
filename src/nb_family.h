@@ -1,5 +1,5 @@
-#ifndef MGCVST_NB_FAMILY_H
-#define MGCVST_NB_FAMILY_H
+#ifndef SPDEST_NB_FAMILY_H
+#define SPDEST_NB_FAMILY_H
 
 // NB2 (Var = mu + alpha mu^2) log-likelihood pieces shared by the null fits
 // (nb_null.cpp) and the spatial fits (spde_estimate.cpp). alpha = 0 is the

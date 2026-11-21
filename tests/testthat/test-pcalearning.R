@@ -50,13 +50,13 @@ test_that("PCAlearning training sampling reallocates sparse cells and restores R
   expect_identical(small$train, seq_len(50L))
 })
 
-test_that("inlaST.test() runs the PCAlearning route on request and returns the compact result", {
+test_that("spdeST.test() runs the PCAlearning route on request and returns the compact result", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
-  default <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L,
+  default <- spdeST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L,
                          moments = "pcalearning")
-  expect_s3_class(default, "mgcvST_test")
+  expect_s3_class(default, "spdeST_test")
   expect_identical(default$moments, "pcalearning")
   expect_false(is.null(default$pca_learning))
   expect_named(default$results, c("i", "j", "score", "t1", "log_p_two_sided",
@@ -76,41 +76,41 @@ test_that("inlaST.test() runs the PCAlearning route on request and returns the c
   expect_identical(default$timing$route$k, contract$k)
   expect_match(contract$basis_sha, "^[0-9a-f]{64}$")
   expect_identical(default$timing$pcalearning$pair_schedule, "pcalearning_pair_list")
-  all_pairs <- inlaST.test(fit, threads = 2L, rank = 3L, seed = 4L, moments = "pcalearning")
+  all_pairs <- spdeST.test(fit, threads = 2L, rank = 3L, seed = 4L, moments = "pcalearning")
   expect_identical(all_pairs$timing$pcalearning$pair_schedule, "pcalearning_gene_blocks")
   expect_equal(all_pairs$results, default$results, tolerance = 1e-12)
   expect_identical(all_pairs$pca_learning$training, default$pca_learning$training)
   expect_identical(all_pairs$contract$basis_sha, contract$basis_sha)
 })
 
-test_that("approximate inlaST.test() builds the observation basis once", {
+test_that("approximate spdeST.test() builds the observation basis once", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
-  r <- spdeST:::.inlast_sparse_observation_basis(
-    spdeST:::.inlast_sparse_prepare(fit)
+  r <- spdeST:::.spdest_sparse_observation_basis(
+    spdeST:::.spdest_sparse_prepare(fit)
   )$rank
   calls <- new.env(parent = emptyenv())
   calls$basis <- 0L
-  observation_basis <- spdeST:::.inlast_sparse_observation_basis
+  observation_basis <- spdeST:::.spdest_sparse_observation_basis
   testthat::local_mocked_bindings(
-    .inlast_sparse_observation_basis = function(fit) {
+    .spdest_sparse_observation_basis = function(fit) {
       calls$basis <- calls$basis + 1L
       observation_basis(fit)
     },
     .package = "spdeST")
   for (moments in c("pcalearning", "exact")) {
     calls$basis <- 0L
-    out <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L,
+    out <- spdeST.test(fit, pairs = pairs, threads = 2L, rank = 3L, seed = 4L,
                        moments = moments)
     expect_identical(calls$basis, 1L)
     expect_identical(out$timing$route$q, r)
   }
-  expect_identical(out$timing$inla_projection$r, r)
-  expect_identical(out$timing$inla_projection$basis_kind, "full_rank")
+  expect_identical(out$timing$score_projection$r, r)
+  expect_identical(out$timing$score_projection$basis_kind, "full_rank")
 })
 
-test_that("inlaST.test and spdeST.test share their arguments and reject removed ones", {
+test_that("spdeST.test and spdeST.test share their arguments and reject removed ones", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pair <- matrix(fit$feature_id[1:2], 1L)
@@ -119,13 +119,13 @@ test_that("inlaST.test and spdeST.test share their arguments and reject removed 
                   calibration = "liu", BPPARAM = BiocParallel::SerialParam(),
                   FDR = TRUE, method = "BY", highlight = pair, cache_bytes = 1e9)
   for (name in names(removed)) {
-    expect_error(do.call(inlaST.test, c(list(fit, pairs = pair, rank = 2L, moments = "exact"),
+    expect_error(do.call(spdeST.test, c(list(fit, pairs = pair, rank = 2L, moments = "exact"),
                                         removed[name])), "unused argument")
   }
   for (name in c("approximate_test", "pairwise_method", "liu_approximation",
                  "calibration", "conditional_precision", "BPPARAM", "FDR", "method",
                  "highlight", "cache_bytes", "...")) {
-    expect_false(name %in% names(formals(inlaST.test)))
+    expect_false(name %in% names(formals(spdeST.test)))
     expect_false(name %in% names(formals(spdeST.test)))
   }
   shared <- c("pairs", "q.value", "adjust", "threads", "chunk_size",
@@ -133,24 +133,24 @@ test_that("inlaST.test and spdeST.test share their arguments and reject removed 
   # The shared arguments keep the same positions; the route and the PCAlearning
   # controls follow them, so a positional call means the same in both tests.
   controls <- c("moments", "rank", "n_per_cell", "seed", "k", "screen")
-  expect_identical(names(formals(inlaST.test)), c("fitinlaST", shared, controls))
   expect_identical(names(formals(spdeST.test)), c("fit", shared, controls))
-  expect_identical(formals(inlaST.test)[controls], formals(spdeST.test)[controls])
+  expect_identical(names(formals(spdeST.test)), c("fit", shared, controls))
+  expect_identical(formals(spdeST.test)[controls], formals(spdeST.test)[controls])
   expect_equal(unlist(spdeST:::.mgcvst_pca_defaults),
                c(rank = 100, n_per_cell = 3, seed = 1, k = 80))
-  expect_identical(eval(formals(inlaST.test)$rank), 100L)
+  expect_identical(eval(formals(spdeST.test)$rank), 100L)
   # The route has no default: a call without it stops, whatever else is wrong.
-  expect_identical(formals(inlaST.test)$moments, formals(function(moments) NULL)$moments)
   expect_identical(formals(spdeST.test)$moments, formals(function(moments) NULL)$moments)
-  expect_error(inlaST.test(fit, pairs = pair), "moments must be given")
-  expect_error(inlaST.test(fit, pairs = pair, rank = 0L), "moments must be given")
-  expect_error(inlaST.test(fit, pairs = pair, moments = "auto"), "moments must be one of")
-  expect_error(inlaST.test(fit, pairs = pair, moments = c("exact", "pcalearning")),
+  expect_identical(formals(spdeST.test)$moments, formals(function(moments) NULL)$moments)
+  expect_error(spdeST.test(fit, pairs = pair), "moments must be given")
+  expect_error(spdeST.test(fit, pairs = pair, rank = 0L), "moments must be given")
+  expect_error(spdeST.test(fit, pairs = pair, moments = "auto"), "moments must be one of")
+  expect_error(spdeST.test(fit, pairs = pair, moments = c("exact", "pcalearning")),
                "moments must be one of")
-  expect_null(formals(inlaST.test)$k)
-  expect_error(inlaST.test(fit, pairs = pair, adjust = "holm", moments = "exact"), "should be one of")
-  expect_error(inlaST.test(fit, pairs = pair, moments = "liu"), "moments must be one of")
-  expect_error(inlaST.test(fit, pairs = pair, k = 0L, moments = "exact"), "k must be NULL or one positive")
+  expect_null(formals(spdeST.test)$k)
+  expect_error(spdeST.test(fit, pairs = pair, adjust = "holm", moments = "exact"), "should be one of")
+  expect_error(spdeST.test(fit, pairs = pair, moments = "liu"), "moments must be one of")
+  expect_error(spdeST.test(fit, pairs = pair, k = 0L, moments = "exact"), "k must be NULL or one positive")
   expect_false(exists(".mgcvst_conditional_test", asNamespace("spdeST"),
                       inherits = FALSE))
   expect_false(exists("mgcvst_liu_logp_cpp", asNamespace("spdeST"), inherits = FALSE))
@@ -164,7 +164,7 @@ test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlep
   exact <- .pca_exact_reference(fit, pairs)
   withr::local_seed(5L)
   before <- .Random.seed
-  pca <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = G, k = 1000L,
+  pca <- spdeST.test(fit, pairs = pairs, threads = 2L, rank = G, k = 1000L,
                      moments = "pcalearning")
   expect_identical(.Random.seed, before)
   z <- pca$pca_learning
@@ -186,8 +186,8 @@ test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlep
   expect_true("total" %in% names(z$table_timing))
 
   # Gene blocks of 32: more genes than one block are all materialized.
-  prepared <- spdeST:::.inlast_sparse_prepare(fit)
-  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
+  prepared <- spdeST:::.spdest_sparse_prepare(fit)
+  basis <- spdeST:::.spdest_sparse_observation_basis(prepared)
   producer <- spdeST:::.mgcvst_pca_producer(prepared, seq_len(G), basis, 2L)
   many <- producer$materialize(rep(seq_len(G), 5L), pack = TRUE)
   expect_false(anyNA(many$A))
@@ -196,7 +196,7 @@ test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlep
   expect_identical(pca$timing$pcalearning$pair_schedule, "pcalearning_pair_list")
 
   # Every pair of the available genes is streamed by gene blocks, equal to the list.
-  all_pairs <- inlaST.test(fit, threads = 2L, rank = G, k = 1000L, chunk_size = 5L,
+  all_pairs <- spdeST.test(fit, threads = 2L, rank = G, k = 1000L, chunk_size = 5L,
                            moments = "pcalearning")
   expect_identical(all_pairs$timing$pcalearning$pair_schedule,
                    "pcalearning_gene_blocks")
@@ -205,7 +205,7 @@ test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlep
 
   # A pair list (reversed order, subset) uses the (i, j) kernel with equal results.
   sub <- c(5L, 1L, 20L, 13L)
-  listed <- inlaST.test(fit, pairs = pairs[sub, 2:1], adjust = "none", threads = 2L,
+  listed <- spdeST.test(fit, pairs = pairs[sub, 2:1], adjust = "none", threads = 2L,
                         rank = G, k = 1000L, moments = "pcalearning")
   expect_identical(listed$timing$pcalearning$pair_schedule, "pcalearning_pair_list")
   by_key <- function(x) paste(x$i, x$j)
@@ -215,7 +215,7 @@ test_that("full-rank PCAlearning with k = q reproduces the full-spectrum saddlep
   expect_equal(listed$results$log_p_positive[at],
                pca$results$log_p_positive[sub], tolerance = 1e-12)
 
-  low <- inlaST.test(fit, pairs = pairs, threads = 2L, rank = 3L, moments = "pcalearning")
+  low <- spdeST.test(fit, pairs = pairs, threads = 2L, rank = 3L, moments = "pcalearning")
   expect_true(all(low$pca_learning$genes$e2_relative > -1e-12))
   expect_equal(low$pca_learning$genes$e2,
                low$pca_learning$genes$fro2 - unname(rowSums(low$pca_learning$coefficients^2)))
@@ -272,8 +272,8 @@ test_that("rank-10 trace tables reproduce brute-force projected traces", {
 test_that(".mgcvst_pca_prepare gives the arrays of the pair kernels and an orthonormal basis", {
   skip_on_cran()
   fit <- .pca_nb_fit()
-  prepared <- spdeST:::.inlast_sparse_prepare(fit)
-  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
+  prepared <- spdeST:::.spdest_sparse_prepare(fit)
+  basis <- spdeST:::.spdest_sparse_observation_basis(prepared)
   G <- length(fit$feature_id)
   q <- basis$rank
   prep <- spdeST:::.mgcvst_pca_prepare(prepared, seq_len(G), basis, q = q, rank = 3L,
@@ -292,7 +292,7 @@ test_that(".mgcvst_pca_prepare gives the arrays of the pair kernels and an ortho
   expect_false(any(prep$failed_gene))
   expect_identical(prep$used, seq_len(G))
   # The route is built on the same object.
-  z <- inlaST.test(fit, pairs = t(combn(fit$feature_id, 2L)), moments = "pcalearning",
+  z <- spdeST.test(fit, pairs = t(combn(fit$feature_id, 2L)), moments = "pcalearning",
                    rank = 3L, seed = 4L, threads = 2L)
   expect_identical(z$contract$basis_sha, prep$V_sha)
   expect_equal(z$pca_learning$basis_orthonormality, prep$basis_check)
@@ -325,7 +325,7 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
     },
     .package = "spdeST"
   )
-  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
   run <- function(index, dir, rank = 3L, resume = TRUE, n_per_cell = 3L, k = NULL) {
     spdeST:::.mgcvst_pair_pcalearning(
       fit, index, 2L, 1000L, FALSE, basis, rank = rank, k = k,
@@ -419,7 +419,7 @@ test_that("PCAlearning checkpoints resume to the uninterrupted result", {
 
   public <- tempfile("mgcvst-pca-public-")
   on.exit(unlink(public, recursive = TRUE), add = TRUE)
-  test <- function() inlaST.test(fit, pairs = t(combn(fit$feature_id, 2L)),
+  test <- function() spdeST.test(fit, pairs = t(combn(fit$feature_id, 2L)),
                                  threads = 2L, rank = 3L, checkpoint_dir = public,
                                  resume = TRUE, moments = "pcalearning")
   first <- test()
@@ -433,7 +433,7 @@ test_that("PCAlearning checks rank, n_per_cell, seed, k and trace-table memory",
   skip_on_cran()
   fit <- .pca_nb_fit()
   G <- length(fit$feature_id)
-  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
   run <- function(rank, n_per_cell = 3L, seed = 1L, k = 50L) {
     index <- t(combn(G, 2L))
     spdeST:::.mgcvst_pair_pcalearning(
@@ -469,7 +469,7 @@ test_that("a PCAlearning resume follows the stored schedule whatever chunk_size 
     },
     .package = "spdeST"
   )
-  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
   run <- function(index, dir, chunk_size) {
     spdeST:::.mgcvst_pair_pcalearning(
       fit, index, 2L, chunk_size, FALSE, basis, rank = 3L, n_per_cell = 3L,
@@ -504,25 +504,25 @@ test_that("PCAlearning controls fail before the basis, and the pair directory fo
   skip_on_cran()
   fit <- .pca_nb_fit()
   calls <- 0L
-  observation_basis <- spdeST:::.inlast_sparse_observation_basis
+  observation_basis <- spdeST:::.spdest_sparse_observation_basis
   local_mocked_bindings(
-    .inlast_sparse_observation_basis = function(fit) {
+    .spdest_sparse_observation_basis = function(fit) {
       calls <<- calls + 1L
       observation_basis(fit)
     },
     .package = "spdeST")
-  expect_error(inlaST.test(fit, rank = 0L, moments = "exact"), "rank must be one positive integer")
-  expect_error(inlaST.test(fit, n_per_cell = 1.5, moments = "exact"), "n_per_cell must be one positive")
-  expect_error(inlaST.test(fit, seed = -1, moments = "exact"), "seed must be one non-negative integer")
-  expect_error(inlaST.test(fit, k = 2.5, moments = "exact"), "k must be NULL or one positive integer")
-  expect_error(inlaST.test(fit, threads = 1.5, moments = "exact"), "threads must be one positive integer")
+  expect_error(spdeST.test(fit, rank = 0L, moments = "exact"), "rank must be one positive integer")
+  expect_error(spdeST.test(fit, n_per_cell = 1.5, moments = "exact"), "n_per_cell must be one positive")
+  expect_error(spdeST.test(fit, seed = -1, moments = "exact"), "seed must be one non-negative integer")
+  expect_error(spdeST.test(fit, k = 2.5, moments = "exact"), "k must be NULL or one positive integer")
+  expect_error(spdeST.test(fit, threads = 1.5, moments = "exact"), "threads must be one positive integer")
   expect_identical(calls, 0L)
 
   dir <- tempfile("mgcvst-pca-order-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
   local_mocked_bindings(.mgcvst_pca_basis = function(...) stop("basis failure"),
                         .package = "spdeST")
-  expect_error(inlaST.test(fit, rank = 3L, checkpoint_dir = dir, moments = "pcalearning"),
+  expect_error(spdeST.test(fit, rank = 3L, checkpoint_dir = dir, moments = "pcalearning"),
                "basis failure")
   expect_length(list.files(dir, "^pairs-"), 0L)
 })
@@ -551,9 +551,9 @@ test_that("PCAlearning tests are bitwise identical for 1 and 4 threads", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pairs <- t(combn(fit$feature_id, 2L))
-  one <- inlaST.test(fit, pairs = pairs, threads = 1L, rank = 4L, seed = 3L,
+  one <- spdeST.test(fit, pairs = pairs, threads = 1L, rank = 4L, seed = 3L,
                      moments = "pcalearning")
-  four <- inlaST.test(fit, pairs = pairs, threads = 4L, rank = 4L, seed = 3L,
+  four <- spdeST.test(fit, pairs = pairs, threads = 4L, rank = 4L, seed = 3L,
                       moments = "pcalearning")
   expect_identical(one$results, four$results)
   expect_identical(one$pca_learning$coefficients, four$pca_learning$coefficients)
@@ -564,14 +564,14 @@ test_that("PCAlearning tests are bitwise identical for 1 and 4 threads", {
 test_that("a gene without a curvature matrix is reported as unusable and does not disturb the other genes", {
   skip_on_cran()
   fit <- .pca_nb_fit()
-  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  basis <- spdeST:::.spdest_sparse_observation_basis(spdeST:::.spdest_sparse_prepare(fit))
   run <- function() .pca_pairs(z <<- spdeST:::.mgcvst_pair_pcalearning(
     fit, NULL, 1L, 100L, FALSE, basis, rank = 3L, k = 5L))
   z <- NULL
   full <- run()
-  units <- spdeST:::.inlast_sparse_units
+  units <- spdeST:::.spdest_sparse_units
   testthat::local_mocked_bindings(
-    .inlast_sparse_units = function(fit, features, threads = 1L) {
+    .spdest_sparse_units = function(fit, features, threads = 1L) {
       out <- units(fit, features, threads = threads)
       for (k in which(features == 3L)) {
         out[[k]] <- list(error = "The curvature matrix is zero or not finite.")

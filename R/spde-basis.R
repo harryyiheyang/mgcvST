@@ -123,7 +123,7 @@
 }
 
 .spde_basis_validate <- function(x, loc = NULL) {
-  if (!inherits(x, "mgcvST_spde_basis")) {
+  if (!inherits(x, "spdeST_basis")) {
     stop("xt must be an object returned by spde_basis().")
   }
   if (is.null(x$B) || is.null(x$Q) || is.null(x$coordinates)) {
@@ -195,21 +195,21 @@
   if (!is.character(component) || length(component) != 1L ||
       is.na(component) || !identical(component, "global")) {
     stop("xt$component must be 'global'. The second 'local' geographic ",
-         "process was removed from mgcvST.")
+         "process was removed from spdeST.")
   }
   score.component <- object$xt$score.component
   if (!is.null(score.component) && !identical(score.component, "global")) {
     stop("xt$score.component must be NULL or 'global'. The second 'local' ",
-         "geographic process was removed from mgcvST.")
+         "geographic process was removed from spdeST.")
   }
   list(component = component, score.component = score.component)
 }
 
-#' Prepare an SPDE basis for mgcvST fitting
+#' Prepare an SPDE basis for spdeST fitting
 #'
 #' Constructs the observation projector and the fixed-kappa SPDE precision
 #' once. The returned object is self-contained: fitting with `bs = "spde"`
-#' requires neither INLA, fmesher nor sf.
+#' requires neither fmesher nor sf.
 #' Basis construction and prediction use geometry for barycentric interpolation
 #' on the saved mesh. No FEM or precision is recomputed. Outside-mesh
 #' coordinates cause an error. Every evaluation uses the supplied coordinates,
@@ -280,7 +280,7 @@ spde_basis <- function(mesh, loc, kappa = 0.05, project_intercept = TRUE) {
     projection_rank = fitqr$rank, project_intercept = project_intercept,
     raw_dimension = m.raw
   ))
-  class(out) <- "mgcvST_spde_basis"
+  class(out) <- "spdeST_basis"
   out$coordinate_keys <- .spde_coordinate_keys(loc.raw)
   out
 }
@@ -290,8 +290,8 @@ spde_basis <- function(mesh, loc, kappa = 0.05, project_intercept = TRUE) {
 #' @param ... Unused.
 #' @return `x`, invisibly.
 #' @export
-print.mgcvST_spde_basis <- function(x, ...) {
-  cat("mgcvST SPDE basis\n")
+print.spdeST_basis <- function(x, ...) {
+  cat("spdeST SPDE basis\n")
   cat("  observations:", nrow(x$B), "\n")
   cat("  coefficients:", ncol(x$B), "\n")
   cat("  kappa (unit scale, fixed):", format(x$kappa_unit), "\n")

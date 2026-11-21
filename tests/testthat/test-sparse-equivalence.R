@@ -10,8 +10,8 @@ test_that("sparse observation basis matches an independent QR reference", {
   Q <- Matrix::Matrix(Q0, sparse = TRUE)
   g <- as.numeric(colMeans(A0))
   fit <- list(score_sparse = list(A = A, Q = Q, constraint = g))
-  fit <- spdeST:::.inlast_sparse_prepare(fit)
-  got <- spdeST:::.inlast_sparse_observation_basis(fit)
+  fit <- spdeST:::.spdest_sparse_prepare(fit)
+  got <- spdeST:::.spdest_sparse_observation_basis(fit)
 
   Q2 <- qr.Q(qr(matrix(g, ncol = 1L)), complete = TRUE)[, -1L, drop = FALSE]
   qp <- crossprod(Q2, Q0 %*% Q2)

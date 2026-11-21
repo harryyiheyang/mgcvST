@@ -20,8 +20,8 @@ st_fixture <- function(n = 90L, family = mgcv::nb()) {
 }
 
 old_st <- function() {
-  repo <- Sys.getenv("MGCVST_BASELINE")
-  skip_if(!dir.exists(file.path(repo, "R")), "Set MGCVST_BASELINE for pinned-source equivalence checks")
+  repo <- Sys.getenv("SPDEST_BASELINE")
+  skip_if(!dir.exists(file.path(repo, "R")), "Set SPDEST_BASELINE for pinned-source equivalence checks")
   e <- new.env(parent = asNamespace("spdeST"))
   for (f in list.files(file.path(repo, "R"), full.names = TRUE, pattern = "\\.R$")) sys.source(f, e)
   e

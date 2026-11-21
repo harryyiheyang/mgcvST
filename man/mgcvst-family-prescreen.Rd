@@ -31,8 +31,7 @@ exact.
 
 \section{Which family a routed gene actually gets}{
 
-A routed gene is fitted with the Poisson family (dispersion 1) in both the
-\strong{mgcv} path (\code{stats::poisson(link = "log")}) and the \strong{INLA} path.
+A routed gene is fitted with the Poisson family (dispersion 1).
 }
 
 \keyword{internal}

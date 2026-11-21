@@ -5,32 +5,8 @@ mgcvst_log_adjust_cpp <- function(log_p, method) {
     .Call(`_spdeST_mgcvst_log_adjust_cpp`, log_p, method)
 }
 
-mgcvst_inla_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
-    .Call(`_spdeST_mgcvst_inla_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
-}
-
-mgcvst_inla_sparse_prepare_cpp <- function(Q_map, constraint) {
-    .Call(`_spdeST_mgcvst_inla_sparse_prepare_cpp`, Q_map, constraint)
-}
-
-mgcvst_inla_sparse_prepared_valid_cpp <- function(prepared) {
-    .Call(`_spdeST_mgcvst_inla_sparse_prepared_valid_cpp`, prepared)
-}
-
-mgcvst_inla_sparse_observation_basis_cpp <- function(A_map, constraint, prepared = NULL) {
-    .Call(`_spdeST_mgcvst_inla_sparse_observation_basis_cpp`, A_map, constraint, prepared)
-}
-
-mgcvst_inla_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, block_size = 32L, prepared = NULL, nuisance_precision = NULL) {
-    .Call(`_spdeST_mgcvst_inla_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, block_size, prepared, nuisance_precision)
-}
-
-mgcvst_inla_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint, coordinate, basis, threads = 1L, prepared = NULL) {
-    .Call(`_spdeST_mgcvst_inla_sparse_materialize_reduced_cpp`, units, Q_map, constraint, coordinate, basis, threads, prepared)
-}
-
-mgcvst_inla_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads = 1L, prepared = NULL, V = NULL) {
-    .Call(`_spdeST_mgcvst_inla_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V)
+mgcvst_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
+    .Call(`_spdeST_mgcvst_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
 }
 
 mgcvst_memory_status_cpp <- function() {
@@ -99,6 +75,30 @@ mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
 
 mgcvst_spa_quadform_cpp <- function(q, lambda, centre_tol = 1e-6, root_tol = 1e-12, root_maxit = 100L) {
     .Call(`_spdeST_mgcvst_spa_quadform_cpp`, q, lambda, centre_tol, root_tol, root_maxit)
+}
+
+mgcvst_sparse_prepare_cpp <- function(Q_map, constraint) {
+    .Call(`_spdeST_mgcvst_sparse_prepare_cpp`, Q_map, constraint)
+}
+
+mgcvst_sparse_prepared_valid_cpp <- function(prepared) {
+    .Call(`_spdeST_mgcvst_sparse_prepared_valid_cpp`, prepared)
+}
+
+mgcvst_sparse_observation_basis_cpp <- function(A_map, constraint, prepared = NULL) {
+    .Call(`_spdeST_mgcvst_sparse_observation_basis_cpp`, A_map, constraint, prepared)
+}
+
+mgcvst_sparse_batch_cpp <- function(A_map, Q_map, constraint, X, E, D, tau, threads = 1L, block_size = 32L, prepared = NULL, nuisance_precision = NULL) {
+    .Call(`_spdeST_mgcvst_sparse_batch_cpp`, A_map, Q_map, constraint, X, E, D, tau, threads, block_size, prepared, nuisance_precision)
+}
+
+mgcvst_sparse_materialize_reduced_cpp <- function(units, Q_map, constraint, coordinate, basis, threads = 1L, prepared = NULL) {
+    .Call(`_spdeST_mgcvst_sparse_materialize_reduced_cpp`, units, Q_map, constraint, coordinate, basis, threads, prepared)
+}
+
+mgcvst_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads = 1L, prepared = NULL, V = NULL) {
+    .Call(`_spdeST_mgcvst_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V)
 }
 
 mgcvst_spde_estimate_cpp <- function(Yt, X, A, Q, constraint, offset, poisson, alpha_start, tol = 1e-8, tol_inner = 1e-13, maxit_inner = 50L, maxit_halving = 30L, maxit_line = 100L, maxit_outer = 25L, log_tau_min = -12, log_tau_max = 12, alpha_min = 1e-6, alpha_max = 1e4, eta_max = 700, rank_tol = 1e-11, fd_step = 0.01, step_max = 2, threads = 1L) {

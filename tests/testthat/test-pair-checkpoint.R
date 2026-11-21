@@ -131,23 +131,23 @@ test_that("checkpointed pair tests resume and refuse a pre-contract directory", 
   n_pairs <- as.numeric(choose(length(fit$feature_id), 2L))
   dir <- tempfile("mgcvst-checkpoint-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  first <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  first <- spdeST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(first$timing$pair_pipeline$resumed_pairs, 0)
   expect_true(file.exists(file.path(dir, "manifest.rds")))
-  again <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  again <- spdeST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(again$timing$pair_pipeline$resumed_pairs, n_pairs)
   expect_identical(again$results, first$results)
   expect_identical(again$timing$pair_pipeline$builds, 0L)
-  expect_error(inlaST.test(fit, checkpoint_dir = dir, resume = FALSE, moments = "exact"), "already exists")
+  expect_error(spdeST.test(fit, checkpoint_dir = dir, resume = FALSE, moments = "exact"), "already exists")
 
   old <- file.path(dir, paste0("pairs-", strrep("0", 64L)))
   dir.create(old)
   saveRDS(list(first = 1L, last = as.integer(n_pairs), result = data.frame()),
           file.path(old, "block-0000000001.rds"))
-  expect_error(inlaST.test(fit, checkpoint_dir = dir, moments = "exact"),
+  expect_error(spdeST.test(fit, checkpoint_dir = dir, moments = "exact"),
                "different algorithm contract")
   unlink(old, recursive = TRUE)
-  reused <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  reused <- spdeST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(reused$timing$pair_pipeline$builds, 0L)
   expect_identical(reused$results, first$results)
 })

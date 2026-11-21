@@ -22,7 +22,7 @@ spdeST.scan(
 \arguments{
 \item{Y}{Feature-by-observation response matrix.}
 
-\item{model}{Result of \code{\link[=inlaST.set]{inlaST.set()}}.}
+\item{model}{Result of \code{\link[=spdeST.set]{spdeST.set()}}.}
 
 \item{offset}{\code{NULL}, a length-n vector, or a feature-by-observation matrix
 added to the model offset. It is kept for \code{\link[=spdeST.estimate]{spdeST.estimate()}}.}
@@ -52,7 +52,7 @@ An \code{spdeST_scan} object: the Stage 1 fit with
 }
 \description{
 Tests every feature for a spatial SPDE variance component against its null
-model. The model from \code{\link[=inlaST.set]{inlaST.set()}} carries every fixed setting. Stage 1
+model. The model from \code{\link[=spdeST.set]{spdeST.set()}} carries every fixed setting. Stage 1
 fits GLM nulls by maximum likelihood (NB2, or Poisson when the overdispersion score
 \code{sum((y - mu)^2 - y) / 2} is not positive) and the score test of the raw
 sparse SPDE field with the null projection \code{P0}, calibrated by the

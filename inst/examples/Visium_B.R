@@ -4,7 +4,7 @@ library(spdeST)
 
 workers <- 3L
 kappa <- 0.1
-out.dir <- Sys.getenv("MGCVST_EXAMPLE_OUTPUT", ".")
+out.dir <- Sys.getenv("SPDEST_EXAMPLE_OUTPUT", ".")
 if (!dir.exists(out.dir)) dir.create(out.dir, recursive = TRUE)
 
 data(Visium_B, package = "spdeST")
@@ -13,7 +13,7 @@ D <- Visium_B$covariates
 basis <- spde_basis(
   Visium_B$meshes$spde, as.matrix(D[, c("x", "y")]), kappa = kappa
 )
-model <- inlaST.set(
+model <- spdeST.set(
   response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
   D, family = nb(link = "log")
 )

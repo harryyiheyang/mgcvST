@@ -214,7 +214,7 @@ spde.laml <- function(y, X, A, Q, log_tau, alpha, offset = NULL, constraint = NU
   offset <- if (is.matrix(extra_offset)) {
     sweep(extra_offset[index, , drop = FALSE], 2L, base_offset, "+")
   } else if (is.null(extra_offset)) base_offset else base_offset + extra_offset
-  z <- .inlast_validate_spec(spec, Yk[1L, ], numeric(n))
+  z <- .spdest_validate_spec(spec, Yk[1L, ], numeric(n))
   block <- z$random[[1L]]
   route <- if (identical(z$family, "poisson")) rep(TRUE, length(index)) else
     if (is.null(poisson)) rep(FALSE, length(index)) else as.logical(poisson[index])

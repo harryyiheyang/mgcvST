@@ -42,11 +42,11 @@ test_that("kappa = NULL is an error because spdeST never estimates kappa", {
   d <- .kappa_unit_data2d()
   loc <- as.matrix(d[c("x", "y")])
   expect_identical(formals(spde_basis)$kappa, 0.05)
-  expect_identical(formals(inlaST.set)$kappa, 0.05)
+  expect_identical(formals(spdeST.set)$kappa, 0.05)
   expect_error(spde_basis(mesh, loc, kappa = NULL), "never estimates kappa")
-  expect_error(inlaST.set(kappa = NULL), "never estimates kappa")
+  expect_error(spdeST.set(kappa = NULL), "never estimates kappa")
   expect_error(
-    inlaST.set(response ~ z, d, family = poisson(), mesh = mesh,
+    spdeST.set(response ~ z, d, family = poisson(), mesh = mesh,
                kappa = NULL, coordinates = c("x", "y")),
     "never estimates kappa"
   )
@@ -55,7 +55,7 @@ test_that("kappa = NULL is an error because spdeST never estimates kappa", {
   basis <- spde_basis(mesh, loc)
   expect_null(basis$penalty)
   expect_error(
-    inlaST.set(response ~ z, d, basis, family = poisson(), kappa = 0.1),
+    spdeST.set(response ~ z, d, basis, family = poisson(), kappa = 0.1),
     "applies only to the native mesh setup"
   )
   stale <- basis
@@ -69,7 +69,7 @@ test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_uni
   skip_if_not_installed("geometry")
   d <- .kappa_unit_data2d()
   mesh <- fmesher::fm_rcdt_2d_inla(loc = .kappa_unit_mesh2d()$loc)
-  model <- inlaST.set(response ~ z, d, family = poisson(), mesh = mesh,
+  model <- spdeST.set(response ~ z, d, family = poisson(), mesh = mesh,
                       coordinates = c("x", "y"))
   span <- .kappa_unit_span(d, c("x", "y"))
   L <- max(span)
@@ -80,7 +80,7 @@ test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_uni
   expect_equal(model$spde$range_unit, sqrt(8) / 0.05)
   fem <- spdeST:::.spde_basis_fem(spdeST:::.spde_basis_mesh(mesh))
   k <- 0.05 / L
-  expect_equal(as.matrix(model$inla_spec$random[[1L]]$Q),
+  expect_equal(as.matrix(model$spde_spec$random[[1L]]$Q),
                as.matrix(k^4 * fem$M0 + 2 * k^2 * fem$M1 + fem$M2),
                tolerance = 1e-12)
   expect_output(print(model), "kappa \\(unit scale, fixed\\): 0.05")
@@ -93,7 +93,7 @@ test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_uni
   mesh3 <- fmesher::fm_mesh_3d(loc = xyz, tv = geometry::delaunayn(xyz))
   d3 <- data.frame(x = runif(30L, 0.1, 1.9), y = runif(30L, 0.1, 0.9),
                    z = runif(30L, 0.2, 2.5), a = rnorm(30L))
-  model3 <- inlaST.set(response ~ a, d3, family = poisson(), mesh = mesh3,
+  model3 <- spdeST.set(response ~ a, d3, family = poisson(), mesh = mesh3,
                        coordinates = c("x", "y", "z"))
   span3 <- .kappa_unit_span(d3, c("x", "y", "z"))
   L3 <- max(span3)
@@ -104,7 +104,7 @@ test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_uni
   expect_equal(model3$spde$range_unit, 2 / 0.05)
   fem3 <- fmesher::fm_fem(mesh3, order = 2L)
   k3 <- 0.05 / L3
-  expect_equal(as.matrix(model3$inla_spec$random[[1L]]$Q),
+  expect_equal(as.matrix(model3$spde_spec$random[[1L]]$Q),
                as.matrix(k3^4 * fem3$c0 + 2 * k3^2 * fem3$g1 + fem3$g2),
                tolerance = 1e-12)
 })
@@ -126,14 +126,14 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
   )
   expect_equal(ratio, 1e6, tolerance = 1e-8)
 
-  # Native INLA path: constrained kernel and sparse marginal score.
-  m_mm <- inlaST.set(response ~ z, mm, family = poisson(), mesh = mesh_mm,
+  # Mesh setup: constrained kernel and sparse marginal score.
+  m_mm <- spdeST.set(response ~ z, mm, family = poisson(), mesh = mesh_mm,
                      coordinates = c("x", "y"))
-  m_um <- inlaST.set(response ~ z, um, family = poisson(), mesh = mesh_um,
+  m_um <- spdeST.set(response ~ z, um, family = poisson(), mesh = mesh_um,
                      coordinates = c("x", "y"))
   expect_identical(m_um$kappa_unit, m_mm$kappa_unit)
-  r_mm <- m_mm$inla_spec$random[[1L]]
-  r_um <- m_um$inla_spec$random[[1L]]
+  r_mm <- m_mm$spde_spec$random[[1L]]
+  r_um <- m_um$spde_spec$random[[1L]]
   expect_equal(as.matrix(r_um$A), as.matrix(r_mm$A), tolerance = 1e-12)
   ratio <- .kappa_unit_expect_proportional(
     .kappa_unit_kernel(r_mm$A, r_mm$Q, r_mm$constraint),
@@ -146,12 +146,12 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
   n <- nrow(mm)
   Y <- rbind(a = rpois(n, exp(1 + eta)), b = rpois(n, exp(1 + eta)))
   # The estimated precisions keep tau * Q identical: Q_um = 1000^-2 Q_mm in 2D.
-  fit_mm <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(
+  fit_mm <- spdeST:::.spdest_estimate(
+    .spdest_scan(
     Y, m_mm, BPPARAM = BiocParallel::SerialParam()),
     Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-  fit_um <- spdeST:::inlaST.estimate_spatial(
-    inlaST.estimate(
+  fit_um <- spdeST:::.spdest_estimate(
+    .spdest_scan(
     Y, m_um, BPPARAM = BiocParallel::SerialParam(),
     # The search interval of log(tau) is in the unit of Q.
     control = list(spde = list(log_tau_min = -12 + log(1e6), log_tau_max = 12 + log(1e6)))),
@@ -163,8 +163,8 @@ test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", 
                fit_mm$diagnostics$marginal_p_value, tolerance = 1e-6)
   expect_equal(fit_um$score_a, fit_mm$score_a, tolerance = 1e-6)
   pairs <- matrix(c("a", "b"), 1L)
-  t_mm <- inlaST.test(fit_mm, pairs = pairs, rank = 1L, moments = "exact")$results
-  t_um <- inlaST.test(fit_um, pairs = pairs, rank = 1L, moments = "exact")$results
+  t_mm <- spdeST.test(fit_mm, pairs = pairs, rank = 1L, moments = "exact")$results
+  t_um <- spdeST.test(fit_um, pairs = pairs, rank = 1L, moments = "exact")$results
   expect_equal(t_um$score, t_mm$score, tolerance = 1e-6)
   expect_equal(t_um$log_p_two_sided, t_mm$log_p_two_sided, tolerance = 1e-6)
 })

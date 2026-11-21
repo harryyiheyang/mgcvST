@@ -1,5 +1,5 @@
 #define EIGEN_DONT_PARALLELIZE
-#include "inla_sparse.h"
+#include "sparse_score.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -8,7 +8,7 @@
 // [[Rcpp::depends(RcppEigen)]]
 // [[Rcpp::plugins(openmp)]]
 
-// Compact reconstruction for sparse INLA fits: the double reconstruction
+// Compact reconstruction for sparse fits: the double reconstruction
 // units, from the saved coefficients and family parameters, that the
 // PCAlearning pair path (R/pair-pcalearning.R) materializes from.
 
@@ -19,7 +19,7 @@ namespace {
 void check_threads(int threads) {
   if (threads < 1) Rcpp::stop("threads must be positive.");
 #ifndef _OPENMP
-  if (threads > 1) Rcpp::stop("mgcvST was compiled without OpenMP; use threads = 1.");
+  if (threads > 1) Rcpp::stop("spdeST was compiled without OpenMP; use threads = 1.");
 #endif
 }
 
@@ -89,7 +89,7 @@ Mat penalty_matrix(const Rcpp::Nullable<Rcpp::NumericMatrix>& precision, int px,
 // Serializable double reconstruction units from saved coefficients; a is the
 // saved full-space score of each feature.
 // [[Rcpp::export]]
-Rcpp::List mgcvst_inla_compact_units_cpp(
+Rcpp::List mgcvst_compact_units_cpp(
     const Eigen::MappedSparseMatrix<double>& A,
     const Eigen::MappedSparseMatrix<double>& Q_map,
     const Eigen::Map<Eigen::VectorXd> constraint,

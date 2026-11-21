@@ -1,5 +1,5 @@
-#ifndef MGCVST_PCA_REDUCE_H
-#define MGCVST_PCA_REDUCE_H
+#ifndef SPDEST_PCA_REDUCE_H
+#define SPDEST_PCA_REDUCE_H
 
 // Reduction of one symmetric q x q score-curvature matrix H to what the
 // PCAlearning route keeps of a feature:

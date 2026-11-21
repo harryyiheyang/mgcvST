@@ -1,4 +1,4 @@
-#' SPDE smoothing and covariance testing for spatial features (mgcv and INLA implementations)
+#' SPDE smoothing and covariance testing for spatial features
 #'
 #' `spdeST` combines topology-aware boundary learning and mesh construction, a proper
 #' Matérn SPDE smooth for `mgcv`, compact marginal estimation, and finite-rank

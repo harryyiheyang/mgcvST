@@ -34,8 +34,8 @@
          score = fit$score_a, family = fit$feature_family,
          family_parameters = fit$family_parameters, dispersion = fit$dispersion,
          smoothing_parameters = fit$smoothing_parameters)
-  spec <- if (is.list(fit$model)) fit$model$inla_spec else NULL
-  if (is.null(spec)) spec <- fit$inla_spec
+  spec <- if (is.list(fit$model)) fit$model$spde_spec else NULL
+  if (is.null(spec)) spec <- fit$spde_spec
   random <- if (is.list(spec$random)) lapply(spec$random, function(z) {
     list(target = z$target, kind = z$kind, subtype = z$subtype,
          sp_index = z$sp_index,
@@ -50,7 +50,7 @@
                     nuisance_design = geometry$nuisance_design,
                     target = geometry$target, smooth = smooth),
     sparse = sparse, random = random,
-    inla_fixed_width = if (is.null(spec$fixed$X)) NULL else ncol(spec$fixed$X)
+    fixed_width = if (is.null(spec$fixed$X)) NULL else ncol(spec$fixed$X)
   )
   list(version = 3L, md5 = .mgcvst_pair_input_hash(inputs))
 }
@@ -116,17 +116,17 @@
 # The score state (a, M) of a feature: the reduced curvature of its fit in the
 # observation basis. `missing` are the features to build.
 .mgcvst_state_builder <- function(fit, missing, threads, basis) {
-  fit <- .inlast_sparse_prepare(fit)
+  fit <- .spdest_sparse_prepare(fit)
   r <- basis$rank
   m <- ncol(fit$score_sparse$Q)
   list(
     work = 8 * (6 * r^2 + 4 * m * r),
     build = function(ids) {
-      units <- .inlast_sparse_units(fit, ids, threads = threads)
+      units <- .spdest_sparse_units(fit, ids, threads = threads)
       bad <- vapply(units, function(z) !is.null(z$error), logical(1L))
       states <- vector("list", length(ids))
       if (any(!bad)) {
-        z <- .inlast_sparse_materialize_reduced(fit, units[!bad], basis,
+        z <- .spdest_sparse_materialize_reduced(fit, units[!bad], basis,
                                                 threads = threads)
         states[!bad] <- lapply(z, function(s) {
           if (!is.null(s$error)) list(error = as.character(s$error)) else
