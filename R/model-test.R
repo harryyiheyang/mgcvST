@@ -254,10 +254,17 @@
   # Per-feature traces of the score curvature M_g of every feature in a tested
   # pair: tr(M_g) (the expected a_g' a_g) and tr(M_g^2). With the per-pair t1
   # they are the inputs of the Haseman-Elston-type estimates U / t1.
+  # `variance` is the field variance 1 / tau of the spatial fit, which turns
+  # the correlation U / t1 of a pair into its covariance, and
+  # `variance_at_floor` marks a fit that ended on the lower limit of it.
   if (!is.null(routed$features)) {
+    index <- routed$features$feature_index
+    at_floor <- fit$diagnostics$variance_at_floor
     ans$features <- data.frame(
-      feature_id = fit$feature_id[routed$features$feature_index],
-      routed$features, stringsAsFactors = FALSE)
+      feature_id = fit$feature_id[index], routed$features,
+      variance = .mgcvst_pca_scales(fit)$sigma_g2[index],
+      variance_at_floor = if (is.null(at_floor)) NA else at_floor[index],
+      stringsAsFactors = FALSE)
   }
   ans
 }

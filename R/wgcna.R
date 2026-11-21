@@ -85,6 +85,10 @@
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
     stop("verbose must be TRUE or FALSE.")
   }
+  if (!all(c("feature_index", "variance", "variance_at_floor") %in% names(test$features))) {
+    stop("The test does not hold the field variance of its features; re-run ",
+         "spdeST.test().")
+  }
   para <- .mgcvst_wgcna_parameters(wgcna.para)
   ids <- test$feature_id
   if (!is.character(ids) || anyNA(ids) || any(!nzchar(ids)) || anyDuplicated(ids)) {
@@ -115,7 +119,7 @@
 }
 
 # Correlation, adjacency, TOM, tree and module labels for every requested block.
-.mgcvst_wgcna_networks <- function(pairs, blocks, ids, para, verbose) {
+.mgcvst_wgcna_networks <- function(pairs, features, blocks, ids, para, verbose) {
   networks <- modules <- vector("list", length(blocks))
   names(networks) <- names(modules) <- names(blocks)
   for (nm in names(blocks)) {
@@ -123,8 +127,11 @@
     id <- ids[index]
     position <- integer(length(ids))
     position[index] <- seq_along(index)
+    at <- match(index, features$feature_index)
     z <- mgcvst_he_correlation_cpp(pairs$i, pairs$j, pairs$score, pairs$t1,
-                                   position, length(index))
+                                   position, as.numeric(features$variance[at]),
+                                   length(index))
+    at_floor <- id[which(features$variance_at_floor[at])]
     if (z$missing > 0) {
       lacking <- id[rowSums(is.na(z$rho)) > 0L]
       stop("Block '", nm, "': ", z$missing, " pairs of the selected features have ",
@@ -134,7 +141,7 @@
            "). Test every pair of the block with spdeST.test().")
     }
     R <- z$rho
-    dimnames(R) <- list(id, id)
+    dimnames(R) <- dimnames(z$covariance) <- list(id, id)
     adj <- WGCNA::adjacency.fromSimilarity(z$similarity, type = para$networkType,
                                            power = para$power)
     TOM <- WGCNA::TOMsimilarity(adj, TOMType = para$TOMType, verbose = 0)
@@ -151,6 +158,7 @@
                       color = WGCNA::labels2colors(labels),
                       stringsAsFactors = FALSE)
     networks[[nm]] <- list(feature_id = id, correlation = R, limited = z$limited,
+      covariance = z$covariance, variance_at_floor = at_floor,
       adjacency = adj, TOM = TOM, tree = H, labels = labels, modules = tab,
       status = status)
     modules[[nm]] <- data.frame(component = nm, tab, stringsAsFactors = FALSE)
@@ -158,7 +166,8 @@
       message("Block '", nm, "': ", length(id), " genes, ",
               length(unique(labels[labels > 0L])), " modules, ",
               sum(labels == 0L), " grey; ", z$limited,
-              " pairs limited to [-1, 1]; ", status, ".")
+              " pairs limited to [-1, 1]; ", length(at_floor),
+              " genes with the variance at its lower limit; ", status, ".")
     }
   }
   tab <- do.call(rbind, modules)
@@ -195,7 +204,12 @@
 #' @return An `spdeST_wgcna` object with `modules` (component, feature ID, integer
 #'   module, color), named `networks` (feature IDs, `correlation` (the
 #'   estimates `U / t1`, not limited), `limited` (the number of pairs outside
-#'   `[-1, 1]`), adjacency, TOM, tree, labels, modules and status),
+#'   `[-1, 1]`), `covariance` (the estimates of the covariance of the latent
+#'   fields, `U / t1` times the root of the product of the two field
+#'   variances, with the variances on the diagonal), `variance_at_floor` (the
+#'   genes whose spatial fit ended on the lower limit of the variance: their
+#'   correlations are computed at that limit and are not estimates),
+#'   adjacency, TOM, tree, labels, modules and status),
 #'   `settings`, and `timing`.
 #'   A zero module label means unassigned (grey). Module labels are local to
 #'   each input block. No biological annotations are inferred automatically.
@@ -215,7 +229,7 @@ spdeST.wgcna <- function(test, indices, wgcna.para = NULL, verbose = FALSE) {
   pairs <- .mgcvst_wgcna_pairs(test, prepared$used)
   pair_seconds <- proc.time()[["elapsed"]] - started
   t0 <- proc.time()[["elapsed"]]
-  z <- .mgcvst_wgcna_networks(pairs, prepared$blocks, prepared$ids,
+  z <- .mgcvst_wgcna_networks(pairs, test$features, prepared$blocks, prepared$ids,
                               prepared$para, verbose)
   structure(list(
     modules = z$modules, networks = z$networks,

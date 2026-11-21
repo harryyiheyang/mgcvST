@@ -275,8 +275,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_he_correlation_cpp
-Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i, const Rcpp::IntegerVector& j, const Rcpp::NumericVector& score, const Rcpp::NumericVector& t1, const Rcpp::IntegerVector& position, int p);
-RcppExport SEXP _spdeST_mgcvst_he_correlation_cpp(SEXP iSEXP, SEXP jSEXP, SEXP scoreSEXP, SEXP t1SEXP, SEXP positionSEXP, SEXP pSEXP) {
+Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i, const Rcpp::IntegerVector& j, const Rcpp::NumericVector& score, const Rcpp::NumericVector& t1, const Rcpp::IntegerVector& position, const Rcpp::NumericVector& variance, int p);
+RcppExport SEXP _spdeST_mgcvst_he_correlation_cpp(SEXP iSEXP, SEXP jSEXP, SEXP scoreSEXP, SEXP t1SEXP, SEXP positionSEXP, SEXP varianceSEXP, SEXP pSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -285,8 +285,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type score(scoreSEXP);
     Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type t1(t1SEXP);
     Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type position(positionSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type variance(varianceSEXP);
     Rcpp::traits::input_parameter< int >::type p(pSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_he_correlation_cpp(i, j, score, t1, position, p));
+    rcpp_result_gen = Rcpp::wrap(mgcvst_he_correlation_cpp(i, j, score, t1, position, variance, p));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -415,8 +416,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // mgcvst_spde_estimate_cpp
-Rcpp::List mgcvst_spde_estimate_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, const Rcpp::NumericVector alpha_start, double tol, double tol_inner, int maxit_inner, int maxit_halving, int maxit_line, int maxit_outer, double log_tau_min, double log_tau_max, double alpha_min, double alpha_max, double eta_max, double rank_tol, double fd_step, double step_max, int threads);
-RcppExport SEXP _spdeST_mgcvst_spde_estimate_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP ASEXP, SEXP QSEXP, SEXP constraintSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_startSEXP, SEXP tolSEXP, SEXP tol_innerSEXP, SEXP maxit_innerSEXP, SEXP maxit_halvingSEXP, SEXP maxit_lineSEXP, SEXP maxit_outerSEXP, SEXP log_tau_minSEXP, SEXP log_tau_maxSEXP, SEXP alpha_minSEXP, SEXP alpha_maxSEXP, SEXP eta_maxSEXP, SEXP rank_tolSEXP, SEXP fd_stepSEXP, SEXP step_maxSEXP, SEXP threadsSEXP) {
+Rcpp::List mgcvst_spde_estimate_cpp(const Eigen::MappedSparseMatrix<double>& Yt, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::Map<Eigen::MatrixXd> offset, const Rcpp::LogicalVector poisson, const Rcpp::NumericVector alpha_start, const Rcpp::NumericVector log_tau_start, const Rcpp::NumericVector log_tau_max, double tol, double tol_inner, int maxit_inner, int maxit_halving, int maxit_line, int maxit_outer, double log_tau_min, double alpha_min, double alpha_max, double eta_max, double rank_tol, double fd_step, double step_max, int threads);
+RcppExport SEXP _spdeST_mgcvst_spde_estimate_cpp(SEXP YtSEXP, SEXP XSEXP, SEXP ASEXP, SEXP QSEXP, SEXP constraintSEXP, SEXP offsetSEXP, SEXP poissonSEXP, SEXP alpha_startSEXP, SEXP log_tau_startSEXP, SEXP log_tau_maxSEXP, SEXP tolSEXP, SEXP tol_innerSEXP, SEXP maxit_innerSEXP, SEXP maxit_halvingSEXP, SEXP maxit_lineSEXP, SEXP maxit_outerSEXP, SEXP log_tau_minSEXP, SEXP alpha_minSEXP, SEXP alpha_maxSEXP, SEXP eta_maxSEXP, SEXP rank_tolSEXP, SEXP fd_stepSEXP, SEXP step_maxSEXP, SEXP threadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -428,6 +429,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type offset(offsetSEXP);
     Rcpp::traits::input_parameter< const Rcpp::LogicalVector >::type poisson(poissonSEXP);
     Rcpp::traits::input_parameter< const Rcpp::NumericVector >::type alpha_start(alpha_startSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector >::type log_tau_start(log_tau_startSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector >::type log_tau_max(log_tau_maxSEXP);
     Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
     Rcpp::traits::input_parameter< double >::type tol_inner(tol_innerSEXP);
     Rcpp::traits::input_parameter< int >::type maxit_inner(maxit_innerSEXP);
@@ -435,7 +438,6 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type maxit_line(maxit_lineSEXP);
     Rcpp::traits::input_parameter< int >::type maxit_outer(maxit_outerSEXP);
     Rcpp::traits::input_parameter< double >::type log_tau_min(log_tau_minSEXP);
-    Rcpp::traits::input_parameter< double >::type log_tau_max(log_tau_maxSEXP);
     Rcpp::traits::input_parameter< double >::type alpha_min(alpha_minSEXP);
     Rcpp::traits::input_parameter< double >::type alpha_max(alpha_maxSEXP);
     Rcpp::traits::input_parameter< double >::type eta_max(eta_maxSEXP);
@@ -443,7 +445,7 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type fd_step(fd_stepSEXP);
     Rcpp::traits::input_parameter< double >::type step_max(step_maxSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_spde_estimate_cpp(Yt, X, A, Q, constraint, offset, poisson, alpha_start, tol, tol_inner, maxit_inner, maxit_halving, maxit_line, maxit_outer, log_tau_min, log_tau_max, alpha_min, alpha_max, eta_max, rank_tol, fd_step, step_max, threads));
+    rcpp_result_gen = Rcpp::wrap(mgcvst_spde_estimate_cpp(Yt, X, A, Q, constraint, offset, poisson, alpha_start, log_tau_start, log_tau_max, tol, tol_inner, maxit_inner, maxit_halving, maxit_line, maxit_outer, log_tau_min, alpha_min, alpha_max, eta_max, rank_tol, fd_step, step_max, threads));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -512,7 +514,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_pair_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_basis_cpp, 3},
     {"_spdeST_mgcvst_pair_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_spa_cpp, 9},
     {"_spdeST_mgcvst_simd_cpp", (DL_FUNC) &_spdeST_mgcvst_simd_cpp, 0},
-    {"_spdeST_mgcvst_he_correlation_cpp", (DL_FUNC) &_spdeST_mgcvst_he_correlation_cpp, 6},
+    {"_spdeST_mgcvst_he_correlation_cpp", (DL_FUNC) &_spdeST_mgcvst_he_correlation_cpp, 7},
     {"_spdeST_mgcvst_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_cpp, 5},
     {"_spdeST_mgcvst_spa_quadform_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_quadform_cpp, 5},
     {"_spdeST_mgcvst_sparse_prepare_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_prepare_cpp, 2},
@@ -521,7 +523,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_sparse_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_batch_cpp, 11},
     {"_spdeST_mgcvst_sparse_materialize_reduced_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_materialize_reduced_cpp, 7},
     {"_spdeST_mgcvst_sparse_materialize_pca_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_materialize_pca_cpp, 10},
-    {"_spdeST_mgcvst_spde_estimate_cpp", (DL_FUNC) &_spdeST_mgcvst_spde_estimate_cpp, 23},
+    {"_spdeST_mgcvst_spde_estimate_cpp", (DL_FUNC) &_spdeST_mgcvst_spde_estimate_cpp, 24},
     {"_spdeST_mgcvst_spde_laml_cpp", (DL_FUNC) &_spdeST_mgcvst_spde_laml_cpp, 13},
     {"_spdeST_mgcvst_spde_score_cpp", (DL_FUNC) &_spdeST_mgcvst_spde_score_cpp, 13},
     {NULL, NULL, 0}

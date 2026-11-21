@@ -150,7 +150,12 @@ no remainder; 1: one node; 2: two nodes; 3: Gaussian term) and the integer
 correlation of the pair, with null standard error \code{1 / sqrt(t1)}.
 \verb{$features} holds, for every feature of a
 tested pair, \code{trace_M = tr(M_g)} (the expected \verb{a_g' a_g}) and
-\code{trace_M2 = tr(M_g^2)}; the PCAlearning route also keeps the coefficients
+\code{trace_M2 = tr(M_g^2)}, \code{variance}, the field variance \code{1 / tau} of its
+spatial fit (\code{U / t1} times the root of the product of the two variances
+is the estimate of the covariance of the pair), and \code{variance_at_floor},
+which marks a fit that ended on the lower limit of the variance
+(\code{variance_floor} of \code{\link[=spde.estimate]{spde.estimate()}}): its \code{U / t1} is computed at that
+limit and is not an estimate of a correlation. The PCAlearning route also keeps the coefficients
 \code{c_g} in \verb{$pca_learning$coefficients}.
 
 A pair with status 1 or 2 has p = 1 (\code{log_p_two_sided}, \code{log_p_positive} and

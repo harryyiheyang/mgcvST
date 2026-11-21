@@ -12,6 +12,8 @@ spde.estimate(
   offset = NULL,
   poisson = NULL,
   size_start = NULL,
+  variance_start = NULL,
+  variance_se = NULL,
   constraint = NULL,
   feature_id = rownames(Y),
   threads = 1L,
@@ -24,6 +26,7 @@ spde.estimate(
   maxit_outer = 25L,
   log_tau_min = -12,
   log_tau_max = 12,
+  variance_floor = 1,
   alpha_min = 1e-06,
   alpha_max = 10000,
   eta_max = 700,
@@ -50,6 +53,14 @@ matrix.}
 first point of the line search of \code{alpha = 1 / size}, and the start of
 the second search when the first ends on the Poisson model.}
 
+\item{variance_start, variance_se}{Optional moment estimate of the field
+variance \code{1 / tau} of each feature and its standard error, in the unit of
+\code{Q} (the columns \code{variance} and \code{variance_se} of \code{\link[=spde.scan]{spde.scan()}}). The
+search of \code{log(tau)} of a feature then starts at its moment estimate and
+its variance does not fall below \code{variance_floor * variance_se}: the
+upper end of its \code{log(tau)} is the smaller of \code{log_tau_max} and
+\code{-log(variance_floor * variance_se)}.}
+
 \item{constraint}{Vector \code{c} of the constraint \verb{c'u = 0}; the default is
 the mean of the field over the observations, \code{crossprod(A, 1 / n)}.}
 
@@ -74,6 +85,9 @@ Newton iteration for the mode, of a step halving, of the evaluations of a
 line search, and of the line-search cycles and of the joint Newton steps.}
 
 \item{log_tau_min, log_tau_max}{Search interval of \code{log(tau)}.}
+
+\item{variance_floor}{Lower limit of the field variance in standard errors
+of its moment estimate.}
 
 \item{alpha_min, alpha_max}{Search interval of a positive \code{alpha}
 (\code{alpha = 0} is the Poisson fit).}

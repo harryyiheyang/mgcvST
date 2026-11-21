@@ -526,9 +526,10 @@ Point climb(Model& model, const Control& ctl, double rho, double t, double f,
 }
 
 // alpha_start is the alpha of the null model (1 / size), NaN when there is
-// none.
+// none; tau_start is the first point of the search of log tau, NaN when
+// there is none. ctl.log_tau_max is the upper end of this feature.
 Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
-                const Control& ctl, double alpha_start) {
+                const Control& ctl, double alpha_start, double tau_start) {
   Fit out;
   if (!(y.array() > 0).any()) {
     out.error = "All counts are zero.";
@@ -537,7 +538,8 @@ Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
   model.set_feature(y, offset);
   // Poisson: one line search over log tau.
   const LineResult r = maximise([&](double rho) { return model.laml(rho, 0.0); },
-                                ctl.log_tau_min, ctl.log_tau_max, ctl.tol, ctl.maxit_line);
+                                ctl.log_tau_min, ctl.log_tau_max, ctl.tol, ctl.maxit_line,
+                                tau_start);
   if (!std::isfinite(r.f)) {
     out.error = "The Poisson spatial fit failed.";
     return out;
@@ -617,7 +619,9 @@ Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
 // Yt is the transposed n x features count matrix; offset is n x 1 (shared) or
 // n x features; Q is the prior precision of the field at tau = 1 and
 // constraint the vector c of c'u = 0. poisson[f] = TRUE fits the Poisson
-// model only.
+// model only. log_tau_start[f] is the first point of the search of log tau
+// (NA: the golden point) and log_tau_max[f] its upper end, the lower limit
+// of the field variance of the feature.
 // [[Rcpp::export]]
 Rcpp::List mgcvst_spde_estimate_cpp(
     const Eigen::MappedSparseMatrix<double>& Yt,
@@ -628,6 +632,8 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     const Eigen::Map<Eigen::MatrixXd> offset,
     const Rcpp::LogicalVector poisson,
     const Rcpp::NumericVector alpha_start,
+    const Rcpp::NumericVector log_tau_start,
+    const Rcpp::NumericVector log_tau_max,
     double tol = 1e-8,
     double tol_inner = 1e-13,
     int maxit_inner = 50,
@@ -635,7 +641,6 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     int maxit_line = 100,
     int maxit_outer = 25,
     double log_tau_min = -12,
-    double log_tau_max = 12,
     double alpha_min = 1e-6,
     double alpha_max = 1e4,
     double eta_max = 700,
@@ -652,22 +657,30 @@ Rcpp::List mgcvst_spde_estimate_cpp(
   }
   if (poisson.size() != features) Rcpp::stop("poisson must have one flag per feature.");
   if (alpha_start.size() != features) Rcpp::stop("alpha_start must have one value per feature.");
+  if (log_tau_start.size() != features || log_tau_max.size() != features) {
+    Rcpp::stop("log_tau_start and log_tau_max must have one value per feature.");
+  }
+  for (int f = 0; f < features; ++f) {
+    if (!(log_tau_min < log_tau_max[f])) Rcpp::stop("The search bounds are not ordered.");
+  }
   if (threads < 1) Rcpp::stop("threads must be positive.");
   if (!(fd_step > 0) || !(step_max > 0)) Rcpp::stop("fd_step and step_max must be positive.");
-  if (!(log_tau_min < log_tau_max) || !(alpha_min > 0) || !(alpha_min < alpha_max)) {
+  if (!(alpha_min > 0) || !(alpha_min < alpha_max)) {
     Rcpp::stop("The search bounds are not ordered.");
   }
-  const Control ctl{tol, tol_inner, rank_tol, eta_max, log_tau_min, log_tau_max,
+  const Control ctl{tol, tol_inner, rank_tol, eta_max, log_tau_min, log_tau_max[0],
                     alpha_min, alpha_max, maxit_inner, maxit_halving, maxit_line, maxit_outer,
                     fd_step, step_max};
   const SpMat As = A, Qs = Q;
   const Mat Xd = X;
   const Vec c = constraint;
   std::vector<int> is_pois(features);
-  std::vector<double> start(features);
+  std::vector<double> start(features), tau_start(features), tau_max(features);
   for (int f = 0; f < features; ++f) {
     is_pois[f] = poisson[f] == TRUE;
     start[f] = alpha_start[f] > 0 && R_finite(alpha_start[f]) ? alpha_start[f] : NA_REAL;
+    tau_start[f] = R_finite(log_tau_start[f]) ? log_tau_start[f] : NA_REAL;
+    tau_max[f] = log_tau_max[f];
   }
   std::vector<Fit> fit(features);
   // An error of the set-up (the sparse analysis) is raised here, outside the
@@ -691,7 +704,9 @@ Rcpp::List mgcvst_spde_estimate_cpp(
           y[it.row()] = v;
         }
         const Vec off = offset.cols() == 1 ? Vec(offset.col(0)) : Vec(offset.col(f));
-        fit[f] = fit_feature(model, y, off, is_pois[f], ctl, start[f]);
+        Control own = ctl;
+        own.log_tau_max = tau_max[f];
+        fit[f] = fit_feature(model, y, off, is_pois[f], own, start[f], tau_start[f]);
       } catch (const std::exception& e) {
         fit[f] = Fit();
         fit[f].error = e.what();

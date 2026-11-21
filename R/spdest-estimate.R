@@ -112,7 +112,8 @@
       log_marginal_likelihood = NA_real_, log_likelihood = scan$log_likelihood[j],
       fit_seconds = seconds,
       estimation = list(engine = "spde.scan",
-                        overdispersion_score = scan$overdispersion_score[j])
+                        overdispersion_score = scan$overdispersion_score[j],
+                        variance = scan$variance[j], variance_se = scan$variance_se[j])
     )
     marginal <- if (isTRUE(scan$converged[j])) list(
       feature_id = scan$feature_id[j], statistic = scan$statistic[j],
@@ -136,7 +137,8 @@
       numeric(),
     converged = isTRUE(z$converged),
     log_marginal_likelihood = z$log_marginal_likelihood,
-    fit_seconds = z$fit_seconds, null_size = z$null_size, gradient = z$gradient,
+    fit_seconds = z$fit_seconds, null_size = z$null_size,
+    variance_at_floor = z$variance_at_floor, gradient = z$gradient,
     constraint_residual = z$constraint_residual,
     observation_spatial_mean = z$observation_spatial_mean,
     score_a = scores_a, score_error = score_error, mu_bar = mu_bar
@@ -418,6 +420,15 @@
       if (is.null(z)) NA_real_ else if (length(z$family_parameters)) z$family_parameters[1L] else Inf
     }, numeric(1L)),
     spatial_size = NA_real_,
+    variance_moment = vapply(null_state, function(z) {
+      v <- z$estimation$variance
+      if (length(v) == 1L) as.numeric(v) else NA_real_
+    }, numeric(1L)),
+    variance_moment_se = vapply(null_state, function(z) {
+      v <- z$estimation$variance_se
+      if (length(v) == 1L) as.numeric(v) else NA_real_
+    }, numeric(1L)),
+    variance_at_floor = NA,
     gradient_log_tau = NA_real_, gradient_log_alpha = NA_real_,
     error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
@@ -633,6 +644,7 @@
     diag$criterion[j] <- z$log_marginal_likelihood
     diag$fit_seconds[j] <- z$fit_seconds
     diag$spatial_fitted[j] <- TRUE
+    diag$variance_at_floor[j] <- isTRUE(z$variance_at_floor)
     if (!is.na(z$score_error) && nzchar(z$score_error)) {
       diag$score_error_class[j] <- "sparse_score"
       diag$score_error_message[j] <- if (is.na(diag$score_error_message[j])) {

@@ -15,8 +15,12 @@ test_that("the similarity of two genes is U / t1 of their pair", {
   expect_identical(nrow(pairs), 6L)
   position <- integer(length(test$feature_id))
   position[used] <- seq_along(used)
+  variance <- test$features$variance[match(used, test$features$feature_index)]
   z <- spdeST:::mgcvst_he_correlation_cpp(pairs$i, pairs$j, pairs$score, pairs$t1,
-                                          position, length(used))
+                                          position, variance, length(used))
+  # The covariance is the correlation times the two field standard deviations.
+  expect_identical(diag(z$covariance), variance)
+  expect_equal(z$covariance, z$rho * sqrt(outer(variance, variance)), tolerance = 1e-14)
   expect_identical(diag(z$rho), rep(1, 4L))
   expect_identical(z$missing, 0)
   for (a in 1:3) for (b in (a + 1L):4L) {
@@ -36,16 +40,18 @@ test_that("the similarity of two genes is U / t1 of their pair", {
   # An estimate outside [-1, 1] enters the similarity at the limit and is
   # counted; a pair without information is missing.
   z <- spdeST:::mgcvst_he_correlation_cpp(
-    c(1L, 1L, 2L), c(2L, 3L, 3L), c(3, -0.5, -4), c(2, 1, 2), 1:3, 3L)
+    c(1L, 1L, 2L), c(2L, 3L, 3L), c(3, -0.5, -4), c(2, 1, 2), 1:3, c(4, 1, 9), 3L)
+  expect_identical(z$covariance[1, 2], 3)
+  expect_identical(z$covariance[3, 3], 9)
   expect_identical(z$rho[1, 2], 1.5)
   expect_identical(z$similarity[1, 2], 1)
   expect_identical(z$similarity[3, 2], -1)
   expect_identical(z$similarity[1, 3], -0.5)
   expect_identical(z$limited, 2)
   z <- spdeST:::mgcvst_he_correlation_cpp(
-    c(1L, 1L), c(2L, 3L), c(1, NA), c(2, 1), 1:3, 3L)
+    c(1L, 1L), c(2L, 3L), c(1, NA), c(2, 1), 1:3, rep(1, 3L), 3L)
   expect_identical(z$missing, 2)
-  expect_error(spdeST:::mgcvst_he_correlation_cpp(1L, 9L, 1, 1, 1:3, 3L),
+  expect_error(spdeST:::mgcvst_he_correlation_cpp(1L, 9L, 1, 1, 1:3, rep(1, 3L), 3L),
                "outside the fit")
 })
 

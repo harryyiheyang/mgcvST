@@ -64,6 +64,10 @@ Vec scan_spectrum(const Mat& value, double spectrum_tol) {
 struct ScanResult {
   double statistic = NA_REAL;
   double p_value = NA_REAL;
+  // Moment (Haseman-Elston-type) estimate of the field variance 1 / tau in
+  // the unit of Q, and its standard error under the null: with the mixture
+  // spectrum lambda, E T = sum(lambda) + sum(lambda^2) / tau.
+  double variance = NA_REAL, variance_se = NA_REAL;
   std::string error;
 };
 
@@ -176,19 +180,27 @@ Rcpp::List mgcvst_spde_score_cpp(
         throw std::runtime_error("Invalid score p-value.");
       }
       result[f].p_value = pv;
+      const double s2 = lambda.squaredNorm();
+      result[f].variance = (result[f].statistic - lambda.sum()) / s2;
+      result[f].variance_se = std::sqrt(2.0 / s2);
     } catch (const std::exception& error) {
       result[f].error = error.what();
     }
   }
 
   Rcpp::NumericVector statistic(features), p_value(features);
+  Rcpp::NumericVector variance(features), variance_se(features);
   Rcpp::CharacterVector error(features);
   for (int f = 0; f < features; ++f) {
     statistic[f] = result[f].statistic;
     p_value[f] = result[f].error.empty() ? result[f].p_value : NA_REAL;
+    variance[f] = result[f].error.empty() ? result[f].variance : NA_REAL;
+    variance_se[f] = result[f].error.empty() ? result[f].variance_se : NA_REAL;
     error[f] = result[f].error.empty() ? NA_STRING : Rcpp::String(result[f].error);
   }
   return Rcpp::List::create(Rcpp::Named("statistic") = statistic,
                             Rcpp::Named("p_value") = p_value,
+                            Rcpp::Named("variance") = variance,
+                            Rcpp::Named("variance_se") = variance_se,
                             Rcpp::Named("error") = error);
 }

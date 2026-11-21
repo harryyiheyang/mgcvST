@@ -57,6 +57,15 @@
 #'   `log(tau)` and `log(alpha)`.
 #' @param step_max Longest joint Newton step, in `log(tau)` or `log(alpha)`.
 #' @param log_tau_min,log_tau_max Search interval of `log(tau)`.
+#' @param variance_start,variance_se Optional moment estimate of the field
+#'   variance `1 / tau` of each feature and its standard error, in the unit of
+#'   `Q` (the columns `variance` and `variance_se` of [spde.scan()]). The
+#'   search of `log(tau)` of a feature then starts at its moment estimate and
+#'   its variance does not fall below `variance_floor * variance_se`: the
+#'   upper end of its `log(tau)` is the smaller of `log_tau_max` and
+#'   `-log(variance_floor * variance_se)`.
+#' @param variance_floor Lower limit of the field variance in standard errors
+#'   of its moment estimate.
 #' @param alpha_min,alpha_max Search interval of a positive `alpha`
 #'   (`alpha = 0` is the Poisson fit).
 #' @param eta_max Largest linear predictor a step may reach.
@@ -72,12 +81,14 @@
 #'   `"coefficients"` and `"field"` hold `beta` and `u` by feature.
 #' @keywords internal
 spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
-                          size_start = NULL, constraint = NULL, feature_id = rownames(Y),
+                          size_start = NULL, variance_start = NULL, variance_se = NULL,
+                          constraint = NULL, feature_id = rownames(Y),
                           threads = 1L, chunk_size = 64L, tol = 1e-8,
                           tol_inner = 1e-13, maxit_inner = 50L,
                           maxit_halving = 30L, maxit_line = 100L,
                           maxit_outer = 25L, log_tau_min = -12,
-                          log_tau_max = 12, alpha_min = 1e-6, alpha_max = 1e4,
+                          log_tau_max = 12, variance_floor = 1,
+                          alpha_min = 1e-6, alpha_max = 1e4,
                           eta_max = 700, rank_tol = 1e-11, fd_step = 0.01,
                           step_max = 2) {
   X <- as.matrix(X)
@@ -99,6 +110,19 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
   if (is.null(feature_id)) feature_id <- as.character(seq_len(p))
   if (!is.null(poisson) && length(poisson) != p) stop("poisson needs one flag per feature.")
   if (!is.null(size_start) && length(size_start) != p) stop("size_start needs one value per feature.")
+  if (is.null(variance_start) != is.null(variance_se) ||
+      (!is.null(variance_start) && (length(variance_start) != p || length(variance_se) != p))) {
+    stop("variance_start and variance_se need one value per feature each.")
+  }
+  if (!(length(variance_floor) == 1L && is.finite(variance_floor) && variance_floor > 0)) {
+    stop("variance_floor must be one positive number.")
+  }
+  # The upper end and the first point of log(tau) of each feature.
+  floor <- if (is.null(variance_se)) rep(NA_real_, p) else variance_floor * as.numeric(variance_se)
+  bounded <- is.finite(floor) & floor > 0
+  tau_max <- ifelse(bounded, pmin(log_tau_max, -log(floor)), log_tau_max)
+  tau_start <- ifelse(bounded & is.finite(variance_start),
+                      -log(pmax(as.numeric(variance_start), floor)), NA_real_)
   if (!is.null(offset) && !is.matrix(offset) && length(offset) != n) {
     stop("offset must be NULL, a length-n vector or a feature-by-observation matrix.")
   }
@@ -106,6 +130,7 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
     feature_id = feature_id, family = NA_character_, tau = NA_real_,
     size = NA_real_, laml = NA_real_, laml_poisson = NA_real_,
     converged = FALSE, grad_log_tau = NA_real_, grad_log_alpha = NA_real_,
+    variance_at_floor = NA,
     evaluations = NA_integer_, newton = NA_integer_,
     outer = NA_integer_, error = NA_character_, stringsAsFactors = FALSE
   )
@@ -122,11 +147,12 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
     fit <- mgcvst_spde_estimate_cpp(
       Yt, X, A, Q, constraint, O, route,
       if (is.null(size_start)) rep(NA_real_, length(rows)) else 1 / as.numeric(size_start[rows]),
+      tau_start[rows], tau_max[rows],
       tol = tol, tol_inner = tol_inner,
       maxit_inner = as.integer(maxit_inner),
       maxit_halving = as.integer(maxit_halving),
       maxit_line = as.integer(maxit_line), maxit_outer = as.integer(maxit_outer),
-      log_tau_min = log_tau_min, log_tau_max = log_tau_max,
+      log_tau_min = log_tau_min,
       alpha_min = alpha_min, alpha_max = alpha_max, eta_max = eta_max,
       rank_tol = rank_tol, fd_step = fd_step, step_max = step_max,
       threads = as.integer(threads)
@@ -142,6 +168,8 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
     out$converged[rows] <- fit$converged
     out$grad_log_tau[rows] <- fit$grad_log_tau
     out$grad_log_alpha[rows] <- fit$grad_log_alpha
+    # The search ended on the lower limit of the variance.
+    out$variance_at_floor[rows] <- log(fit$tau) > tau_max[rows] - 2 * fd_step
     out$evaluations[rows] <- fit$evaluations
     out$newton[rows] <- fit$newton
     out$outer[rows] <- fit$outer
@@ -225,10 +253,18 @@ spde.laml <- function(y, X, A, Q, log_tau, alpha, offset = NULL, constraint = NU
     size <- if (is.list(state)) state$family_parameters else NULL
     if (length(size) == 1L && is.finite(size) && size > 0) as.numeric(size) else NA_real_
   }, numeric(1L))
+  # The moment estimate of the field variance of Stage 1 and its standard
+  # error: the first point and the lower limit of the search of step 2.
+  moment <- vapply(seq_along(index), function(k) {
+    state <- if (is.null(null)) NULL else null[[index[k]]]
+    v <- if (is.list(state)) state$estimation[c("variance", "variance_se")] else NULL
+    if (length(v) == 2L && all(vapply(v, length, 1L) == 1L)) as.numeric(unlist(v)) else
+      c(NA_real_, NA_real_)
+  }, numeric(2L))
   t0 <- proc.time()[["elapsed"]]
   fit <- do.call(spde.estimate, c(list(
     Yk, z$X, block$A, block$Q, offset = offset, poisson = route,
-    size_start = null_size,
+    size_start = null_size, variance_start = moment[1L, ], variance_se = moment[2L, ],
     constraint = z$constraints[[1L]], feature_id = as.character(seq_along(index)),
     threads = threads, chunk_size = length(index)), control$spde))
   seconds <- (proc.time()[["elapsed"]] - t0) / length(index)
@@ -268,7 +304,7 @@ spde.laml <- function(y, X, A, Q, log_tau, alpha, offset = NULL, constraint = NU
       converged = isTRUE(fit$converged[k]), mode_status = NA_integer_,
       mode_status_text = NA_character_,
       log_marginal_likelihood = fit$laml[k], fit_seconds = seconds,
-      null_size = null_size[k],
+      null_size = null_size[k], variance_at_floor = isTRUE(fit$variance_at_floor[k]),
       gradient = c(log_tau = fit$grad_log_tau[k], log_alpha = fit$grad_log_alpha[k]),
       estimation = list(
         engine = "spde.estimate",

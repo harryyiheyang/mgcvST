@@ -34,7 +34,12 @@ grey (zero) labels, without changing the requested module size.}
 An \code{spdeST_wgcna} object with \code{modules} (component, feature ID, integer
 module, color), named \code{networks} (feature IDs, \code{correlation} (the
 estimates \code{U / t1}, not limited), \code{limited} (the number of pairs outside
-\verb{[-1, 1]}), adjacency, TOM, tree, labels, modules and status),
+\verb{[-1, 1]}), \code{covariance} (the estimates of the covariance of the latent
+fields, \code{U / t1} times the root of the product of the two field
+variances, with the variances on the diagonal), \code{variance_at_floor} (the
+genes whose spatial fit ended on the lower limit of the variance: their
+correlations are computed at that limit and are not estimates),
+adjacency, TOM, tree, labels, modules and status),
 \code{settings}, and \code{timing}.
 A zero module label means unassigned (grey). Module labels are local to
 each input block. No biological annotations are inferred automatically.

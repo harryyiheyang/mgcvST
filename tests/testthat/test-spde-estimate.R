@@ -254,3 +254,35 @@ test_that("a factor level without counts leaves the criterion of the model witho
   eta <- f$off + as.numeric(X %*% beta + f$A %*% attr(fit, "field")[, 1L])
   expect_lte(max(exp(eta[!keep])), 1e-11 * (1 + 1e-8))
 })
+
+test_that("the moment estimate of the variance starts the search and limits it from below", {
+  skip_on_cran()
+  f <- estimate_fixture()
+  set.seed(5L)
+  # A feature without a spatial field beside the three spatial ones.
+  flat <- stats::rnbinom(f$n, mu = exp(f$off + 1 + .3 * f$X[, 2L]), size = 5)
+  Y <- rbind(f$Y, flat = flat)
+  scan <- spde.scan(Y, f$X, f$A, f$Q, offset = f$off)
+  # (T - sum(lambda)) / sum(lambda^2) with its null standard error.
+  expect_true(all(is.finite(scan$variance)) && all(scan$variance_se > 0))
+  expect_gt(scan$variance[1L] / scan$variance_se[1L], 3)
+  args <- list(Y, f$X, f$A, f$Q, offset = f$off, constraint = f$constraint)
+  free <- do.call(spde.estimate, args)
+  limited <- do.call(spde.estimate, c(args, list(
+    variance_start = scan$variance, variance_se = scan$variance_se)))
+  expect_true(all(is.na(free$variance_at_floor) | !free$variance_at_floor))
+  # A fit whose variance lies above the limit is the fit of the free search.
+  inside <- !limited$variance_at_floor
+  expect_true(all(inside[1:2]))
+  expect_equal(log(limited$tau[inside]), log(free$tau[inside]), tolerance = 1e-3)
+  expect_equal(limited$laml[inside], free$laml[inside], tolerance = 1e-6)
+  # The variance never falls below variance_floor standard errors.
+  expect_true(all(1 / limited$tau >= scan$variance_se * (1 - 1e-6)))
+  wide <- do.call(spde.estimate, c(args, list(
+    variance_start = scan$variance, variance_se = scan$variance_se, variance_floor = 100)))
+  expect_true(all(wide$variance_at_floor))
+  expect_equal(1 / wide$tau, 100 * scan$variance_se, tolerance = 1e-3)
+  expect_error(do.call(spde.estimate, c(args, list(variance_start = scan$variance))),
+               "one value per feature each")
+  expect_error(do.call(spde.estimate, c(args, list(variance_floor = 0))), "one positive number")
+})

@@ -175,7 +175,12 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' correlation of the pair, with null standard error `1 / sqrt(t1)`.
 #' `$features` holds, for every feature of a
 #' tested pair, `trace_M = tr(M_g)` (the expected `a_g' a_g`) and
-#' `trace_M2 = tr(M_g^2)`; the PCAlearning route also keeps the coefficients
+#' `trace_M2 = tr(M_g^2)`, `variance`, the field variance `1 / tau` of its
+#' spatial fit (`U / t1` times the root of the product of the two variances
+#' is the estimate of the covariance of the pair), and `variance_at_floor`,
+#' which marks a fit that ended on the lower limit of the variance
+#' (`variance_floor` of [spde.estimate()]): its `U / t1` is computed at that
+#' limit and is not an estimate of a correlation. The PCAlearning route also keeps the coefficients
 #' `c_g` in `$pca_learning$coefficients`.
 #'
 #' A pair with status 1 or 2 has p = 1 (`log_p_two_sided`, `log_p_positive` and

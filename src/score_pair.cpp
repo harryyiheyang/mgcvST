@@ -431,19 +431,23 @@ std::string mgcvst_simd_cpp() { return mgcvst::la().isa; }
 // index (1-based) to its row in the matrix, 0 for a feature that is not
 // selected. `similarity` is rho limited to [-1, 1]; `limited` counts the
 // pairs outside it and `missing` the pairs of selected features without a
-// finite score and a positive finite t1.
+// finite score and a positive finite t1. `variance` holds the field variance
+// of the p features in matrix order; `covariance` is rho_ij sqrt(v_i v_j)
+// with the variances on the diagonal.
 // [[Rcpp::export]]
 Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i,
                                      const Rcpp::IntegerVector& j,
                                      const Rcpp::NumericVector& score,
                                      const Rcpp::NumericVector& t1,
                                      const Rcpp::IntegerVector& position,
+                                     const Rcpp::NumericVector& variance,
                                      int p) {
   const R_xlen_t n = i.size();
   if (j.size() != n || score.size() != n || t1.size() != n) {
     Rcpp::stop("i, j, score and t1 must have one entry per pair.");
   }
   if (p < 2) Rcpp::stop("At least two features are required.");
+  if (variance.size() != p) Rcpp::stop("variance must have one value per selected feature.");
   const int features = position.size();
   Rcpp::NumericMatrix rho(p, p);
   std::fill(rho.begin(), rho.end(), NA_REAL);
@@ -472,7 +476,14 @@ Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i,
       }
     }
   }
+  Rcpp::NumericMatrix covariance(p, p);
+  for (int b = 0; b < p; ++b) {
+    for (int a = 0; a < p; ++a) {
+      covariance(a, b) = a == b ? variance[a] : rho(a, b) * std::sqrt(variance[a] * variance[b]);
+    }
+  }
   return Rcpp::List::create(Rcpp::Named("rho") = rho,
+                            Rcpp::Named("covariance") = covariance,
                             Rcpp::Named("similarity") = similarity,
                             Rcpp::Named("limited") = limited,
                             Rcpp::Named("missing") = missing);

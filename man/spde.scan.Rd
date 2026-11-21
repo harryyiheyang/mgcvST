@@ -95,7 +95,11 @@ mean is used; the saddlepoint equation is solved to relative accuracy
 \value{
 A data frame with one row per feature: \code{feature_id}, \code{family}
 (\code{"negative_binomial"} or \code{"poisson"}), \code{size}, \code{overdispersion_score},
-\code{log_likelihood}, \code{converged}, \code{statistic}, \code{p_value}, \code{error}. The attribute \code{"coefficients"} holds the
+\code{log_likelihood}, \code{converged}, \code{statistic}, \code{p_value}, \code{variance} (the
+moment estimate of the field variance \code{1 / tau} in the unit of \code{Q}:
+with the mixture spectrum \code{lambda}, \code{(T - sum(lambda)) / sum(lambda^2)};
+it is not limited to positive values), \code{variance_se} (its standard error
+under the null, \code{sqrt(2 / sum(lambda^2))}), \code{error}. The attribute \code{"coefficients"} holds the
 \code{ncol(X)}-by-feature null coefficients.
 }
 \description{

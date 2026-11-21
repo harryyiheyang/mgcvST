@@ -69,8 +69,8 @@ mgcvst_simd_cpp <- function() {
     .Call(`_spdeST_mgcvst_simd_cpp`)
 }
 
-mgcvst_he_correlation_cpp <- function(i, j, score, t1, position, p) {
-    .Call(`_spdeST_mgcvst_he_correlation_cpp`, i, j, score, t1, position, p)
+mgcvst_he_correlation_cpp <- function(i, j, score, t1, position, variance, p) {
+    .Call(`_spdeST_mgcvst_he_correlation_cpp`, i, j, score, t1, position, variance, p)
 }
 
 mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
@@ -105,8 +105,8 @@ mgcvst_sparse_materialize_pca_cpp <- function(units, Q_map, constraint, coordina
     .Call(`_spdeST_mgcvst_sparse_materialize_pca_cpp`, units, Q_map, constraint, coordinate, basis, pca_basis, pack, threads, prepared, V)
 }
 
-mgcvst_spde_estimate_cpp <- function(Yt, X, A, Q, constraint, offset, poisson, alpha_start, tol = 1e-8, tol_inner = 1e-13, maxit_inner = 50L, maxit_halving = 30L, maxit_line = 100L, maxit_outer = 25L, log_tau_min = -12, log_tau_max = 12, alpha_min = 1e-6, alpha_max = 1e4, eta_max = 700, rank_tol = 1e-11, fd_step = 0.01, step_max = 2, threads = 1L) {
-    .Call(`_spdeST_mgcvst_spde_estimate_cpp`, Yt, X, A, Q, constraint, offset, poisson, alpha_start, tol, tol_inner, maxit_inner, maxit_halving, maxit_line, maxit_outer, log_tau_min, log_tau_max, alpha_min, alpha_max, eta_max, rank_tol, fd_step, step_max, threads)
+mgcvst_spde_estimate_cpp <- function(Yt, X, A, Q, constraint, offset, poisson, alpha_start, log_tau_start, log_tau_max, tol = 1e-8, tol_inner = 1e-13, maxit_inner = 50L, maxit_halving = 30L, maxit_line = 100L, maxit_outer = 25L, log_tau_min = -12, alpha_min = 1e-6, alpha_max = 1e4, eta_max = 700, rank_tol = 1e-11, fd_step = 0.01, step_max = 2, threads = 1L) {
+    .Call(`_spdeST_mgcvst_spde_estimate_cpp`, Yt, X, A, Q, constraint, offset, poisson, alpha_start, log_tau_start, log_tau_max, tol, tol_inner, maxit_inner, maxit_halving, maxit_line, maxit_outer, log_tau_min, alpha_min, alpha_max, eta_max, rank_tol, fd_step, step_max, threads)
 }
 
 mgcvst_spde_laml_cpp <- function(y, X, A, Q, constraint, offset, log_tau, alpha, tol_inner = 1e-13, maxit_inner = 50L, maxit_halving = 30L, eta_max = 700, rank_tol = 1e-11) {

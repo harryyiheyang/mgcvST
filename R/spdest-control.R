@@ -30,7 +30,8 @@
          ". control takes spde, a named list of spde.estimate() controls.")
   }
   spde_allowed <- setdiff(names(formals(spde.estimate)), c(
-    "Y", "X", "A", "Q", "offset", "poisson", "size_start", "constraint", "feature_id",
+    "Y", "X", "A", "Q", "offset", "poisson", "size_start", "variance_start", "variance_se",
+    "constraint", "feature_id",
     "threads", "chunk_size"))
   if (!is.list(out$spde) || (length(out$spde) && (is.null(names(out$spde)) ||
       length(setdiff(names(out$spde), spde_allowed))))) {

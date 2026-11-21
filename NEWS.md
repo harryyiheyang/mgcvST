@@ -1,3 +1,24 @@
+# spdeST 0.0.1.9077
+
+* `spde.scan()` returns the moment (Haseman-Elston-type) estimate of the
+  field variance `1 / tau` of each feature, `(T - sum(lambda)) / sum(lambda^2)`
+  with the score statistic `T` and its mixture spectrum `lambda`, and its
+  standard error under the null, `sqrt(2 / sum(lambda^2))` (`variance`,
+  `variance_se`). No parametric fit of the field is involved.
+* `spde.estimate()` starts the search of `log(tau)` of a feature at that
+  estimate and keeps its variance at or above `variance_floor` standard
+  errors of it (`variance_floor = 1`). Before, the variance of a feature
+  without a spatial field could run to the end of the search interval
+  (`log_tau_max = 12`, a value in the unit of `Q`): the information of its
+  pairs then vanished and `U / t1` took values in the hundreds. A fit that
+  ends on the limit is marked (`variance_at_floor` in the fit diagnostics and
+  in `$features` of `spdeST.test()`); `variance_moment` and
+  `variance_moment_se` are in the diagnostics.
+* `spdeST.test()` reports the field variance of each feature in `$features`,
+  and `spdeST.wgcna()` returns the estimate of the covariance of the latent
+  fields, `U / t1` times the root of the product of the two variances, and
+  the genes whose variance is at its lower limit.
+
 # spdeST 0.0.1.9076
 
 * `spdeST.wgcna()` builds its network from the estimate of the latent spatial

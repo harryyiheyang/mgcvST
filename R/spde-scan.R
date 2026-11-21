@@ -61,7 +61,11 @@
 #'   `spa_root_tol` in at most `spa_root_maxit` steps.
 #' @return A data frame with one row per feature: `feature_id`, `family`
 #'   (`"negative_binomial"` or `"poisson"`), `size`, `overdispersion_score`,
-#'   `log_likelihood`, `converged`, `statistic`, `p_value`, `error`. The attribute `"coefficients"` holds the
+#'   `log_likelihood`, `converged`, `statistic`, `p_value`, `variance` (the
+#'   moment estimate of the field variance `1 / tau` in the unit of `Q`:
+#'   with the mixture spectrum `lambda`, `(T - sum(lambda)) / sum(lambda^2)`;
+#'   it is not limited to positive values), `variance_se` (its standard error
+#'   under the null, `sqrt(2 / sum(lambda^2))`), `error`. The attribute `"coefficients"` holds the
 #'   `ncol(X)`-by-feature null coefficients.
 #' @keywords internal
 spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
@@ -95,6 +99,7 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
     feature_id = feature_id, family = NA_character_, size = NA_real_,
     overdispersion_score = NA_real_, log_likelihood = NA_real_,
     converged = FALSE, statistic = NA_real_, p_value = NA_real_,
+    variance = NA_real_, variance_se = NA_real_,
     error = NA_character_,
     stringsAsFactors = FALSE
   )
@@ -134,6 +139,8 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
       ifelse(!fit$converged, "The null size search did not converge.", score$error))
     out$statistic[rows] <- ifelse(ok, score$statistic, NA_real_)
     out$p_value[rows] <- ifelse(ok, score$p_value, NA_real_)
+    out$variance[rows] <- ifelse(ok, score$variance, NA_real_)
+    out$variance_se[rows] <- ifelse(ok, score$variance_se, NA_real_)
   }
   attr(out, "coefficients") <- beta
   out
