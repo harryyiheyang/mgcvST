@@ -130,7 +130,7 @@ scan_field <- function(n = 300L, seed = 9052L) {
   mesh <- list(loc = xy, graph = list(tv = geometry::delaunayn(xy)))
   coords <- cbind(stats::runif(n, .01, .99), stats::runif(n, .01, .99))
   basis <- spde_basis(mesh, coords, kappa = .8)
-  field <- spdeST:::.spde_scan_field(basis)
+  field <- .spde_scan_field(basis)
   list(basis = basis, A = field$A, Q = field$Q, coords = coords)
 }
 
@@ -187,43 +187,6 @@ test_that("spde.scan is the GLM score test of the raw SPDE field", {
   fixed <- spde.scan(Y[1, , drop = FALSE], X, field$A, field$Q, offset = offset,
                      size = 3)
   expect_identical(fixed$size, 3)
-})
-
-test_that("mgcvST.estimate and inlaST.estimate share the spde.scan Stage 1", {
-  f <- st_fixture(n = 200L)
-  set.seed(9051L)
-  mu <- exp(1 + f$data$offset0 + .5 * f$data$z)
-  Y <- t(vapply(c(.8, 2, 6), function(s) stats::rnbinom(200L, mu = mu, size = s),
-                numeric(200L)))
-  Y <- rbind(Y, f$Y[2L, ])
-  target <- which(vapply(f$model$G$smooth, function(s)
-    identical(s$score.component, "global"), logical(1L)))
-  expect_identical(spdeST:::.mgcvst_scan_family(
-    f$model$G, target, f$model$null_formula), list(size = NULL, poisson_all = FALSE))
-  expect_error(spdeST:::.mgcvst_scan_family(
-    f$model$G, target, response ~ s(z)), "without smooth terms")
-  sp <- BiocParallel::SerialParam()
-  withr::local_options(mgcvST.progress = FALSE)
-  fit <- mgcvST.estimate(Y, f$model, BPPARAM = sp)
-  expect_identical(fit$stage1$null_engine, "spde.scan")
-
-  # The Stage 1 of inlaST.estimate() on the same field and null design.
-  raw <- spdeST:::.inlast_prepare_basis(f$basis, f$basis$coordinates)$raw
-  X0 <- as.matrix(f$model$null_X)
-  spec <- list(random = list(list(A = raw$A, Q = raw$Q)))
-  null_spec <- list(fixed = list(X = X0), random = list(),
-                    family = "negative_binomial")
-  expect_true(spdeST:::.inlast_scan_check(null_spec))
-  payload <- list(index = 1:4, feature_id = as.character(1:4),
-                  Y = Y, extra_offset = NULL,
-                  poisson = fit$diagnostics$family_used != "negative_binomial")
-  inla <- spdeST:::.inlast_scan_chunk(payload, spec, null_spec,
-                                      f$data$offset0)
-  p_inla <- vapply(inla, function(z) z$marginal$p_value, numeric(1L))
-  expect_equal(fit$diagnostics$marginal_p_value, p_inla, tolerance = 1e-5)
-  with_random <- null_spec
-  with_random$random <- list(list(A = raw$A))
-  expect_error(spdeST:::.inlast_scan_check(with_random), "GLM null")
 })
 
 test_that("a factor level with zero counts (separation) equals dropping its spots", {

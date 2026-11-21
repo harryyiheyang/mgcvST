@@ -46,19 +46,17 @@ test_that("spde.scan takes factors as 0-1 columns of the null design", {
   basis <- spde_basis(mesh, as.matrix(data[, c("x", "y")]), kappa = .7)
   eta <- 1 + c(a = 0, b = .8, c = -.5)[as.character(data$slide)] + .3 * data$z
   data$response <- rnbinom(n, mu = exp(eta), size = 3)
-  model <- mgcvST.set(response ~ slide + z + s(x, y, bs = "spde", xt = basis),
+  model <- inlaST.set(response ~ slide + z + s(x, y, bs = "spde", xt = basis),
                       data = data, family = mgcv::nb())
   expect_identical(ncol(model$null_X), 4L)
   Y <- rbind(g1 = data$response, g2 = rnbinom(n, mu = exp(eta), size = 3))
   withr::local_options(mgcvST.progress = FALSE)
   scan <- spdeST.scan(Y, model, BPPARAM = BiocParallel::SerialParam())
   expect_true(all(is.finite(scan$diagnostics$marginal_p_value)))
-  field <- spdeST:::.spde_scan_field(model$G$smooth[[1L]]$basis)
+  field <- .spde_scan_field(basis)
   direct <- spde.scan(Y, model$null_X, field$A, field$Q)
   expect_equal(scan$diagnostics$marginal_p_value, direct$p_value, tolerance = 1e-10)
-  expect_error(mgcvST.estimate(Y, mgcvST.set(
-                 response ~ s(z, k = 5) + s(x, y, bs = "spde", xt = basis),
-                 data = data, family = mgcv::nb()),
-                               BPPARAM = BiocParallel::SerialParam()),
-               "without smooth terms")
+  expect_error(inlaST.set(response ~ s(z, k = 5) + s(x, y, bs = "spde", xt = basis),
+                          data = data, family = mgcv::nb()),
+               "smooth")
 })

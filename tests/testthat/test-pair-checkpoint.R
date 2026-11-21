@@ -127,30 +127,27 @@ test_that("pair results written under another algorithm contract are refused", {
 
 test_that("checkpointed pair tests resume and refuse a pre-contract directory", {
   skip_on_cran()
-  f <- st_fixture()
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
-                         BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
+  fit <- .pca_nb_fit()
+  n_pairs <- as.numeric(choose(length(fit$feature_id), 2L))
   dir <- tempfile("mgcvst-checkpoint-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  first <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  first <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(first$timing$pair_pipeline$resumed_pairs, 0)
   expect_true(file.exists(file.path(dir, "manifest.rds")))
-  again <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
-  expect_identical(again$timing$pair_pipeline$resumed_pairs, 3)
+  again <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  expect_identical(again$timing$pair_pipeline$resumed_pairs, n_pairs)
   expect_identical(again$results, first$results)
   expect_identical(again$timing$pair_pipeline$builds, 0L)
-  expect_error(mgcvST.test(fit, checkpoint_dir = dir, resume = FALSE, moments = "exact"), "already exists")
+  expect_error(inlaST.test(fit, checkpoint_dir = dir, resume = FALSE, moments = "exact"), "already exists")
 
   old <- file.path(dir, paste0("pairs-", strrep("0", 64L)))
   dir.create(old)
-  saveRDS(list(first = 1L, last = 3L, result = data.frame()),
+  saveRDS(list(first = 1L, last = as.integer(n_pairs), result = data.frame()),
           file.path(old, "block-0000000001.rds"))
-  expect_error(mgcvST.test(fit, checkpoint_dir = dir, moments = "exact"),
+  expect_error(inlaST.test(fit, checkpoint_dir = dir, moments = "exact"),
                "different algorithm contract")
   unlink(old, recursive = TRUE)
-  reused <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  reused <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(reused$timing$pair_pipeline$builds, 0L)
   expect_identical(reused$results, first$results)
 })

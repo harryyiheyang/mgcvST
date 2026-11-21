@@ -44,10 +44,6 @@ test_that("sparse INLA downstream takes no BiocParallel backend and agrees acros
   expect_equal(threaded$results, serial$results, tolerance = 1e-10)
   bp <- BiocParallel::SnowParam(2L, type = "SOCK", progressbar = FALSE)
   expect_error(inlaST.test(fit, pairs = pairs, BPPARAM = bp, moments = "exact"), "unused argument")
-  expect_error(
-    mgcvST.test(fit, pairs = pairs, moments = "exact"),
-    "does not accept inlaST.estimate() fits; use inlaST.test().", fixed = TRUE
-  )
 })
 
 test_that("a nuisance smooth is rejected at set() on both INLA paths", {

@@ -5,10 +5,6 @@ mgcvst_log_adjust_cpp <- function(log_p, method) {
     .Call(`_spdeST_mgcvst_log_adjust_cpp`, log_p, method)
 }
 
-mgcvst_dense_score_batch_cpp <- function(T0, variance, error, scale, X, nuisance, threads = 1L, score_only = FALSE) {
-    .Call(`_spdeST_mgcvst_dense_score_batch_cpp`, T0, variance, error, scale, X, nuisance, threads, score_only)
-}
-
 mgcvst_inla_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
     .Call(`_spdeST_mgcvst_inla_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
 }
@@ -67,10 +63,6 @@ mgcvst_pca_packed_sum_cpp <- function(packed, q) {
 
 mgcvst_pca_packed_project_cpp <- function(packed, V, threads = 1L) {
     .Call(`_spdeST_mgcvst_pca_packed_project_cpp`, packed, V, threads)
-}
-
-mgcvst_pca_dense_cpp <- function(H, a, pca_basis, pack, V, threads = 1L) {
-    .Call(`_spdeST_mgcvst_pca_dense_cpp`, H, a, pca_basis, pack, V, threads)
 }
 
 mgcvst_pca_spa_pairs_cpp <- function(A, C, K2, T2, R, scale, i, j, threads = 1L, screen_z = 0) {

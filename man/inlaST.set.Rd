@@ -2,7 +2,7 @@
 % Please edit documentation in R/inla-api.R
 \name{inlaST.set}
 \alias{inlaST.set}
-\title{Prepare a sparse INLA estimator for spdeST}
+\title{Set the model of the spdeST pipeline}
 \usage{
 inlaST.set(
   formula = NULL,
@@ -77,14 +77,15 @@ An \code{inlaST_model} for \code{\link[=spdeST.scan]{spdeST.scan()}}. It stores 
 estimation settings in \code{estimation}.
 }
 \description{
-Constructs the same fixed-kappa SPDE score geometry as \code{\link[=mgcvST.set]{mgcvST.set()}} while
-retaining raw sparse mesh precision matrices for INLA. Each spatial field is
+Fixes the design, the family and the fixed-kappa SPDE field of the model,
+with its raw sparse projector and mesh precision. The spatial field is
 always constrained to have zero mean at the observed locations.
 }
 \details{
-Complete formulas and frozen \code{G} designs use the shared design
-preparation of \code{\link[=mgcvST.set]{mgcvST.set()}}. Alternatively, supply SPDE component(s)
-separately through \code{basis}, as in \code{\link[=model.set]{model.set()}}. Formula/basis setup enforces
+A complete formula (with its \code{s(..., bs = "spde")} term) or a
+frozen \code{G} design (\code{mgcv::gam(..., fit = FALSE)}) is parsed by mgcv.
+Alternatively, supply the SPDE component separately through \code{basis}, as in
+\code{\link[=model.set]{model.set()}}, or a \code{mesh} for the native sparse setup. Formula/basis setup enforces
 the observation mean-zero constraint. A supplied \code{G} must already have a
 compatible constrained SPDE design; otherwise rebuild it from formula/data.
 Supported families are Poisson and negative binomial with log link; the

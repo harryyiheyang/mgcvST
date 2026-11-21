@@ -172,15 +172,16 @@
   spec
 }
 
-#' Prepare a sparse INLA estimator for spdeST
+#' Set the model of the spdeST pipeline
 #'
-#' Constructs the same fixed-kappa SPDE score geometry as [mgcvST.set()] while
-#' retaining raw sparse mesh precision matrices for INLA. Each spatial field is
+#' Fixes the design, the family and the fixed-kappa SPDE field of the model,
+#' with its raw sparse projector and mesh precision. The spatial field is
 #' always constrained to have zero mean at the observed locations.
 #'
-#' @details Complete formulas and frozen `G` designs use the shared design
-#' preparation of [mgcvST.set()]. Alternatively, supply SPDE component(s)
-#' separately through `basis`, as in [model.set()]. Formula/basis setup enforces
+#' @details A complete formula (with its `s(..., bs = "spde")` term) or a
+#' frozen `G` design (`mgcv::gam(..., fit = FALSE)`) is parsed by mgcv.
+#' Alternatively, supply the SPDE component separately through `basis`, as in
+#' [model.set()], or a `mesh` for the native sparse setup. Formula/basis setup enforces
 #' the observation mean-zero constraint. A supplied `G` must already have a
 #' compatible constrained SPDE design; otherwise rebuild it from formula/data.
 #' Supported families are Poisson and negative binomial with log link; the
@@ -270,7 +271,7 @@ inlaST.set <- function(
          "spatial SPDE term.")
   }
   family_supplied <- .family_supplied
-  # Accept the formula/data/family calling convention used by mgcvST.set(),
+  # Accept the formula, data, family calling convention,
   # together with the prepared-basis shorthand.
   if (inherits(basis, "family") || inherits(basis, "extended.family")) {
     if (family_supplied) stop("The family was supplied twice.")
@@ -362,7 +363,6 @@ inlaST.set <- function(
          "removed; rebuild the design with a single global fixed-kappa SPDE ",
          "target and no extra random blocks.")
   }
-  model$score_backend <- "sparse"
   model$timing$elapsed <- proc.time()[["elapsed"]] - t0
   class(model) <- c("inlaST_model", "mgcvST_model")
   model

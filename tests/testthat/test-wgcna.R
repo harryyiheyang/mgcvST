@@ -12,18 +12,13 @@ test_that("WGCNA parameters and gene blocks have explicit contracts", {
   expect_error(parameters(list(4)), "unique non-empty name")
   expect_error(parameters(list(minClusterSize = 2.5)), "integer of at least 2")
 
-  f <- st_fixture(n = 45L)
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(
-    f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-  expect_error(mgcvST.wgcna(fit), "indices must explicitly")
-  expect_error(mgcvST.wgcna(fit, c(1.1, 2)), "valid integer feature positions")
-  expect_error(mgcvST.wgcna(fit, c("response", "missing")), "Unknown feature ID")
-  expect_error(mgcvST.wgcna(fit, c("response", "response")),
+  fit <- .pca_nb_fit()
+  expect_error(inlaST.wgcna(fit), "indices must explicitly")
+  expect_error(inlaST.wgcna(fit, c(1.1, 2)), "valid integer feature positions")
+  expect_error(inlaST.wgcna(fit, c("g1", "missing")), "Unknown feature ID")
+  expect_error(inlaST.wgcna(fit, c("g1", "g1")),
                "at least two distinct features")
-  expect_error(mgcvST.wgcna(fit, list(c(1, 2))), "uniquely named")
+  expect_error(inlaST.wgcna(fit, list(c(1, 2))), "uniquely named")
 })
 
 test_that("WGCNA uses current fitted score states and matches a hand network", {
@@ -31,31 +26,17 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   skip_if_not_installed("dynamicTreeCut")
   skip_if_not_installed("fastcluster")
 
-  f <- st_fixture(n = 54L)
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(
-    f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
+  skip_on_cran()
+  fit <- .pca_nb_fit()
   before <- serialize(fit, NULL)
   ids <- fit$feature_id[c(3L, 1L, 2L)]
   para <- list(power = 4, minClusterSize = 2L, deepSplit = 0L)
-  W <- mgcvST.wgcna(fit, ids, wgcna.para = para)
+  W <- inlaST.wgcna(fit, ids, wgcna.para = para)
 
   used <- match(ids, fit$feature_id)
-  ref_fit <- fit
-  ref_fit$.mgcvst_fixed_factors <- spdeST:::.mgcvst_model_fixed_factors(ref_fit)
-  native <- spdeST:::.mgcvst_model_dense_preparation(ref_fit, used)
-  phi <- fit$dispersion[used]
-  sp <- fit$smoothing_parameters[used, , drop = FALSE]
-  z <- spdeST:::mgcvst_dense_score_batch_cpp(
-    native$T0, fit$working_variance[, used, drop = FALSE],
-    fit$working_error[, used, drop = FALSE],
-    phi / sp[, native$sp_index], native$X,
-    fit$nuisance_covariance[used], 1L, score_only = TRUE
-  )
-  A <- vapply(z, `[[`, numeric(ncol(native$T0)), "a")
-  colnames(A) <- ids
+  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  A <- crossprod(basis$coordinate, fit$score_a[, used, drop = FALSE])
+  dimnames(A) <- list(NULL, ids)
   S <- crossprod(A) / nrow(A)
   dimnames(S) <- list(ids, ids)
   R <- stats::cov2cor(S)
@@ -77,27 +58,6 @@ test_that("WGCNA uses current fitted score states and matches a hand network", {
   expect_identical(W$networks$selected$feature_id, ids)
 })
 
-test_that("mgcv WGCNA scores agree with mgcvST.test()'s pairwise scores", {
-  skip_if_not_installed("WGCNA")
-  skip_if_not_installed("dynamicTreeCut")
-  skip_if_not_installed("fastcluster")
-
-  f <- st_fixture(n = 54L)
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(
-    f$Y, f$model, diagnostics = FALSE,
-    BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-  ids <- fit$feature_id[c(3L, 1L, 2L)]
-  W <- mgcvST.wgcna(fit, ids)
-  pairs <- t(utils::combn(ids, 2L))
-  T <- mgcvST.test(fit, pairs = pairs, moments = "exact")
-  i <- match(T$feature_id[T$results$i], colnames(W$score$A))
-  j <- match(T$feature_id[T$results$j], colnames(W$score$A))
-  G <- crossprod(W$score$A)
-  expect_equal(T$results$score, G[cbind(i, j)], tolerance = 1e-10)
-})
-
 test_that("WGCNA preserves overlapping block order", {
   skip_if_not_installed("WGCNA")
   skip_if_not_installed("dynamicTreeCut")
@@ -105,53 +65,26 @@ test_that("WGCNA preserves overlapping block order", {
   skip_on_cran()
   skip_if_not_installed("geometry")
 
-  f <- st_fixture()
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(f$Y, f$model, diagnostics = FALSE,
-                         BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam())
+  fit <- .pca_nb_fit()
   ids <- fit$feature_id
   blocks <- list(second = ids[c(3L, 1L, 2L)], first = ids[c(2L, 1L, 3L)])
 
-  W <- mgcvST.wgcna(fit, blocks)
+  W <- inlaST.wgcna(fit, blocks)
 
+  prepared <- spdeST:::.inlast_sparse_prepare(fit)
+  basis <- spdeST:::.inlast_sparse_observation_basis(prepared)
   used <- match(W$score$feature_id, ids)
-  ref_fit <- fit
-  ref_fit$.mgcvst_fixed_factors <- spdeST:::.mgcvst_model_fixed_factors(ref_fit)
-  native <- spdeST:::.mgcvst_model_dense_preparation(ref_fit, used)
-  T0 <- native$T0
-  z <- spdeST:::mgcvst_dense_score_batch_cpp(
-    T0, fit$working_variance[, used, drop = FALSE],
-    fit$working_error[, used, drop = FALSE],
-    fit$dispersion[used] / fit$smoothing_parameters[used, native$sp_index],
-    native$X, fit$nuisance_covariance[used], 1L, score_only = TRUE
-  )
-  A <- vapply(z, `[[`, numeric(ncol(T0)), "a")
-  colnames(A) <- W$score$feature_id
+  A <- crossprod(basis$coordinate, fit$score_a[, used, drop = FALSE])
+  dimnames(A) <- list(NULL, W$score$feature_id)
 
   expect_identical(names(W$networks), names(blocks))
   expect_identical(W$networks$second$feature_id, blocks$second)
   expect_identical(W$networks$first$feature_id, blocks$first)
   expect_identical(W$score$feature_id, unique(unlist(blocks, use.names = FALSE)))
-  expect_identical(W$score$group, "global")
-  expect_identical(unname(W$score$width), ncol(T0))
-  expect_equal(W$score$A, A, tolerance = 1e-10)
+  expect_equal(W$score$A, A, tolerance = 1e-12)
 })
 
-test_that("inlaST.wgcna rejects an mgcv fit and names the right entry point", {
-  skip_on_cran()
-  skip_if_not_installed("geometry")
-  f <- st_fixture()
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(f$Y, f$model),
-    f$Y, features = "all")
-  expect_error(
-    inlaST.wgcna(fit, rownames(f$Y)),
-    "requires a fit returned by inlaST.estimate"
-  )
-})
-
-test_that("INLA WGCNA scores are the test's projected observation-kernel scores", {
+test_that("WGCNA scores are the test's projected observation-kernel scores", {
   skip_on_cran()
   skip_if_not_installed("WGCNA")
   skip_if_not_installed("dynamicTreeCut")
@@ -194,13 +127,4 @@ test_that("INLA WGCNA scores are the test's projected observation-kernel scores"
   expect_equal(T$results$score,
                unname(colSums(A[, i, drop = FALSE] * A[, j, drop = FALSE])),
                tolerance = 1e-10)
-
-  expect_error(
-    mgcvST.test(fit, moments = "exact"),
-    "mgcvST.test\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.test\\(\\)."
-  )
-  expect_error(
-    mgcvST.wgcna(fit, ids),
-    "mgcvST.wgcna\\(\\) does not accept inlaST.estimate\\(\\) fits; use inlaST.wgcna\\(\\)."
-  )
 })

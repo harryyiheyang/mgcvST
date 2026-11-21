@@ -38,13 +38,6 @@
   invisible(NULL)
 }
 
-# Load the package and limit the numerical libraries to one thread in a worker.
-.mgcvst_worker_initialize <- function() {
-  loadNamespace("spdeST")
-  .mgcvst_thread_limit()
-  invisible(NULL)
-}
-
 # Recover stable training-row identifiers or use their stored positions.
 .mgcvst_row_id <- function(fit, n) {
   id <- NULL
@@ -57,23 +50,13 @@
 # Identify features with a complete compact working model.
 .mgcvst_feature_available <- function(fit) {
   n <- length(fit$feature_id)
-  if (identical(fit$estimator, "INLA") && identical(fit$score_backend, "sparse")) {
-    if (length(fit$dispersion) != n || length(fit$lambda) != n ||
-        ncol(fit$score_a) != n) {
-      stop("The compact fit dimensions are incompatible with feature_id.")
-    }
-    return(is.finite(fit$dispersion) & fit$dispersion > 0 &
-      is.finite(fit$lambda) & fit$lambda > 0 &
-      colSums(!is.finite(fit$score_a)) == 0L)
-  }
   if (length(fit$dispersion) != n || length(fit$lambda) != n ||
-      ncol(fit$working_error) != n || ncol(fit$working_variance) != n) {
+      ncol(fit$score_a) != n) {
     stop("The compact fit dimensions are incompatible with feature_id.")
   }
   is.finite(fit$dispersion) & fit$dispersion > 0 &
     is.finite(fit$lambda) & fit$lambda > 0 &
-    colSums(!is.finite(fit$working_error)) == 0L &
-    colSums(!is.finite(fit$working_variance)) == 0L
+    colSums(!is.finite(fit$score_a)) == 0L
 }
 
 # Convert a condition to serializable class, message, and call fields.
@@ -83,107 +66,6 @@
     class = paste(class(e), collapse = "/"),
     message = conditionMessage(e),
     call = if (is.null(call)) "" else paste(deparse(call), collapse = " ")
-  )
-}
-
-# Clone the minimal package function closure needed on remote workers: the
-# model fit chunk and everything it calls.
-.mgcvst_worker_bundle <- function() {
-  names <- c(
-    ".mgcvst_thread_limit", ".mgcvst_thread_vars", ".mgcvst_worker_initialize", ".mgcvst_row_id",
-    ".mgcvst_condition", ".mgcvst_null_chunk", ".mgcvst_spatial_chunk",
-    ".mgcvst_model_fit_one", ".mgcvst_chunk_save", ".working_family_id",
-    ".gam_training_lpmatrix", ".mgcvst_expand_penalty",
-    ".mgcvst_model_sp", ".mgcvst_cached_model_geometry",
-    ".mgcvst_nuisance_state", "rkhs_extract_working_model"
-  )
-  source_env <- environment(.mgcvst_worker_bundle)
-  bundle <- new.env(parent = baseenv())
-  for (name in names) {
-    value <- get(name, envir = source_env, inherits = TRUE)
-    if (is.function(value)) environment(value) <- bundle
-    assign(name, value, envir = bundle)
-  }
-  bundle
-}
-
-#' Stage 1 of the mgcv implementation
-#'
-#' The method behind [spdeST.scan()] for a model from [mgcvST.set()]: the null
-#' fit and Stage 1 score test of every feature. When the null has no smooth
-#' term, the family is `nb()` with an estimated size and the tested smooth is
-#' an spde smooth, Stage 1 is [spde.scan()] on the raw sparse field of the
-#' smooth's basis. A null with a smooth term, or a family other than a
-#' log-link `nb()` or `poisson()`, is refused: covariates enter as linear
-#' terms or factors. With a
-#' negative-binomial family a feature whose Poisson overdispersion score
-#' `sum((y - mu)^2 - y) / 2` is not positive is fitted as Poisson. No spatial
-#' model is fitted here: [mgcvST.estimate_spatial()] fits Stage 2.
-#'
-#' With `checkpoint_dir`, every completed chunk is saved by the worker that
-#' computed it, and a repeated call resumes from the saved chunks. Chunks are
-#' keyed by their step, features, responses and family routing; pass
-#' `chunk_size` explicitly for a resumable run. A checkpoint directory written
-#' for another model, offset or control is refused. Every worker sets the
-#' BLAS/OpenMP thread controls to one, and `control` is forced to
-#' `nthreads = 1` and `ncv.threads = 1`.
-#'
-#' @param Y Numeric feature-by-observation matrix.
-#' @param G A model returned by [mgcvST.set()].
-#' @param feature_id Unique feature identifiers. Defaults to `rownames(Y)` or
-#'   sequential identifiers.
-#' @param BPPARAM A `BiocParallelParam`; defaults to the registered `bpparam()`.
-#' @param chunk_size Positive integer number of features per task, or `NULL`
-#'   (at most one chunk per worker; at most 50 features with a checkpoint).
-#' @param retain_smooth Retain the score-component coefficients of the spatial
-#'   fits of Stage 2.
-#' @param control An `mgcv::gam.control()` object.
-#' @param ... Additional arguments passed to `mgcv::bam()`.
-#' @param diagnostics Compute `summary.gam()` diagnostics in Stage 2.
-#' @param offset Optional additional log-scale offset: an observation-length
-#'   vector or a feature-by-observation matrix in the order of `Y`. A matrix
-#'   is kept on the fit for Stage 2.
-#' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
-#'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
-#' @param q.value Stage 1 discovery threshold in `(0, 1]`.
-#' @param checkpoint_dir Optional directory for the resumable chunk checkpoints.
-#' @param resume Reuse the completed chunks of a compatible checkpoint.
-#' @param scan_control Named list of [spde.scan()] controls (`tol`,
-#'   `maxit_outer`, `maxit_inner`, `spectrum_tol`, the saddlepoint controls,
-#'   ...); unnamed controls keep the defaults of [spde.scan()].
-#' @return A compact `mgcvST_model_fit` (also `mgcvST_fit`) with the Stage 1
-#'   p-values and q-values in `diagnostics`, `y_digest` of each response row
-#'   and the estimation context that [mgcvST.estimate_spatial()] reuses.
-#' @keywords internal
-mgcvST.estimate <- function(
-    Y, G, feature_id = rownames(Y),
-    BPPARAM = BiocParallel::bpparam(), chunk_size = NULL,
-    retain_smooth = FALSE,
-    control = mgcv::gam.control(nthreads = 1L), ...,
-    diagnostics = FALSE, offset = NULL,
-    adjust = c("BY", "BH", "Sidak", "none"),
-    q.value = 0.05, checkpoint_dir = NULL, resume = TRUE,
-    scan_control = list()) {
-  call <- match.call()
-  adjust <- match.arg(adjust)
-  q.value <- .mgcvst_check_q_value(q.value)
-  # One thread in this process before any worker is forked, so that a forked
-  # worker never inherits a threaded BLAS; the caller's settings return on exit.
-  old_threads <- .mgcvst_thread_limit()
-  on.exit(.mgcvst_thread_restore(old_threads), add = TRUE)
-  .spdest_flag(diagnostics, "diagnostics")
-  .spdest_flag(retain_smooth, "retain_smooth")
-  if (!inherits(G, "mgcvST_model")) {
-    stop("G must be a model prepared by mgcvST.set().")
-  }
-  .mgcvst_estimate_model(
-    Y = Y, model = G, feature_id = feature_id, BPPARAM = BPPARAM,
-    chunk_size = chunk_size, retain_smooth = retain_smooth, control = control,
-    gam_args = list(...), call = call,
-    diagnostics = diagnostics, offset = offset,
-    adjust = adjust, q.value = q.value,
-    checkpoint_dir = checkpoint_dir, resume = resume,
-    scan_args = .spdest_scan_control(scan_control)
   )
 }
 

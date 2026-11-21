@@ -13,7 +13,7 @@ D <- MISO_E13$covariates
 basis <- spde_basis(
   MISO_E13$meshes$spde, as.matrix(D[, c("x", "y")]), kappa = kappa
 )
-model <- mgcvST.set(
+model <- inlaST.set(
   response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
   D, family = nb(link = "log")
 )

@@ -58,35 +58,33 @@
 .pair_pipeline_fit <- function(p = 4L) {
   ids <- paste0("g", seq_len(p))
   list(
-    feature_id = ids, test_engine = "single_model",
-    estimator = "mgcv", score_backend = "dense",
-    working_error = matrix(0, 4L, p),
-    working_variance = matrix(1, 4L, p),
+    feature_id = ids, score_a = matrix(0, 2L, p),
     dispersion = rep(1, p), lambda = rep(1, p),
     smoothing_parameters = matrix(1, p, 1L),
-    nuisance_covariance = list(),
-    geometry = list(
-      target = c(global = 1L),
-      smooth = list(list(B = matrix(c(1, 0, 0, 0, 0, 1, 0, 0), 4L, 2L)))
-    )
+    score_sparse = list(Q = diag(2)),
+    geometry = list(target = c(global = 1L))
   )
 }
 
+# The observation basis of the fixture: two score coordinates.
+.pair_pipeline_basis <- list(rank = 2L)
+
+# The state of feature i of the fixture.
+.pair_pipeline_state <- function(i) list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)))
+
 # The pipeline builds states through these three steps; the fixture replaces
-# the dense score kernel with deterministic states.
-.pair_pipeline_mocks <- function(env = parent.frame()) {
+# the sparse score kernel with deterministic states. `materialize` maps the
+# feature indices to their states.
+.pair_pipeline_mocks <- function(env = parent.frame(),
+                                 materialize = function(ids) lapply(ids, .pair_pipeline_state)) {
   testthat::local_mocked_bindings(
-    .mgcvst_model_fixed_factors = function(fit) list(NULL),
-    .mgcvst_model_dense_preparation = function(fit, features) {
-      list(T0 = NULL, X = matrix(numeric(), 4L, 0L), sp_index = 1L,
-           width = c(global = 2L))
+    .inlast_sparse_prepare = function(fit) fit,
+    .inlast_sparse_units = function(fit, features, threads = 1L) {
+      lapply(features, function(i) list(id = i))
     },
-    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
-      lapply(ids, function(i) {
-        list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
-      })
+    .inlast_sparse_materialize_reduced = function(fit, units, basis, threads = 1L) {
+      materialize(vapply(units, `[[`, integer(1L), "id"))
     },
     .package = "spdeST", .env = env
   )
 }
-

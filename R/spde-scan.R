@@ -1,9 +1,9 @@
 #' Stage 1 score scan of an SPDE field against a GLM null
 #'
 #' `spde.scan()` tests, for every feature, the variance component of an SPDE
-#' field against a fixed-effects GLM null. It is Stage 1 of both
-#' [mgcvST.estimate()] and [inlaST.estimate()], which call it with the raw
-#' field of their basis, and it can be called on its own.
+#' field against a fixed-effects GLM null. It is Stage 1 of [spdeST.scan()],
+#' which calls it with the raw field of the model, and it can be called on
+#' its own.
 #'
 #' Each feature is fitted under the null `log(mu) = X beta + offset` by
 #' maximum likelihood: NB2 with overdispersion `alpha = 1/size`, or Poisson
@@ -139,13 +139,3 @@ spde.scan <- function(Y, X, A, Q, offset = NULL, poisson = NULL, size = NULL,
   out
 }
 
-# The raw field of an spde basis at its coordinates: the sparse projector A and
-# the sparse FEM precision Q, with no intercept projection.
-.spde_scan_field <- function(basis) {
-  .spde_basis_validate(basis)
-  mesh <- list(xy = basis$mesh_vertices, tv = basis$mesh_triangles)
-  coordinates <- as.matrix(basis$coordinates)
-  loc <- sweep(coordinates, 2L, basis$transform$center, "-") / basis$transform$scale
-  list(A = .spde_basis_project(mesh, loc),
-       Q = .spde_fem_precision(.spde_basis_fem(mesh), basis$kappa_internal))
-}

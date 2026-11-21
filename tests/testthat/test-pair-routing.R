@@ -1,13 +1,11 @@
 .routing_fit <- function() {
-  f <- st_fixture()
-  suppressWarnings(spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(f$Y, f$model, BPPARAM = BiocParallel::SerialParam()),
-    f$Y, features = "all", BPPARAM = BiocParallel::SerialParam()))
+  skip_on_cran()
+  .pca_nb_fit()
 }
 
 test_that("the route is chosen by the user: moments has no default and no automatic value", {
   fit <- .routing_fit()
-  test <- function(...) mgcvST.test(fit, ...)
+  test <- function(...) inlaST.test(fit, ...)
   expect_error(test(), "moments must be given")
   expect_error(test(verbose = TRUE), "moments must be given")
   expect_error(test(pairs = rbind(c(1L, 2L))), "moments must be given")
@@ -18,21 +16,21 @@ test_that("the route is chosen by the user: moments has no default and no automa
   expect_false(exists(".mgcvst_route_limits", asNamespace("spdeST"), inherits = FALSE))
 })
 
-test_that("mgcvST.test reports its route and k, and the contract records them", {
+test_that("the pair test reports its route and k, and the contract records them", {
   fit <- .routing_fit()
-  q <- spdeST:::.mgcvst_state_width(fit)
-  messages <- testthat::capture_messages(exact <- mgcvST.test(fit, moments = "exact",
+  q <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))$rank
+  messages <- testthat::capture_messages(exact <- inlaST.test(fit, moments = "exact",
                                                               verbose = TRUE))
   expect_match(paste(messages, collapse = ""),
-               "Pair test: exact moments \\(k = 24\\) on q = 24, 3 pairs and 1 thread\\.")
+               sprintf("Pair test: exact moments \\(k = 20\\) on q = %d, 28 pairs and 1 thread\\.", q))
   expect_false(grepl("estimated", paste(messages, collapse = "")))
   expect_identical(exact$moments, "exact")
   expect_identical(exact$calibration, "saddlepoint")
-  expect_identical(exact$timing$route, list(moments = "exact", k = q, q = q))
+  expect_identical(exact$timing$route, list(moments = "exact", k = 20L, q = q))
   contract <- exact$contract
   expect_identical(contract$calibration_contract, "spa_v1")
   expect_identical(contract$route, "exact")
-  expect_identical(contract$k, q)
+  expect_identical(contract$k, 20L)
   expect_identical(contract$remainder_order, 4L)
   expect_match(contract$basis_sha, "^[0-9a-f]{64}$")
   expect_identical(contract$kernel_version, 7L)
@@ -42,20 +40,17 @@ test_that("mgcvST.test reports its route and k, and the contract records them", 
   expect_length(exact$timing$pair_pipeline$nodes_above_leading, 1L)
   expect_false("nodes_above_leading" %in% names(exact$results))
 
-  # The default exact route of an mgcv fit is the full-spectrum saddlepoint
-  # (k = q); k = 20 differs from it only by the remainder.
-  full <- mgcvST.test(fit, moments = "exact", k = 1000L)
+  # k above q is the full-spectrum saddlepoint (k = q), which leaves no
+  # remainder; the default k = 20 differs from it only by the remainder.
+  full <- inlaST.test(fit, moments = "exact", k = 1000L)
   expect_identical(full$contract$k, q)
-  expect_equal(full$results$log_p_two_sided, exact$results$log_p_two_sided, tolerance = 1e-12)
-  # The full spectrum leaves no remainder: every pair is evaluated without one.
-  expect_true(all(exact$results$status == 0L))
-  expect_true(all(exact$results$remainder_kind == 0L))
-  k20 <- mgcvST.test(fit, moments = "exact", k = 20L)
-  expect_identical(k20$contract$k, 20L)
-  expect_equal(k20$results$log_p_two_sided, exact$results$log_p_two_sided, tolerance = 1e-5)
+  expect_true(all(full$results$status == 0L))
+  expect_true(all(full$results$remainder_kind == 0L))
+  expect_equal(exact$results$log_p_two_sided, full$results$log_p_two_sided, tolerance = 1e-5)
   messages <- testthat::capture_messages(
-    pca <- mgcvST.test(fit, moments = "pcalearning", rank = 2L, k = 3L, verbose = TRUE))
-  expect_match(paste(messages, collapse = ""), "PCAlearning \\(rank 2, k = 3\\) on q = 24")
+    pca <- inlaST.test(fit, moments = "pcalearning", rank = 2L, k = 3L, verbose = TRUE))
+  expect_match(paste(messages, collapse = ""),
+               sprintf("PCAlearning \\(rank 2, k = 3\\) on q = %d", q))
   expect_identical(pca$moments, "pcalearning")
   expect_identical(pca$contract$k, 3L)
   expect_identical(pca$contract$route, "pcalearning")
@@ -65,7 +60,7 @@ test_that("mgcvST.test reports its route and k, and the contract records them", 
   expect_true(is.numeric(pca$timing$pcalearning$nodes_above_leading))
   expect_equal(pca$results$log_p_two_sided, full$results$log_p_two_sided, tolerance = 0.3)
   # Too few genes for the rank: the message points to the exact route.
-  expect_error(mgcvST.test(fit, moments = "pcalearning", rank = 4L),
+  expect_error(inlaST.test(fit, moments = "pcalearning", rank = 9L),
                "achievable PCAlearning rank .*moments = \"exact\"")
 })
 
@@ -73,23 +68,23 @@ test_that("a checkpoint directory records its route and a resume with another ro
   fit <- .routing_fit()
   dir <- tempfile("mgcvst-route-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  first <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  first <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
   expect_identical(readRDS(file.path(dir, "route.rds"))$moments, "exact")
-  expect_error(mgcvST.test(fit, checkpoint_dir = dir, moments = "pcalearning", rank = 2L),
+  expect_error(inlaST.test(fit, checkpoint_dir = dir, moments = "pcalearning", rank = 2L),
                "written with moments = \"exact\".*asks for moments = \"pcalearning\"")
   # The refusal comes before any work: nothing was added to the directory.
   expect_false(file.exists(file.path(dir, "pca-basis.rds")))
-  again <- mgcvST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
-  expect_identical(again$timing$pair_pipeline$resumed_pairs, 3)
+  again <- inlaST.test(fit, checkpoint_dir = dir, chunk_size = 2L, moments = "exact")
+  expect_identical(again$timing$pair_pipeline$resumed_pairs, 28)
   expect_identical(again$results, first$results)
 
   other <- tempfile("mgcvst-route-pca-")
   on.exit(unlink(other, recursive = TRUE), add = TRUE)
-  pca <- mgcvST.test(fit, checkpoint_dir = other, moments = "pcalearning", rank = 2L, k = 3L)
+  pca <- inlaST.test(fit, checkpoint_dir = other, moments = "pcalearning", rank = 2L, k = 3L)
   expect_identical(readRDS(file.path(other, "route.rds"))$moments, "pcalearning")
-  expect_error(mgcvST.test(fit, checkpoint_dir = other, moments = "exact"),
+  expect_error(inlaST.test(fit, checkpoint_dir = other, moments = "exact"),
                "written with moments = \"pcalearning\".*asks for moments = \"exact\"")
-  expect_identical(mgcvST.test(fit, checkpoint_dir = other, moments = "pcalearning",
+  expect_identical(inlaST.test(fit, checkpoint_dir = other, moments = "pcalearning",
                                rank = 2L, k = 3L)$results, pca$results)
 })
 
@@ -146,11 +141,11 @@ test_that("a pair the kernel cannot evaluate has p = 1, keeps its status and sta
     },
     .package = "spdeST")
   pcols <- c("log_p_two_sided", "log_p_positive", "log_p_negative")
-  pairs <- t(combn(fit$feature_id, 2L))
+  pairs <- t(combn(fit$feature_id[1:3], 2L))
   for (moments in c("exact", "pcalearning")) {
     for (adjust in c("BY", "BH", "Sidak", "none")) {
       info <- paste(moments, adjust)
-      z <- mgcvST.test(fit, pairs = pairs, moments = moments, rank = 2L, k = 3L,
+      z <- inlaST.test(fit, pairs = pairs, moments = moments, rank = 2L, k = 3L,
                        adjust = adjust)
       r <- z$results
       expect_identical(sort(r$status), c(0L, 1L, 2L), info = info)

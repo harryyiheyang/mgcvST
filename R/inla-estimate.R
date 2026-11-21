@@ -47,12 +47,6 @@
   task
 }
 
-# The part of a fit that is not an observation-length vector.
-.inlast_compact <- function(z) {
-  z[c("working_error", "working_variance", "eta", "mu")] <- NULL
-  z
-}
-
 # Step 1 worker: Stage 1 of one chunk of features by spde.scan()
 # (.inlast_scan_chunk). Returns, per feature, the compact null state and the
 # marginal row, or the error record.
@@ -498,10 +492,7 @@ inlaST.estimate <- function(
                   spatial_payloads = 0L),
     smooth_coefficients = coefficient,
     retain_smooth = retain_smooth,
-    test_engine = "single_model",
-    score_backend = "sparse",
     score_sparse = score_sparse,
-    estimator = "INLA",
     estimation = NULL,
     constraint_residual = constraint_residual,
     observation_spatial_mean = observation_spatial_mean,

@@ -61,9 +61,9 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   )
   complete <- response ~ z + offset(offset0) +
     s(u, v, bs = "spde", xt = basis)
-  # The third positional family is retained for mgcvST.set-style calls.
+  # The family may be the third positional argument.
   by_formula <- inlaST.set(complete, d, poisson(), control = stored)
-  prepared <- mgcvST.set(complete, d, poisson())
+  prepared <- spdeST:::.mgcvst_set_prepare(complete, d, poisson(), .allow_poisson = TRUE)
   by_G <- inlaST.set(G = prepared$G, control = stored)
 
   for (model in list(by_basis, by_formula, by_G)) {
@@ -122,7 +122,7 @@ test_that("inlaST.set accepts basis, complete-formula and frozen-G workflows", {
   )
   bad_formula <- response ~ z + offset(offset0) +
     s(u, v, bs = "spde", xt = uncentred)
-  bad_G <- mgcvST.set(bad_formula, d, poisson())$G
+  bad_G <- spdeST:::.mgcvst_set_prepare(bad_formula, d, poisson(), .allow_poisson = TRUE)$G
   expect_error(inlaST.set(G = bad_G), "mean|cent|formula|projection")
 })
 

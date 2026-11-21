@@ -29,13 +29,11 @@ feature.}
 
 \item{adjust, q.value}{\code{NULL} keeps those of \code{\link[=spdeST.scan]{spdeST.scan()}}.}
 
-\item{BPPARAM}{BiocParallel backend; \code{NULL} uses the implementation default
-(\code{bpparam()} for mgcv, serial for INLA).}
+\item{BPPARAM}{BiocParallel backend; \code{NULL} is serial.}
 
 \item{chunk_size}{Features per task; \code{NULL} chooses it from \code{BPPARAM}.}
 
-\item{threads}{OpenMP threads per worker of the compiled INLA kernels; the
-mgcv implementation runs one thread per worker.}
+\item{threads}{OpenMP threads per worker.}
 
 \item{checkpoint_dir, resume}{Chunk checkpoints and their reuse.}
 }
@@ -43,20 +41,10 @@ mgcv implementation runs one thread per worker.}
 An \code{spdeST_fit} object for \code{\link[=spdeST.test]{spdeST.test()}}.
 }
 \description{
-Fits the spatial model of the features chosen by \code{features} with the
-implementation of the model behind \code{scan} (\code{mgcv::bam(method = "fREML", discrete = TRUE)} or INLA), with the settings fixed in \code{\link[=mgcvST.set]{mgcvST.set()}} or
-\code{\link[=inlaST.set]{inlaST.set()}} and the offset given to \code{\link[=spdeST.scan]{spdeST.scan()}}. Stage 1 is not
-recomputed. The fit keeps the score vectors and the per-feature materials
-that \code{\link[=spdeST.test]{spdeST.test()}} needs.
-}
-\details{
-With an \code{\link[=inlaST.set]{inlaST.set()}} model, separate R processes can give slightly
-different Stage 2 results for the same input even with one thread: on a
-feature whose marginal likelihood is flat near its mode, the INLA
-optimiser can stop at one of two nearby points (in one MISO run, a
-relative difference of about 1.5e-3 in the smoothing parameter and 9e-4 in
-the log marginal likelihood, moving log p-values of tests that include the
-feature by about 0.09). Other features agree to about 1e-5. Repeated fits
-in one process are identical. Tightening \code{control.inla$tolerance} does not
-remove it; treat it as the precision of the INLA fit.
+Fits the spatial model of the features chosen by \code{features} by
+\code{\link[=spde.estimate]{spde.estimate()}}: the Laplace marginal likelihood (REML) of each feature
+is maximised in the precision of the field and the NB size, with the
+settings fixed in \code{\link[=inlaST.set]{inlaST.set()}} and the offset given to \code{\link[=spdeST.scan]{spdeST.scan()}}.
+Stage 1 is not recomputed. The fit keeps the score vectors and the
+per-feature materials that \code{\link[=spdeST.test]{spdeST.test()}} needs.
 }

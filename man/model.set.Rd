@@ -32,13 +32,13 @@ model.set(
 \item{...}{Additional arguments passed to \code{mgcv::gam(..., fit = FALSE)}.}
 }
 \value{
-An object of class \code{mgcvST_model} for \code{\link[=mgcvST.estimate]{mgcvST.estimate()}}. It
+An object of class \code{mgcvST_model}. It
 stores the basis \code{kappa_unit}, \code{unit_length}, \code{coordinate_span} and
 \code{kappa_internal}.
 }
 \description{
-Builds the reusable \code{mgcv::gam(..., fit = FALSE)} setup consumed by
-\code{\link[=mgcvST.estimate]{mgcvST.estimate()}}. The response name on the left-hand side is a label: it
+Builds the \code{mgcv::gam(..., fit = FALSE)} setup from which \code{\link[=inlaST.set]{inlaST.set()}}
+takes its design. The response name on the left-hand side is a label: it
 need not be a column of \code{data}, because the helper replaces it with an
 internal response bridge before constructing the mgcv setup. Linear terms,
 factors, interactions, offsets, and additional mgcv smoothers on the

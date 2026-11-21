@@ -2,7 +2,8 @@
 % Please edit documentation in R/wgcna.R
 \name{inlaST.wgcna}
 \alias{inlaST.wgcna}
-\title{Identify co-expression modules from a sparse INLA fit}
+\alias{print.mgcvST_wgcna}
+\title{Identify co-expression modules from a fit}
 \usage{
 inlaST.wgcna(
   fitmgcvST,
@@ -11,9 +12,11 @@ inlaST.wgcna(
   verbose = FALSE,
   threads = 1L
 )
+
+\method{print}{mgcvST_wgcna}(x, ...)
 }
 \arguments{
-\item{fitmgcvST}{A compact fit returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}.}
+\item{fitmgcvST}{A fit returned by \code{\link[=spdeST.estimate]{spdeST.estimate()}}.}
 
 \item{indices}{Required gene IDs, integer positions in \code{fitmgcvST$feature_id},
 or a named list of such vectors. Each block must contain at least two distinct
@@ -28,34 +31,32 @@ grey (zero) labels, without changing the requested module size.}
 
 \item{verbose}{Whether to display compact progress messages.}
 
-\item{threads}{Positive OpenMP thread count controlling score construction
-for both backends.}
+\item{threads}{Positive OpenMP thread count controlling score construction.}
+
+\item{x}{An \code{mgcvST_wgcna} result.}
+
+\item{...}{Unused.}
 }
 \value{
-An \code{mgcvST_wgcna} object, identical in shape to the
-\code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}} result.
+An \code{mgcvST_wgcna} object with \code{modules} (component, feature ID, integer
+module, color), named \code{networks} (feature IDs, covariance, correlation,
+adjacency, TOM, tree, labels, modules, coordinate count \code{q}, and status),
+\code{score} (aligned \code{A}, group names and widths), \code{settings}, and \code{timing}.
+A zero module label means unassigned (grey). Module labels are local to
+each input block. No biological annotations are inferred automatically.
 }
 \description{
-The sparse-kernel sibling of \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}. It takes an
-\code{\link[=inlaST.estimate]{inlaST.estimate()}} fit and builds the gene-by-gene similarity
-\eqn{S_{ij} = (R'a_i)'(R'a_j)}, where \code{R} is the observation-kernel
-coordinate basis used by \code{\link[=inlaST.test]{inlaST.test()}} (all \code{q - 1} directions of the
-constrained field), and
-\eqn{a_i} are the sparse INLA score vectors. It then runs exactly the same
-WGCNA splitting as \code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}: \code{WGCNA::adjacency.fromSimilarity()},
-\code{WGCNA::TOMsimilarity()}, \code{fastcluster::hclust()},
-\code{dynamicTreeCut::cutreeDynamic()} and \code{WGCNA::labels2colors()}. The
-similarity, the normaliser and the downstream code are shared with
-\code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}}, not re-derived.
-}
-\details{
-The score vectors are produced by projecting the sparse INLA score vectors
-onto \code{R}; \code{threads} has no effect on this projection. BiocParallel is not
-used, because the sparse INLA downstream runs one OpenMP layer in the
-manager process.
-
-The normaliser is the basis rank \code{r} (the number of retained projection
-coordinates), not \code{nrow(A)}.
+Builds the gene-by-gene similarity \eqn{S_{ij} = (R'a_i)'(R'a_j)} of the
+genes of each selected block, where \code{R} is the observation-kernel
+coordinate basis used by \code{\link[=spdeST.test]{spdeST.test()}} (all \code{q - 1} directions of the
+constrained field) and \eqn{a_i} are the score vectors stored on the fit,
+divided by the basis rank \code{r}. It then runs
+\code{WGCNA::adjacency.fromSimilarity()}, \code{WGCNA::TOMsimilarity()},
+\code{fastcluster::hclust()}, \code{dynamicTreeCut::cutreeDynamic()} and
+\code{WGCNA::labels2colors()}. Blocks are selected explicitly; no gene is
+selected by estimation or testing, and all pairs within a block enter its
+covariance. No centering, ridge, or covariance projection is applied, and
+the supplied fit is not modified.
 }
 \examples{
 \dontrun{
@@ -64,7 +65,4 @@ fit <- spdeST.estimate(scan, Y, features = "all")
 W <- inlaST.wgcna(fit, indices = genes, threads = 4L)
 W$modules
 }
-}
-\seealso{
-\code{\link[=mgcvST.wgcna]{mgcvST.wgcna()}} for \code{mgcvST.estimate()} fits.
 }

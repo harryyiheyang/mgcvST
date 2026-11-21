@@ -4,7 +4,7 @@ CXX_STD = CXX17
 # chosen at run time. MinGW-w64 does not align the stack to 32 bytes, so spilled
 # AVX registers must use unaligned moves (the assembler flag below).
 LA_OBJECTS = la_generic.o la_avx2.o la_avx512.o
-OBJECTS = RcppExports.o adjust_pvalues.o dense_prepare.o inla_sparse.o inla_compact_units.o \
+OBJECTS = RcppExports.o adjust_pvalues.o inla_sparse.o inla_compact_units.o \
   memory_status.o nb_null.o pca_learning.o score_pair.o spa_pair.o spa_quadform.o spde_scan.o spde_estimate.o \
   $(LA_OBJECTS)
 PKG_CPPFLAGS = -DMGCVST_LA_X86
@@ -15,7 +15,7 @@ PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lpsapi
 all: $(SHLIB)
 
 # The users of the function table are rebuilt when its layout changes.
-score_pair.o pca_learning.o dense_prepare.o: la_dispatch.h
+score_pair.o pca_learning.o: la_dispatch.h
 
 la_generic.o: la_kernel.cpp la_dispatch.h
 	$(CXX) $(ALL_CPPFLAGS) $(ALL_CXXFLAGS) -DMGCVST_LA_ISA=generic -c la_kernel.cpp -o $@

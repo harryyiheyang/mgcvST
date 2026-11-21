@@ -1,17 +1,17 @@
 Package: spdeST
 Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
-Version: 0.0.1.9071
+Version: 0.0.1.9072
 Authors@R: person(given = "Yihe", family = "Yang",
     email = "yxy1234@case.edu", role = c("aut", "cre"))
 Description: Provides topology-aware boundary learning and finite-element mesh
     generation, a proper Matern stochastic partial differential equation
     smooth registered with 'mgcv', and signed reproducing-kernel Hilbert space
-    covariance score tests for spatial and spatiotemporal feature pairs. The
-    numerical core uses final IRLS working models, compact residual-precision
-    operators, low-rank score summaries, and signed quadratic-form calibration
-    without constructing observation-level residual projection matrices.
-    WGCNA module analysis uses the score covariance within explicitly selected
-    feature blocks from fitted mgcv or INLA models.
+    covariance score tests for spatial and spatiotemporal feature pairs. A
+    score scan selects the spatial features, a sparse Laplace REML fit of the
+    Poisson or negative-binomial SPDE model estimates them, and a sparse score
+    kernel with a signed quadratic-form saddlepoint calibration tests their
+    pairs. WGCNA module analysis uses the score covariance within explicitly
+    selected feature blocks.
 License: MIT + file LICENSE
 Encoding: UTF-8
 SystemRequirements: C++17, GNU make
@@ -33,7 +33,6 @@ Imports:
     stats
 LinkingTo:
     Rcpp,
-    RcppArmadillo,
     RcppEigen
 Suggests:
     testthat (>= 3.0.0),

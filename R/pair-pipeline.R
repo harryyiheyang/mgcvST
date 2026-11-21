@@ -24,10 +24,8 @@
   smooth <- if (is.list(geometry$smooth)) lapply(geometry$smooth, function(z) {
     z[c("B", "penalties", "sp_index", "fixed", "score_component")]
   }) else NULL
-  sparse_backend <- identical(fit$score_backend, "sparse")
-  sparse <- if (sparse_backend) {
-    z <- fit$score_sparse
-    list(A = z$A, Q = z$Q, constraint = z$constraint,
+  z <- fit$score_sparse
+  sparse <- list(A = z$A, Q = z$Q, constraint = z$constraint,
          sp_index = z$sp_index,
          nuisance_design = geometry$nuisance_design,
          basis = basis[c("coordinate", "basis", "rank", "kind")],
@@ -36,7 +34,6 @@
          score = fit$score_a, family = fit$feature_family,
          family_parameters = fit$family_parameters, dispersion = fit$dispersion,
          smoothing_parameters = fit$smoothing_parameters)
-  } else NULL
   spec <- if (is.list(fit$model)) fit$model$inla_spec else NULL
   if (is.null(spec)) spec <- fit$inla_spec
   random <- if (is.list(spec$random)) lapply(spec$random, function(z) {
@@ -45,15 +42,9 @@
          width = if (is.null(z$A)) NULL else ncol(z$A))
   }) else NULL
   inputs <- list(
-    pipeline_version = 3L, estimator = fit$estimator,
-    test_engine = fit$test_engine, score_backend = fit$score_backend,
+    pipeline_version = 4L,
     feature_id = fit$feature_id,
-    working_error = if (sparse_backend) NULL else fit$working_error,
-    working_variance = if (sparse_backend) NULL else fit$working_variance,
-    dispersion = if (sparse_backend) NULL else fit$dispersion,
     lambda = fit$lambda,
-    smoothing_parameters = if (sparse_backend) NULL else fit$smoothing_parameters,
-    nuisance_covariance = if (sparse_backend) NULL else fit$nuisance_covariance,
     geometry = list(B = geometry$B, Q = geometry$Q, X = geometry$X,
                     score_precision_psd = geometry$score_precision_psd,
                     nuisance_design = geometry$nuisance_design,
@@ -62,29 +53,6 @@
     inla_fixed_width = if (is.null(spec$fixed$X)) NULL else ncol(spec$fixed$X)
   )
   list(version = 3L, md5 = .mgcvst_pair_input_hash(inputs))
-}
-
-# Build one bounded feature batch with the full-precision dense score kernel.
-# A model.set() fit without a usable conditional nuisance covariance is a hard
-# error at the call site of .mgcvst_pair_pipeline(), never a per-feature R-loop
-# fallback.
-.mgcvst_pair_build_batch <- function(fit, ids, threads, native) {
-  phi <- fit$dispersion[ids]
-  sp <- fit$smoothing_parameters[ids, , drop = FALSE]
-  bad <- !is.finite(phi) | phi <= 0 |
-    rowSums(!is.finite(sp) | sp <= 0) > 0L
-  z <- mgcvst_dense_score_batch_cpp(
-    native$T0, fit$working_variance[, ids, drop = FALSE],
-    fit$working_error[, ids, drop = FALSE],
-    phi / sp[, native$sp_index], native$X,
-    fit$nuisance_covariance[ids], threads
-  )
-  lapply(seq_along(ids), function(k) {
-    if (bad[k]) return(list(error =
-      "The feature has invalid dispersion or smoothing parameters."))
-    if (!is.null(z[[k]]$error)) return(list(error = z[[k]]$error))
-    list(a = z[[k]]$a, M = z[[k]]$H, width = native$width)
-  })
 }
 
 # Defaults of the exact-moment route: the number of leading singular values
@@ -145,60 +113,31 @@
   out
 }
 
-# How the dense score state (a, M) of a feature is produced: from the working
-# model of an mgcv fit, or by reconstructing the reduced curvature of a sparse
-# INLA fit in its observation basis. `missing` are the features to build.
-.mgcvst_state_builder <- function(fit, missing, threads, basis = NULL) {
-  if (identical(fit$score_backend, "sparse")) {
-    fit <- .inlast_sparse_prepare(fit)
-    r <- basis$rank
-    m <- ncol(fit$score_sparse$Q)
-    return(list(
-      work = 8 * (6 * r^2 + 4 * m * r),
-      build = function(ids) {
-        units <- .inlast_sparse_units(fit, ids, threads = threads)
-        bad <- vapply(units, function(z) !is.null(z$error), logical(1L))
-        states <- vector("list", length(ids))
-        if (any(!bad)) {
-          z <- .inlast_sparse_materialize_reduced(fit, units[!bad], basis,
-                                                  threads = threads)
-          states[!bad] <- lapply(z, function(s) {
-            if (!is.null(s$error)) list(error = as.character(s$error)) else
-              list(a = as.numeric(s$a), M = s$M, width = r)
-          })
-        }
-        for (j in which(bad)) states[[j]] <- list(error = as.character(units[[j]]$error))
-        states
-      },
-      finish = function() invisible(NULL)
-    ))
-  }
-  fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
-  native <- .mgcvst_model_dense_preparation(fit, missing)
-  if (is.null(native)) {
-    stop("Model score states require the conditional nuisance covariance; ",
-         "re-estimate with the current mgcvST.estimate().")
-  }
-  q <- .mgcvst_state_width(fit)
-  p <- ncol(native$X)
-  if (is.null(p)) p <- 0L
-  n <- nrow(fit$working_variance)
+# The score state (a, M) of a feature: the reduced curvature of its fit in the
+# observation basis. `missing` are the features to build.
+.mgcvst_state_builder <- function(fit, missing, threads, basis) {
+  fit <- .inlast_sparse_prepare(fit)
+  r <- basis$rank
+  m <- ncol(fit$score_sparse$Q)
   list(
-    work = 8 * (8 * n * q + 4 * n * p + 8 * q^2 + 4 * q * p + 4 * p^2),
-    build = function(ids) .mgcvst_pair_build_batch(fit, ids, threads, native),
+    work = 8 * (6 * r^2 + 4 * m * r),
+    build = function(ids) {
+      units <- .inlast_sparse_units(fit, ids, threads = threads)
+      bad <- vapply(units, function(z) !is.null(z$error), logical(1L))
+      states <- vector("list", length(ids))
+      if (any(!bad)) {
+        z <- .inlast_sparse_materialize_reduced(fit, units[!bad], basis,
+                                                threads = threads)
+        states[!bad] <- lapply(z, function(s) {
+          if (!is.null(s$error)) list(error = as.character(s$error)) else
+            list(a = as.numeric(s$a), M = s$M, width = r)
+        })
+      }
+      for (j in which(bad)) states[[j]] <- list(error = as.character(units[[j]]$error))
+      states
+    },
     finish = function() invisible(NULL)
   )
-}
-
-# Width q of the score coordinates of the states of a fit.
-.mgcvst_state_width <- function(fit, basis = NULL) {
-  if (identical(fit$score_backend, "sparse")) return(as.integer(basis$rank))
-  target <- fit$geometry$target
-  width <- if (length(target)) {
-    ncol(fit$geometry$smooth[[unname(target[[1L]])]]$B)
-  } else 1L
-  if (!is.finite(width) || width < 1L) stop("The score coordinate width is invalid.")
-  as.integer(width)
 }
 
 # Shared basis V of the exact route: the k leading eigenvectors of the sum of
@@ -255,11 +194,11 @@
 # feature-first score states and stream them to raw Parquet shards. `index`
 # is NULL for every pair of the available features, or a two-column matrix
 # of available feature indices i < j. The resident score states adapt to the
-# memory available to the process. The states are those of the working model
-# for an mgcv fit and the reduced curvature in `basis` for a sparse INLA fit.
+# memory available to the process. The states are the reduced curvature of
+# the fit in its observation `basis`.
 .mgcvst_pair_pipeline <- function(fit, index, threads, chunk_size, verbose,
                                   checkpoint_dir = NULL, resume = TRUE,
-                                  k = .mgcvst_exact_defaults$k, basis = NULL,
+                                  k = .mgcvst_exact_defaults$k, basis,
                                   route = NULL, screen_z = 0) {
   if (!is.numeric(threads) || length(threads) != 1L ||
       !is.finite(threads) || threads < 1L || threads != floor(threads)) {
@@ -273,8 +212,6 @@
   if (!is.logical(verbose) || length(verbose) != 1L || is.na(verbose)) {
     stop("verbose must be TRUE or FALSE.")
   }
-  sparse <- identical(fit$score_backend, "sparse")
-  if (sparse && is.null(basis)) stop("A sparse INLA fit needs its observation basis.")
   available <- .mgcvst_feature_available(fit)
   all_pairs <- is.null(index)
   if (all_pairs) {
@@ -289,7 +226,7 @@
     }
     used <- sort(unique(as.vector(index)))
   }
-  width <- .mgcvst_state_width(fit, basis)
+  width <- as.integer(basis$rank)
   k <- as.integer(min(k, width))
   if (!is.finite(k) || k < 1L) stop("k must be a positive integer.")
 
@@ -565,7 +502,7 @@
       path = if (isTRUE(store$temporary)) NULL else store$path,
       pair_dir = pair_dir, builds = builds, resume_count = resume_count,
       resumed_pairs = resumed_pairs,
-      preparation_backend = if (sparse) "sparse_reduced" else "model_native",
+      preparation_backend = "sparse_reduced",
       pair_schedule = pair_schedule, chunks = chunks, k = k,
       basis_sha = shared$sha, q = width, nodes_above_leading = nodes_above,
       screen_z = screen_z, screened = screened,

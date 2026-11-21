@@ -13,7 +13,7 @@ D <- Visium_B$covariates
 basis <- spde_basis(
   Visium_B$meshes$spde, as.matrix(D[, c("x", "y")]), kappa = kappa
 )
-model <- mgcvST.set(
+model <- inlaST.set(
   response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
   D, family = nb(link = "log")
 )

@@ -61,3 +61,14 @@ local_poisson_route <- function(value, env = parent.frame()) {
     .package = "spdeST", .env = env
   )
 }
+
+# The raw field of an spde basis at its coordinates: the sparse projector A and
+# the sparse FEM precision Q, with no intercept projection.
+.spde_scan_field <- function(basis) {
+  spdeST:::.spde_basis_validate(basis)
+  mesh <- list(xy = basis$mesh_vertices, tv = basis$mesh_triangles)
+  coordinates <- as.matrix(basis$coordinates)
+  loc <- sweep(coordinates, 2L, basis$transform$center, "-") / basis$transform$scale
+  list(A = spdeST:::.spde_basis_project(mesh, loc),
+       Q = spdeST:::.spde_fem_precision(spdeST:::.spde_basis_fem(mesh), basis$kappa_internal))
+}

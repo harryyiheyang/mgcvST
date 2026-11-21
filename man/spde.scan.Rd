@@ -100,9 +100,9 @@ A data frame with one row per feature: \code{feature_id}, \code{family}
 }
 \description{
 \code{spde.scan()} tests, for every feature, the variance component of an SPDE
-field against a fixed-effects GLM null. It is Stage 1 of both
-\code{\link[=mgcvST.estimate]{mgcvST.estimate()}} and \code{\link[=inlaST.estimate]{inlaST.estimate()}}, which call it with the raw
-field of their basis, and it can be called on its own.
+field against a fixed-effects GLM null. It is Stage 1 of \code{\link[=spdeST.scan]{spdeST.scan()}},
+which calls it with the raw field of the model, and it can be called on
+its own.
 }
 \details{
 Each feature is fitted under the null \verb{log(mu) = X beta + offset} by

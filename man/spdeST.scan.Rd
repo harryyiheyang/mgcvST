@@ -22,7 +22,7 @@ spdeST.scan(
 \arguments{
 \item{Y}{Feature-by-observation response matrix.}
 
-\item{model}{Result of \code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=inlaST.set]{inlaST.set()}}.}
+\item{model}{Result of \code{\link[=inlaST.set]{inlaST.set()}}.}
 
 \item{offset}{\code{NULL}, a length-n vector, or a feature-by-observation matrix
 added to the model offset. It is kept for \code{\link[=spdeST.estimate]{spdeST.estimate()}}.}
@@ -33,13 +33,11 @@ added to the model offset. It is kept for \code{\link[=spdeST.estimate]{spdeST.e
 (\code{"BY"}, \code{"BH"}, \code{"Sidak"} or \code{"none"}) and the q-value that defines the
 discoveries of \code{\link[=spdeST.estimate]{spdeST.estimate()}}.}
 
-\item{BPPARAM}{BiocParallel backend; \code{NULL} uses the implementation default
-(\code{bpparam()} for mgcv, serial for INLA).}
+\item{BPPARAM}{BiocParallel backend; \code{NULL} is serial.}
 
 \item{chunk_size}{Features per task; \code{NULL} chooses it from \code{BPPARAM}.}
 
-\item{threads}{OpenMP threads per worker of the compiled INLA kernels; the
-mgcv implementation runs one thread per worker.}
+\item{threads}{OpenMP threads per worker.}
 
 \item{checkpoint_dir, resume}{Chunk checkpoints and their reuse.}
 
@@ -54,9 +52,8 @@ An \code{spdeST_scan} object: the Stage 1 fit with
 }
 \description{
 Tests every feature for a spatial SPDE variance component against its null
-model. The model from \code{\link[=mgcvST.set]{mgcvST.set()}} or \code{\link[=inlaST.set]{inlaST.set()}} carries the
-implementation and every fixed setting; Stage 1 is the same for both: GLM
-nulls by maximum likelihood (NB2, or Poisson when the overdispersion score
+model. The model from \code{\link[=inlaST.set]{inlaST.set()}} carries every fixed setting. Stage 1
+fits GLM nulls by maximum likelihood (NB2, or Poisson when the overdispersion score
 \code{sum((y - mu)^2 - y) / 2} is not positive) and the score test of the raw
 sparse SPDE field with the null projection \code{P0}, calibrated by the
 saddlepoint approximation (\code{\link[=spde.scan]{spde.scan()}}). The null is a GLM: covariates

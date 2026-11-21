@@ -5,12 +5,3 @@
   )
 }
 
-# Normalize and validate a finite numeric matrix input.
-.as_numeric_matrix <- function(x, name) {
-  x <- as.matrix(x)
-  storage.mode(x) <- "double"
-  if (length(dim(x)) != 2L || any(!is.finite(x))) {
-    stop(name, " must be a finite numeric matrix.")
-  }
-  x
-}

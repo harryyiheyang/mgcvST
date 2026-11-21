@@ -80,7 +80,7 @@ test_that("discoveries and their q-values do not change with the screen", {
   }
 })
 
-test_that("mgcvST.test(screen = TRUE) keeps the discoveries of both routes", {
+test_that("inlaST.test(screen = TRUE) keeps the discoveries of both routes", {
   skip_if_not_installed("geometry")
   set.seed(31)
   n <- 900L
@@ -97,13 +97,12 @@ test_that("mgcvST.test(screen = TRUE) keeps the discoveries of both routes", {
   Y <- t(sapply(seq_len(p), function(g) rpois(n, exp(2 + drop(field %*% load[g, ])))))
   rownames(Y) <- paste0("g", seq_len(p))
   data$response <- Y[1L, ]
-  model <- model.set(response ~ z, data, basis, family = stats::poisson())
-  fit <- spdeST:::mgcvST.estimate_spatial(
-    mgcvST.estimate(Y, model,
-                         BPPARAM = BiocParallel::SerialParam()),
-    Y, features = "all", BPPARAM = BiocParallel::SerialParam())
-  full <- mgcvST.test(fit, moments = "exact")
-  scr <- mgcvST.test(fit, moments = "exact", screen = TRUE)
+  model <- inlaST.set(response ~ z, data, basis, family = stats::poisson())
+  sp <- BiocParallel::SerialParam()
+  fit <- spdeST:::inlaST.estimate_spatial(inlaST.estimate(Y, model, BPPARAM = sp),
+                                          Y, features = "all", BPPARAM = sp)
+  full <- inlaST.test(fit, moments = "exact")
+  scr <- inlaST.test(fit, moments = "exact", screen = TRUE)
   expect_gte(scr$timing$screen$z, 2)
   skipped <- scr$results$status == 4L
   expect_true(any(skipped))
@@ -119,8 +118,8 @@ test_that("mgcvST.test(screen = TRUE) keeps the discoveries of both routes", {
                     full$results$log_p_two_sided[skipped] + 1e-12))
   # The PCAlearning route: the same discoveries, bounds below the route's own
   # p-values, and evaluated pairs unchanged.
-  full <- mgcvST.test(fit, moments = "pcalearning", rank = 5L, k = 10L)
-  scr <- mgcvST.test(fit, moments = "pcalearning", rank = 5L, k = 10L, screen = TRUE)
+  full <- inlaST.test(fit, moments = "pcalearning", rank = 5L, k = 10L)
+  scr <- inlaST.test(fit, moments = "pcalearning", rank = 5L, k = 10L, screen = TRUE)
   skipped <- scr$results$status == 4L
   expect_true(any(skipped))
   expect_identical(scr$timing$screen$screened, as.numeric(sum(skipped)))

@@ -25,20 +25,16 @@ test_that("the exact pair kernel returns t1 = tr(M_i M_j) in public units", {
   expect_equal(full$t1, ref, tolerance = 1e-12)
 })
 
-test_that("the PCAlearning materialization reports tr(M) and tr(M^2)", {
-  s <- he_states(9050L)
-  z <- spdeST:::mgcvst_pca_dense_cpp(s$H, s$a, NULL, rep(FALSE, 4L), NULL, 1L)
-  expect_equal(z$trace, vapply(s$H, function(M) sum(diag(M)), 0), tolerance = 1e-12)
-  expect_equal(z$fro2, vapply(s$H, function(M) sum(M * M), 0), tolerance = 1e-10)
-})
-
 test_that("pair results carry t1 and the test keeps per-feature traces", {
   skip_if_not_installed("arrow")
-  .pair_pipeline_mocks()
-  fit <- .pair_pipeline_fit(6L)
-  exact <- spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 100L, FALSE, k = 2L)
-  pca <- spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE,
-                                           rank = 2L, k = 2L)
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  G <- length(fit$feature_id)
+  exact <- spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 100L, FALSE, k = 1000L,
+                                          basis = basis)
+  pca <- spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, basis,
+                                           rank = G, k = 1000L)
   a <- do.call(rbind, lapply(exact$shards, spdeST:::.mgcvst_read_shard))
   a <- a[order(a$i, a$j), ]
   b <- .pca_pairs(pca)

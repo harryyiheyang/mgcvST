@@ -86,14 +86,3 @@ NULL
   out
 }
 
-# Parametric (non-smooth) columns of a frozen mgcv design. Every smooth block,
-# spatial or not, is excluded: the screen is deliberately covariate-only.
-.mgcvst_prescreen_design <- function(G) {
-  X <- G$X
-  if (is.null(X)) return(NULL)
-  smooth_columns <- unlist(lapply(G$smooth, function(s) {
-    seq.int(s$first.para, s$last.para)
-  }), use.names = FALSE)
-  keep <- setdiff(seq_len(ncol(X)), smooth_columns)
-  as.matrix(X[, keep, drop = FALSE])
-}

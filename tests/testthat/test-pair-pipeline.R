@@ -22,7 +22,7 @@ test_that("bounded pair blocks stream every pair once whatever the state budget"
       .mgcvst_memory_probe = function(...) list(available = (cache_bytes + reserve) / 0.7),
       .package = "spdeST")
     z <- spdeST:::.mgcvst_pair_pipeline(fit, index, threads = 1L,
-      chunk_size = chunk_size, verbose = FALSE)
+      chunk_size = chunk_size, verbose = FALSE, basis = .pair_pipeline_basis)
     out <- do.call(rbind, lapply(z$shards, spdeST:::.mgcvst_read_shard))
     expect_identical(sum(z$rows), nrow(out))
     out[order(out$i, out$j), ]
@@ -46,50 +46,17 @@ test_that("bounded pair blocks stream every pair once whatever the state budget"
 })
 
 test_that("a pair of a failed state is returned with status 3, never a p-value", {
-  .pair_pipeline_mocks()
-  testthat::local_mocked_bindings(
-    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
-      lapply(ids, function(i) {
-        if (i == 2L) list(error = "state failed") else
-          list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)), width = 2L)
-      })
-    }, .package = "spdeST"
-  )
-  z <- spdeST:::.mgcvst_pair_pipeline(.pair_pipeline_fit(3L), NULL, 1L, 10L, FALSE)
+  .pair_pipeline_mocks(materialize = function(ids) lapply(ids, function(i) {
+    if (i == 2L) list(error = "state failed") else .pair_pipeline_state(i)
+  }))
+  z <- spdeST:::.mgcvst_pair_pipeline(.pair_pipeline_fit(3L), NULL, 1L, 10L, FALSE,
+                                      basis = .pair_pipeline_basis)
   out <- spdeST:::.mgcvst_read_shard(z$shards[1L])
   bad <- out$i == 2L | out$j == 2L
   expect_true(all(out$status[bad] == 3L))
   expect_true(all(is.na(out$score[bad]) & is.na(out$log_p_two_sided[bad])))
   expect_identical(out$status[!bad], 0L)
   expect_identical(z$failed, data.frame(feature_id = "g2", error = "state failed"))
-})
-
-test_that("shared preparation keeps dense native state contracts", {
-  fit <- list(
-    working_error = matrix(0, 3L, 2L),
-    working_variance = matrix(1, 3L, 2L),
-    dispersion = c(1, 2), smoothing_parameters = matrix(c(2, 4), 2L),
-    nuisance_covariance = list(matrix(1), matrix(1)),
-    geometry = list(X = matrix(1, 3L, 1L))
-  )
-  seen <- new.env(parent = emptyenv())
-  seen$scale <- NULL
-  native_batch <- function(T0, variance, error, scale, X, nuisance, threads) {
-    seen$scale <- scale
-    lapply(seq_along(scale), function(i) list(a = c(i, i + 1),
-                                              H = diag(c(i, i + 1))))
-  }
-  testthat::local_mocked_bindings(
-    mgcvst_dense_score_batch_cpp = native_batch,
-    .package = "spdeST"
-  )
-  native <- list(T0 = matrix(1, 3L, 2L), X = matrix(1, 3L, 1L),
-                 sp_index = 1L, width = c(global = 2L))
-  model <- spdeST:::.mgcvst_pair_build_batch(fit, 1:2, 2L, native)
-  expect_equal(seen$scale, c(0.5, 0.5))
-  expect_identical(model[[1L]]$a, c(1, 2))
-  expect_equal(model[[2L]]$M, diag(c(2, 3)))
-  expect_identical(model[[1L]]$width, c(global = 2L))
 })
 
 test_that("the fused exact pair kernel matches the trace powers and the full-spectrum saddlepoint", {
@@ -166,18 +133,16 @@ test_that("an invalid exact-route p-value is p = 1, keeps its status and stays i
 })
 
 test_that("stale pair results are refused before work and the pair directory follows the states", {
-  .pair_pipeline_mocks()
   built <- 0L
-  testthat::local_mocked_bindings(
-    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
-      built <<- built + length(ids)
-      lapply(ids, function(i) list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)),
-                                   width = 2L))
-    }, .package = "spdeST")
+  .pair_pipeline_mocks(materialize = function(ids) {
+    built <<- built + length(ids)
+    lapply(ids, .pair_pipeline_state)
+  })
   fit <- .pair_pipeline_fit()
   dir <- tempfile("mgcvst-pair-open-")
   on.exit(unlink(dir, recursive = TRUE), add = TRUE)
-  spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE, checkpoint_dir = dir)
+  spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE, checkpoint_dir = dir,
+                                 basis = .pair_pipeline_basis)
   expect_identical(built, 4L)
   # Leave one missing state and a pair directory of another contract.
   unlink(list.files(dir, "^pairs-", full.names = TRUE), recursive = TRUE)
@@ -187,18 +152,18 @@ test_that("stale pair results are refused before work and the pair directory fol
   saveRDS(list(), file.path(stale, "block-0000000001.rds"))
   built <- 0L
   expect_error(spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
-                                              checkpoint_dir = dir),
+                                              checkpoint_dir = dir,
+                                              basis = .pair_pipeline_basis),
                "different algorithm contract")
   expect_identical(built, 0L)
   expect_false(file.exists(file.path(dir, "feature-0000000004.rds")))
   unlink(stale, recursive = TRUE)
 
   # A run whose state preparation fails leaves no pair directory behind.
-  testthat::local_mocked_bindings(
-    .mgcvst_pair_build_batch = function(fit, ids, threads, native) stop("state failure"),
-    .package = "spdeST")
+  .pair_pipeline_mocks(materialize = function(ids) stop("state failure"))
   expect_error(spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 10L, FALSE,
-                                              checkpoint_dir = dir),
+                                              checkpoint_dir = dir,
+                                              basis = .pair_pipeline_basis),
                "state failure")
   expect_length(list.files(dir, "^pairs-"), 0L)
 })

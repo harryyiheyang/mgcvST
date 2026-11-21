@@ -1,3 +1,20 @@
+# spdeST 0.0.1.9072
+
+* The package has one pipeline: `inlaST.set()` -> `spdeST.scan()` ->
+  `spdeST.estimate()` -> `spdeST.test()`, with `inlaST.wgcna()` for modules.
+  The mgcv implementation is removed: `mgcvST.set()`, `mgcvST.estimate()`,
+  `mgcvST.estimate_spatial()`, `mgcvST.test()`, `mgcvST.wgcna()`, the `bam`
+  fits, the dense score kernel and its geometry cache, and the internal
+  dispatch between two implementations. A prepared design is given as
+  `inlaST.set(G = gam(..., fit = FALSE))`.
+* The pair test reads the sparse score states only. The exact route has the
+  default `k = 20` for every fit; pair checkpoints of earlier versions are
+  refused (pipeline version 4).
+* The smooth `bs = "spde"` for `mgcv::gam()` is kept. The package no longer
+  links to RcppArmadillo.
+* `inst/examples/inla_estimator.R` is removed; `MISO_E13.R` and `Visium_B.R`
+  run the pipeline.
+
 # spdeST 0.0.1.9071
 
 * Stage 2 has one fitter, `spde.estimate()` (the "fable" estimator). The

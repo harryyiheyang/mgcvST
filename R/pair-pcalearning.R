@@ -8,23 +8,15 @@
 # monomials of c_i and c_j. The leading singular values of the pair spectrum
 # come from a shared basis V (k leading eigenvectors of the training matrices):
 # R_j = chol(V' H_j V / scale_j) and svd(R_i R_j'); the remainder is a
-# Satterthwaite node matching the two traces. The matrices H_j come from the
-# fit: reconstructed from the sparse INLA state, or built from the working
-# model of an mgcv fit.
+# Satterthwaite node matching the two traces. The matrices H_j are
+# reconstructed from the sparse state of the fit.
 
 # Per-gene variance scales of the first-stage fit that define training strata.
-# INLA: NB V = 1 / mu + 1 / theta, Poisson (and other families) V = 1 / mu, and
-# mu_bar is the mean of the fitted mean, stored at estimation (a fit without it
-# was estimated before it was stored and is refused). An mgcv fit is stratified
-# by the field scale only.
+# NB V = 1 / mu + 1 / theta, Poisson V = 1 / mu, and mu_bar is the mean of the
+# fitted mean, stored at estimation (a fit without it was estimated before it
+# was stored and is refused).
 .mgcvst_pca_scales <- function(fit) {
   G <- length(fit$feature_id)
-  if (!identical(fit$estimator, "INLA")) {
-    sigma_g2 <- as.numeric(fit$dispersion) / as.numeric(fit$lambda)
-    return(data.frame(nb = rep(FALSE, G), theta = rep(NA_real_, G),
-                      mu_bar = rep(NA_real_, G), sigma_g2 = sigma_g2,
-                      sigma_e2 = rep(1, G), tau = 1 / sigma_g2))
-  }
   nb <- fit$diagnostics$family_used == "negative_binomial"
   theta <- vapply(fit$family_parameters, function(x) {
     if (length(x)) x[1L] else NA_real_
@@ -32,7 +24,7 @@
   mu_bar <- fit$mu_bar
   if (!is.numeric(mu_bar) || length(mu_bar) != G) {
     stop("The fit does not store mu_bar, the mean of each fitted mean; re-run ",
-         "inlaST.estimate().", call. = FALSE)
+         "spdeST.estimate().", call. = FALSE)
   }
   mu_bar <- as.numeric(mu_bar)
   sigma_g2 <- as.numeric(fit$dispersion) /
@@ -112,51 +104,27 @@
 # weighted-vech H_j and, when the shared basis `V` is given, the factors R_j
 # (k^2 x n). Failed genes carry `error`.
 .mgcvst_pca_producer <- function(fit, used, basis, threads) {
-  if (identical(fit$score_backend, "sparse")) {
-    fit <- .inlast_sparse_prepare(fit)
-    g <- fit$score_sparse
-    q <- as.integer(basis$rank)
-    produce <- function(ids, B, V, pack) {
-      units <- .inlast_sparse_units(fit, ids, threads = threads)
-      unit_error <- vapply(units, function(z) {
-        if (is.null(z$error)) NA_character_ else as.character(z$error)
-      }, character(1L))
-      good <- which(is.na(unit_error))
-      out <- list(error = unit_error)
-      if (length(good)) {
-        z <- mgcvst_inla_sparse_materialize_pca_cpp(
-          units[good], g$cache$general_Q, as.numeric(g$constraint),
-          basis$coordinate, basis$basis, B, rep(pack, length(good)),
-          threads, g$cache$prepared, V
-        )
-        out$good <- good
-        out$z <- z
-        out$error[good] <- z$error
-      }
-      out
+  fit <- .inlast_sparse_prepare(fit)
+  g <- fit$score_sparse
+  q <- as.integer(basis$rank)
+  produce <- function(ids, B, V, pack) {
+    units <- .inlast_sparse_units(fit, ids, threads = threads)
+    unit_error <- vapply(units, function(z) {
+      if (is.null(z$error)) NA_character_ else as.character(z$error)
+    }, character(1L))
+    good <- which(is.na(unit_error))
+    out <- list(error = unit_error)
+    if (length(good)) {
+      z <- mgcvst_inla_sparse_materialize_pca_cpp(
+        units[good], g$cache$general_Q, as.numeric(g$constraint),
+        basis$coordinate, basis$basis, B, rep(pack, length(good)),
+        threads, g$cache$prepared, V
+      )
+      out$good <- good
+      out$z <- z
+      out$error[good] <- z$error
     }
-  } else {
-    builder <- .mgcvst_state_builder(fit, used, threads)
-    q <- .mgcvst_state_width(fit)
-    produce <- function(ids, B, V, pack) {
-      states <- builder$build(ids)
-      state_error <- vapply(states, function(z) {
-        if (is.null(z$error)) NA_character_ else as.character(z$error)
-      }, character(1L))
-      good <- which(is.na(state_error))
-      out <- list(error = state_error)
-      if (length(good)) {
-        z <- mgcvst_pca_dense_cpp(
-          lapply(states[good], `[[`, "M"),
-          do.call(cbind, lapply(states[good], `[[`, "a")), B,
-          rep(pack, length(good)), V, threads
-        )
-        out$good <- good
-        out$z <- z
-        out$error[good] <- z$error
-      }
-      out
-    }
+    out
   }
   materialize <- function(ids, B = NULL, V = NULL, pack = FALSE) {
     n <- length(ids)
@@ -440,9 +408,8 @@
 # streamed to raw Parquet shards. `index` is NULL for every pair of the
 # available genes (gene blocks are generated and scored on the fly) or a
 # two-column matrix of available feature indices i < j, evaluated by (i, j).
-# A sparse INLA fit needs its observation `basis`; an mgcv fit has none.
 .mgcvst_pair_pcalearning <- function(fit, index, threads, chunk_size, verbose,
-                                     basis = NULL,
+                                     basis,
                                      rank = .mgcvst_pca_defaults$rank,
                                      n_per_cell = .mgcvst_pca_defaults$n_per_cell,
                                      seed = .mgcvst_pca_defaults$seed,
@@ -458,9 +425,7 @@
   chunk_size <- .mgcvst_check_chunk_size(chunk_size)
   if (is.null(chunk_size)) stop("chunk_size must be one positive integer.")
   threads <- as.integer(threads)
-  sparse <- identical(fit$score_backend, "sparse")
-  if (sparse && is.null(basis)) stop("A sparse INLA fit needs its observation basis.")
-  q <- .mgcvst_state_width(fit, basis)
+  q <- as.integer(basis$rank)
   table_bytes <- .mgcvst_pca_table_bytes(q, rank)
   available_memory <- .mgcvst_memory_probe()$available
   if (is.finite(available_memory) && table_bytes > available_memory) {
@@ -469,7 +434,7 @@
                         "use a smaller rank."),
                  rank, q, table_bytes / 1024^3, available_memory / 1024^3))
   }
-  if (sparse) fit <- .inlast_sparse_prepare(fit)
+  fit <- .inlast_sparse_prepare(fit)
 
   available <- .mgcvst_feature_available(fit)
   all_pairs <- is.null(index)
@@ -677,7 +642,7 @@
     features = data.frame(feature_index = used, trace_M = trace_M,
                           trace_M2 = fro2),
     metadata = list(
-      preparation_backend = if (sparse) "sparse" else "model_native",
+      preparation_backend = "sparse",
       pair_schedule = if (all_pairs) "pcalearning_gene_blocks" else
         "pcalearning_pair_list",
       chunks = chunks, chunk_size = chunk_size, resumed_pairs = resumed_pairs,

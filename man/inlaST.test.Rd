@@ -2,7 +2,7 @@
 % Please edit documentation in R/inla-downstream.R
 \name{inlaST.test}
 \alias{inlaST.test}
-\title{Test cross-feature spatial covariance from an INLA fit}
+\title{The pair test behind spdeST.test()}
 \usage{
 inlaST.test(
   fitinlaST,
@@ -23,10 +23,8 @@ inlaST.test(
 )
 }
 \arguments{
-\item{fitinlaST}{An object returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}} (version 0.0.1.9032
-or later). Only the features with a spatial model are tested; a feature
-that step 2 of the estimation did not fit is unavailable, and \code{pairs = NULL}
-covers the available features.}
+\item{fitinlaST}{A fit with spatial models. Only the features with a
+spatial model are tested; \code{pairs = NULL} covers the available features.}
 
 \item{pairs}{\code{NULL} (the default) for every pair of available features, or a
 two-column matrix or data frame of feature IDs or one-based indices.}
@@ -54,8 +52,7 @@ refused. With \code{NULL}, temporary storage is used.}
 \item{verbose}{Logical; report progress and the route.}
 
 \item{moments}{\code{"exact"} or \code{"pcalearning"}, the route of the pair
-calibration. Required: there is no default, and a call without it stops.
-Both routes serve both estimators.}
+calibration. Required: there is no default, and a call without it stops.}
 
 \item{rank}{Number of PCAlearning basis matrices (default 100). Used by the
 PCAlearning route.}
@@ -67,8 +64,7 @@ PCAlearning route.}
 sampling; the caller's random-number state is restored.}
 
 \item{k}{Number of leading singular values of the shared basis. \code{NULL}
-uses \code{q} (the full spectrum) on the exact route of an mgcv fit, 20 on the
-exact route of a sparse INLA fit and 80 on the PCAlearning route; a value above
+uses 20 on the exact route and 80 on the PCAlearning route; a value above
 the score dimension \code{q} is reduced to \code{q}, and \code{k = q} reproduces the
 full-spectrum saddlepoint of each pair.}
 
@@ -90,36 +86,20 @@ is off when the bound would be needed below \code{z = 2} (for example
 screening value and the number of screened pairs.}
 }
 \value{
-An \code{mgcvST_test} object; see \code{\link[=mgcvST.test]{mgcvST.test()}}.
+An \code{mgcvST_test} object; see \code{\link[=spdeST.test]{spdeST.test()}}.
 }
 \description{
-Pairwise covariance test for fits returned by \code{\link[=inlaST.estimate]{inlaST.estimate()}}. The
-sparse INLA score state stored on the fit is reused; no model is refitted.
-Each gene pair is tested by the signed cross-gene score, calibrated by the
-saddlepoint approximation described in \code{\link[=mgcvST.test]{mgcvST.test()}}, which also
-describes the exact and PCAlearning routes; \code{moments} selects the route. The
-score uses the full-rank constrained observation-kernel basis (all \code{q - 1}
-directions of the constrained field, ordered by eigenvalue), the same basis
-that \code{\link[=inlaST.wgcna]{inlaST.wgcna()}} uses; no eigenvalue coverage truncation is applied.
-The exact route reconstructs each gene's reduced curvature in that basis; its
-pair cost is cubic in \code{q}, and the PCAlearning route does not depend on \code{q}
-per pair. The fitted sparse field is unchanged. The dimension of the
+The method of \code{\link[=spdeST.test]{spdeST.test()}}, which documents the arguments and the
+result. The sparse score state stored on the fit is reused; no model is
+refitted. The exact route reconstructs each feature's reduced curvature in
+the observation-kernel basis; its pair cost is cubic in \code{q}, and the
+PCAlearning route does not depend on \code{q} per pair. The dimension of the
 field, the number of basis directions and the basis time are stored in
 \code{timing$inla_projection}, the pair-stage timings in \code{timing$pair_pipeline}
 (exact route) or \code{timing$pcalearning}, and the chosen route in
 \code{timing$route}.
 }
 \details{
-The result has the compact shape described in \code{\link[=mgcvST.test]{mgcvST.test()}}: integer
-feature indices \code{i < j}, the signed \code{score}, its information \code{t1}, the
-natural-log two-sided,
-positive and negative p-values, the adjusted two-sided \code{log_q}, the
-calibration's \code{remainder_kind} and a \code{status} code, streamed to Parquet
-shards, and the per-feature traces in \verb{$features}. With \code{pairs = NULL} every pair of the available genes is tested, one
-block of left genes at a time. The multiple-testing adjustment is applied
-once to the two-sided family, in log space, and positive and negative
-discoveries are split by the sign of the score.
-
 The PCAlearning route projects every score covariance \code{H_j} onto
 a rank-\code{rank} orthonormal basis learned from stratified training genes.
 Each gene receives the variance scales \code{sigma_g2 = dispersion / lambda}

@@ -109,50 +109,6 @@ test_that("native fmesher meshes store kappa_unit and kappa_internal = kappa_uni
                tolerance = 1e-12)
 })
 
-test_that("the mgcv path uses kappa_internal = kappa_unit * transform_scale / L", {
-  skip_if_not_installed("geometry")
-  d <- .kappa_unit_data2d()
-  loc <- as.matrix(d[c("x", "y")])
-  raw <- .kappa_unit_mesh2d()
-  center <- c(2, 1.5)
-  scale <- 4
-  normalized <- structure(list(
-    mesh = list(loc = sweep(raw$loc, 2L, center, "-") / scale,
-                graph = raw$graph),
-    transform = list(center = center, scale = scale)
-  ), class = "spde_mesh")
-  span <- .kappa_unit_span(d, c("x", "y"))
-  L <- max(span)
-
-  a <- spde_basis(raw, loc, kappa = 0.3)
-  b <- spde_basis(normalized, loc, kappa = 0.3)
-  expect_identical(b$kappa_unit, 0.3)
-  expect_equal(b$unit_length, L)
-  expect_equal(unname(b$coordinate_span), unname(span))
-  expect_equal(b$kappa_internal, 0.3 * scale / L)
-  expect_equal(a$kappa_internal, 0.3 / L)
-  fem <- spdeST:::.spde_basis_fem(spdeST:::.spde_basis_mesh(normalized))
-  k <- 0.3 * scale / L
-  Qraw <- as.matrix(k^4 * fem$M0 + 2 * k^2 * fem$M1 + fem$M2)
-  expect_equal(b$Q, crossprod(b$projection, Qraw %*% b$projection),
-               tolerance = 1e-10)
-  # Normalizing coordinates by s multiplies the 2D precision by s^2 only.
-  expect_equal(b$B, a$B, tolerance = 1e-12)
-  expect_equal(b$Q, scale^2 * a$Q, tolerance = 1e-10)
-  expect_output(print(b), "kappa \\(unit scale, fixed\\): 0.3")
-
-  model <- model.set(response ~ z, d, b, family = gaussian())
-  expect_identical(model$kappa_unit, 0.3)
-  expect_equal(model$kappa_internal, 0.3 * scale / L)
-  expect_equal(model$unit_length, L)
-  expect_output(print(model), "unit length L")
-  prepared <- mgcvST.set(response ~ z + s(x, y, bs = "spde", xt = b), d,
-                         gaussian())
-  expect_equal(prepared$kappa_internal, 0.3 * scale / L)
-  expect_equal(prepared$G$smooth[[1L]]$kappa_internal, 0.3 * scale / L)
-  expect_null(prepared$G$smooth[[1L]]$kappa.estimated)
-})
-
 test_that("rescaling mm to um leaves the kernel and marginal scores unchanged", {
   skip_if_not_installed("geometry")
   mm <- .kappa_unit_data2d()

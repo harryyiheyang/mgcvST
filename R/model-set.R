@@ -16,8 +16,8 @@
 
 #' Construct the mgcv model behind inlaST.set()
 #'
-#' Builds the reusable `mgcv::gam(..., fit = FALSE)` setup consumed by
-#' [mgcvST.estimate()]. The response name on the left-hand side is a label: it
+#' Builds the `mgcv::gam(..., fit = FALSE)` setup from which [inlaST.set()]
+#' takes its design. The response name on the left-hand side is a label: it
 #' need not be a column of `data`, because the helper replaces it with an
 #' internal response bridge before constructing the mgcv setup. Linear terms,
 #' factors, interactions, offsets, and additional mgcv smoothers on the
@@ -36,7 +36,7 @@
 #'   `setting = "global_local"` is not supported.
 #' @param coordinates Character vector naming the two coordinate columns.
 #' @param ... Additional arguments passed to `mgcv::gam(..., fit = FALSE)`.
-#' @return An object of class `mgcvST_model` for [mgcvST.estimate()]. It
+#' @return An object of class `mgcvST_model`. It
 #'   stores the basis `kappa_unit`, `unit_length`, `coordinate_span` and
 #'   `kappa_internal`.
 #' @keywords internal

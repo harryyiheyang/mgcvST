@@ -373,7 +373,6 @@
   )
   .spde_estimate_check(model$inla_spec)
   model$inla_control <- control
-  model$score_backend <- "sparse"
   class(model) <- c("inlaST_native_model", "inlaST_model", "mgcvST_model")
   capability <- .inlast_sparse_score_capability(model)
   if (!capability$eligible) {

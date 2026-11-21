@@ -110,7 +110,7 @@ test_that("approximate inlaST.test() builds the observation basis once", {
   expect_identical(out$timing$inla_projection$basis_kind, "full_rank")
 })
 
-test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones", {
+test_that("inlaST.test and spdeST.test share their arguments and reject removed ones", {
   skip_on_cran()
   fit <- .pca_nb_fit()
   pair <- matrix(fit$feature_id[1:2], 1L)
@@ -126,7 +126,7 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
                  "calibration", "conditional_precision", "BPPARAM", "FDR", "method",
                  "highlight", "cache_bytes", "...")) {
     expect_false(name %in% names(formals(inlaST.test)))
-    expect_false(name %in% names(formals(mgcvST.test)))
+    expect_false(name %in% names(formals(spdeST.test)))
   }
   shared <- c("pairs", "q.value", "adjust", "threads", "chunk_size",
               "checkpoint_dir", "resume", "verbose")
@@ -134,17 +134,16 @@ test_that("inlaST.test shares the mgcvST.test arguments and rejects removed ones
   # controls follow them, so a positional call means the same in both tests.
   controls <- c("moments", "rank", "n_per_cell", "seed", "k", "screen")
   expect_identical(names(formals(inlaST.test)), c("fitinlaST", shared, controls))
-  expect_identical(names(formals(mgcvST.test)), c("fitmgcvST", shared, controls))
-  expect_identical(formals(inlaST.test)[controls], formals(mgcvST.test)[controls])
+  expect_identical(names(formals(spdeST.test)), c("fit", shared, controls))
+  expect_identical(formals(inlaST.test)[controls], formals(spdeST.test)[controls])
   expect_equal(unlist(spdeST:::.mgcvst_pca_defaults),
                c(rank = 100, n_per_cell = 3, seed = 1, k = 80))
   expect_identical(eval(formals(inlaST.test)$rank), 100L)
   # The route has no default: a call without it stops, whatever else is wrong.
   expect_identical(formals(inlaST.test)$moments, formals(function(moments) NULL)$moments)
-  expect_identical(formals(mgcvST.test)$moments, formals(function(moments) NULL)$moments)
+  expect_identical(formals(spdeST.test)$moments, formals(function(moments) NULL)$moments)
   expect_error(inlaST.test(fit, pairs = pair), "moments must be given")
   expect_error(inlaST.test(fit, pairs = pair, rank = 0L), "moments must be given")
-  expect_error(mgcvST.test(fit, pairs = pair), "moments must be given")
   expect_error(inlaST.test(fit, pairs = pair, moments = "auto"), "moments must be one of")
   expect_error(inlaST.test(fit, pairs = pair, moments = c("exact", "pcalearning")),
                "moments must be one of")
@@ -562,51 +561,31 @@ test_that("PCAlearning tests are bitwise identical for 1 and 4 threads", {
   expect_identical(one$contract$basis_sha, four$contract$basis_sha)
 })
 
-test_that("a zero-matrix gene is reported as unusable and does not disturb the other genes", {
-  .pair_pipeline_mocks()
+test_that("a gene without a curvature matrix is reported as unusable and does not disturb the other genes", {
+  skip_on_cran()
+  fit <- .pca_nb_fit()
+  basis <- spdeST:::.inlast_sparse_observation_basis(spdeST:::.inlast_sparse_prepare(fit))
+  run <- function() .pca_pairs(z <<- spdeST:::.mgcvst_pair_pcalearning(
+    fit, NULL, 1L, 100L, FALSE, basis, rank = 3L, k = 5L))
+  z <- NULL
+  full <- run()
+  units <- spdeST:::.inlast_sparse_units
   testthat::local_mocked_bindings(
-    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
-      lapply(ids, function(i) {
-        list(a = c(i, i + 0.25), width = 2L,
-             M = if (i == 3L) matrix(0, 2L, 2L) else diag(c(i + 0.5, i + 1)))
-      })
+    .inlast_sparse_units = function(fit, features, threads = 1L) {
+      out <- units(fit, features, threads = threads)
+      for (k in which(features == 3L)) {
+        out[[k]] <- list(error = "The curvature matrix is zero or not finite.")
+      }
+      out
     }, .package = "spdeST")
-  fit <- .pair_pipeline_fit(6L)
-  z <- spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L)
-  out <- .pca_pairs(z)
+  out <- run()
   bad <- out$i == 3L | out$j == 3L
   expect_true(all(out$status[bad] == 3L))
   expect_true(all(is.na(out$score[bad]) & is.na(out$log_p_two_sided[bad])))
   expect_true(all(out$status[!bad] == 0L))
   expect_true(all(is.finite(out$log_p_two_sided[!bad])))
-  expect_identical(z$failed$feature_id, "g3")
+  expect_identical(z$failed$feature_id, fit$feature_id[3L])
   expect_match(z$failed$error, "zero or not finite")
-  # The other pairs equal those of a run without the zero-matrix gene.
-  testthat::local_mocked_bindings(
-    .mgcvst_pair_build_batch = function(fit, ids, threads, native) {
-      lapply(ids, function(i) list(a = c(i, i + 0.25), M = diag(c(i + 0.5, i + 1)),
-                                   width = 2L))
-    }, .package = "spdeST")
-  full <- .pca_pairs(spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L))
-  keep <- !bad
-  expect_equal(out$log_p_two_sided[keep], full$log_p_two_sided[full$i != 3L & full$j != 3L],
-               tolerance = 1e-3)
-})
-
-test_that("an mgcv fit takes the PCAlearning route and agrees with the exact route", {
-  .pair_pipeline_mocks()
-  fit <- .pair_pipeline_fit(6L)
-  exact <- spdeST:::.mgcvst_pair_pipeline(fit, NULL, 1L, 100L, FALSE, k = 2L)
-  pca <- spdeST:::.mgcvst_pair_pcalearning(fit, NULL, 1L, 100L, FALSE, rank = 2L, k = 2L)
-  a <- do.call(rbind, lapply(exact$shards, spdeST:::.mgcvst_read_shard))
-  b <- .pca_pairs(pca)
-  a <- a[order(a$i, a$j), ]
-  expect_identical(a$i, b$i)
-  expect_identical(a$j, b$j)
-  expect_equal(a$score, b$score, tolerance = 1e-12)
-  expect_true(all(a$status == 0L & b$status == 0L))
-  expect_equal(-b$log_p_two_sided / log(10), -a$log_p_two_sided / log(10), tolerance = 1e-3)
-  expect_identical(pca$metadata$preparation_backend, "model_native")
-  expect_identical(pca$metadata$contract$route, "pcalearning")
-  expect_identical(exact$metadata$contract$route, "exact")
+  # The other pairs are close to those of a run with every gene.
+  expect_equal(out$log_p_two_sided[!bad], full$log_p_two_sided[!bad], tolerance = 0.2)
 })

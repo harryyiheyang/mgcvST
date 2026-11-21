@@ -74,75 +74,19 @@
   blocks
 }
 
-# Score-only native kernel for the mgcv model backend. No per-gene R loop and
-# no eigendecomposition fallback: every feature's score vector `a` is built by
-# the C++ dense batch kernel with score_only = TRUE (no H, no pair-calibration
-# matrices), in batches of 256 genes.
-.mgcvst_wgcna_scores <- function(fit, used, verbose, threads = 1L) {
-  group <- "global"
-  fit$.mgcvst_fixed_factors <- .mgcvst_model_fixed_factors(fit)
-  native <- .mgcvst_model_dense_preparation(fit, used)
-  if (is.null(native)) {
-    stop("mgcvST.wgcna() requires a single marked-SPDE model with nuisance covariance.")
-  }
-  width <- native$width
-  A <- matrix(NA_real_, unname(width), length(used),
-             dimnames = list(NULL, fit$feature_id[used]))
-  batch_size <- 256L
-  first <- 1L
-  while (first <= length(used)) {
-    ids <- used[first:min(length(used), first + batch_size - 1L)]
-    cols <- first:min(length(used), first + batch_size - 1L)
-    phi <- fit$dispersion[ids]
-    sp <- fit$smoothing_parameters[ids, , drop = FALSE]
-    bad <- !is.finite(phi) | phi <= 0 |
-      rowSums(!is.finite(sp) | sp <= 0) > 0L
-    z <- mgcvst_dense_score_batch_cpp(
-      native$T0, fit$working_variance[, ids, drop = FALSE],
-      fit$working_error[, ids, drop = FALSE],
-      phi / sp[, native$sp_index], native$X,
-      fit$nuisance_covariance[ids], threads, score_only = TRUE
-    )
-    for (k in seq_along(ids)) {
-      if (bad[k]) z[[k]] <- list(error =
-        "The feature has invalid dispersion or smoothing parameters.")
-    }
-    for (k in seq_along(ids)) {
-      if (!is.null(z[[k]]$error)) {
-        stop("Feature '", fit$feature_id[ids[k]], "' failed WGCNA score ",
-             "construction: ", z[[k]]$error)
-      }
-      A[, cols[k]] <- z[[k]]$a
-    }
-    if (verbose && (min(length(used), first + batch_size - 1L) %% 256L == 0L ||
-        first + batch_size - 1L >= length(used))) {
-      message("Constructed scores for ", min(length(used), first + batch_size - 1L),
-              " of ", length(used), " features.")
-    }
-    first <- first + length(ids)
-  }
-  if (any(!is.finite(A))) {
-    stop("The selected score coordinates contain non-finite values.")
-  }
-  list(A = A, group = group, width = width[group],
-       feature_id = fit$feature_id[used])
-}
 # --------------------------------------------------------------------------
 # Shared WGCNA front end and back end.
 #
-# mgcvST.wgcna() and inlaST.wgcna() differ in exactly one step: how the score
-# matrix A is built. Everything before it (argument validation, gene blocks,
-# working-model validity, optional-package check) and everything after it
-# (similarity -> correlation -> adjacency -> TOM -> tree -> dynamic cut ->
-# colours) is identical and lives here once.
+# Argument validation, gene blocks, working-model validity and the
+# optional-package check; then similarity -> correlation -> adjacency -> TOM
+# -> tree -> dynamic cut -> colours.
 # --------------------------------------------------------------------------
 
 # Validate the arguments shared by both entry points and resolve gene blocks.
 .mgcvst_wgcna_prepare <- function(fit, indices, wgcna.para, verbose, threads,
                                   caller) {
-  if (!inherits(fit, "mgcvST_fit")) {
-    stop(caller, "() requires a compact fit returned by mgcvST.estimate() or ",
-         "inlaST.estimate().")
+  if (!inherits(fit, "inlaST_fit")) {
+    stop(caller, "() requires a fit returned by spdeST.estimate().")
   }
   .mgcvst_check_fit_format(fit)
   if (missing(indices) || is.null(indices)) {
@@ -168,32 +112,17 @@
   if (!identical(names(geometry$target), "global")) {
     stop("The fit must carry exactly one score component named 'global'.")
   }
-  if (.mgcvst_inla_downstream(fit)) {
-    if (!is.matrix(fit$score_a) || ncol(fit$score_a) != length(ids) ||
-        length(fit$dispersion) != length(ids)) {
-      stop("The compact fit dimensions are incompatible with feature_id.")
-    }
-    valid <- is.finite(fit$dispersion[used]) & fit$dispersion[used] > 0 &
-      colSums(!is.finite(fit$score_a[, used, drop = FALSE])) == 0L
-  } else {
-    E <- fit$working_error
-    V <- fit$working_variance
-    if (length(dim(E)) != 2L || length(dim(V)) != 2L ||
-        !identical(dim(E), dim(V)) || ncol(E) != length(ids) ||
-        length(fit$dispersion) != length(ids)) {
-      stop("The compact fit dimensions are incompatible with feature_id.")
-    }
-    valid <- is.finite(fit$dispersion[used]) & fit$dispersion[used] > 0 &
-      colSums(!is.finite(E[, used, drop = FALSE])) == 0L &
-      colSums(!is.finite(V[, used, drop = FALSE]) | V[, used, drop = FALSE] <= 0) == 0L
+  if (!is.matrix(fit$score_a) || ncol(fit$score_a) != length(ids) ||
+      length(fit$dispersion) != length(ids)) {
+    stop("The compact fit dimensions are incompatible with feature_id.")
   }
+  valid <- is.finite(fit$dispersion[used]) & fit$dispersion[used] > 0 &
+    colSums(!is.finite(fit$score_a[, used, drop = FALSE])) == 0L
   if (any(!valid)) {
     unfitted <- if (is.null(fit$diagnostics$spatial_fitted)) rep(FALSE, length(used)) else
       !fit$diagnostics$spatial_fitted[used]
     if (any(!valid & unfitted)) {
-      stop("Selected features have no spatial fit; add one with ",
-           if (.mgcvst_inla_downstream(fit)) "inlaST" else "spdeST",
-           ".estimate_spatial(): ",
+      stop("Selected features have no spatial fit; add one with spdeST.estimate(): ",
            paste(ids[used[!valid & unfitted]], collapse = ", "), ".")
     }
     stop("Selected features lack valid working models: ",
@@ -273,29 +202,21 @@
     call = call), class = "mgcvST_wgcna")
 }
 
-#' Identify co-expression modules within explicitly selected gene blocks
+#' Identify co-expression modules from a fit
 #'
-#' Constructs the original score covariance `crossprod(A) / nrow(A)` from an
-#' [mgcvST.estimate()] or [inlaST.estimate()] fit, converts it to correlation,
-#' and performs WGCNA. `indices` selects genes, for example the genes in a
-#' connected component
-#' identified after [mgcvST.test()]. A named list analyzes several gene blocks
-#' separately. It never pools blocks, selects significant pairs, or reruns
-#' estimation or testing. All pairs within each selected block enter its COV.
+#' Builds the gene-by-gene similarity \eqn{S_{ij} = (R'a_i)'(R'a_j)} of the
+#' genes of each selected block, where `R` is the observation-kernel
+#' coordinate basis used by [spdeST.test()] (all `q - 1` directions of the
+#' constrained field) and \eqn{a_i} are the score vectors stored on the fit,
+#' divided by the basis rank `r`. It then runs
+#' `WGCNA::adjacency.fromSimilarity()`, `WGCNA::TOMsimilarity()`,
+#' `fastcluster::hclust()`, `dynamicTreeCut::cutreeDynamic()` and
+#' `WGCNA::labels2colors()`. Blocks are selected explicitly; no gene is
+#' selected by estimation or testing, and all pairs within a block enter its
+#' covariance. No centering, ridge, or covariance projection is applied, and
+#' the supplied fit is not modified.
 #'
-#' Shared SPDE factors are constructed once. All backends compute only the score
-#' vectors needed here; pair-test calibration matrices are unnecessary. The
-#' result retains these vectors and the matrices needed for downstream analysis
-#' without modifying the supplied fit. No centering, ridge, or covariance
-#' projection is applied.
-#'
-#' The score coordinates of the single spatial component are divided by their
-#' coordinate count, as in the score covariance definition.
-#'
-#' An [inlaST.estimate()] fit is not accepted here; use [inlaST.wgcna()] for
-#' sparse INLA fits.
-#'
-#' @param fitmgcvST A compact fit returned by [mgcvST.estimate()].
+#' @param fitmgcvST A fit returned by [spdeST.estimate()].
 #' @param indices Required gene IDs, integer positions in `fitmgcvST$feature_id`,
 #'   or a named list of such vectors. Each block must contain at least two distinct
 #'   genes. A vector defines the block named `selected`. Gene order is preserved.
@@ -306,67 +227,13 @@
 #'   Blocks smaller than `minClusterSize` retain their matrices and receive
 #'   grey (zero) labels, without changing the requested module size.
 #' @param verbose Whether to display compact progress messages.
-#' @param threads Positive OpenMP thread count controlling score construction
-#'   for both backends.
+#' @param threads Positive OpenMP thread count controlling score construction.
 #' @return An `mgcvST_wgcna` object with `modules` (component, feature ID, integer
 #'   module, color), named `networks` (feature IDs, covariance, correlation,
 #'   adjacency, TOM, tree, labels, modules, coordinate count `q`, and status),
 #'   `score` (aligned `A`, group names and widths), `settings`, and `timing`.
 #'   A zero module label means unassigned (grey). Module labels are local to
 #'   each input block. No biological annotations are inferred automatically.
-#' @seealso [inlaST.wgcna()] for sparse INLA fits.
-#' @examples
-#' \dontrun{
-#' W <- mgcvST.wgcna(fit, indices = genes)
-#' W <- mgcvST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2),
-#'                   wgcna.para = list(power = 6))
-#' W$modules
-#' W$networks$block1$covariance
-#' }
-#' @export
-mgcvST.wgcna <- function(fitmgcvST, indices,
-                         wgcna.para = NULL, verbose = FALSE, threads = 1L) {
-  started <- proc.time()[["elapsed"]]
-  call <- match.call()
-  if (.mgcvst_inla_downstream(fitmgcvST)) {
-    stop("mgcvST.wgcna() does not accept inlaST.estimate() fits; use inlaST.wgcna().")
-  }
-  prepared <- .mgcvst_wgcna_prepare(fitmgcvST, indices, wgcna.para, verbose,
-                                    threads, "mgcvST.wgcna")
-  t0 <- proc.time()[["elapsed"]]
-  score <- .mgcvst_wgcna_scores(fitmgcvST, prepared$used, verbose,
-                                threads = prepared$threads)
-  score_seconds <- proc.time()[["elapsed"]] - t0
-  .mgcvst_wgcna_result(score, prepared, verbose, started, score_seconds, call)
-}
-
-#' Identify co-expression modules from a sparse INLA fit
-#'
-#' The sparse-kernel sibling of [mgcvST.wgcna()]. It takes an
-#' [inlaST.estimate()] fit and builds the gene-by-gene similarity
-#' \eqn{S_{ij} = (R'a_i)'(R'a_j)}, where `R` is the observation-kernel
-#' coordinate basis used by [inlaST.test()] (all `q - 1` directions of the
-#' constrained field), and
-#' \eqn{a_i} are the sparse INLA score vectors. It then runs exactly the same
-#' WGCNA splitting as [mgcvST.wgcna()]: `WGCNA::adjacency.fromSimilarity()`,
-#' `WGCNA::TOMsimilarity()`, `fastcluster::hclust()`,
-#' `dynamicTreeCut::cutreeDynamic()` and `WGCNA::labels2colors()`. The
-#' similarity, the normaliser and the downstream code are shared with
-#' [mgcvST.wgcna()], not re-derived.
-#'
-#' The score vectors are produced by projecting the sparse INLA score vectors
-#' onto `R`; `threads` has no effect on this projection. BiocParallel is not
-#' used, because the sparse INLA downstream runs one OpenMP layer in the
-#' manager process.
-#'
-#' The normaliser is the basis rank `r` (the number of retained projection
-#' coordinates), not `nrow(A)`.
-#'
-#' @inheritParams mgcvST.wgcna
-#' @param fitmgcvST A compact fit returned by [inlaST.estimate()].
-#' @return An `mgcvST_wgcna` object, identical in shape to the
-#'   [mgcvST.wgcna()] result.
-#' @seealso [mgcvST.wgcna()] for `mgcvST.estimate()` fits.
 #' @examples
 #' \dontrun{
 #' scan <- spdeST.scan(Y, model)
@@ -379,11 +246,6 @@ inlaST.wgcna <- function(fitmgcvST, indices,
                          wgcna.para = NULL, verbose = FALSE, threads = 1L) {
   started <- proc.time()[["elapsed"]]
   call <- match.call()
-  if (!.mgcvst_inla_downstream(fitmgcvST)) {
-    stop("inlaST.wgcna() requires a fit returned by inlaST.estimate(); use ",
-         "mgcvST.wgcna() for an mgcvST.estimate() fit.")
-  }
-  .mgcvst_inla_require_sparse(fitmgcvST)
   prepared <- .mgcvst_wgcna_prepare(fitmgcvST, indices, wgcna.para, verbose,
                                     threads, "inlaST.wgcna")
   t0 <- proc.time()[["elapsed"]]
@@ -393,7 +255,7 @@ inlaST.wgcna <- function(fitmgcvST, indices,
   .mgcvst_wgcna_result(score, prepared, verbose, started, score_seconds, call)
 }
 
-#' @rdname mgcvST.wgcna
+#' @rdname inlaST.wgcna
 #' @param x An `mgcvST_wgcna` result.
 #' @param ... Unused.
 #' @export

@@ -1,4 +1,4 @@
-# Two-step estimation shared by mgcvST.estimate() and inlaST.estimate().
+# The two-step estimation.
 #
 # Step 1 fits only the null model of every feature and returns the Stage 1
 # null-first p-value; step 2 fits the spatial model of the selected features
@@ -10,21 +10,19 @@
 # estimated before 0.0.1.9032.
 .mgcvst_fit_format <- 2L
 
-# A sparse INLA fit estimated before 0.0.1.9032 lacks the stored mean mu_bar and
-# the two-step bookkeeping that the tests and the later steps read, so it is
-# refused rather than reused. An mgcv fit of the earlier format holds every
-# quantity the mgcv tests use and is accepted.
+# A fit estimated before 0.0.1.9032 lacks the stored mean mu_bar and the
+# two-step bookkeeping that the tests and the later steps read, so it is
+# refused rather than reused.
 .mgcvst_check_fit_format <- function(fit) {
   format <- fit$format
   if (!is.null(format) && (!is.numeric(format) || length(format) != 1L ||
                            format > .mgcvst_fit_format)) {
-    stop("The fit was written by a newer version of mgcvST; update the package.",
+    stop("The fit was written by a newer version of spdeST; update the package.",
          call. = FALSE)
   }
-  if (identical(fit$estimator, "INLA") &&
-      (is.null(format) || format < .mgcvst_fit_format || !is.numeric(fit$mu_bar))) {
-    stop("This inlaST fit was estimated before mgcvST 0.0.1.9032 and lacks the ",
-         "stored mean mu_bar that the pair test reads; re-run inlaST.estimate().",
+  if (is.null(format) || format < .mgcvst_fit_format || !is.numeric(fit$mu_bar)) {
+    stop("This fit was estimated before 0.0.1.9032 and lacks the stored mean ",
+         "mu_bar that the pair test reads; re-run spdeST.estimate().",
          call. = FALSE)
   }
   invisible(fit)

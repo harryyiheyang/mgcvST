@@ -20,30 +20,30 @@ more local field. With `alpha = 2`, the practical range is
 The default `kappa = 0.05` gives about 57 unit lengths in 2D and 40 in 3D, a
 very smooth global field. The examples below use `kappa = 0.1`.
 
-The primary analysis uses frequentist `mgcv` estimation, including `bam` for
-larger data. INLA supplies a supplementary sparse SPDE estimator.
+The spatial model of a feature is estimated by `spde.estimate()`, a sparse
+Laplace REML fit of the Poisson or negative-binomial SPDE model in compiled
+code. `mgcv` builds the fixed-effect design and supplies the smooth
+`bs = "spde"`; it does not fit the features.
 
 ## Pipeline
 
-One pipeline serves the mgcv and INLA implementations. The model object from
-`mgcvST.set()` or `inlaST.set()` carries the implementation and every setting
-that can be fixed in advance; the `spdeST.*` functions take only the
-arguments of their own stage.
+The model object from `inlaST.set()` carries every setting that can be fixed
+in advance; the `spdeST.*` functions take only the arguments of their own
+stage.
 
 ```r
-model <- mgcvST.set(formula, data, family = mgcv::nb())  # or inlaST.set(...)
+model <- inlaST.set(formula, data, family = mgcv::nb(), mesh = mesh)
 scan  <- spdeST.scan(Y, model, offset = NULL, adjust = "BY", q.value = 0.05)
 fit   <- spdeST.estimate(scan, Y, features = "discoveries")
 res   <- spdeST.test(fit, pairs = NULL, moments = "pcalearning")
 ```
 
-`spdeST.scan()` is Stage 1 for both implementations (GLM nulls and the SPDE
-score test), `spdeST.estimate()` fits the spatial model of the chosen
-features only, and `spdeST.test()` tests their pairs. The functions of the two
-implementations behind these entry points are internal.
+`spdeST.scan()` is Stage 1 (GLM nulls and the SPDE score test),
+`spdeST.estimate()` fits the spatial model of the chosen features only, and
+`spdeST.test()` tests their pairs.
 
-The package provides the `mgcv` smooth `bs = "spde"`, which fits the full
-projected SPDE basis.
+The package also provides the `mgcv` smooth `bs = "spde"`, which fits the full
+projected SPDE basis in `mgcv::gam()`; the fitted-field figures below use it.
 
 Two small spatial-transcriptomics data sets are included: `MISO_E13` and
 `Visium_B`. Each contains covariates, three selected genes, a baseline mesh
@@ -54,21 +54,12 @@ figure is reproduced separately from the larger local data and saved fits.
 
 ## Installation
 
-`spdeST` uses CRAN, Bioconductor, and INLA dependencies; the fitted-field
+`spdeST` uses CRAN and Bioconductor dependencies; the fitted-field
 figures below use `ggplot2`.
 
 ```{r installation, eval=FALSE}
-install.packages("remotes")
-install.packages("BiocManager")
+install.packages(c("remotes", "BiocManager", "ggplot2"))
 BiocManager::install("BiocParallel", ask = FALSE)
-
-install.packages(
-  c("ggplot2", "INLA"),
-  repos = c(
-    getOption("repos"),
-    INLA = "https://inla.r-inla-download.org/R/stable"
-  )
-)
 
 remotes::install_github("harryyiheyang/mgcvST", dependencies = TRUE)
 ```
@@ -82,7 +73,7 @@ model of the features chosen by `features`: `"discoveries"` (the default; the
 Stage 1 discoveries at `q.value`), `"all"`, a vector of feature IDs or indices,
 or a logical vector. Stage 1 is not recomputed, and a second call adds
 features to an earlier estimate. A null fit keeps no working vector, and the
-INLA workers compute the score vector and the mean of the fitted mean
+workers compute the score vector and the mean of the fitted mean
 themselves, so the manager holds compact per-feature results only. Features
 without a spatial model are marked `spatial_fitted = FALSE` in the
 diagnostics, and `pairs = NULL` in `spdeST.test()` tests the pairs among the
@@ -101,7 +92,7 @@ repeated call resumes from the saved chunks. `Y` must be the matrix given to
 
 ## WGCNA modules from fitted score covariance
 
-`mgcvST.wgcna()` identifies modules within gene blocks selected for downstream
+`inlaST.wgcna()` identifies modules within gene blocks selected for downstream
 analysis. It accepts a result of `spdeST.estimate()`
 and preserves the current fit's score definition, including its nuisance
 adjustment. Each block uses the uncentered score covariance `crossprod(A) / q`,
@@ -112,30 +103,26 @@ WGCNA adjacency, topological overlap and dynamic tree cutting.
 install.packages(c("WGCNA", "dynamicTreeCut", "fastcluster"))
 
 # fit is a result of spdeST.estimate(); genes contains the selected feature IDs.
-W <- mgcvST.wgcna(fit, indices = genes)
+W <- inlaST.wgcna(fit, indices = genes)
 W$modules
 W$networks$selected$TOM
 
 # Analyze previously selected blocks separately, preserving their gene order.
-W <- mgcvST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2), wgcna.para = list(power = 6))
+W <- inlaST.wgcna(fit, indices = list(block1 = genes1, block2 = genes2), wgcna.para = list(power = 6))
 ```
 
 The defaults are signed adjacency, power 6, signed TOM, average linkage,
 minimum module size 20 and `deepSplit = 1`. A named `wgcna.para` list overrides
-only the supplied settings. For a fit of the INLA implementation use
-`inlaST.wgcna()`, the sparse-kernel sibling with the same arguments and the
-same downstream splitting; `mgcvST.wgcna()` also accepts an INLA fit and
-dispatches to that same sparse kernel. Module labels are local to each gene
+only the supplied settings. Module labels are local to each gene
 block; label zero indicates an unassigned gene. The result retains score coordinates, covariance,
 correlation, adjacency, TOM and the clustering tree for further analysis.
 
-See `help("mgcvST.wgcna")` for the interface.
+See `help("inlaST.wgcna")` for the interface.
 
-## INLA estimation with mandatory mean-zero spatial fields
+## Model, estimation and pair test
 
-`inlaST.set()` selects the INLA implementation of the same pipeline. Every spatial field
-is constrained to average zero over the model observations for the global
-spatial score process.
+Every spatial field is constrained to average zero over the model
+observations.
 
 ```r
 library(spdeST)
@@ -145,8 +132,7 @@ basis <- spde_basis(MISO_E13$meshes$spde, as.matrix(d[c("x", "y")]),
                     kappa = 0.1, project_intercept = TRUE)
 model <- inlaST.set(
   response ~ offset(offset0) + s(x, y, bs = "spde", xt = basis),
-  d, family = mgcv::nb(), precision_scale = "observation",
-  control = list(control.inla = list(tolerance = 1e-4))
+  d, family = mgcv::nb()
 )
 Y <- t(as.matrix(MISO_E13$expression))
 scan <- spdeST.scan(Y, model)
@@ -156,62 +142,22 @@ pairs <- t(combn(rownames(Y), 2L))
 result <- spdeST.test(fit, pairs = pairs, moments = "exact")
 ```
 
-The backend uses fixed `kappa`, full SPDE bases and INLA empirical-Bayes
-estimates. Spatial log precision, NB log size and Gaussian observation log
-precision default to flat hyperparameter objectives. For Gaussian observations,
-this is a prior on inverse residual variance; the observation distribution
-remains Gaussian. Each prior can be replaced explicitly with a validated INLA
-prior. INLA and mgcv REML use distinct estimation procedures. Feature estimation uses
-raw sparse precision matrices. The default score backend also uses sparse
-precision solves for a single global SPDE; shared model setup and marginal
-testing retain dense geometry. A runnable data example is
-`system.file("examples", "inla_estimator.R", package = "spdeST")`.
+The model of a feature is `y ~ NB2(mu, size)` or Poisson with
+`log(mu) = offset + X beta + A u`, `u ~ N(0, (tau Q)^{-1})` under the
+mean-zero constraint, with fixed `kappa` and the raw sparse precision `Q`.
+`spde.estimate()` maximizes the Laplace REML criterion over the spatial
+precision `tau` and the NB size, without a prior on either. The family is
+Poisson or negative binomial; the model has one global SPDE field and
+fixed-effect nuisance terms, and `inlaST.set()` refuses a model with smooth
+nuisance terms or additional random blocks. Controls of the estimator are
+supplied as `inlaST.set(..., control = list(spde = list(...)))`, stored in
+the model and used by every stage.
 
-The nuisance `Vp` now comes directly from INLA's constrained conditional
-posterior covariance; the previous expected-Fisher reconstruction is retained
-separately when `diagnostics = TRUE`; default fits skip that extra solve.
-The workflow remains experimental. In independent
-500-pair low-count NB validation (mean 0.3, size 2, 200 observations,
-36 nodes, `kappa = 6`), nominal 5% rejection was 14.4% on the original
-precision scale and 0.8% with `precision_scale = "observation"`, using native
-posterior `Vp` and the conditioned SPDE score kernel. The latter was
-substantially conservative, not exactly calibrated at 5%. These historical
-validation figures used normal \(N(0,3^2)\) priors on
-spatial log precision and NB log size, rather than the current flat defaults.
-
-The example explicitly uses observation-scale precision: the spatial flat
-log-prior is applied after normalizing the constrained field to unit average
-observation variance. This changes the parameterization and optimizer start
-on the FEM multiplier.
-`precision_scale = "raw"` remains the default. Fixed precisions and returned
-smoothing multipliers retain original FEM units.
-The INLA path uses the native sparse score kernel for a single global SPDE with
-fixed nuisance terms. A model with additional random blocks is rejected by
-`inlaST.set()` with the reason from the sparse capability gate.
-
-The complete formula above is prepared through the same mgcv geometry used by
-`mgcvST.set()`. Existing code may instead supply the legacy `basis`
-argument, or pass a prepared design as `inlaST.set(G = prepared$G)`.
-Estimator controls supplied to `inlaST.set(..., control = ...)` are stored
-in the model and used by every stage.
-Prior specifications are replaced as complete objects. For example, the
-historical normal prior can be requested with
-`precision_prior = list(prior = "normal", param = c(0, 1/9))`.
-The public model interface uses one global SPDE score process. Additional
-smooth terms may be included as nuisance structure, but they are not additional
-spatial score components.
-
-Flat priors are improper hyperpriors used for empirical-Bayes optimization;
-they do not certify a proper hyperparameter posterior or an interior maximum.
-Mean-zero constraints remain mandatory.
-
-The production score uses the SPDE kernel already conditioned on the
-observation-mean constraint. Centering that conditioned kernel again does not
-change it. The nuisance adjustment combines native INLA `Vp` with the
-expected-likelihood working state, so its resulting operator need not satisfy
-`P %*% 1 = 0` numerically. This does not make the conditioned kernel
-equivalent to either the raw kernel or a separately formed
-`C %*% G_raw %*% C`.
+The formula may hold the `s(x, y, bs = "spde", xt = basis)` term as above; the
+model may also be given as `inlaST.set(formula, data, basis)`, as a prepared
+design `inlaST.set(G = gam(..., fit = FALSE))`, or as
+`inlaST.set(formula, data, mesh = mesh, kappa = kappa)`, the sparse setup that
+forms no dense basis and also takes tetrahedral meshes.
 
 `spdeST.test()` tests each gene pair by the signed
 cross-gene score `U = sum(s_i x_i y_i)`, where `s_i` are the singular values of
@@ -219,13 +165,11 @@ the product of the square roots of the two score-covariance matrices. The tail
 of `U` is a Lugannani-Rice saddlepoint approximation computed in log space on
 the `k` leading singular values of a basis shared by all genes, plus a
 remainder that matches the remaining power sums of the spectrum, so that
-p-values below the double range keep their ordering. Two routes provide the
-shared basis and the remainder, and the
+p-values below the double range keep their ordering. The score states are the
+reduced observation-kernel states of the sparse score kernel. Two routes
+provide the shared basis and the remainder, and the
 argument `moments` selects one of them: `"exact"` or `"pcalearning"`. It has no
-default, and both routes serve both estimators (an INLA fit takes the exact
-route through its reduced observation-kernel states, and an mgcv fit takes the
-PCAlearning route through the dense score kernel); `verbose = TRUE` prints the
-route and `k`.
+default; `verbose = TRUE` prints the route and `k`.
 
 * `moments = "exact"` uses the `k = 20` leading eigenvectors of the summed,
   normalized score covariances, the four exact trace moments of every pair, and
@@ -248,7 +192,7 @@ route and `k`.
   matrix of the training genes is summed in a fixed block order, so one and
   several threads give identical results.
 
-Both tests share one argument list and one compact result. With
+With
 `pairs = NULL`, every pair of the available genes is tested in blocks and
 streamed to Parquet shards. Each pair is a row of the integer feature indices
 `i < j`, `score`, the natural-log two-sided, positive and negative p-values,
@@ -338,7 +282,7 @@ grid::popViewport()
 The following chunk fits `Mapt` and `Map1b` on the MISO mesh. It fixes
 the unit-scale `kappa = 0.1`, estimates only the smoothing parameter by REML,
 and uses the full projected SPDE basis. For the pairwise test, the raw
-`gam(..., fit = FALSE)` setup is prepared by `mgcvST.set(G = ...)`.
+`gam(..., fit = FALSE)` setup is prepared by `inlaST.set(G = ...)`.
 
 ```{r miso-fit-and-score}
 D_miso_mapt <- D_miso
@@ -373,7 +317,7 @@ G_miso <- gam(
 )
 Y_miso_pair <- t(as.matrix(MISO_E13$expression[, c("Mapt", "Map1b")]))
 scan_pair_miso <- spdeST.scan(
-  Y_miso_pair, mgcvST.set(G = G_miso), BPPARAM = BiocParallel::SerialParam()
+  Y_miso_pair, inlaST.set(G = G_miso), BPPARAM = BiocParallel::SerialParam()
 )
 fit_pair_miso <- spdeST.estimate(
   scan_pair_miso, Y_miso_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
@@ -476,7 +420,7 @@ G_visium <- gam(
 )
 Y_visium_pair <- t(as.matrix(Visium_B$expression[, c("mt_co3", "BRAFhuman")]))
 scan_pair_visium <- spdeST.scan(
-  Y_visium_pair, mgcvST.set(G = G_visium), BPPARAM = BiocParallel::SerialParam()
+  Y_visium_pair, inlaST.set(G = G_visium), BPPARAM = BiocParallel::SerialParam()
 )
 fit_pair_visium <- spdeST.estimate(
   scan_pair_visium, Y_visium_pair, features = "all", BPPARAM = BiocParallel::SerialParam()
@@ -579,7 +523,7 @@ G_miso <- gam(
 Y_miso <- t(as.matrix(MISO_E13$expression[, genes_miso, drop = FALSE]))
 
 scan_batch_miso <- spdeST.scan(
-  Y_miso, mgcvST.set(G = G_miso), feature_id = genes_miso,
+  Y_miso, inlaST.set(G = G_miso), feature_id = genes_miso,
   BPPARAM = BiocParallel::SerialParam()
 )
 fit_batch_miso <- spdeST.estimate(
@@ -625,7 +569,7 @@ plot(mesh)
 
 ## Three-dimensional MAGIC example
 
-The native INLA interface also supports tetrahedral meshes for stacked
+The mesh setup `inlaST.set(mesh = )` also supports tetrahedral meshes for stacked
 sections. The MAGIC example contains 97,830 measured spots on 93 sections,
 with their recorded, unequal z spacing retained. Its supplied mesh has
 1,962 nodes and 7,676 tetrahedra. Tfap2b is one of the regional markers
