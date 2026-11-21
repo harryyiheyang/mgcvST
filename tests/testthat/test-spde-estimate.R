@@ -110,7 +110,7 @@ test_that("spde.estimate reports a feature it cannot fit and keeps the others", 
   expect_error(spde.estimate(f$Y, f$X, f$A, f$Q, constraint = 0), "constraint must")
 })
 
-test_that("engine = 'spde' runs the three stages without INLA", {
+test_that("engine = 'fable' runs the three stages without INLA", {
   skip_if_not_installed("geometry")
   set.seed(2402L)
   n <- 300L
@@ -127,12 +127,12 @@ test_that("engine = 'spde' runs the three stages without INLA", {
              g3 = stats::rbinom(n, 40L, pmin(mu * exp(-.8 * wave) / 40, .95)),
              g4 = stats::rnbinom(n, mu = mu, size = 2))
   expect_error(inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
-                          control = list(engine = "mgcv")), "'inla' or 'spde'")
+                          control = list(engine = "mgcv")), "'fable' or 'inla'")
   expect_error(inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
-                          control = list(engine = "spde", spde = list(tolerance = 1))),
+                          control = list(engine = "fable", spde = list(tolerance = 1))),
                "spde.estimate\\(\\) controls")
   model <- inlaST.set(response ~ z + offset(offset0), d, basis, family = mgcv::nb(),
-                      control = list(engine = "spde"), diagnostics = TRUE)
+                      control = list(engine = "fable"), diagnostics = TRUE)
   withr::local_options(mgcvST.progress = FALSE)
   sp <- BiocParallel::SerialParam()
   scan <- spdeST.scan(Y, model, BPPARAM = sp)
@@ -174,10 +174,10 @@ test_that("engine = 'spde' runs the three stages without INLA", {
   expect_lt(r$score[r$i == 1 & r$j == 3], 0)
 })
 
-test_that("the default engine is spde and a model outside its scope names inla", {
+test_that("the default engine is fable and a model outside its scope names inla", {
   old <- options(spdeST.engine = NULL)
   on.exit(options(old), add = TRUE)
-  expect_identical(.inlast_control()$engine, "spde")
+  expect_identical(.inlast_control()$engine, "fable")
   expect_error(.inlast_control(list(control.inla = list(tolerance = 1e-6))), "engine = 'inla'")
   spec <- list(family = "gaussian", random = list(list(kind = "spde")))
   expect_error(.spde_estimate_check(spec, list()), "engine = 'inla'")

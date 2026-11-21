@@ -33,7 +33,7 @@
   if (is.null(control)) control <- list()
   if (!is.list(control)) stop("control must be a list.")
   defaults <- list(
-    engine = getOption("spdeST.engine", "spde"),
+    engine = getOption("spdeST.engine", "fable"),
     spde = list(),
     int_strategy = "eb",
     latent_strategy = "gaussian",
@@ -66,8 +66,8 @@
   # accidentally matching nb_size_prior).
   out <- .inlast_merge_control(defaults, control)
   if (!is.character(out$engine) || length(out$engine) != 1L ||
-      !(out$engine %in% c("inla", "spde"))) {
-    stop("control$engine must be 'inla' or 'spde'.")
+      !(out$engine %in% c("inla", "fable"))) {
+    stop("control$engine must be 'fable' or 'inla'.")
   }
   spde_allowed <- setdiff(names(formals(spde.estimate)), c(
     "Y", "X", "A", "Q", "offset", "poisson", "size_start", "constraint", "feature_id",
@@ -101,13 +101,13 @@
   }
   # spde.estimate() maximises the marginal likelihood: it has no priors and
   # no INLA controls.
-  if (identical(out$engine, "spde")) {
+  if (identical(out$engine, "fable")) {
     flat <- vapply(out[c("precision_prior", "nb_size_prior")], function(x) {
       is.list(x) && identical(tolower(trimws(as.character(x$prior))), "flat") &&
         !length(x$param)
     }, logical(1L))
     if (!all(flat) || length(out$control.inla)) {
-      stop("engine = 'spde' takes no prior and no control$control.inla. ",
+      stop("engine = 'fable' takes no prior and no control$control.inla. ",
            "Set control = list(engine = 'inla') to use them.")
     }
     return(out)

@@ -186,21 +186,21 @@ spde.laml <- function(y, X, A, Q, log_tau, alpha, offset = NULL, constraint = NU
     maxit_halving = as.integer(maxit_halving), eta_max = eta_max, rank_tol = rank_tol)
 }
 
-# The models of engine = "spde": a count family, fixed effects and one SPDE
+# The models of engine = "fable": a count family, fixed effects and one SPDE
 # field, the precision and the size both estimated. Another model is fitted
 # with control = list(engine = "inla").
 .spde_estimate_check <- function(spec, control) {
   other <- " Set control = list(engine = 'inla') for this model."
   if (!(spec$family %in% c("poisson", "negative_binomial"))) {
-    stop("engine = 'spde' fits Poisson and negative-binomial models only.", other)
+    stop("engine = 'fable' fits Poisson and negative-binomial models only.", other)
   }
   if (length(spec$random) != 1L || !identical(spec$random[[1L]]$kind, "spde")) {
-    stop("engine = 'spde' requires fixed effects and one SPDE field, without other random blocks.",
+    stop("engine = 'fable' requires fixed effects and one SPDE field, without other random blocks.",
          other)
   }
   if (!is.null(control$nb_size) || !is.null(control$fixed_precision) ||
       !is.null(spec$nb_size_fixed)) {
-    stop("engine = 'spde' estimates the precision and the size; neither can be fixed.", other)
+    stop("engine = 'fable' estimates the precision and the size; neither can be fixed.", other)
   }
   invisible(TRUE)
 }

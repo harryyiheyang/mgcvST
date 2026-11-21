@@ -449,7 +449,7 @@ inlaST.set <- function(
 .inlast_fit_chunk <- function(index, Y, spec, base_offset, extra_offset,
                               control, diagnostics, poisson = NULL, threads = 1L,
                               null = NULL) {
-  if (identical(control$engine, "spde")) {
+  if (identical(control$engine, "fable")) {
     return(.spde_estimate_chunk(index, Y, spec, base_offset, extra_offset,
                                 control, poisson, threads, null))
   }

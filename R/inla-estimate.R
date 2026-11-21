@@ -327,7 +327,7 @@
 #'   per-feature Pearson dispersion of that Poisson fit and the family actually
 #'   used are reported in the diagnostics as
 #'   `prescreen_phi` and `family_used`. Unknown controls are rejected.
-#'   `engine` selects the Stage 2 fitter. `"spde"`, the default, is
+#'   `engine` selects the Stage 2 fitter. `"fable"`, the default, is
 #'   [spde.estimate()]: count families, fixed effects and one SPDE field, no
 #'   prior and no fixed precision or size; `spde` is then a named list of its
 #'   controls, for example `list(tol = 1e-8)`, and the INLA package is not
@@ -415,11 +415,11 @@ inlaST.estimate <- function(
   # Validate once in the parent so a misspelled or invalid control cannot turn
   # every feature into an otherwise opaque per-feature failure.
   control <- .inlast_control(.inlast_merge_control(model$inla_control, control))
-  if (!identical(control$engine, "spde") && !requireNamespace("INLA", quietly = TRUE)) {
-    stop("inlaST.estimate() requires the INLA package unless control$engine = 'spde'.")
+  if (!identical(control$engine, "fable") && !requireNamespace("INLA", quietly = TRUE)) {
+    stop("inlaST.estimate() requires the INLA package unless control$engine = 'fable'.")
   }
   control <- .inlast_family_control(model, control)
-  if (identical(control$engine, "spde")) .spde_estimate_check(model$inla_spec, control)
+  if (identical(control$engine, "fable")) .spde_estimate_check(model$inla_spec, control)
   Y <- checked$Y
   feature_id <- checked$feature_id
   chunk_size <- checked$chunk_size
@@ -508,7 +508,7 @@ inlaST.estimate <- function(
     index = seq_len(p), feature_id = feature_id, converged = FALSE,
     marginal_p_value = marginal$p_value, marginal_q_value = marginal_q,
     residual_df = NA_real_, criterion = NA_real_,
-    criterion_name = if (identical(control$engine, "spde"))
+    criterion_name = if (identical(control$engine, "fable"))
       "spde.estimate Laplace marginal likelihood" else "INLA log marginal likelihood",
     fit_seconds = NA_real_,
     null_size = vapply(null_state, function(z) {
@@ -645,7 +645,7 @@ inlaST.estimate_spatial <- function(
   if (!inherits(fit, "inlaST_fit")) {
     stop("fitinlaST must be returned by inlaST.estimate().")
   }
-  if (!identical(fit$control$engine, "spde") &&
+  if (!identical(fit$control$engine, "fable") &&
       !requireNamespace("INLA", quietly = TRUE)) {
     stop("inlaST.estimate_spatial() requires the INLA package.")
   }
@@ -689,7 +689,7 @@ inlaST.estimate_spatial <- function(
   # checkpointed chunk holds several features per thread.
   groups <- .mgcvst_feature_chunks(
     index, chunk_size, BPPARAM, checkpoint = !is.null(store),
-    cap = if (identical(fit$control$engine, "spde")) max(50L, 4L * threads) else 50L)
+    cap = if (identical(fit$control$engine, "fable")) max(50L, 4L * threads) else 50L)
   make_payload <- function(i) {
     extra_offset <- if (is.null(offset) || !is.matrix(offset)) offset else
       offset[i, , drop = FALSE]

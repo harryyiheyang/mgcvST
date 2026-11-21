@@ -1,3 +1,10 @@
+# spdeST 0.0.1.9067
+
+* The engine of [spde.estimate()] is named `"fable"`:
+  `control = list(engine = "fable")`, the default. `engine = "spde"` is no
+  longer a value; `control$spde` still holds the controls of
+  `spde.estimate()`.
+
 # spdeST 0.0.1.9066
 
 * `inlaST.estimate()`: the default `control$engine` is `"spde"`, the

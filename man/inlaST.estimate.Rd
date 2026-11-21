@@ -84,7 +84,7 @@ null must have fixed effects only. The
 per-feature Pearson dispersion of that Poisson fit and the family actually
 used are reported in the diagnostics as
 \code{prescreen_phi} and \code{family_used}. Unknown controls are rejected.
-\code{engine} selects the Stage 2 fitter. \code{"spde"}, the default, is
+\code{engine} selects the Stage 2 fitter. \code{"fable"}, the default, is
 \code{\link[=spde.estimate]{spde.estimate()}}: count families, fixed effects and one SPDE field, no
 prior and no fixed precision or size; \code{spde} is then a named list of its
 controls, for example \code{list(tol = 1e-8)}, and the INLA package is not
