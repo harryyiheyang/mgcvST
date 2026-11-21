@@ -78,7 +78,7 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
                           maxit_halving = 30L, maxit_line = 100L,
                           maxit_outer = 25L, log_tau_min = -12,
                           log_tau_max = 12, alpha_min = 1e-6, alpha_max = 1e4,
-                          eta_max = 700, rank_tol = 1e-11, fd_step = 0.05,
+                          eta_max = 700, rank_tol = 1e-11, fd_step = 0.01,
                           step_max = 2) {
   X <- as.matrix(X)
   storage.mode(X) <- "double"

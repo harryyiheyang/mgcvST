@@ -28,7 +28,7 @@ spde.estimate(
   alpha_max = 10000,
   eta_max = 700,
   rank_tol = 1e-11,
-  fd_step = 0.05,
+  fd_step = 0.01,
   step_max = 2
 )
 }

@@ -1,3 +1,12 @@
+# spdeST 0.0.1.9065
+
+* `spde.estimate()`: the default `fd_step` is 0.01 instead of 0.05. With
+  about 1e5 observations the criterion has a curvature near 1e4 in
+  `log(alpha)` and a third derivative of the same order, so a step of 0.05
+  gave central differences near -4 at a point where the gradient is zero.
+  The estimates at the default `tol` are unchanged; the reported gradients
+  and, at a smaller `tol`, the `converged` flag are corrected.
+
 # spdeST 0.0.1.9064
 
 * `spde.estimate()` updates `(log(tau), log(alpha))` jointly. Line searches

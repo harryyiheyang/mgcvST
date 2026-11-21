@@ -553,7 +553,7 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     double alpha_max = 1e4,
     double eta_max = 700,
     double rank_tol = 1e-11,
-    double fd_step = 0.05,
+    double fd_step = 0.01,
     double step_max = 2,
     int threads = 1) {
   const int n = Yt.rows(), features = Yt.cols(), p = X.cols(), m = A.cols();
