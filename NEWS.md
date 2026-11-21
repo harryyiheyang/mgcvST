@@ -1,3 +1,14 @@
+# spdeST 0.0.1.9068
+
+* `spde.estimate()`: the Newton iteration for the mode also stops when an
+  accepted step changes the penalised log-likelihood by less than
+  `tol_inner`. With about 1e5 observations the predicted gain of a step
+  stayed near 4e-7, above the tolerance of 1e-13 times the objective, while
+  the objective moved by 1e-7; the iteration then ran to `maxit_inner` and
+  the criterion was missing at that point. In the MAGIC data every gene had
+  3 to 9 such evaluations, and three of 10,892 genes ended without a fit or
+  flagged as not converged.
+
 # spdeST 0.0.1.9067
 
 * The engine of [spde.estimate()] is named `"fable"`:

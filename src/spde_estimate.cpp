@@ -150,6 +150,7 @@ public:
       if (!linear_predictor(beta, u, eta, mu)) return NA_REAL;
     }
     double P = penalised(mu, u, tau, alpha);
+    bool still = false;
     for (int it = 0; it <= ctl_.maxit_inner; ++it) {
       // Observed information and score in eta.
       for (int i = 0; i < n_; ++i) {
@@ -171,7 +172,7 @@ public:
       // Predicted gain of the penalised log-likelihood of this Newton step.
       const double gain = 0.5 * (rb.dot(db) + ru.dot(du));
       if (!std::isfinite(gain)) return NA_REAL;
-      if (gain <= ctl_.tol_inner * (std::abs(P) + 0.1)) {
+      if (still || gain <= ctl_.tol_inner * (std::abs(P) + 0.1)) {
         beta_ = beta;
         u_ = u;
         return loglik(mu, y_, tail_, alpha, lfact_) - 0.5 * tau * u.dot(Q_ * u) +
@@ -188,6 +189,11 @@ public:
         if (linear_predictor(bt, ut, et, mt)) {
           const double Pt = penalised(mt, ut, tau, alpha);
           if (std::isfinite(Pt) && Pt >= P - ctl_.tol_inner * (std::abs(P) + 0.1)) {
+            // The objective changed by less than the tolerance: the mode.
+            // The predicted gain can stay above the tolerance at the
+            // resolution of the objective, where only a step halved many
+            // times is accepted.
+            still = std::abs(Pt - P) <= ctl_.tol_inner * (std::abs(P) + 0.1);
             beta = bt; u = ut; eta = et; mu = mt; P = Pt;
             moved = true;
             break;
