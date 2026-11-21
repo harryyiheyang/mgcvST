@@ -158,82 +158,12 @@
 
 # ---- resumable chunk checkpoints --------------------------------------------
 
-# Open (or resume) the checkpoint directory of an estimation. The manifest
-# records everything that determines the chunk results; a directory written for
-# another model, control or chunking is refused, never resumed.
-.mgcvst_chunk_store <- function(path, kind, signature, resume = TRUE) {
-  if (is.null(path)) return(NULL)
-  if (!is.character(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
-    stop("checkpoint_dir must be NULL or one directory name.")
-  }
-  if (!is.logical(resume) || length(resume) != 1L || is.na(resume)) {
-    stop("resume must be TRUE or FALSE.")
-  }
-  if (!dir.exists(path) && !dir.create(path, recursive = TRUE)) {
-    stop("Could not create the estimation checkpoint directory.")
-  }
-  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
-  manifest <- file.path(path, "estimation-manifest.rds")
-  record <- list(format = .mgcvst_fit_format, kind = kind, signature = signature)
-  if (file.exists(manifest)) {
-    if (!resume) {
-      stop("The estimation checkpoint ", path,
-           " already exists; use resume = TRUE or a new checkpoint_dir.")
-    }
-    old <- tryCatch(readRDS(manifest), error = function(e) NULL)
-    if (!identical(old$format, .mgcvst_fit_format) || !identical(old$kind, kind)) {
-      stop("The estimation checkpoint ", path, " was written by another ",
-           "estimator or by a version before 0.0.1.9032; use a new checkpoint_dir.")
-    }
-    if (!identical(old$signature, signature)) {
-      stop("The estimation checkpoint ", path, " was written for a different ",
-           "model, offset or controls; use a new checkpoint_dir.")
-    }
-    # Files left by an interrupted write are never part of a checkpoint.
-    unlink(list.files(path, "[.]tmp$", full.names = TRUE))
-  } else {
-    if (length(list.files(path, all.files = TRUE, no.. = TRUE))) {
-      stop("The estimation checkpoint directory ", path,
-           " has no manifest and is not empty.")
-    }
-    tmp <- tempfile("manifest-", tmpdir = path, fileext = ".tmp")
-    saveRDS(record, tmp, compress = FALSE)
-    if (!file.rename(tmp, manifest)) stop("Could not commit the checkpoint manifest.")
-  }
-  list(path = path, kind = kind)
-}
-
 # Key of one chunk: the step, its features, their responses and, where a
 # feature can be routed to another family (the Poisson prescreen), its routing.
 .mgcvst_chunk_key <- function(step, index, y_digest, route = NULL) {
   substr(digest::digest(list(step, as.integer(index), y_digest[index],
                              if (is.null(route)) NULL else route[index]),
                         algo = "sha256"), 1L, 24L)
-}
-
-.mgcvst_chunk_file <- function(store, step, key) {
-  if (is.null(store)) return(NA_character_)
-  file.path(store$path, sprintf("%s-%s.rds", step, key))
-}
-
-# Called by the worker when a chunk is complete: the result becomes a
-# checkpoint before it is returned to the manager.
-.mgcvst_chunk_save <- function(file, key, result) {
-  if (is.null(file) || is.na(file)) return(invisible(NULL))
-  tmp <- tempfile("chunk-", tmpdir = dirname(file), fileext = ".tmp")
-  on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
-  saveRDS(list(key = key, result = result), tmp, compress = FALSE)
-  if (file.exists(file)) unlink(file)
-  if (!file.rename(tmp, file)) stop("Could not commit the estimation chunk ", basename(file), ".")
-  invisible(NULL)
-}
-
-# TRUE when a chunk result holds a failed feature (a fit error, or in the mgcv
-# null step a failed null fit); a resumed run computes such a chunk again.
-.mgcvst_chunk_has_error <- function(result) {
-  any(vapply(result, function(z) {
-    is.list(z) && (!is.null(z[["error"]]) || !is.null(z[["marginal_error"]]))
-  }, logical(1L)))
 }
 
 # Worker-side wrapper that returns the result of a chunk together with the key
@@ -274,59 +204,34 @@
   lapply(match(keys, got), function(i) returned[[i]][["result"]])
 }
 
-# Read the completed chunks of a step and run the missing ones. `groups` are
-# the feature indices of the chunks and `make_payload(index)` builds the payload
-# of one chunk; it is called only for a chunk that has to be computed, when a
+# Run the chunks of a step. `groups` are the feature indices of the chunks and
+# `make_payload(index)` builds the payload of one chunk; it is called when a
 # worker is free (BiocParallel::bpiterate), so that no more than about one
-# payload per worker is alive and a resumed chunk is never copied. `FUN` is a
-# worker function receiving a payload (with chunk_file and chunk_key) and `...`;
-# a result is a list with one entry per feature of its chunk. A chunk that
-# holds a failed feature is computed again. Every dispatched result returns
-# with the key of its chunk and is placed by that key, so the outcome does not
-# depend on whether bpiterate returns results in iteration or completion order.
-.mgcvst_run_chunks <- function(groups, make_payload, step, store, y_digest,
+# payload per worker is alive. `FUN` is a worker function receiving a payload
+# (with chunk_key) and `...`; a result is a list with one entry per feature of
+# its chunk. Every result returns with the key of its chunk and is placed by
+# that key, so the outcome does not depend on whether bpiterate returns
+# results in iteration or completion order. Nothing is written to disk.
+.mgcvst_run_chunks <- function(groups, make_payload, step, y_digest,
                                route, BPPARAM, FUN, ...) {
   n <- length(groups)
-  # Unnamed keys: a chunk is found by its key whatever its position in the list.
   keys <- unname(vapply(groups, function(index) {
     .mgcvst_chunk_key(step, index, y_digest, route)
   }, character(1L)))
   results <- vector("list", n)
-  todo <- integer()
-  for (k in seq_len(n)) {
-    file <- .mgcvst_chunk_file(store, step, keys[k])
-    if (!is.na(file) && file.exists(file)) {
-      z <- tryCatch(readRDS(file), error = function(e) NULL)
-      if (!is.list(z) || !identical(unname(z$key), keys[k]) ||
-          length(z$result) != length(groups[[k]])) {
-        stop("The estimation checkpoint chunk ", basename(file),
-             " is damaged; delete it to recompute the chunk.")
-      }
-      if (!.mgcvst_chunk_has_error(z$result)) {
-        results[[k]] <- z$result
-        next
-      }
-    }
-    todo <- c(todo, k)
-  }
   built <- 0L
-  sizes <- lengths(groups)
-  progress <- .mgcvst_progress(step, sum(sizes), "features",
-                               resumed = sum(sizes[setdiff(seq_len(n), todo)]))
-  if (length(todo)) {
+  progress <- .mgcvst_progress(step, sum(lengths(groups)), "features")
+  if (n) {
     position <- 0L
     iterate <- function() {
-      if (position >= length(todo)) return(NULL)
+      if (position >= n) return(NULL)
       position <<- position + 1L
-      k <- todo[position]
-      payload <- make_payload(groups[[k]])
-      file <- .mgcvst_chunk_file(store, step, keys[k])
-      payload$chunk_file <- if (is.na(file)) NULL else file
-      payload$chunk_key <- keys[k]
+      payload <- make_payload(groups[[position]])
+      payload$chunk_key <- keys[position]
       built <<- built + 1L
       payload
     }
-    if (anyDuplicated(keys[todo])) {
+    if (anyDuplicated(keys)) {
       stop("The chunks of a step must hold distinct features.")
     }
     # The manager collects each result as it arrives and reports progress.
@@ -339,22 +244,19 @@
     returned <- BiocParallel::bpiterate(iterate, .mgcvst_keyed_task(), ...,
                                         .worker = FUN, REDUCE = collect,
                                         init = list(), BPPARAM = BPPARAM)
-    results[todo] <- .mgcvst_place_by_key(returned, keys[todo])
+    results <- .mgcvst_place_by_key(returned, keys)
   }
   progress$done()
-  list(results = results, resumed = n - length(todo), chunks = n, built = built)
+  list(results = results, chunks = n, built = built)
 }
 
 # Contiguous feature chunks of at most `chunk_size` features. The default is
-# one chunk per worker; with a checkpoint directory it is capped at `cap` features,
-# so that a lost chunk costs little.
-.mgcvst_feature_chunks <- function(index, chunk_size, BPPARAM, checkpoint = FALSE,
-                                   cap = 50L) {
+# one chunk per worker.
+.mgcvst_feature_chunks <- function(index, chunk_size, BPPARAM) {
   if (!length(index)) return(list())
   if (is.null(chunk_size)) {
     workers <- max(1L, min(length(index), BiocParallel::bpworkers(BPPARAM)))
     chunk_size <- ceiling(length(index) / workers)
-    if (checkpoint) chunk_size <- min(chunk_size, cap)
   }
   split(index, ceiling(seq_along(index) / chunk_size))
 }

@@ -48,7 +48,7 @@ test_that("the chunk runner reports features as chunks complete", {
   worker <- function(payload) as.list(payload$index)
   msgs <- testthat::capture_messages(
     out <- spdeST:::.mgcvst_run_chunks(groups, function(index) list(index = index),
-      "null", NULL, "digest", rep(FALSE, 30), BiocParallel::SerialParam(),
+      "null", "digest", rep(FALSE, 30), BiocParallel::SerialParam(),
       worker)
   )
   expect_identical(unlist(out$results), 1:30)

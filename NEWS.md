@@ -1,3 +1,12 @@
+# spdeST 0.0.1.9079
+
+* `spdeST.scan()` and `spdeST.estimate()` no longer write checkpoints: the
+  arguments `checkpoint_dir` and `resume` are removed, with the chunk store
+  behind them. The checkpoints dated from the estimators that took hours per
+  data set; `spde.estimate()` takes minutes, and a run left one file per
+  chunk, tens of thousands of files for a data set, that nothing read again.
+  Neither stage writes a file now.
+
 # spdeST 0.0.1.9078
 
 * `spdeST.test(keep = "discoveries")` returns the discovered pairs alone and

@@ -52,10 +52,7 @@
 # marginal row, or the error record.
 .spdest_null_chunk <- function(payload, spec, null_spec, base_offset,
                                threads = 1L, scan_args = list()) {
-  out <- .spdest_scan_chunk(payload, spec, null_spec, base_offset,
-                            threads, scan_args)
-  .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
-  out
+  .spdest_scan_chunk(payload, spec, null_spec, base_offset, threads, scan_args)
 }
 
 # Stage 1 is spde.scan(): the null must have no random block, a count family
@@ -198,7 +195,6 @@
     }
     rm(fits, scores)
   }
-  .mgcvst_chunk_save(payload$chunk_file, payload$chunk_key, out)
   out
 }
 
@@ -239,15 +235,7 @@
 #' diagnostics table and are unavailable to [spdeST.test()]; `pairs = NULL` in [spdeST.test()] means all pairs among
 #' the features with a spatial model.
 #'
-#' With `checkpoint_dir`, every completed chunk of either step is saved by the
-#' worker that computed it, and a repeated call with the same arguments
-#' resumes from the saved chunks. Chunks are keyed by their step, features,
-#' responses and family routing, so pass `chunk_size` explicitly for a
-#' resumable run: without it the chunks depend on the number of workers (and
-#' step 2 on the number of selected features), and a changed chunking
-#' recomputes rather than reuses. A chunk whose result holds a failed feature
-#' is computed again on resume. A checkpoint directory written for another
-#' model, offset, control or version is refused.
+#' Neither step writes a file.
 #'
 #' @param Y Numeric feature-by-observation matrix.
 #' @param model An object returned by [spdeST.set()].
@@ -255,8 +243,7 @@
 #' @param BPPARAM A `BiocParallelParam` distributing feature chunks over
 #'   workers. `SerialParam()` keeps everything in one process.
 #' @param chunk_size Positive integer number of features per task, or `NULL`.
-#'   The default creates one chunk per worker in each step; a smaller value
-#'   makes the checkpoint finer. A chunk payload is built when a worker takes
+#'   The default creates one chunk per worker in each step. A chunk payload is built when a worker takes
 #'   the chunk, so at most about one chunk of `Y` per worker is copied.
 #' @param offset Optional shared observation offset or matrix matching `Y`. A
 #'   feature-by-observation matrix is kept on the fit (`extra_offset`) for a
@@ -278,9 +265,6 @@
 #' @param adjust Multiple-testing adjustment of the Stage 1 p-values:
 #'   `"BY"` (the default), `"BH"`, `"Sidak"` or `"none"`.
 #' @param q.value Stage 1 discovery threshold in `(0, 1]`.
-#' @param checkpoint_dir Optional directory for the resumable chunk checkpoints
-#'   of both steps; see Details.
-#' @param resume Reuse the completed chunks of a compatible checkpoint.
 #' @param scan_control Named list of [spde.scan()] controls.
 #' @details Stage 2 maximises the Laplace marginal likelihood (REML) of each
 #' feature in the precision of the field and the NB size; there is no prior.
@@ -308,7 +292,7 @@
     offset = NULL, control = list(), retain_smooth = FALSE,
     diagnostics = FALSE, threads = 1L,
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
-    checkpoint_dir = NULL, resume = TRUE, scan_control = list()) {
+    scan_control = list()) {
   scan_args <- .spdest_scan_control(scan_control)
   adjust <- match.arg(adjust)
   q.value <- .mgcvst_check_q_value(q.value)
@@ -361,9 +345,7 @@
     model, control, offset, feature_id, retain_smooth, diagnostics
   )
   signature <- .mgcvst_pair_input_hash(list(signature, scan_args = scan_args))
-  store <- .mgcvst_chunk_store(checkpoint_dir, "spde", signature, resume)
-  groups <- .mgcvst_feature_chunks(seq_len(p), chunk_size, BPPARAM,
-                                   checkpoint = !is.null(store))
+  groups <- .mgcvst_feature_chunks(seq_len(p), chunk_size, BPPARAM)
   # A payload is built only when its chunk is computed and a worker is free.
   make_payload <- function(index) {
     extra_offset <- if (is.null(offset) || !is.matrix(offset)) offset else
@@ -374,7 +356,7 @@
   }
   null_t0 <- proc.time()[["elapsed"]]
   step1 <- .mgcvst_run_chunks(
-    groups, make_payload, "null", store, y_digest, prescreen$poisson, BPPARAM,
+    groups, make_payload, "null", y_digest, prescreen$poisson, BPPARAM,
     .spdest_chunk_task(),
     fun_name = ".spdest_null_chunk",
     args = list(spec = model$spde_spec, null_spec = null_spec,
@@ -495,9 +477,8 @@
                   chunk_size = chunk_size, backend = class(BPPARAM)[1L],
                   workers = max(1L, min(length(groups),
                                         BiocParallel::bpworkers(BPPARAM))),
-                  resumed_null_chunks = step1$resumed,
                   null_payloads = step1$built,
-                  spatial_chunks = 0L, resumed_spatial_chunks = 0L,
+                  spatial_chunks = 0L,
                   spatial_payloads = 0L),
     smooth_coefficients = coefficient,
     retain_smooth = retain_smooth,
@@ -538,18 +519,13 @@
 #' @param adjust,q.value Adjustment and threshold used when
 #'   `features = "discoveries"`. The defaults are those of the original call.
 #' @inheritParams .spdest_scan
-#' @param checkpoint_dir,resume Resumable chunk checkpoints as in
-#'   [spdeST.scan()]. The directory of the original call can be reused:
-#'   its step 2 chunks are keyed by their features and responses. Pass the
-#'   same `chunk_size` as for the original call, or an explicit one: without it
-#'   the chunks depend on the number of workers.
 #' @return The updated `spdeST_scan`.
 #' @noRd
 .spdest_estimate <- function(
     fit, Y, features = "discoveries",
     adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
     BPPARAM = BiocParallel::SerialParam(), chunk_size = NULL,
-    checkpoint_dir = NULL, resume = TRUE, threads = 1L) {
+    threads = 1L) {
   if (!inherits(fit, "spdeST_scan")) {
     stop("fit must be returned by spdeST.scan().")
   }
@@ -571,29 +547,23 @@
   index <- .mgcvst_select_spatial(features, fit$feature_id, marginal_q, q.value)
   index <- setdiff(index, which(fit$diagnostics$spatial_fitted))
   .mgcvst_check_responses(fit, Y, index)
-  store <- .mgcvst_chunk_store(checkpoint_dir, "spde", fit$signature, resume)
   t0 <- proc.time()[["elapsed"]]
   fit$diagnostics$spatial_selected[index] <- TRUE
-  fit <- .spdest_apply_spatial(fit, Y, index, BPPARAM, chunk_size, threads, store)
+  fit <- .spdest_apply_spatial(fit, Y, index, BPPARAM, chunk_size, threads)
   fit$timing$elapsed <- fit$timing$elapsed + proc.time()[["elapsed"]] - t0
   fit
 }
 
 # Step 2: fit the spatial model of the features `index` that have none yet and
 # write the compact results into `fit`.
-.spdest_apply_spatial <- function(fit, Y, index, BPPARAM, chunk_size, threads,
-                                  store) {
+.spdest_apply_spatial <- function(fit, Y, index, BPPARAM, chunk_size, threads) {
   model <- fit$model
   spec <- model$spde_spec
   index <- setdiff(index, which(fit$diagnostics$spatial_fitted))
   if (!length(index)) return(fit)
   offset <- fit$extra_offset
   poisson <- fit$routed_poisson
-  # spde.estimate() fits the features of a chunk in parallel threads, so a
-  # checkpointed chunk holds several features per thread.
-  groups <- .mgcvst_feature_chunks(
-    index, chunk_size, BPPARAM, checkpoint = !is.null(store),
-    cap = max(50L, 4L * threads))
+  groups <- .mgcvst_feature_chunks(index, chunk_size, BPPARAM)
   make_payload <- function(i) {
     extra_offset <- if (is.null(offset) || !is.matrix(offset)) offset else
       offset[i, , drop = FALSE]
@@ -603,7 +573,7 @@
   }
   fit_t0 <- proc.time()[["elapsed"]]
   step2 <- .mgcvst_run_chunks(
-    groups, make_payload, "spatial", store, fit$y_digest, poisson, BPPARAM,
+    groups, make_payload, "spatial", fit$y_digest, poisson, BPPARAM,
     .spdest_chunk_task(),
     fun_name = ".spdest_spatial_chunk",
     args = list(spec = spec, base_offset = model$offset, control = fit$control,
@@ -673,8 +643,6 @@
   fit$lambda <- fit$component_lambda[, "global"]
   fit$timing$fit_elapsed <- fit$timing$fit_elapsed + fit_elapsed
   fit$timing$spatial_chunks <- fit$timing$spatial_chunks + step2$chunks
-  fit$timing$resumed_spatial_chunks <- fit$timing$resumed_spatial_chunks +
-    step2$resumed
   fit$timing$spatial_payloads <- fit$timing$spatial_payloads + step2$built
   class(fit) <- unique(c("spdeST_fit", class(fit)))
   fit

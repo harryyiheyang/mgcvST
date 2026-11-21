@@ -12,9 +12,7 @@ spdeST.estimate(
   q.value = NULL,
   BPPARAM = NULL,
   chunk_size = NULL,
-  threads = 1L,
-  checkpoint_dir = NULL,
-  resume = TRUE
+  threads = 1L
 )
 }
 \arguments{
@@ -34,8 +32,6 @@ feature.}
 \item{chunk_size}{Features per task; \code{NULL} chooses it from \code{BPPARAM}.}
 
 \item{threads}{OpenMP threads per worker.}
-
-\item{checkpoint_dir, resume}{Chunk checkpoints and their reuse.}
 }
 \value{
 An \code{spdeST_fit} object for \code{\link[=spdeST.test]{spdeST.test()}}.

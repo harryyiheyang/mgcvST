@@ -174,15 +174,16 @@ test_that("the three stages run and a feature's record is its spde.estimate() fi
   expect_lt(r$score[r$i == 1 & r$j == 3], 0)
 })
 
-test_that("a model outside the scope of spde.estimate() is refused and chunks follow the cap", {
+test_that("a model outside the scope of spde.estimate() is refused and chunks follow the workers", {
   expect_identical(.spdest_control(), list(spde = list()))
   expect_error(.spdest_control(list(control.inla = list(tolerance = 1e-6))), "Unknown control field")
   expect_error(.spde_estimate_check(list(family = "gaussian", random = list(list(kind = "spde")))),
                "Poisson or negative-binomial")
   expect_error(.spde_estimate_check(list(family = "poisson", random = list())), "one SPDE field")
-  expect_identical(lengths(.mgcvst_feature_chunks(1:400, NULL, BiocParallel::SerialParam(),
-                                                  checkpoint = TRUE, cap = 160L)),
+  expect_identical(lengths(.mgcvst_feature_chunks(1:400, 160L, BiocParallel::SerialParam())),
                    c(`1` = 160L, `2` = 160L, `3` = 80L))
+  expect_identical(lengths(.mgcvst_feature_chunks(1:400, NULL, BiocParallel::SerialParam())),
+                   c(`1` = 400L))
 })
 
 test_that("the criterion holds when the field can nearly take up the intercept", {

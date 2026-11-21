@@ -57,7 +57,6 @@
 #' @param BPPARAM BiocParallel backend; `NULL` is serial.
 #' @param chunk_size Features per task; `NULL` chooses it from `BPPARAM`.
 #' @param threads OpenMP threads per worker.
-#' @param checkpoint_dir,resume Chunk checkpoints and their reuse.
 #' @param scan_control Named list of [spde.scan()] controls, for example
 #'   `list(tol = 1e-8, maxit_outer = 25)`.
 #' @return An `spdeST_scan` object: the Stage 1 fit with
@@ -68,7 +67,6 @@
 spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
                         adjust = c("BY", "BH", "Sidak", "none"), q.value = 0.05,
                         BPPARAM = NULL, chunk_size = NULL, threads = 1L,
-                        checkpoint_dir = NULL, resume = TRUE,
                         scan_control = list()) {
   if (!inherits(model, "spdeST_model")) stop("model must be returned by spdeST.set().")
   settings <- utils::modifyList(list(retain_smooth = FALSE, diagnostics = FALSE),
@@ -77,9 +75,8 @@ spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
     list(Y = Y, model = model, feature_id = feature_id, offset = offset,
          retain_smooth = settings$retain_smooth, diagnostics = settings$diagnostics,
          threads = threads, adjust = match.arg(adjust), q.value = q.value,
-         resume = resume, scan_control = scan_control),
-    .spdest_supplied(BPPARAM = BPPARAM, chunk_size = chunk_size,
-                     checkpoint_dir = checkpoint_dir)
+         scan_control = scan_control),
+    .spdest_supplied(BPPARAM = BPPARAM, chunk_size = chunk_size)
   )
   do.call(.spdest_scan, args)
 }
@@ -105,14 +102,14 @@ spdeST.scan <- function(Y, model, offset = NULL, feature_id = rownames(Y),
 #' @export
 spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
                             q.value = NULL, BPPARAM = NULL, chunk_size = NULL,
-                            threads = 1L, checkpoint_dir = NULL, resume = TRUE) {
+                            threads = 1L) {
   if (!inherits(scan, "spdeST_scan")) {
     stop("scan must be returned by spdeST.scan().")
   }
   args <- c(
-    list(scan, Y = Y, features = features, threads = threads, resume = resume),
+    list(scan, Y = Y, features = features, threads = threads),
     .spdest_supplied(adjust = adjust, q.value = q.value, BPPARAM = BPPARAM,
-                     chunk_size = chunk_size, checkpoint_dir = checkpoint_dir)
+                     chunk_size = chunk_size)
   )
   do.call(.spdest_estimate, args)
 }

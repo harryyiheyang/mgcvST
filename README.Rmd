@@ -80,15 +80,14 @@ diagnostics, and `pairs = NULL` in `spdeST.test()` tests the pairs among the
 features that have one.
 
 ```r
-scan <- spdeST.scan(Y, model, checkpoint_dir = "estimation-checkpoint")
+scan <- spdeST.scan(Y, model)
 fit  <- spdeST.estimate(scan, Y)                                  # discoveries
 fit  <- spdeST.estimate(fit, Y, features = c("Mapt", "Map1b"))    # add two
 fit  <- spdeST.estimate(scan, Y, features = "all")                # every feature
 ```
 
-With `checkpoint_dir`, each worker saves its chunk when it completes, and a
-repeated call resumes from the saved chunks. `Y` must be the matrix given to
-`spdeST.scan()`, which is checked.
+Neither step writes a file. `Y` must be the matrix given to `spdeST.scan()`,
+which is checked.
 
 ## WGCNA modules from the estimated latent spatial correlation
 
