@@ -173,3 +173,27 @@ test_that("engine = 'spde' runs the three stages without INLA", {
   expect_gt(r$score[r$i == 1 & r$j == 2], 0)
   expect_lt(r$score[r$i == 1 & r$j == 3], 0)
 })
+
+test_that("the default engine is spde and a model outside its scope names inla", {
+  old <- options(spdeST.engine = NULL)
+  on.exit(options(old), add = TRUE)
+  expect_identical(.inlast_control()$engine, "spde")
+  expect_error(.inlast_control(list(control.inla = list(tolerance = 1e-6))), "engine = 'inla'")
+  spec <- list(family = "gaussian", random = list(list(kind = "spde")))
+  expect_error(.spde_estimate_check(spec, list()), "engine = 'inla'")
+  expect_identical(lengths(.mgcvst_feature_chunks(1:400, NULL, BiocParallel::SerialParam(),
+                                                  checkpoint = TRUE, cap = 160L)),
+                   c(`1` = 160L, `2` = 160L, `3` = 80L))
+})
+
+test_that("engine = 'inla' keeps an initial NB size only when one is given", {
+  skip_if_not_installed("INLA")
+  control <- .inlast_control(list(engine = "inla"))
+  expect_identical(control$engine, "inla")
+  expect_null(control$nb_size_prior$initial)
+  # A second validation, as in a worker, changes nothing.
+  expect_identical(.inlast_control(control), control)
+  given <- .inlast_control(list(engine = "inla",
+                                nb_size_prior = list(prior = "flat", initial = 2)))
+  expect_identical(given$nb_size_prior$initial, 2)
+})

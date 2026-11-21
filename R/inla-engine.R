@@ -33,7 +33,7 @@
   if (is.null(control)) control <- list()
   if (!is.list(control)) stop("control must be a list.")
   defaults <- list(
-    engine = "inla",
+    engine = getOption("spdeST.engine", "spde"),
     spde = list(),
     int_strategy = "eb",
     latent_strategy = "gaussian",
@@ -45,9 +45,9 @@
       prior = "flat", param = numeric(), initial = 0
     ),
     nb_size = NULL,
-    nb_size_prior = list(
-      prior = "flat", param = numeric(), initial = 0
-    ),
+    # No initial value: the fit of a feature starts at the size of its Stage 1
+    # null model (.inlast_fit_chunk), and at log(size) = 0 without one.
+    nb_size_prior = list(prior = "flat", param = numeric()),
     fixed_precision = NULL,
     control.inla = list(),
     num_threads = 1L,
@@ -107,7 +107,8 @@
         !length(x$param)
     }, logical(1L))
     if (!all(flat) || length(out$control.inla)) {
-      stop("engine = 'spde' takes no prior and no control$control.inla.")
+      stop("engine = 'spde' takes no prior and no control$control.inla. ",
+           "Set control = list(engine = 'inla') to use them.")
     }
     return(out)
   }
@@ -116,7 +117,9 @@
   for (nm in c("precision_prior", "gaussian_precision_prior",
                "nb_size_prior")) {
     validated <- .inlast_prior_hyper(out[[nm]])
-    out[[nm]] <- validated[c("prior", "param", "initial")]
+    keep <- c("prior", "param", if (nm != "nb_size_prior" ||
+                                    !is.null(out[[nm]]$initial)) "initial")
+    out[[nm]] <- validated[keep]
   }
   native <- out$control.inla
   if (!is.list(native) || (length(native) &&

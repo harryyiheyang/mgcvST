@@ -463,9 +463,18 @@ inlaST.set <- function(
       total_offset <- total_offset + if (is.matrix(extra_offset)) extra_offset[j, ] else extra_offset
     }
     feature_spec <- if (isTRUE(route[k])) spec_poisson else spec
+    # The size of the Stage 1 null model starts the search of the NB size,
+    # unless the control gives an initial value.
+    feature_control <- control
+    state <- if (is.null(null)) NULL else null[[j]]
+    size <- if (is.list(state)) state$family_parameters else NULL
+    if (is.null(control$nb_size_prior$initial) && length(size) == 1L &&
+        is.finite(size) && size > 0) {
+      feature_control$nb_size_prior$initial <- log(as.numeric(size))
+    }
     tryCatch(
       .inlast_fit_feature(feature_spec, Y[j, ], offset = total_offset,
-                          control = control, diagnostics = diagnostics),
+                          control = feature_control, diagnostics = diagnostics),
       error = function(e) e
     )
   })

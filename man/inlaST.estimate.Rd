@@ -59,6 +59,9 @@ inverse Gaussian residual variance, and NB size, respectively.
 including when the model uses observation-scale precision priors. Prior
 lists \code{precision_prior}, \code{gaussian_precision_prior} and \code{nb_size_prior}
 contain \code{prior}, \code{param}, and logarithmic \code{initial} values (default zero).
+Without an \code{initial} value in \code{nb_size_prior}, the NB size of a feature
+starts at the size of its Stage 1 null model: from \code{log(size) = 0} the
+search can leave a weakly overdispersed feature for an unbounded size.
 Spatial precision and NB size default to \code{prior = "flat"} with no
 parameters on the log scale. Gaussian observation precision defaults to
 \verb{prior = "flat", param = numeric(), initial = 0}, a flat prior on the
@@ -81,10 +84,12 @@ null must have fixed effects only. The
 per-feature Pearson dispersion of that Poisson fit and the family actually
 used are reported in the diagnostics as
 \code{prescreen_phi} and \code{family_used}. Unknown controls are rejected.
-\code{engine = "spde"} fits Stage 2 with \code{\link[=spde.estimate]{spde.estimate()}} instead of INLA
-(count families, fixed effects and one SPDE field, no prior and no fixed
-precision or size); \code{spde} is then a named list of its controls, for
-example \code{list(tol = 1e-8)}, and the INLA package is not needed.}
+\code{engine} selects the Stage 2 fitter. \code{"spde"}, the default, is
+\code{\link[=spde.estimate]{spde.estimate()}}: count families, fixed effects and one SPDE field, no
+prior and no fixed precision or size; \code{spde} is then a named list of its
+controls, for example \code{list(tol = 1e-8)}, and the INLA package is not
+needed. \code{"inla"} fits with INLA and takes the other controls of this
+list. \code{options(spdeST.engine = )} sets the default of a session.}
 
 \item{retain_smooth}{Retain estimated score-component coefficients.}
 

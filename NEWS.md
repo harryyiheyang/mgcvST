@@ -1,3 +1,18 @@
+# spdeST 0.0.1.9066
+
+* `inlaST.estimate()`: the default `control$engine` is `"spde"`, the
+  [spde.estimate()] fit, and `options(spdeST.engine = )` sets the default of
+  a session. A model outside its scope (a Gaussian family, a second random
+  block, a prior, a fixed size or precision) stops before any fit and names
+  `control = list(engine = "inla")`.
+* `engine = "inla"`: the NB size of a feature starts at the size of its
+  Stage 1 null model unless `nb_size_prior` gives an `initial` value. From
+  the earlier start `log(size) = 0` INLA left weakly overdispersed features
+  for an unbounded size.
+* With `engine = "spde"` and a checkpoint directory, the default chunk holds
+  up to four features per thread (at least 50) instead of 50, so that the
+  threads of a chunk are all used.
+
 # spdeST 0.0.1.9065
 
 * `spde.estimate()`: the default `fd_step` is 0.01 instead of 0.05. With

@@ -348,14 +348,15 @@
 }
 
 # Contiguous feature chunks of at most `chunk_size` features. The default is
-# one chunk per worker; with a checkpoint directory it is capped at 50 features,
+# one chunk per worker; with a checkpoint directory it is capped at `cap` features,
 # so that a lost chunk costs little.
-.mgcvst_feature_chunks <- function(index, chunk_size, BPPARAM, checkpoint = FALSE) {
+.mgcvst_feature_chunks <- function(index, chunk_size, BPPARAM, checkpoint = FALSE,
+                                   cap = 50L) {
   if (!length(index)) return(list())
   if (is.null(chunk_size)) {
     workers <- max(1L, min(length(index), BiocParallel::bpworkers(BPPARAM)))
     chunk_size <- ceiling(length(index) / workers)
-    if (checkpoint) chunk_size <- min(chunk_size, 50L)
+    if (checkpoint) chunk_size <- min(chunk_size, cap)
   }
   split(index, ceiling(seq_along(index) / chunk_size))
 }
