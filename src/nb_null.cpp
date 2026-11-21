@@ -77,8 +77,12 @@ double deviance(const Vec& y, const Vec& mu, double alpha) {
 // is aliased and its entry is 0, so a direction the data do not inform (a
 // factor level whose fitted means have vanished) does not move.
 Vec wls(const Mat& X, const Vec& sw, const Vec& z, double rank_tol) {
-  Eigen::ColPivHouseholderQR<Mat> qr(sw.asDiagonal() * X);
+  // The complete orthogonal decomposition solves on the rank its threshold
+  // gives (the column-pivoted QR alone solves on a rank fixed by machine
+  // epsilon): the minimum-norm solution, zero along an aliased direction.
+  Eigen::CompleteOrthogonalDecomposition<Mat> qr;
   qr.setThreshold(rank_tol);
+  qr.compute(sw.asDiagonal() * X);
   return qr.solve((sw.array() * z.array()).matrix());
 }
 

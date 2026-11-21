@@ -67,6 +67,20 @@ test_that("spde.estimate is the REML fit of mgcv::gam", {
   only <- spde.estimate(f$Y, f$X, f$A, f$Q, offset = f$off, poisson = c(TRUE, FALSE, FALSE))
   expect_identical(only$family, c("poisson", "negative_binomial", "poisson"))
   expect_identical(only$tau[2:3], fit$tau[2:3])
+  # The returned point is a stationary point of the criterion: the gradient
+  # is reported, and no point of a grid around it is higher.
+  expect_true(all(abs(fit$grad_log_tau[1:2]) < .1 & abs(fit$grad_log_alpha[1:2]) < .1))
+  expect_true(is.na(fit$grad_log_alpha[3L]))
+  for (g in 1:2) {
+    grid <- expand.grid(r = log(fit$tau[g]) + seq(-.5, .5, length.out = 11L),
+                        t = -log(fit$size[g]) + seq(-.5, .5, length.out = 11L))
+    L <- spde.laml(f$Y[g, ], f$X, f$A, f$Q, grid$r, exp(grid$t), offset = f$off)
+    expect_lt(max(L) - fit$laml[g], 1e-3)
+    expect_equal(L[61L], fit$laml[g], tolerance = 1e-6)
+  }
+  expect_equal(spde.laml(f$Y[1L, ], f$X, f$A, f$Q, log(only$tau[1L]), 0, offset = f$off),
+               only$laml[1L], tolerance = 1e-6)
+  expect_error(spde.laml(f$Y[1L, ], f$X, f$A, f$Q, 0, -1), "non-negative")
   # The start of the size search does not move the optimum.
   started <- spde.estimate(f$Y, f$X, f$A, f$Q, offset = f$off, size_start = c(.5, 200, 3))
   expect_identical(started$family, fit$family)
@@ -146,6 +160,9 @@ test_that("engine = 'spde' runs the three stages without INLA", {
                ignore_attr = TRUE)
   expect_equal(fit$diagnostics$spatial_size[1:3], c(direct$size[1:2], Inf), tolerance = 1e-4)
   expect_true(is.na(fit$diagnostics$spatial_size[4L]))
+  expect_true(all(is.finite(fit$diagnostics$gradient_log_tau[1:3])))
+  expect_true(all(is.finite(fit$diagnostics$gradient_log_alpha[1:2])) &&
+                is.na(fit$diagnostics$gradient_log_alpha[3L]))
   expect_identical(fit$diagnostics$criterion_name[1L], "spde.estimate Laplace marginal likelihood")
 
   skip_if_not_installed("arrow")

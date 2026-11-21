@@ -36,10 +36,18 @@
 // symbolic analysis is done once, and the p columns of X by their dense Schur
 // complement G = X'WX - (A'WX)' S^{-1} (A'WX).
 //
+// (log tau, log alpha) are updated jointly: line searches over each in turn
+// bring the point near the maximum, and Newton steps in both, with the
+// gradient and the Hessian of L by central differences, finish it. The
+// negative-binomial maximum is searched from the best alpha at the Poisson
+// tau and, when that gains nothing, from the alpha of the null model; it is
+// compared with the Poisson maximum at the end.
+//
 // Every stopping rule is a change of the objective: the inner Newton
 // iteration stops on its predicted gain of the penalised log-likelihood, the
 // line searches on the change of L over their three best points, and the
-// alternation over (log tau, alpha) on the gain of L of a cycle.
+// joint Newton iteration on its predicted gain of L. The gradient of L at
+// the returned point is reported.
 
 namespace {
 
@@ -52,11 +60,13 @@ struct Control {
   double tol, tol_inner, rank_tol, eta_max;
   double log_tau_min, log_tau_max, alpha_min, alpha_max;
   int maxit_inner, maxit_halving, maxit_line, maxit_outer;
+  double fd_step, step_max;
 };
 
 struct Fit {
   Vec beta, u;
   double tau = NA_REAL, alpha = NA_REAL, laml = NA_REAL, laml_poisson = NA_REAL;
+  double grad_log_tau = NA_REAL, grad_log_alpha = NA_REAL;
   int evaluations = 0, newton = 0, outer = 0;
   bool converged = false, poisson = false;
   std::string error;
@@ -119,8 +129,9 @@ public:
     const Vec m0 = (y.array() + 0.1).matrix();
     const Vec z = (m0.array().log() - off_.array() + (y - m0).array() / m0.array()).matrix();
     const Vec sw = m0.array().sqrt().matrix();
-    Eigen::ColPivHouseholderQR<Mat> qr(sw.asDiagonal() * X_);
+    Eigen::CompleteOrthogonalDecomposition<Mat> qr;
     qr.setThreshold(ctl_.rank_tol);
+    qr.compute(sw.asDiagonal() * X_);
     beta_ = qr.solve((sw.array() * z.array()).matrix());
     u_ = Vec::Zero(m_);
     evaluations = 0;
@@ -337,8 +348,98 @@ LineResult maximise(const std::function<double(double)>& f, double a, double b,
   return {x, -fx, converged};
 }
 
-// alpha_start is the first alpha of the search (the null model's 1 / size);
-// NaN starts at the golden point of the interval.
+// A point of the search in (rho, t) = (log tau, log alpha) and the gradient of
+// L there, when it was computed.
+struct Point {
+  double rho = NA_REAL, t = NA_REAL, f = NA_REAL;
+  double g_rho = NA_REAL, g_t = NA_REAL;
+  bool converged = false, failed = false, at_zero = false;
+};
+
+// Climb L from (rho, t) with value f: line searches over rho and t in turn
+// until a cycle gains nothing, then Newton steps in (rho, t) jointly until the
+// predicted gain is below the tolerance. at_zero marks a point that reached
+// the lower end of alpha, where the model is the Poisson model.
+Point climb(Model& model, const Control& ctl, double rho, double t, double f,
+            int& cycles) {
+  Point z;
+  z.rho = rho; z.t = t; z.f = f;
+  if (!std::isfinite(f)) { z.failed = true; return z; }
+  const double lo = std::log(ctl.alpha_min), hi = std::log(ctl.alpha_max);
+  const double h = ctl.fd_step;
+  auto threshold = [&](double v) { return ctl.tol * (std::abs(v) + 0.1); };
+  bool lines = true;
+  for (int cycle = 1; cycle <= ctl.maxit_outer; ++cycle) {
+    ++cycles;
+    const double before = z.f;
+    const LineResult rt = maximise(
+      [&](double x) { return model.laml(x, std::exp(z.t)); },
+      ctl.log_tau_min, ctl.log_tau_max, ctl.tol, ctl.maxit_line);
+    lines = rt.converged;
+    if (rt.f > z.f) { z.rho = rt.x; z.f = rt.f; }
+    const LineResult ra = maximise(
+      [&](double x) { return model.laml(z.rho, std::exp(x)); }, lo, hi, ctl.tol,
+      ctl.maxit_line);
+    lines = lines && ra.converged;
+    if (ra.f > z.f) { z.t = ra.x; z.f = ra.f; }
+    if (z.f - before <= threshold(z.f)) break;
+  }
+  z.converged = lines;
+  for (int it = 0; it < ctl.maxit_outer; ++it) {
+    if (z.t - h <= lo) { z.at_zero = true; return z; }
+    // No room for the differences at an end of the interval: the point of the
+    // line searches stands.
+    if (z.t + h >= hi || z.rho - h <= ctl.log_tau_min || z.rho + h >= ctl.log_tau_max) return z;
+    auto value = [&](double dr, double dt) { return model.laml(z.rho + dr, std::exp(z.t + dt)); };
+    const double fr1 = value(h, 0), fr0 = value(-h, 0), ft1 = value(0, h), ft0 = value(0, -h);
+    const double f11 = value(h, h), f00 = value(-h, -h);
+    if (!std::isfinite(fr1 + fr0 + ft1 + ft0 + f11 + f00)) { z.converged = false; return z; }
+    const double gr = (fr1 - fr0) / (2 * h), gt = (ft1 - ft0) / (2 * h);
+    const double hrr = (fr1 - 2 * z.f + fr0) / (h * h), htt = (ft1 - 2 * z.f + ft0) / (h * h);
+    const double hrt = (f11 + f00 - 2 * z.f) / (2 * h * h) - 0.5 * (hrr + htt);
+    z.g_rho = gr; z.g_t = gt;
+    const double det = hrr * htt - hrt * hrt;
+    double dr, dt, gain;
+    if (hrr < 0 && det > 0) {
+      // Newton step of a concave quadratic and its gain.
+      dr = -(htt * gr - hrt * gt) / det;
+      dt = -(hrr * gt - hrt * gr) / det;
+      gain = 0.5 * (gr * dr + gt * dt);
+    } else {
+      // Not concave here: a gradient step of length step_max.
+      const double norm = std::sqrt(gr * gr + gt * gt);
+      if (!(norm > 0)) { z.converged = true; return z; }
+      dr = ctl.step_max * gr / norm;
+      dt = ctl.step_max * gt / norm;
+      gain = gr * dr + gt * dt;
+    }
+    if (!std::isfinite(gain)) { z.converged = false; return z; }
+    if (gain <= threshold(z.f)) { z.converged = true; return z; }
+    const double longest = std::max(std::abs(dr), std::abs(dt));
+    double scale = longest > ctl.step_max ? ctl.step_max / longest : 1.0;
+    bool moved = false;
+    for (int k = 0; k < ctl.maxit_halving; ++k) {
+      const double r1 = std::min(ctl.log_tau_max, std::max(ctl.log_tau_min, z.rho + scale * dr));
+      const double t1 = std::min(hi, std::max(lo, z.t + scale * dt));
+      const double f1 = model.laml(r1, std::exp(t1));
+      if (std::isfinite(f1) && f1 > z.f) {
+        z.rho = r1; z.t = t1; z.f = f1;
+        z.g_rho = z.g_t = NA_REAL;
+        moved = true;
+        break;
+      }
+      scale *= 0.5;
+    }
+    // No step raises L although a gain was predicted: the differences are at
+    // the resolution of L.
+    if (!moved) { z.converged = false; return z; }
+  }
+  z.converged = false;
+  return z;
+}
+
+// alpha_start is the alpha of the null model (1 / size), NaN when there is
+// none.
 Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
                 const Control& ctl, double alpha_start) {
   Fit out;
@@ -348,44 +449,54 @@ Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
   }
   model.set_feature(y, offset);
   // Poisson: one line search over log tau.
-  LineResult r = maximise([&](double rho) { return model.laml(rho, 0.0); },
-                          ctl.log_tau_min, ctl.log_tau_max, ctl.tol, ctl.maxit_line);
+  const LineResult r = maximise([&](double rho) { return model.laml(rho, 0.0); },
+                                ctl.log_tau_min, ctl.log_tau_max, ctl.tol, ctl.maxit_line);
   if (!std::isfinite(r.f)) {
     out.error = "The Poisson spatial fit failed.";
     return out;
   }
-  double rho = r.x, alpha = 0, best = r.f;
+  double rho = r.x, alpha = 0;
   bool converged = r.converged;
-  out.laml_poisson = best;
+  out.laml_poisson = r.f;
   out.poisson = true;
   if (!poisson) {
-    // The Poisson fit is the maximum unless L rises along alpha from it.
     const double lo = std::log(ctl.alpha_min), hi = std::log(ctl.alpha_max);
-    converged = false;
-    for (int outer = 1; outer <= ctl.maxit_outer; ++outer) {
-      out.outer = outer;
-      const LineResult ra = maximise(
-        [&](double t) { return model.laml(rho, std::exp(t)); }, lo, hi, ctl.tol, ctl.maxit_line,
-        outer == 1 ? std::log(alpha_start) : NA_REAL);
-      if (!(ra.f > best + ctl.tol * (std::abs(best) + 0.1))) {
-        converged = true;
-        break;
-      }
-      alpha = std::exp(ra.x);
-      out.poisson = false;
-      const double before = best;
-      best = ra.f;
-      const LineResult rt = maximise(
-        [&](double x) { return model.laml(x, alpha); },
-        ctl.log_tau_min, ctl.log_tau_max, ctl.tol, ctl.maxit_line);
-      if (rt.f > best) { rho = rt.x; best = rt.f; }
-      if (best - before <= ctl.tol * (std::abs(best) + 0.1)) {
-        converged = true;
-        break;
+    const double need = r.f + ctl.tol * (std::abs(r.f) + 0.1);
+    Point best;
+    bool have = false, searched = false;
+    // From the best alpha at the Poisson tau.
+    const LineResult ra = maximise(
+      [&](double t) { return model.laml(r.x, std::exp(t)); }, lo, hi, ctl.tol,
+      ctl.maxit_line, std::log(alpha_start));
+    if (std::isfinite(ra.f)) {
+      searched = true;
+      const Point z = climb(model, ctl, r.x, ra.x, ra.f, out.outer);
+      if (!z.failed) { best = z; have = true; }
+    }
+    // From the alpha of the null model, when the first search ends on the
+    // Poisson model.
+    if ((!have || best.at_zero || !(best.f > need)) && std::isfinite(alpha_start)) {
+      const double t0 = std::min(hi, std::max(lo, std::log(alpha_start)));
+      const Point z = climb(model, ctl, r.x, t0, model.laml(r.x, std::exp(t0)), out.outer);
+      if (!z.failed) {
+        searched = true;
+        if (!have || z.f > best.f) { best = z; have = true; }
       }
     }
+    if (!searched) {
+      out.error = "The negative-binomial spatial fit failed at every overdispersion.";
+      return out;
+    }
+    if (have && !best.at_zero && best.f > need) {
+      rho = best.rho;
+      alpha = std::exp(best.t);
+      converged = best.converged;
+      out.poisson = false;
+      out.grad_log_tau = best.g_rho;
+      out.grad_log_alpha = best.g_t;
+    }
   }
-  // The mode at the optimum (the line searches end on other points).
+  // The mode at the optimum (the searches end on other points).
   const double last = model.laml(rho, alpha);
   if (!std::isfinite(last)) {
     out.error = "The spatial fit failed at its optimum.";
@@ -396,6 +507,18 @@ Fit fit_feature(Model& model, const Vec& y, const Vec& offset, bool poisson,
   out.tau = std::exp(rho);
   out.alpha = alpha;
   out.laml = last;
+  // The gradient at the returned point, where the Newton iteration did not
+  // leave one (the Poisson fit, or a last accepted step).
+  const double h = ctl.fd_step;
+  const Vec beta = out.beta, u = out.u;
+  if (rho - h > ctl.log_tau_min && rho + h < ctl.log_tau_max &&
+      (out.poisson || !std::isfinite(out.grad_log_tau))) {
+    out.grad_log_tau = (model.laml(rho + h, alpha) - model.laml(rho - h, alpha)) / (2 * h);
+    if (!out.poisson) {
+      const double t = std::log(alpha);
+      out.grad_log_alpha = (model.laml(rho, std::exp(t + h)) - model.laml(rho, std::exp(t - h))) / (2 * h);
+    }
+  }
   out.converged = converged;
   out.evaluations = model.evaluations;
   out.newton = model.newton;
@@ -419,7 +542,7 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     const Rcpp::LogicalVector poisson,
     const Rcpp::NumericVector alpha_start,
     double tol = 1e-8,
-    double tol_inner = 1e-10,
+    double tol_inner = 1e-13,
     int maxit_inner = 50,
     int maxit_halving = 30,
     int maxit_line = 100,
@@ -430,6 +553,8 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     double alpha_max = 1e4,
     double eta_max = 700,
     double rank_tol = 1e-11,
+    double fd_step = 0.05,
+    double step_max = 2,
     int threads = 1) {
   const int n = Yt.rows(), features = Yt.cols(), p = X.cols(), m = A.cols();
   if (X.rows() != n || A.rows() != n) Rcpp::stop("X and A must have one row per observation.");
@@ -441,11 +566,13 @@ Rcpp::List mgcvst_spde_estimate_cpp(
   if (poisson.size() != features) Rcpp::stop("poisson must have one flag per feature.");
   if (alpha_start.size() != features) Rcpp::stop("alpha_start must have one value per feature.");
   if (threads < 1) Rcpp::stop("threads must be positive.");
+  if (!(fd_step > 0) || !(step_max > 0)) Rcpp::stop("fd_step and step_max must be positive.");
   if (!(log_tau_min < log_tau_max) || !(alpha_min > 0) || !(alpha_min < alpha_max)) {
     Rcpp::stop("The search bounds are not ordered.");
   }
   const Control ctl{tol, tol_inner, rank_tol, eta_max, log_tau_min, log_tau_max,
-                    alpha_min, alpha_max, maxit_inner, maxit_halving, maxit_line, maxit_outer};
+                    alpha_min, alpha_max, maxit_inner, maxit_halving, maxit_line, maxit_outer,
+                    fd_step, step_max};
   const SpMat As = A, Qs = Q;
   const Mat Xd = X;
   const Vec c = constraint;
@@ -456,6 +583,9 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     start[f] = alpha_start[f] > 0 && R_finite(alpha_start[f]) ? alpha_start[f] : NA_REAL;
   }
   std::vector<Fit> fit(features);
+  // An error of the set-up (the sparse analysis) is raised here, outside the
+  // parallel region, where an exception cannot be thrown.
+  { Model check(As, Qs, Xd, c, ctl); }
 
 #ifdef _OPENMP
 #pragma omp parallel num_threads(threads)
@@ -483,7 +613,8 @@ Rcpp::List mgcvst_spde_estimate_cpp(
   }
 
   Mat B = Mat::Constant(p, features, NA_REAL), U = Mat::Constant(m, features, NA_REAL);
-  Rcpp::NumericVector tau(features), alpha(features), laml(features), laml0(features);
+  Rcpp::NumericVector tau(features), alpha(features), laml(features), laml0(features),
+    grad_tau(features), grad_alpha(features);
   Rcpp::IntegerVector evaluations(features), newton(features), outer(features);
   Rcpp::LogicalVector converged(features), pois(features);
   Rcpp::CharacterVector error(features);
@@ -492,6 +623,7 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     const bool ok = z.error.empty();
     if (ok) { B.col(f) = z.beta; U.col(f) = z.u; }
     tau[f] = z.tau; alpha[f] = z.alpha; laml[f] = z.laml; laml0[f] = z.laml_poisson;
+    grad_tau[f] = z.grad_log_tau; grad_alpha[f] = z.grad_log_alpha;
     evaluations[f] = z.evaluations; newton[f] = z.newton; outer[f] = z.outer;
     converged[f] = ok && z.converged;
     pois[f] = ok ? (z.poisson ? TRUE : FALSE) : NA_LOGICAL;
@@ -502,6 +634,45 @@ Rcpp::List mgcvst_spde_estimate_cpp(
     Rcpp::_["alpha"] = alpha, Rcpp::_["laml"] = laml,
     Rcpp::_["laml_poisson"] = laml0, Rcpp::_["poisson"] = pois,
     Rcpp::_["converged"] = converged,
+    Rcpp::_["grad_log_tau"] = grad_tau, Rcpp::_["grad_log_alpha"] = grad_alpha,
     Rcpp::_["evaluations"] = evaluations, Rcpp::_["newton"] = newton,
     Rcpp::_["outer"] = outer, Rcpp::_["error"] = error);
+}
+
+// L(tau, alpha) of one feature at the pairs (log_tau[k], alpha[k]), each at
+// its own constrained mode (spde.laml, R/spde-estimate.R). alpha = 0 is the
+// Poisson model. NaN where the mode is not found.
+// [[Rcpp::export]]
+Rcpp::NumericVector mgcvst_spde_laml_cpp(
+    const Eigen::Map<Eigen::VectorXd> y,
+    const Eigen::Map<Eigen::MatrixXd> X,
+    const Eigen::MappedSparseMatrix<double>& A,
+    const Eigen::MappedSparseMatrix<double>& Q,
+    const Eigen::Map<Eigen::VectorXd> constraint,
+    const Eigen::Map<Eigen::VectorXd> offset,
+    const Eigen::Map<Eigen::VectorXd> log_tau,
+    const Eigen::Map<Eigen::VectorXd> alpha,
+    double tol_inner = 1e-13,
+    int maxit_inner = 50,
+    int maxit_halving = 30,
+    double eta_max = 700,
+    double rank_tol = 1e-11) {
+  const int n = y.size(), m = A.cols();
+  if (X.rows() != n || A.rows() != n || offset.size() != n) Rcpp::stop("y, X, A and offset must have one row per observation.");
+  if (Q.rows() != m || Q.cols() != m || constraint.size() != m) Rcpp::stop("Q and constraint must match ncol(A).");
+  if (log_tau.size() != alpha.size()) Rcpp::stop("log_tau and alpha must have one value per point.");
+  Control ctl{};
+  ctl.tol_inner = tol_inner; ctl.rank_tol = rank_tol; ctl.eta_max = eta_max;
+  ctl.maxit_inner = maxit_inner; ctl.maxit_halving = maxit_halving;
+  const SpMat As = A, Qs = Q;
+  const Mat Xd = X;
+  const Vec c = constraint, yv = y, off = offset;
+  Model model(As, Qs, Xd, c, ctl);
+  model.set_feature(yv, off);
+  Rcpp::NumericVector out(log_tau.size());
+  for (int k = 0; k < log_tau.size(); ++k) {
+    if (!(alpha[k] >= 0) || !std::isfinite(log_tau[k])) Rcpp::stop("alpha must be non-negative and log_tau finite.");
+    out[k] = model.laml(log_tau[k], alpha[k]);
+  }
+  return out;
 }

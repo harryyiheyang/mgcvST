@@ -17,7 +17,7 @@ spde.estimate(
   threads = 1L,
   chunk_size = 64L,
   tol = 1e-08,
-  tol_inner = 1e-10,
+  tol_inner = 1e-13,
   maxit_inner = 50L,
   maxit_halving = 30L,
   maxit_line = 100L,
@@ -27,7 +27,9 @@ spde.estimate(
   alpha_min = 1e-06,
   alpha_max = 10000,
   eta_max = 700,
-  rank_tol = 1e-11
+  rank_tol = 1e-11,
+  fd_step = 0.05,
+  step_max = 2
 )
 }
 \arguments{
@@ -44,9 +46,9 @@ matrix.}
 
 \item{poisson}{Optional logical vector: \code{TRUE} fits the Poisson model only.}
 
-\item{size_start}{Optional sizes, one per feature, at which the search of
-\code{alpha = 1 / size} starts (the size of the null model). The search still
-covers the whole interval and the optimum does not depend on the start.}
+\item{size_start}{Optional sizes of the null model, one per feature: the
+first point of the line search of \code{alpha = 1 / size}, and the start of
+the second search when the first ends on the Poisson model.}
 
 \item{constraint}{Vector \code{c} of the constraint \verb{c'u = 0}; the default is
 the mean of the field over the observations, \code{crossprod(A, 1 / n)}.}
@@ -58,14 +60,18 @@ the mean of the field over the observations, \code{crossprod(A, 1 / n)}.}
 \item{chunk_size}{Features per kernel call; bounds the memory of a call.}
 
 \item{tol}{Relative change of the criterion at which the line searches
-and the alternation over \verb{(log(tau), alpha)} stop.}
+and the joint Newton iteration over \verb{(log(tau), log(alpha))} stop.}
 
 \item{tol_inner}{Relative predicted gain of the penalised log-likelihood at
-which the Newton iteration for the mode stops.}
+which the Newton iteration for the mode stops. The criterion has a
+log-determinant that is not stationary at the mode, so its error is of
+the order of the square root of this gain: \code{1e-13} keeps it below \code{tol}
+(on 80 simulated features of 1500 observations at most 1.5e-6, against
+5e-4 with \code{1e-10}).}
 
 \item{maxit_inner, maxit_halving, maxit_line, maxit_outer}{Limits of the
-Newton iteration, of its step halving, of the evaluations of a line
-search and of the alternation cycles.}
+Newton iteration for the mode, of a step halving, of the evaluations of a
+line search, and of the line-search cycles and of the joint Newton steps.}
 
 \item{log_tau_min, log_tau_max}{Search interval of \code{log(tau)}.}
 
@@ -76,11 +82,20 @@ search and of the alternation cycles.}
 
 \item{rank_tol}{Relative eigenvalue below which a direction of the fixed
 effects is aliased (a factor level whose fitted means have vanished).}
+
+\item{fd_step}{Step of the central differences of the criterion in
+\code{log(tau)} and \code{log(alpha)}.}
+
+\item{step_max}{Longest joint Newton step, in \code{log(tau)} or \code{log(alpha)}.}
 }
 \value{
 A data frame with one row per feature: \code{feature_id}, \code{family},
 \code{tau}, \code{size}, \code{laml} (the criterion, up to a constant), \code{laml_poisson},
-\code{converged}, \code{evaluations}, \code{newton}, \code{outer}, \code{error}. The attributes
+\code{converged}, \code{grad_log_tau}, \code{grad_log_alpha} (the gradient of the
+criterion at the returned point; \code{NA} where a difference would leave the
+search interval, and for \code{alpha} of a Poisson fit), \code{evaluations},
+\code{newton}, \code{outer}, \code{error}. A feature whose negative-binomial search
+fails everywhere has an error; it is not returned as a Poisson fit. The attributes
 \code{"coefficients"} and \code{"field"} hold \code{beta} and \code{u} by feature.
 }
 \description{
@@ -94,12 +109,22 @@ factor of \verb{A'WA + tau Q} whose symbolic analysis is done once.
 }
 \details{
 The overdispersion is searched on \code{alpha >= 0}, where the Poisson model is
-the finite end point \code{alpha = 0}: the Poisson fit is found first, and it is
-the answer unless the criterion rises along \code{alpha} from it. A field that
-absorbs all the overdispersion therefore gives the Poisson fit, not a size
-that runs to infinity.
+the finite end point \code{alpha = 0}. The Poisson fit is found first. The
+negative-binomial maximum is then searched jointly in
+\verb{(log(tau), log(alpha))}: line searches over each in turn bring the point
+near the maximum, and Newton steps in both, with the gradient and the
+Hessian of the criterion by central differences, finish it. The search
+starts at the best \code{alpha} at the Poisson \code{tau} and, when that gains
+nothing, at the \code{alpha} of the null model (\code{size_start}). The
+negative-binomial fit is returned when its criterion exceeds the Poisson
+one; a field that absorbs all the overdispersion therefore gives the
+Poisson fit, not a size that runs to infinity. At every \verb{(tau, alpha)} the
+fixed effects and the field are solved again to their joint mode.
 
 Every stopping rule is a relative change of the objective,
-\verb{|f - f_old| / (|f| + 0.1)}, as \code{\link[stats:glm]{stats::glm.fit()}} measures its deviance.
+\verb{|f - f_old| / (|f| + 0.1)}, as \code{\link[stats:glm]{stats::glm.fit()}} measures its deviance;
+for a Newton iteration the change is the predicted gain of its step. The
+gradient of the criterion at the returned point is reported, so that each
+fit can be checked.
 }
 \keyword{internal}

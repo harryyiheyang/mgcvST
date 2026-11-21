@@ -49,9 +49,10 @@
 #' @param maxit_halving,eta_max An IRLS step is halved at most `maxit_halving`
 #'   times to keep the linear predictor below `eta_max` and the deviance from
 #'   rising.
-#' @param rank_tol Relative pivot below which the column-pivoted QR of an
-#'   IRLS step treats a column as aliased and leaves its coefficient where it
-#'   is; the default is that of [stats::glm.fit()] (`min(1e-7, epsilon / 1000)`).
+#' @param rank_tol Relative pivot below which an IRLS step treats a direction
+#'   of the design as aliased and does not move along it (the step is the
+#'   minimum-norm least-squares solution on that rank); the default is that
+#'   of [stats::glm.fit()] (`min(1e-7, epsilon / 1000)`).
 #' @param spectrum_tol Eigenvalues below `spectrum_tol` times the largest are
 #'   dropped from the mixture.
 #' @param spa_centre_tol,spa_root_tol,spa_root_maxit Saddlepoint controls:

@@ -79,9 +79,10 @@ negative the step is a \code{step_fallback}-fold increase or decrease.}
 times to keep the linear predictor below \code{eta_max} and the deviance from
 rising.}
 
-\item{rank_tol}{Relative pivot below which the column-pivoted QR of an
-IRLS step treats a column as aliased and leaves its coefficient where it
-is; the default is that of \code{\link[stats:glm]{stats::glm.fit()}} (\code{min(1e-7, epsilon / 1000)}).}
+\item{rank_tol}{Relative pivot below which an IRLS step treats a direction
+of the design as aliased and does not move along it (the step is the
+minimum-norm least-squares solution on that rank); the default is that
+of \code{\link[stats:glm]{stats::glm.fit()}} (\code{min(1e-7, epsilon / 1000)}).}
 
 \item{spectrum_tol}{Eigenvalues below \code{spectrum_tol} times the largest are
 dropped from the mixture.}

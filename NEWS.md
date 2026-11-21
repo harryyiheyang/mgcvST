@@ -1,3 +1,39 @@
+# spdeST 0.0.1.9064
+
+* `spde.estimate()` updates `(log(tau), log(alpha))` jointly. Line searches
+  over each in turn bring the point near the maximum, and Newton steps in
+  both, with the gradient and the Hessian of the criterion by central
+  differences (`fd_step`, `step_max`), finish it; the iteration stops when
+  the predicted gain of a step is below `tol`. Before, the two were only
+  searched in turn, which can stop short of the maximum on a narrow ridge.
+* The negative-binomial maximum is searched from the best `alpha` at the
+  Poisson `tau` and, when that gains nothing, from the `alpha` of the null
+  model; its criterion is then compared with the Poisson one. Before, the
+  Poisson fit was kept when the criterion did not rise along `alpha` at the
+  Poisson `tau` alone.
+* A feature whose negative-binomial search fails at every `alpha` has an
+  error. Before, it was returned as a converged Poisson fit.
+* `converged` is `FALSE` when a line search or the Newton iteration reached
+  its limit. Before, the flags of the line searches were dropped.
+* The gradient of the criterion at the returned point is reported
+  (`grad_log_tau`, `grad_log_alpha`; `gradient_log_tau` and
+  `gradient_log_alpha` in the diagnostics table).
+* `tol_inner` is `1e-13` (was `1e-10`). The error of the criterion is of the
+  order of the square root of the gain left by the Newton iteration for the
+  mode; with `1e-10` it reached 5e-4 on simulated features, above the
+  tolerance of the outer search, and with `1e-13` at most 1.5e-6, for about
+  20% more Newton steps.
+* The weighted least-squares steps of `spde.scan()` and the start of
+  `spde.estimate()` solve on the rank given by `rank_tol` (complete
+  orthogonal decomposition). The column-pivoted QR set its threshold after
+  the factorisation, so `rank_tol` had no effect and an exactly collinear
+  design gave coefficients of order 1e12 and a log-likelihood above the
+  maximum; it now gives the fit of the full-rank design.
+* An error of the set-up of `spde.estimate()` is raised before its parallel
+  region instead of inside it.
+* `spde.laml()` evaluates the criterion at given `(log(tau), alpha)`, for
+  checking a fit on a grid.
+
 # spdeST 0.0.1.9063
 
 * The size search of `spde.estimate()` starts at the size of the Stage 1 null

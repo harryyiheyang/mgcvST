@@ -9,13 +9,23 @@
 #' factor of `A'WA + tau Q` whose symbolic analysis is done once.
 #'
 #' The overdispersion is searched on `alpha >= 0`, where the Poisson model is
-#' the finite end point `alpha = 0`: the Poisson fit is found first, and it is
-#' the answer unless the criterion rises along `alpha` from it. A field that
-#' absorbs all the overdispersion therefore gives the Poisson fit, not a size
-#' that runs to infinity.
+#' the finite end point `alpha = 0`. The Poisson fit is found first. The
+#' negative-binomial maximum is then searched jointly in
+#' `(log(tau), log(alpha))`: line searches over each in turn bring the point
+#' near the maximum, and Newton steps in both, with the gradient and the
+#' Hessian of the criterion by central differences, finish it. The search
+#' starts at the best `alpha` at the Poisson `tau` and, when that gains
+#' nothing, at the `alpha` of the null model (`size_start`). The
+#' negative-binomial fit is returned when its criterion exceeds the Poisson
+#' one; a field that absorbs all the overdispersion therefore gives the
+#' Poisson fit, not a size that runs to infinity. At every `(tau, alpha)` the
+#' fixed effects and the field are solved again to their joint mode.
 #'
 #' Every stopping rule is a relative change of the objective,
-#' `|f - f_old| / (|f| + 0.1)`, as [stats::glm.fit()] measures its deviance.
+#' `|f - f_old| / (|f| + 0.1)`, as [stats::glm.fit()] measures its deviance;
+#' for a Newton iteration the change is the predicted gain of its step. The
+#' gradient of the criterion at the returned point is reported, so that each
+#' fit can be checked.
 #'
 #' @param Y Feature-by-observation count matrix (dense or sparse).
 #' @param X Observation-by-covariate design of the fixed effects.
@@ -24,21 +34,28 @@
 #' @param offset `NULL`, a length-`n` vector, or a feature-by-observation
 #'   matrix.
 #' @param poisson Optional logical vector: `TRUE` fits the Poisson model only.
-#' @param size_start Optional sizes, one per feature, at which the search of
-#'   `alpha = 1 / size` starts (the size of the null model). The search still
-#'   covers the whole interval and the optimum does not depend on the start.
+#' @param size_start Optional sizes of the null model, one per feature: the
+#'   first point of the line search of `alpha = 1 / size`, and the start of
+#'   the second search when the first ends on the Poisson model.
 #' @param constraint Vector `c` of the constraint `c'u = 0`; the default is
 #'   the mean of the field over the observations, `crossprod(A, 1 / n)`.
 #' @param feature_id Feature identifiers.
 #' @param threads OpenMP threads (one feature per thread).
 #' @param chunk_size Features per kernel call; bounds the memory of a call.
 #' @param tol Relative change of the criterion at which the line searches
-#'   and the alternation over `(log(tau), alpha)` stop.
+#'   and the joint Newton iteration over `(log(tau), log(alpha))` stop.
 #' @param tol_inner Relative predicted gain of the penalised log-likelihood at
-#'   which the Newton iteration for the mode stops.
+#'   which the Newton iteration for the mode stops. The criterion has a
+#'   log-determinant that is not stationary at the mode, so its error is of
+#'   the order of the square root of this gain: `1e-13` keeps it below `tol`
+#'   (on 80 simulated features of 1500 observations at most 1.5e-6, against
+#'   5e-4 with `1e-10`).
 #' @param maxit_inner,maxit_halving,maxit_line,maxit_outer Limits of the
-#'   Newton iteration, of its step halving, of the evaluations of a line
-#'   search and of the alternation cycles.
+#'   Newton iteration for the mode, of a step halving, of the evaluations of a
+#'   line search, and of the line-search cycles and of the joint Newton steps.
+#' @param fd_step Step of the central differences of the criterion in
+#'   `log(tau)` and `log(alpha)`.
+#' @param step_max Longest joint Newton step, in `log(tau)` or `log(alpha)`.
 #' @param log_tau_min,log_tau_max Search interval of `log(tau)`.
 #' @param alpha_min,alpha_max Search interval of a positive `alpha`
 #'   (`alpha = 0` is the Poisson fit).
@@ -47,17 +64,22 @@
 #'   effects is aliased (a factor level whose fitted means have vanished).
 #' @return A data frame with one row per feature: `feature_id`, `family`,
 #'   `tau`, `size`, `laml` (the criterion, up to a constant), `laml_poisson`,
-#'   `converged`, `evaluations`, `newton`, `outer`, `error`. The attributes
+#'   `converged`, `grad_log_tau`, `grad_log_alpha` (the gradient of the
+#'   criterion at the returned point; `NA` where a difference would leave the
+#'   search interval, and for `alpha` of a Poisson fit), `evaluations`,
+#'   `newton`, `outer`, `error`. A feature whose negative-binomial search
+#'   fails everywhere has an error; it is not returned as a Poisson fit. The attributes
 #'   `"coefficients"` and `"field"` hold `beta` and `u` by feature.
 #' @keywords internal
 spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
                           size_start = NULL, constraint = NULL, feature_id = rownames(Y),
                           threads = 1L, chunk_size = 64L, tol = 1e-8,
-                          tol_inner = 1e-10, maxit_inner = 50L,
+                          tol_inner = 1e-13, maxit_inner = 50L,
                           maxit_halving = 30L, maxit_line = 100L,
                           maxit_outer = 25L, log_tau_min = -12,
                           log_tau_max = 12, alpha_min = 1e-6, alpha_max = 1e4,
-                          eta_max = 700, rank_tol = 1e-11) {
+                          eta_max = 700, rank_tol = 1e-11, fd_step = 0.05,
+                          step_max = 2) {
   X <- as.matrix(X)
   storage.mode(X) <- "double"
   n <- nrow(X)
@@ -83,7 +105,8 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
   out <- data.frame(
     feature_id = feature_id, family = NA_character_, tau = NA_real_,
     size = NA_real_, laml = NA_real_, laml_poisson = NA_real_,
-    converged = FALSE, evaluations = NA_integer_, newton = NA_integer_,
+    converged = FALSE, grad_log_tau = NA_real_, grad_log_alpha = NA_real_,
+    evaluations = NA_integer_, newton = NA_integer_,
     outer = NA_integer_, error = NA_character_, stringsAsFactors = FALSE
   )
   beta <- matrix(NA_real_, ncol(X), p, dimnames = list(colnames(X), feature_id))
@@ -105,7 +128,8 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
       maxit_line = as.integer(maxit_line), maxit_outer = as.integer(maxit_outer),
       log_tau_min = log_tau_min, log_tau_max = log_tau_max,
       alpha_min = alpha_min, alpha_max = alpha_max, eta_max = eta_max,
-      rank_tol = rank_tol, threads = as.integer(threads)
+      rank_tol = rank_tol, fd_step = fd_step, step_max = step_max,
+      threads = as.integer(threads)
     )
     beta[, rows] <- fit$beta
     field[, rows] <- fit$u
@@ -116,6 +140,8 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
     out$laml[rows] <- fit$laml
     out$laml_poisson[rows] <- fit$laml_poisson
     out$converged[rows] <- fit$converged
+    out$grad_log_tau[rows] <- fit$grad_log_tau
+    out$grad_log_alpha[rows] <- fit$grad_log_alpha
     out$evaluations[rows] <- fit$evaluations
     out$newton[rows] <- fit$newton
     out$outer[rows] <- fit$outer
@@ -124,6 +150,40 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
   attr(out, "coefficients") <- beta
   attr(out, "field") <- field
   out
+}
+
+#' The criterion of `spde.estimate()` at given hyperparameters
+#'
+#' The Laplace marginal likelihood of one feature at the pairs
+#' `(log_tau[k], alpha[k])`, each at its own mode of the fixed effects and the
+#' field; `alpha = 0` is the Poisson model. It is the objective
+#' [spde.estimate()] maximises, for checking a fit on a grid.
+#'
+#' @param y Counts of one feature.
+#' @inheritParams spde.estimate
+#' @param offset `NULL` or a length-`n` vector.
+#' @param log_tau,alpha Points of evaluation, recycled to a common length.
+#' @return The criterion at each point, up to the constant of
+#'   [spde.estimate()]; `NA` where the mode is not found.
+#' @keywords internal
+spde.laml <- function(y, X, A, Q, log_tau, alpha, offset = NULL, constraint = NULL,
+                      tol_inner = 1e-13, maxit_inner = 50L, maxit_halving = 30L,
+                      eta_max = 700, rank_tol = 1e-11) {
+  X <- as.matrix(X)
+  storage.mode(X) <- "double"
+  n <- nrow(X)
+  A <- methods::as(methods::as(methods::as(A, "CsparseMatrix"), "generalMatrix"),
+                   "dMatrix")
+  Q <- methods::as(methods::as(methods::as(Matrix::forceSymmetric(
+    methods::as(Q, "CsparseMatrix")), "generalMatrix"), "CsparseMatrix"), "dMatrix")
+  if (is.null(constraint)) constraint <- as.numeric(Matrix::crossprod(A, rep.int(1 / n, n)))
+  if (is.null(offset)) offset <- numeric(n)
+  k <- max(length(log_tau), length(alpha))
+  mgcvst_spde_laml_cpp(
+    as.numeric(y), X, A, Q, as.numeric(constraint), as.numeric(offset),
+    rep_len(as.numeric(log_tau), k), rep_len(as.numeric(alpha), k),
+    tol_inner = tol_inner, maxit_inner = as.integer(maxit_inner),
+    maxit_halving = as.integer(maxit_halving), eta_max = eta_max, rank_tol = rank_tol)
 }
 
 # Stage 2 fits of one chunk of features by spde.estimate(), as the records of
@@ -205,6 +265,7 @@ spde.estimate <- function(Y, X, A, Q, offset = NULL, poisson = NULL,
       mode_status_text = NA_character_,
       log_marginal_likelihood = fit$laml[k], fit_seconds = seconds,
       null_size = null_size[k],
+      gradient = c(log_tau = fit$grad_log_tau[k], log_alpha = fit$grad_log_alpha[k]),
       estimation = list(
         engine = "spde.estimate",
         criterion = "Laplace marginal likelihood (REML) in (tau, 1 / size)",

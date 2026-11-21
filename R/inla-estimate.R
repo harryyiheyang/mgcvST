@@ -143,7 +143,7 @@
       numeric(),
     converged = isTRUE(z$converged),
     log_marginal_likelihood = z$log_marginal_likelihood,
-    fit_seconds = z$fit_seconds, null_size = z$null_size,
+    fit_seconds = z$fit_seconds, null_size = z$null_size, gradient = z$gradient,
     spatial_fallback = z$spatial_fallback,
     constraint_residual = z$constraint_residual,
     observation_spatial_mean = z$observation_spatial_mean,
@@ -509,6 +509,7 @@ inlaST.estimate <- function(
       if (is.null(z)) NA_real_ else if (length(z$family_parameters)) z$family_parameters[1L] else Inf
     }, numeric(1L)),
     spatial_size = NA_real_,
+    gradient_log_tau = NA_real_, gradient_log_alpha = NA_real_,
     error_class = NA_character_,
     error_message = NA_character_, error_call = NA_character_,
     spatial_selected = FALSE, spatial_fitted = FALSE,
@@ -717,6 +718,10 @@ inlaST.estimate_spatial <- function(
     # of a feature whose criterion does not rise along 1 / size.
     fit$feature_family[j] <- diag$family_used[j] <- z$family
     diag$spatial_size[j] <- if (length(z$family_parameters)) z$family_parameters[1L] else Inf
+    if (length(z$gradient) == 2L) {
+      diag$gradient_log_tau[j] <- z$gradient[[1L]]
+      diag$gradient_log_alpha[j] <- z$gradient[[2L]]
+    }
     fit$smoothing_parameters[j, ] <- z$smoothing_parameters
     fit$target_coefficients[, j] <- z$target
     if (length(z$nuisance)) fit$nuisance_coefficients[, j] <- z$nuisance

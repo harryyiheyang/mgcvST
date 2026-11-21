@@ -76,12 +76,20 @@ test_that("the Poisson route and a fixed size reproduce glm", {
   }
 })
 
-test_that("a feature that cannot be fitted reports an error alone", {
+test_that("a collinear column is aliased and a feature that cannot be fitted reports an error alone", {
   data <- scan_data(9047L, features = 3L)
-  data$X <- cbind(data$X, dup = data$X[, "x"])
+  full <- scan_kernel(data)
+  data$X <- cbind(data$X, dup = 2 * data$X[, "x"])
   z <- scan_kernel(data)
-  expect_true(all(!is.na(z$error)))
-  expect_true(all(is.na(z$size)))
+  expect_true(all(is.na(z$error)) && all(z$converged))
+  expect_equal(z$size, full$size, tolerance = 1e-8)
+  expect_equal(z$loglik, full$loglik, tolerance = 1e-10)
+  expect_true(all(abs(z$beta) < 10))
+  data$Y[2L, ] <- 0
+  z <- scan_kernel(data)
+  expect_identical(z$error[2L], "All counts are zero.")
+  expect_true(is.na(z$size[2L]) && all(is.na(z$error[-2L])))
+  expect_equal(z$size[-2L], full$size[-2L], tolerance = 1e-8)
 })
 
 test_that("large counts use the exact tail sums", {
