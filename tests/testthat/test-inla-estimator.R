@@ -32,7 +32,9 @@ test_that("INLA defaults estimated precision and NB size hyperparameters to flat
   for (field in fields) {
     expect_identical(control[[field]]$prior, "flat")
     expect_length(control[[field]]$param, 0L)
-    expect_identical(control[[field]]$initial, 0)
+    # The NB size has no initial value: it starts at the size of the null model.
+    if (field == "nb_size_prior") expect_null(control[[field]]$initial) else
+      expect_identical(control[[field]]$initial, 0)
 
     bad <- list()
     bad[[field]] <- list(

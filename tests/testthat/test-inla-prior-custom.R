@@ -92,7 +92,7 @@ test_that("registered and custom INLA prior specifications are validated", {
   )
   expect_identical(
     checked$nb_size_prior,
-    list(prior = "flat", param = numeric(), initial = 0)
+    list(prior = "flat", param = numeric())
   )
 
   expression_prior <- paste(
