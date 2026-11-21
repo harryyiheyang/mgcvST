@@ -172,8 +172,8 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #' | 4 | screened (`screen = TRUE`) | lower bounds |
 #'
 #' `U / t1` is the Haseman-Elston-type estimate of the latent spatial
-#' correlation of the pair, with null standard error `1 / sqrt(t1)`, and
-#' `sum(U) / sum(t1)` pools pairs. `$features` holds, for every feature of a
+#' correlation of the pair, with null standard error `1 / sqrt(t1)`.
+#' `$features` holds, for every feature of a
 #' tested pair, `trace_M = tr(M_g)` (the expected `a_g' a_g`) and
 #' `trace_M2 = tr(M_g^2)`; the PCAlearning route also keeps the coefficients
 #' `c_g` in `$pca_learning$coefficients`.

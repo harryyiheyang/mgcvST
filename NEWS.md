@@ -1,3 +1,9 @@
+# spdeST 0.0.1.9075
+
+* Documentation of `spdeST.test()`: the sentence on `sum(U) / sum(t1)` over
+  pairs is removed. The Haseman-Elston-type estimate is defined for one pair,
+  `U / t1`; a sum over pairs is not an estimate of a parameter of the model.
+
 # spdeST 0.0.1.9074
 
 * Documentation of `spdeST.test()`: `U / t1` estimates the latent spatial
