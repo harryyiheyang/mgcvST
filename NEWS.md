@@ -1,3 +1,9 @@
+# spdeST 0.0.1.9083
+
+* Removed the compiled entries that only the deleted tests called
+  (`mgcvst_spa_quadform_cpp`, `mgcvst_spa_cpp`, `mgcvst_pair_trace_powers_cpp`)
+  and `.mgcvst_pair_input_hash()`, which nothing calls.
+
 # spdeST 0.0.1.9082
 
 * Removed what the package no longer uses: the testthat suite with `testthat`

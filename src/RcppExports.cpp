@@ -206,20 +206,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// mgcvst_pair_trace_powers_cpp
-Rcpp::NumericMatrix mgcvst_pair_trace_powers_cpp(const Rcpp::List& matrixList, const Rcpp::IntegerMatrix& pairs, int maxPower, int threads);
-RcppExport SEXP _spdeST_mgcvst_pair_trace_powers_cpp(SEXP matrixListSEXP, SEXP pairsSEXP, SEXP maxPowerSEXP, SEXP threadsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type matrixList(matrixListSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::IntegerMatrix& >::type pairs(pairsSEXP);
-    Rcpp::traits::input_parameter< int >::type maxPower(maxPowerSEXP);
-    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_pair_trace_powers_cpp(matrixList, pairs, maxPower, threads));
-    return rcpp_result_gen;
-END_RCPP
-}
 // mgcvst_pair_basis_sum_cpp
 Rcpp::NumericMatrix mgcvst_pair_basis_sum_cpp(const Rcpp::List& H, Rcpp::Nullable<Rcpp::NumericMatrix> init);
 RcppExport SEXP _spdeST_mgcvst_pair_basis_sum_cpp(SEXP HSEXP, SEXP initSEXP) {
@@ -288,36 +274,6 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type variance(varianceSEXP);
     Rcpp::traits::input_parameter< int >::type p(pSEXP);
     rcpp_result_gen = Rcpp::wrap(mgcvst_he_correlation_cpp(i, j, score, t1, position, variance, p));
-    return rcpp_result_gen;
-END_RCPP
-}
-// mgcvst_spa_cpp
-Rcpp::NumericMatrix mgcvst_spa_cpp(const Rcpp::NumericVector& U, const Rcpp::NumericMatrix& S, const Rcpp::NumericMatrix& Tm, int order, int threads);
-RcppExport SEXP _spdeST_mgcvst_spa_cpp(SEXP USEXP, SEXP SSEXP, SEXP TmSEXP, SEXP orderSEXP, SEXP threadsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type U(USEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type S(SSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type Tm(TmSEXP);
-    Rcpp::traits::input_parameter< int >::type order(orderSEXP);
-    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_spa_cpp(U, S, Tm, order, threads));
-    return rcpp_result_gen;
-END_RCPP
-}
-// mgcvst_spa_quadform_cpp
-double mgcvst_spa_quadform_cpp(double q, const std::vector<double>& lambda, double centre_tol, double root_tol, int root_maxit);
-RcppExport SEXP _spdeST_mgcvst_spa_quadform_cpp(SEXP qSEXP, SEXP lambdaSEXP, SEXP centre_tolSEXP, SEXP root_tolSEXP, SEXP root_maxitSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< double >::type q(qSEXP);
-    Rcpp::traits::input_parameter< const std::vector<double>& >::type lambda(lambdaSEXP);
-    Rcpp::traits::input_parameter< double >::type centre_tol(centre_tolSEXP);
-    Rcpp::traits::input_parameter< double >::type root_tol(root_tolSEXP);
-    Rcpp::traits::input_parameter< int >::type root_maxit(root_maxitSEXP);
-    rcpp_result_gen = Rcpp::wrap(mgcvst_spa_quadform_cpp(q, lambda, centre_tol, root_tol, root_maxit));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -509,14 +465,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_pca_packed_project_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_packed_project_cpp, 3},
     {"_spdeST_mgcvst_pca_spa_pairs_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_spa_pairs_cpp, 10},
     {"_spdeST_mgcvst_pca_spa_block_cpp", (DL_FUNC) &_spdeST_mgcvst_pca_spa_block_cpp, 12},
-    {"_spdeST_mgcvst_pair_trace_powers_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_trace_powers_cpp, 4},
     {"_spdeST_mgcvst_pair_basis_sum_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_basis_sum_cpp, 2},
     {"_spdeST_mgcvst_pair_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_basis_cpp, 3},
     {"_spdeST_mgcvst_pair_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_pair_spa_cpp, 9},
     {"_spdeST_mgcvst_simd_cpp", (DL_FUNC) &_spdeST_mgcvst_simd_cpp, 0},
     {"_spdeST_mgcvst_he_correlation_cpp", (DL_FUNC) &_spdeST_mgcvst_he_correlation_cpp, 7},
-    {"_spdeST_mgcvst_spa_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_cpp, 5},
-    {"_spdeST_mgcvst_spa_quadform_cpp", (DL_FUNC) &_spdeST_mgcvst_spa_quadform_cpp, 5},
     {"_spdeST_mgcvst_sparse_prepare_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_prepare_cpp, 2},
     {"_spdeST_mgcvst_sparse_prepared_valid_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_prepared_valid_cpp, 1},
     {"_spdeST_mgcvst_sparse_observation_basis_cpp", (DL_FUNC) &_spdeST_mgcvst_sparse_observation_basis_cpp, 3},

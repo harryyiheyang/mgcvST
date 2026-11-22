@@ -49,10 +49,6 @@ mgcvst_pca_spa_block_cpp <- function(A, C, K2, T2, R, scale, first, last, thread
     .Call(`_spdeST_mgcvst_pca_spa_block_cpp`, A, C, K2, T2, R, scale, first, last, threads, gene_block, pair_block, screen_z)
 }
 
-mgcvst_pair_trace_powers_cpp <- function(matrixList, pairs, maxPower = 4L, threads = 1L) {
-    .Call(`_spdeST_mgcvst_pair_trace_powers_cpp`, matrixList, pairs, maxPower, threads)
-}
-
 mgcvst_pair_basis_sum_cpp <- function(H, init = NULL) {
     .Call(`_spdeST_mgcvst_pair_basis_sum_cpp`, H, init)
 }
@@ -71,14 +67,6 @@ mgcvst_simd_cpp <- function() {
 
 mgcvst_he_correlation_cpp <- function(i, j, score, t1, position, variance, p) {
     .Call(`_spdeST_mgcvst_he_correlation_cpp`, i, j, score, t1, position, variance, p)
-}
-
-mgcvst_spa_cpp <- function(U, S, Tm, order = 4L, threads = 1L) {
-    .Call(`_spdeST_mgcvst_spa_cpp`, U, S, Tm, order, threads)
-}
-
-mgcvst_spa_quadform_cpp <- function(q, lambda, centre_tol = 1e-6, root_tol = 1e-12, root_maxit = 100L) {
-    .Call(`_spdeST_mgcvst_spa_quadform_cpp`, q, lambda, centre_tol, root_tol, root_maxit)
 }
 
 mgcvst_sparse_prepare_cpp <- function(Q_map, constraint) {

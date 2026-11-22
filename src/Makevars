@@ -13,7 +13,7 @@ LA_DEFS =
 endif
 
 OBJECTS = RcppExports.o adjust_pvalues.o sparse_score.o compact_units.o \
-  memory_status.o nb_null.o pca_learning.o score_pair.o spa_pair.o spa_quadform.o spde_scan.o spde_estimate.o \
+  memory_status.o nb_null.o pca_learning.o score_pair.o spde_scan.o spde_estimate.o \
   $(LA_OBJECTS)
 PKG_CPPFLAGS = $(LA_DEFS)
 PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)

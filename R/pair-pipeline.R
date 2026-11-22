@@ -1,23 +1,3 @@
-# Bound serialization buffers while hashing every input value and its attributes.
-.mgcvst_pair_input_hash <- function(x) {
-  if (is.list(x) && !isS4(x)) {
-    parts <- vapply(x, .mgcvst_pair_input_hash, character(1L))
-    return(digest::digest(list(type = typeof(x), attributes = attributes(x),
-                               parts = parts), algo = "md5"))
-  }
-  if (is.atomic(x) && length(x) > 1048576L) {
-    starts <- seq.int(1, length(x), by = 1048576L)
-    parts <- vapply(starts, function(first) {
-      last <- min(length(x), first + 1048575L)
-      digest::digest(x[seq.int(first, last)], algo = "md5")
-    }, character(1L))
-    return(digest::digest(list(type = typeof(x), length = length(x),
-                               attributes = attributes(x), parts = parts),
-                          algo = "md5"))
-  }
-  digest::digest(x, algo = "md5")
-}
-
 # Defaults of the exact-moment route: the number of leading singular values
 # kept from the shared basis.
 .mgcvst_exact_defaults <- list(k = 20L)
