@@ -37,10 +37,6 @@
   file.path(store$path, sprintf("feature-%010d.rds", index))
 }
 
-.mgcvst_store_has <- function(store, feature) {
-  file.exists(.mgcvst_store_file(store, feature))
-}
-
 .mgcvst_store_read <- function(store, feature) {
   path <- .mgcvst_store_file(store, feature)
   index <- .mgcvst_store_index(store, feature)

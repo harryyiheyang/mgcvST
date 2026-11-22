@@ -1,10 +1,5 @@
 ^\.git$
-^tests/benchmark$
-^\.learnings$
-^\.test-library$
-^\.final-library$
-^R/\.Rhistory$
-^artifacts$
 ^AGENTS\.md$
 ^.*\.Rcheck$
-^mgcvST_.*\.(tar\.gz|zip)$
+^README\.Rmd$
+^README_files$

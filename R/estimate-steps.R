@@ -4,7 +4,7 @@
 # null-first p-value; step 2 fits the spatial model of the selected features
 # only. This file holds what both branches share: the Stage 1 q-values, the
 # feature selection, the content digests that tie a later step to the Y of
-# step 1, and resumable chunk checkpoints written by the workers.
+# step 1, and the keyed dispatch of chunks to the workers.
 
 # Format of the fit objects of the two-step estimators. Fits without it were
 # estimated before 0.0.1.9032.
@@ -156,7 +156,7 @@
   invisible(NULL)
 }
 
-# ---- resumable chunk checkpoints --------------------------------------------
+# ---- keyed chunks ------------------------------------------------------------
 
 # Key of one chunk: the step, its features, their responses and, where a
 # feature can be routed to another family (the Poisson prescreen), its routing.

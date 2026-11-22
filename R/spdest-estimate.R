@@ -20,14 +20,14 @@
   task <- function(payload, fun_name, args, libpaths, manager = NULL) {
     if (length(libpaths)) .libPaths(unique(c(libpaths, .libPaths())))
     # A worker can arrive with spdeST already loaded from another library:
-    # deserialising exported globals (e.g. testthat's topLevelEnvironment
-    # option under SnowParam's exportglobals) loads the namespace by name
+    # deserialising exported globals (SnowParam's exportglobals) loads the
+    # namespace by name
     # BEFORE this body runs, resolving against the worker's default paths.
     # A stale build then shadows the manager's; reload from the right path.
     expected <- find.package("spdeST", lib.loc = .libPaths(), quiet = TRUE)
     # The manager process itself (a serial backend) keeps its namespace: it is
-    # the build that made this call, and under devtools::load_all() or
-    # testthat::test_local() unloading it would drop the caller's own objects.
+    # the build that made this call, and under devtools::load_all() unloading
+    # it would drop the caller's own objects.
     if (!identical(manager, Sys.getpid()) &&
         "spdeST" %in% loadedNamespaces() && length(expected)) {
       current <- getNamespaceInfo(asNamespace("spdeST"), "path")
@@ -198,20 +198,6 @@
   out
 }
 
-# Checkpoint signature of an estimation: the model, offset and controls
-# the chunk results depend on. The chunking and the family routing of a feature
-# are not part of it: a chunk file is keyed by its step, its features, their
-# responses and their routing, so a changed chunk_size or a feature that is
-# routed differently recomputes its chunk, and never mixes.
-.spdest_estimation_signature <- function(model, control, offset, feature_id,
-                                         retain_smooth, diagnostics) {
-  .mgcvst_pair_input_hash(list(
-    format = .mgcvst_fit_format, spec = model$spde_spec, offset = model$offset,
-    extra_offset = offset, control = control, feature_id = feature_id,
-    retain_smooth = retain_smooth, diagnostics = diagnostics
-  ))
-}
-
 .spdest_check_threads <- function(threads) {
   if (length(threads) != 1L || !is.numeric(threads) || !is.finite(threads) ||
       threads < 1 || threads > .Machine$integer.max ||
@@ -341,10 +327,6 @@
 
   t0 <- proc.time()[["elapsed"]]
   y_digest <- .mgcvst_row_digests(Y)
-  signature <- .spdest_estimation_signature(
-    model, control, offset, feature_id, retain_smooth, diagnostics
-  )
-  signature <- .mgcvst_pair_input_hash(list(signature, scan_args = scan_args))
   groups <- .mgcvst_feature_chunks(seq_len(p), chunk_size, BPPARAM)
   # A payload is built only when its chunk is computed and a worker is free.
   make_payload <- function(index) {
@@ -460,7 +442,6 @@
     n_observation = ncol(Y),
     basis_spec = list(kind = "full_rank", rank = m - 1L),
     format = .mgcvst_fit_format,
-    signature = signature,
     control = control,
     extra_offset = offset,
     routed_poisson = prescreen$poisson,
