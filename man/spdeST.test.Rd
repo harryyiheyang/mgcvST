@@ -83,8 +83,7 @@ temporary pair files are removed, and
 of \code{t1}, \code{U / t1}, \code{1 / sqrt(t1)} and \verb{|U / t1|}, the proportion with
 \verb{|U / t1| > 1} and the proportion with \code{U / t1 > 0}. Use it for all pairs
 of many features, where the full table has tens of millions of rows;
-\code{\link[=spdeST.wgcna]{spdeST.wgcna()}} needs every pair of its blocks, so test those features
-with \code{keep = "all"}.}
+\code{\link[=spdeST.wgcna]{spdeST.wgcna()}} reads the discoveries alone.}
 }
 \value{
 An object of class \code{spdeST_test} with \code{results}, \code{shards},

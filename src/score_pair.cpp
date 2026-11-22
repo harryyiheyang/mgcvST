@@ -346,12 +346,13 @@ Rcpp::List mgcvst_pair_spa_cpp(const Rcpp::List& H, const Rcpp::List& G,
 // [[Rcpp::export]]
 std::string mgcvst_simd_cpp() { return mgcvst::la().isa; }
 
-// Haseman-Elston-type correlation matrix of p selected features from pair
-// rows: rho_ij = U_ij / t1_ij, the diagonal is 1. `position` maps a feature
+// Haseman-Elston-type correlation matrix of p selected features from the
+// rows of the discovered pairs: rho_ij = U_ij / t1_ij for a discovered pair,
+// 0 for every other pair, the diagonal is 1. `position` maps a feature
 // index (1-based) to its row in the matrix, 0 for a feature that is not
 // selected. `similarity` is rho limited to [-1, 1]; `limited` counts the
-// pairs outside it and `missing` the pairs of selected features without a
-// finite score and a positive finite t1. `variance` holds the field variance
+// pairs outside it and `pairs` the discovered pairs of the selected
+// features. `variance` holds the field variance
 // of the p features in matrix order; `covariance` is rho_ij sqrt(v_i v_j)
 // with the variances on the diagonal.
 // [[Rcpp::export]]
@@ -370,8 +371,8 @@ Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i,
   if (variance.size() != p) Rcpp::stop("variance must have one value per selected feature.");
   const int features = position.size();
   Rcpp::NumericMatrix rho(p, p);
-  std::fill(rho.begin(), rho.end(), NA_REAL);
   for (int k = 0; k < p; ++k) rho(k, k) = 1.0;
+  double limited = 0, pairs = 0;
   for (R_xlen_t k = 0; k < n; ++k) {
     if (i[k] < 1 || i[k] > features || j[k] < 1 || j[k] > features) {
       Rcpp::stop("A pair holds a feature index outside the fit.");
@@ -383,13 +384,12 @@ Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i,
     const double r = score[k] / t1[k];
     rho(a - 1, b - 1) = r;
     rho(b - 1, a - 1) = r;
+    pairs += 1;
   }
   Rcpp::NumericMatrix similarity = Rcpp::clone(rho);
-  double limited = 0, missing = 0;
   for (int b = 0; b < p; ++b) {
     for (int a = b + 1; a < p; ++a) {
       const double r = rho(a, b);
-      if (!std::isfinite(r)) { missing += 1; continue; }
       if (std::abs(r) > 1.0) {
         limited += 1;
         similarity(a, b) = similarity(b, a) = r > 0 ? 1.0 : -1.0;
@@ -406,5 +406,5 @@ Rcpp::List mgcvst_he_correlation_cpp(const Rcpp::IntegerVector& i,
                             Rcpp::Named("covariance") = covariance,
                             Rcpp::Named("similarity") = similarity,
                             Rcpp::Named("limited") = limited,
-                            Rcpp::Named("missing") = missing);
+                            Rcpp::Named("pairs") = pairs);
 }

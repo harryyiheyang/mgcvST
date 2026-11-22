@@ -10,8 +10,8 @@ spdeST.wgcna(test, indices, wgcna.para = NULL, verbose = FALSE)
 \method{print}{spdeST_wgcna}(x, ...)
 }
 \arguments{
-\item{test}{A result of \code{\link[=spdeST.test]{spdeST.test()}} that holds every pair of the
-selected genes (\code{pairs = NULL} tests every pair of the fitted features).}
+\item{test}{A result of \code{\link[=spdeST.test]{spdeST.test()}} over the pairs of the selected
+genes; \code{keep = "discoveries"} holds all that is read.}
 
 \item{indices}{Required gene IDs, integer positions in \code{test$feature_id},
 or a named list of such vectors. Each block must contain at least two distinct
@@ -33,7 +33,9 @@ grey (zero) labels, without changing the requested module size.}
 \value{
 An \code{spdeST_wgcna} object with \code{modules} (component, feature ID, integer
 module, color), named \code{networks} (feature IDs, \code{correlation} (the
-estimates \code{U / t1}, not limited), \code{limited} (the number of pairs outside
+estimates \code{U / t1} of the discovered pairs, not limited, and 0 for the
+other pairs), \code{pairs} (the number of discovered pairs of the block),
+\code{limited} (the number of them outside
 \verb{[-1, 1]}), \code{covariance} (the estimates of the covariance of the latent
 fields, \code{U / t1} times the root of the product of the two field
 variances, with the variances on the diagonal), \code{variance_at_floor} (the
@@ -45,23 +47,25 @@ A zero module label means unassigned (grey). Module labels are local to
 each input block. No biological annotations are inferred automatically.
 }
 \description{
-The similarity of two genes is the Haseman-Elston-type estimate of their
-latent spatial correlation, \code{rho_ij = U_ij / t1_ij}, with the score \code{U_ij}
-and its information \code{t1_ij} of the pair in a result of \code{\link[=spdeST.test]{spdeST.test()}}; a
+The network is built from the discoveries of \code{\link[=spdeST.test]{spdeST.test()}}. The
+similarity of two genes whose pair is a discovery (\code{log_q <= log(q.value)})
+is the Haseman-Elston-type estimate of their latent spatial correlation,
+\code{rho_ij = U_ij / t1_ij}, with the score \code{U_ij} and its information \code{t1_ij}
+of the pair; the similarity of every other pair is 0, because the ratio of
+a score and an information that are both near zero estimates nothing; a
 gene has similarity 1 with itself. No score is recomputed. The estimate of
-a pair with little information can lie outside \verb{[-1, 1]}; the adjacency is
+a discovered pair can still lie outside \verb{[-1, 1]}; the adjacency is
 defined on \verb{[-1, 1]}, so such an estimate enters it as \code{-1} or \code{1}, and
 the number of these pairs is returned. The function then runs
 \code{WGCNA::adjacency.fromSimilarity()}, \code{WGCNA::TOMsimilarity()},
 \code{fastcluster::hclust()}, \code{dynamicTreeCut::cutreeDynamic()} and
-\code{WGCNA::labels2colors()}. Blocks are selected explicitly; every pair of a
-block must have been tested.
+\code{WGCNA::labels2colors()}. Blocks are selected explicitly.
 }
 \examples{
 \dontrun{
 scan <- spdeST.scan(Y, model)
 fit <- spdeST.estimate(scan, Y, features = "all")
-test <- spdeST.test(fit, moments = "exact")
+test <- spdeST.test(fit, moments = "exact", keep = "discoveries")
 W <- spdeST.wgcna(test, indices = genes)
 W$modules
 }

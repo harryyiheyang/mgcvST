@@ -105,10 +105,18 @@
        used = unique(unlist(blocks, use.names = FALSE)))
 }
 
-# The pair rows (i, j, score, t1) of the test whose two features are selected.
+# The rows (i, j, score, t1) of the discovered pairs of the test whose two
+# features are selected.
 .mgcvst_wgcna_pairs <- function(test, used) {
-  columns <- c("i", "j", "score", "t1")
-  keep <- function(z) z[z$i %in% used & z$j %in% used, columns, drop = FALSE]
+  columns <- c("i", "j", "score", "t1", "log_q")
+  q <- test$threshold$q_value
+  if (!is.numeric(q) || length(q) != 1L || !is.finite(q)) {
+    stop("The test does not hold its discovery threshold.")
+  }
+  keep <- function(z) {
+    z[z$i %in% used & z$j %in% used & !is.na(z$log_q) & z$log_q <= log(q),
+      columns[1:4], drop = FALSE]
+  }
   if (is.data.frame(test$results)) return(keep(test$results))
   if (!length(test$shards) || !all(file.exists(test$shards))) {
     stop("The test holds neither its pair table nor its result shards.")
@@ -132,14 +140,6 @@
                                    position, as.numeric(features$variance[at]),
                                    length(index))
     at_floor <- id[which(features$variance_at_floor[at])]
-    if (z$missing > 0) {
-      lacking <- id[rowSums(is.na(z$rho)) > 0L]
-      stop("Block '", nm, "': ", z$missing, " pairs of the selected features have ",
-           "no score and information in the test (features ",
-           paste(utils::head(lacking, 10L), collapse = ", "),
-           if (length(lacking) > 10L) ", ..." else "",
-           "). Test every pair of the block with spdeST.test().")
-    }
     R <- z$rho
     dimnames(R) <- dimnames(z$covariance) <- list(id, id)
     adj <- WGCNA::adjacency.fromSimilarity(z$similarity, type = para$networkType,
@@ -157,7 +157,8 @@
     tab <- data.frame(feature_id = id, module = unname(labels),
                       color = WGCNA::labels2colors(labels),
                       stringsAsFactors = FALSE)
-    networks[[nm]] <- list(feature_id = id, correlation = R, limited = z$limited,
+    networks[[nm]] <- list(feature_id = id, correlation = R, pairs = z$pairs,
+      limited = z$limited,
       covariance = z$covariance, variance_at_floor = at_floor,
       adjacency = adj, TOM = TOM, tree = H, labels = labels, modules = tab,
       status = status)
@@ -165,8 +166,8 @@
     if (verbose) {
       message("Block '", nm, "': ", length(id), " genes, ",
               length(unique(labels[labels > 0L])), " modules, ",
-              sum(labels == 0L), " grey; ", z$limited,
-              " pairs limited to [-1, 1]; ", length(at_floor),
+              sum(labels == 0L), " grey; ", z$pairs, " discovered pairs, ",
+              z$limited, " limited to [-1, 1]; ", length(at_floor),
               " genes with the variance at its lower limit; ", status, ".")
     }
   }
@@ -177,20 +178,22 @@
 
 #' Identify co-expression modules from the pair test
 #'
-#' The similarity of two genes is the Haseman-Elston-type estimate of their
-#' latent spatial correlation, `rho_ij = U_ij / t1_ij`, with the score `U_ij`
-#' and its information `t1_ij` of the pair in a result of [spdeST.test()]; a
+#' The network is built from the discoveries of [spdeST.test()]. The
+#' similarity of two genes whose pair is a discovery (`log_q <= log(q.value)`)
+#' is the Haseman-Elston-type estimate of their latent spatial correlation,
+#' `rho_ij = U_ij / t1_ij`, with the score `U_ij` and its information `t1_ij`
+#' of the pair; the similarity of every other pair is 0, because the ratio of
+#' a score and an information that are both near zero estimates nothing; a
 #' gene has similarity 1 with itself. No score is recomputed. The estimate of
-#' a pair with little information can lie outside `[-1, 1]`; the adjacency is
+#' a discovered pair can still lie outside `[-1, 1]`; the adjacency is
 #' defined on `[-1, 1]`, so such an estimate enters it as `-1` or `1`, and
 #' the number of these pairs is returned. The function then runs
 #' `WGCNA::adjacency.fromSimilarity()`, `WGCNA::TOMsimilarity()`,
 #' `fastcluster::hclust()`, `dynamicTreeCut::cutreeDynamic()` and
-#' `WGCNA::labels2colors()`. Blocks are selected explicitly; every pair of a
-#' block must have been tested.
+#' `WGCNA::labels2colors()`. Blocks are selected explicitly.
 #'
-#' @param test A result of [spdeST.test()] that holds every pair of the
-#'   selected genes (`pairs = NULL` tests every pair of the fitted features).
+#' @param test A result of [spdeST.test()] over the pairs of the selected
+#'   genes; `keep = "discoveries"` holds all that is read.
 #' @param indices Required gene IDs, integer positions in `test$feature_id`,
 #'   or a named list of such vectors. Each block must contain at least two distinct
 #'   genes. A vector defines the block named `selected`. Gene order is preserved.
@@ -203,7 +206,9 @@
 #' @param verbose Whether to display compact progress messages.
 #' @return An `spdeST_wgcna` object with `modules` (component, feature ID, integer
 #'   module, color), named `networks` (feature IDs, `correlation` (the
-#'   estimates `U / t1`, not limited), `limited` (the number of pairs outside
+#'   estimates `U / t1` of the discovered pairs, not limited, and 0 for the
+#'   other pairs), `pairs` (the number of discovered pairs of the block),
+#'   `limited` (the number of them outside
 #'   `[-1, 1]`), `covariance` (the estimates of the covariance of the latent
 #'   fields, `U / t1` times the root of the product of the two field
 #'   variances, with the variances on the diagonal), `variance_at_floor` (the
@@ -217,7 +222,7 @@
 #' \dontrun{
 #' scan <- spdeST.scan(Y, model)
 #' fit <- spdeST.estimate(scan, Y, features = "all")
-#' test <- spdeST.test(fit, moments = "exact")
+#' test <- spdeST.test(fit, moments = "exact", keep = "discoveries")
 #' W <- spdeST.wgcna(test, indices = genes)
 #' W$modules
 #' }

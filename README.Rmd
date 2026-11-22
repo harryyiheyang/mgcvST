@@ -92,11 +92,12 @@ which is checked.
 ## WGCNA modules from the estimated latent spatial correlation
 
 `spdeST.wgcna()` identifies modules within gene blocks selected for downstream
-analysis. It accepts a result of `spdeST.test()` and reads, for every pair of
-a block, the score `U` and its information `t1`. The similarity of two features
-is `U / t1`, the Haseman-Elston-type estimate of their latent spatial
-correlation, followed by WGCNA adjacency, topological overlap and dynamic tree
-cutting. Every pair of a block must have been tested.
+analysis. It accepts a result of `spdeST.test()` and reads, for every
+discovered pair of a block, the score `U` and its information `t1`. The
+similarity of two features whose pair is a discovery is `U / t1`, the
+Haseman-Elston-type estimate of their latent spatial correlation; the
+similarity of every other pair is 0. WGCNA adjacency, topological overlap and
+dynamic tree cutting follow.
 
 ```r
 install.packages(c("WGCNA", "dynamicTreeCut", "fastcluster"))
@@ -113,7 +114,8 @@ W <- spdeST.wgcna(tested, indices = list(block1 = genes1, block2 = genes2), wgcn
 The defaults are signed adjacency, power 6, signed TOM, average linkage,
 minimum module size 20 and `deepSplit = 1`. A named `wgcna.para` list overrides
 only the supplied settings. Module labels are local to each gene
-block; label zero indicates an unassigned gene. An estimate outside `[-1, 1]`
+block; label zero indicates an unassigned gene. An estimate of a discovered
+pair outside `[-1, 1]`
 is set to the nearer limit for the adjacency, and the number of such pairs is
 returned as `limited`. The result retains the estimated correlation, the
 adjacency, the TOM and the clustering tree for further analysis.

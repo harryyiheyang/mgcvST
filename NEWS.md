@@ -1,3 +1,13 @@
+# spdeST 0.0.1.9084
+
+* `spdeST.wgcna()` builds the network from the discoveries of
+  `spdeST.test()`: the similarity of a discovered pair is `U / t1`, that of
+  every other pair is 0. The ratio of a score and an information that are
+  both near zero estimates nothing, and it was the source of the estimates
+  far outside `[-1, 1]`. The requirement that every pair of a block be held
+  by the test is removed (`keep = "discoveries"` is enough); the network
+  returns `pairs`, the number of discovered pairs of the block.
+
 # spdeST 0.0.1.9083
 
 * Removed the compiled entries that only the deleted tests called

@@ -223,8 +223,7 @@ spdeST.estimate <- function(scan, Y, features = "discoveries", adjust = NULL,
 #'   of `t1`, `U / t1`, `1 / sqrt(t1)` and `|U / t1|`, the proportion with
 #'   `|U / t1| > 1` and the proportion with `U / t1 > 0`. Use it for all pairs
 #'   of many features, where the full table has tens of millions of rows;
-#'   [spdeST.wgcna()] needs every pair of its blocks, so test those features
-#'   with `keep = "all"`.
+#'   [spdeST.wgcna()] reads the discoveries alone.
 #' @param verbose Logical; report progress and the route.
 #' @param moments `"exact"` or `"pcalearning"`, the route of the pair
 #'   calibration. Required: there is no default, and a call without it stops.
