@@ -1,6 +1,6 @@
 Package: spdeST
 Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
-Version: 0.0.1.9080
+Version: 0.0.1.9081
 Authors@R: person(given = "Yihe", family = "Yang",
     email = "yxy1234@case.edu", role = c("aut", "cre"))
 Description: Provides topology-aware boundary learning and finite-element mesh
@@ -36,8 +36,6 @@ LinkingTo:
     Rcpp,
     RcppEigen
 Suggests:
-    testthat (>= 3.0.0),
-    CompQuadForm,
     data.table,
     dynamicTreeCut,
     fastcluster,
@@ -45,5 +43,4 @@ Suggests:
     sf,
     WGCNA
 Config/roxygen2/version: 8.1.0
-Config/testthat/edition: 3
 RoxygenNote: 7.3.1

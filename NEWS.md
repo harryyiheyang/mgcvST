@@ -1,3 +1,9 @@
+# spdeST 0.0.1.9081
+
+* The testthat suite (`tests/testthat/`, `tests/testthat.R`) is removed, with
+  its dependencies: `testthat` and `CompQuadForm` leave Suggests and
+  `Config/testthat/edition` leaves DESCRIPTION.
+
 # spdeST 0.0.1.9080
 
 * `spdeST.test()` writes no checkpoint: the arguments `checkpoint_dir` and
