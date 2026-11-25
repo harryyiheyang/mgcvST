@@ -1,3 +1,23 @@
+# spdeST 0.0.1.9085
+
+* New `spdeST.clustertest()` tests clusters of features against single
+  features. The score vectors of the members of a cluster are summed,
+  `a_S = sum_g a_g`, and the score of the cluster with a feature `c` is
+  `U = a_S' a_c`. Given `a_S`, the score of a feature whose field is unrelated
+  to those of the members is a linear form of `a_c` with variance
+  `a_S' M_c a_S`, whatever the dependence among the members, so its p-value
+  is the normal tail of `U / sqrt(a_S' M_c a_S)` (the saddlepoint
+  approximation of a linear form of a Gaussian vector). The test holds for
+  clusters chosen from other features, such as RNA modules of
+  `spdeST.wgcna()` tested against proteins or chromatin features. Each row
+  also gives the pooled estimate `rho = U / tr(M_S M_c)`, the within-cluster
+  estimate `rho_cluster` and `k = rho / sqrt(rho_cluster)`, the correlation of
+  the feature with the common factor of the cluster. `exclude` leaves chosen
+  members out of a cluster for a feature (for example the RNA of the gene of
+  a chromatin window), and `groups` combines sets of features against every
+  cluster: pooled estimates and the Cauchy combination of their p-values.
+  The products run in two compiled kernels.
+
 # spdeST 0.0.1.9084
 
 * `spdeST.wgcna()` builds the network from the discoveries of

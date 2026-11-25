@@ -5,6 +5,14 @@ mgcvst_log_adjust_cpp <- function(log_p, method) {
     .Call(`_spdeST_mgcvst_log_adjust_cpp`, log_p, method)
 }
 
+mgcvst_cluster_moments_cpp <- function(aS, MS, a, M, threads = 1L) {
+    .Call(`_spdeST_mgcvst_cluster_moments_cpp`, aS, MS, a, M, threads)
+}
+
+mgcvst_cluster_exclude_cpp <- function(aS, a, M, ae, Me, feature, cluster, ptr, idx, threads = 1L) {
+    .Call(`_spdeST_mgcvst_cluster_exclude_cpp`, aS, a, M, ae, Me, feature, cluster, ptr, idx, threads)
+}
+
 mgcvst_compact_units_cpp <- function(A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads = 1L, prepared = NULL, nuisance_precision = NULL) {
     .Call(`_spdeST_mgcvst_compact_units_cpp`, A, Q_map, constraint, X, B, C, O, family, size, dispersion, tau, a, threads, prepared, nuisance_precision)
 }

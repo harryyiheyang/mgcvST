@@ -1,6 +1,6 @@
 Package: spdeST
 Title: SPDE Smoothing and RKHS Covariance Tests for Spatial Features
-Version: 0.0.1.9084
+Version: 0.0.1.9085
 Authors@R: person(given = "Yihe", family = "Yang",
     email = "yxy1234@case.edu", role = c("aut", "cre"))
 Description: Provides topology-aware boundary learning and finite-element mesh
@@ -12,7 +12,8 @@ Description: Provides topology-aware boundary learning and finite-element mesh
     kernel with a signed quadratic-form saddlepoint calibration tests their
     pairs. WGCNA module analysis uses the pairwise estimate of the latent spatial
     correlation, the score divided by its information, within explicitly
-    selected feature blocks.
+    selected feature blocks, and a cluster test relates the summed scores of
+    a cluster to single features given the cluster.
 License: MIT + file LICENSE
 Encoding: UTF-8
 SystemRequirements: C++17, GNU make

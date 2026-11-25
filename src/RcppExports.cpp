@@ -23,6 +23,41 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mgcvst_cluster_moments_cpp
+Rcpp::List mgcvst_cluster_moments_cpp(const Rcpp::NumericMatrix& aS, const Rcpp::List& MS, const Rcpp::NumericMatrix& a, const Rcpp::List& M, int threads);
+RcppExport SEXP _spdeST_mgcvst_cluster_moments_cpp(SEXP aSSEXP, SEXP MSSEXP, SEXP aSEXP, SEXP MSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type aS(aSSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type MS(MSSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type a(aSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type M(MSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_cluster_moments_cpp(aS, MS, a, M, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// mgcvst_cluster_exclude_cpp
+Rcpp::List mgcvst_cluster_exclude_cpp(const Rcpp::NumericMatrix& aS, const Rcpp::NumericMatrix& a, const Rcpp::List& M, const Rcpp::NumericMatrix& ae, const Rcpp::List& Me, const Rcpp::IntegerVector& feature, const Rcpp::IntegerVector& cluster, const Rcpp::IntegerVector& ptr, const Rcpp::IntegerVector& idx, int threads);
+RcppExport SEXP _spdeST_mgcvst_cluster_exclude_cpp(SEXP aSSEXP, SEXP aSEXP, SEXP MSEXP, SEXP aeSEXP, SEXP MeSEXP, SEXP featureSEXP, SEXP clusterSEXP, SEXP ptrSEXP, SEXP idxSEXP, SEXP threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type aS(aSSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type a(aSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type M(MSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type ae(aeSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type Me(MeSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type feature(featureSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type cluster(clusterSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type ptr(ptrSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(mgcvst_cluster_exclude_cpp(aS, a, M, ae, Me, feature, cluster, ptr, idx, threads));
+    return rcpp_result_gen;
+END_RCPP
+}
 // mgcvst_compact_units_cpp
 Rcpp::List mgcvst_compact_units_cpp(const Eigen::MappedSparseMatrix<double>& A, const Eigen::MappedSparseMatrix<double>& Q_map, const Eigen::Map<Eigen::VectorXd> constraint, const Eigen::MappedSparseMatrix<double>& X, const Rcpp::NumericMatrix& B, const Rcpp::NumericMatrix& C, const Rcpp::NumericMatrix& O, const Rcpp::IntegerVector& family, const Rcpp::NumericVector& size, const Rcpp::NumericVector& dispersion, const Eigen::Map<Eigen::VectorXd> tau, const Eigen::Map<Eigen::MatrixXd> a, int threads, SEXP prepared, Rcpp::Nullable<Rcpp::NumericMatrix> nuisance_precision);
 RcppExport SEXP _spdeST_mgcvst_compact_units_cpp(SEXP ASEXP, SEXP Q_mapSEXP, SEXP constraintSEXP, SEXP XSEXP, SEXP BSEXP, SEXP CSEXP, SEXP OSEXP, SEXP familySEXP, SEXP sizeSEXP, SEXP dispersionSEXP, SEXP tauSEXP, SEXP aSEXP, SEXP threadsSEXP, SEXP preparedSEXP, SEXP nuisance_precisionSEXP) {
@@ -454,6 +489,8 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_spdeST_mgcvst_log_adjust_cpp", (DL_FUNC) &_spdeST_mgcvst_log_adjust_cpp, 2},
+    {"_spdeST_mgcvst_cluster_moments_cpp", (DL_FUNC) &_spdeST_mgcvst_cluster_moments_cpp, 5},
+    {"_spdeST_mgcvst_cluster_exclude_cpp", (DL_FUNC) &_spdeST_mgcvst_cluster_exclude_cpp, 10},
     {"_spdeST_mgcvst_compact_units_cpp", (DL_FUNC) &_spdeST_mgcvst_compact_units_cpp, 15},
     {"_spdeST_mgcvst_memory_status_cpp", (DL_FUNC) &_spdeST_mgcvst_memory_status_cpp, 0},
     {"_spdeST_mgcvst_nb_null_batch_cpp", (DL_FUNC) &_spdeST_mgcvst_nb_null_batch_cpp, 16},

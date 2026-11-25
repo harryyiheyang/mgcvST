@@ -4,7 +4,7 @@ CXX_STD = CXX17
 # chosen at run time. MinGW-w64 does not align the stack to 32 bytes, so spilled
 # AVX registers must use unaligned moves (the assembler flag below).
 LA_OBJECTS = la_generic.o la_avx2.o la_avx512.o
-OBJECTS = RcppExports.o adjust_pvalues.o sparse_score.o compact_units.o \
+OBJECTS = RcppExports.o adjust_pvalues.o cluster_test.o sparse_score.o compact_units.o \
   memory_status.o nb_null.o pca_learning.o score_pair.o spde_scan.o spde_estimate.o \
   $(LA_OBJECTS)
 PKG_CPPFLAGS = -DSPDEST_LA_X86
